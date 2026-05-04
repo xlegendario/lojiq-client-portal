@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import Airtable from "airtable";
+import compression from "compression";
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ const __dirname = path.dirname(__filename);
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
+app.use(compression());
 
 const {
   PORT = 3000,
@@ -204,6 +206,51 @@ function buildOrderViewFormula(view) {
   return "";
 }
 
+const ORDER_FIELDS = [
+  "Shopify Order Number",
+  "Shopify Product Name",
+  "SKU",
+  "Size",
+  "Brand",
+  "Shopify Selling Price",
+  "Order Date",
+  "Offer To Store",
+  "Offer VAT Type",
+  "Estimated Time",
+  "Final Buying Price",
+  "Buying VAT Amount",
+  "Invoice Price (VAT Included)",
+  "VAT Type",
+  "Fulfillment Status",
+  "Shipping Status",
+  "GOAT Tracking Number",
+  "Tracking Number",
+  "Tracking URL"
+];
+
+const merchantCache = new Map();
+const countsCache = new Map();
+
+const CACHE_TTL_MS = 60 * 1000;
+
+async function getCachedMerchant(merchantId) {
+  const cached = merchantCache.get(merchantId);
+
+  if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) {
+    return cached.merchant;
+  }
+
+  const merchantRecord = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId);
+  const merchant = normalizeMerchant(merchantRecord);
+
+  merchantCache.set(merchantId, {
+    createdAt: Date.now(),
+    merchant
+  });
+
+  return merchant;
+}
+
 app.get("/api/orders", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
@@ -216,8 +263,7 @@ app.get("/api/orders", async (req, res) => {
       return res.status(400).json({ error: "Missing merchant_id" });
     }
 
-    const merchantRecord = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId);
-    const merchant = normalizeMerchant(merchantRecord);
+    const merchant = await getCachedMerchant(merchantId);
 
     const safeStoreName = escapeFormulaValue(merchant.store_name);
     const viewFormula = buildOrderViewFormula(view);
@@ -264,6 +310,10 @@ app.get("/api/orders", async (req, res) => {
     ];
     
     fields.forEach((field, index) => {
+      airtableUrl.searchParams.set(`fields[${index}]`, field);
+    });
+
+    ORDER_FIELDS.forEach((field, index) => {
       airtableUrl.searchParams.set(`fields[${index}]`, field);
     });
     
@@ -345,47 +395,73 @@ app.get("/api/orders", async (req, res) => {
   }
 });
 
-app.get("/api/orders/count", async (req, res) => {
+app.get("/api/orders/counts", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
-    const view = asText(req.query.view) || "open";
 
     if (!merchantId) {
       return res.status(400).json({ error: "Missing merchant_id" });
     }
 
-    const merchantRecord = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId);
-    const merchant = normalizeMerchant(merchantRecord);
+    const cacheKey = `counts:${merchantId}`;
+    const cached = countsCache.get(cacheKey);
 
+    if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
     const safeStoreName = escapeFormulaValue(merchant.store_name);
-    const viewFormula = buildOrderViewFormula(view);
 
-    const formulaParts = [
-      `TRIM({Store Name} & '') = '${safeStoreName}'`
+    const views = [
+      "open",
+      "offers",
+      "allocated",
+      "label_requests",
+      "ready_to_ship",
+      "shipped",
+      "fulfilled"
     ];
 
-    if (viewFormula) formulaParts.push(viewFormula);
+    const counts = {};
 
-    const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
-      .select({
-        fields: ["Shopify Order Number"],
-        filterByFormula: `AND(${formulaParts.join(",")})`
+    await Promise.all(
+      views.map(async (view) => {
+        const viewFormula = buildOrderViewFormula(view);
+
+        const formulaParts = [
+          `TRIM({Store Name} & '') = '${safeStoreName}'`
+        ];
+
+        if (viewFormula) formulaParts.push(viewFormula);
+
+        const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
+          .select({
+            fields: ["Shopify Order Number"],
+            filterByFormula: `AND(${formulaParts.join(",")})`
+          })
+          .all();
+
+        counts[view] = records.length;
       })
-      .all();
+    );
 
-    res.json({
-      count: records.length
+    const data = { counts };
+
+    countsCache.set(cacheKey, {
+      createdAt: Date.now(),
+      data
     });
 
+    res.json(data);
   } catch (err) {
     console.error(err);
     res.status(500).json({
-      error: "Failed to load count",
+      error: "Failed to load counts",
       details: err.message
     });
   }
 });
-
 app.listen(PORT, () => {
   console.log(`Lojiq Merchant Portal running on port ${PORT}`);
 });
