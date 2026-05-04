@@ -230,8 +230,10 @@ const ORDER_FIELDS = [
 
 const merchantCache = new Map();
 const countsCache = new Map();
+const ordersCache = new Map();
 
 const CACHE_TTL_MS = 60 * 1000;
+const ORDERS_CACHE_TTL_MS = 15 * 1000;
 
 async function getCachedMerchant(merchantId) {
   const cached = merchantCache.get(merchantId);
@@ -258,6 +260,20 @@ app.get("/api/orders", async (req, res) => {
     const search = asText(req.query.search).toLowerCase();
     const pageSize = Math.min(Number(req.query.page_size || 20), 50);
     const offset = asText(req.query.offset);
+
+    const cacheKey = [
+      merchantId,
+      view,
+      search,
+      pageSize,
+      offset
+    ].join("::");
+    
+    const cachedOrders = ordersCache.get(cacheKey);
+    
+    if (cachedOrders && Date.now() - cachedOrders.createdAt < ORDERS_CACHE_TTL_MS) {
+      return res.json(cachedOrders.data);
+    }
 
     if (!merchantId) {
       return res.status(400).json({ error: "Missing merchant_id" });
@@ -286,32 +302,6 @@ app.get("/api/orders", async (req, res) => {
     if (offset) {
       airtableUrl.searchParams.set("offset", offset);
     }
-
-    const fields = [
-      "Shopify Order Number",
-      "Shopify Product Name",
-      "SKU",
-      "Size",
-      "Brand",
-      "Shopify Selling Price",
-      "Order Date",
-      "Offer To Store",
-      "Offer VAT Type",
-      "Estimated Time",
-      "Final Buying Price",
-      "Buying VAT Amount",
-      "Invoice Price (VAT Included)",
-      "VAT Type",
-      "Fulfillment Status",
-      "Shipping Status",
-      "GOAT Tracking Number",
-      "Tracking Number",
-      "Tracking URL"
-    ];
-    
-    fields.forEach((field, index) => {
-      airtableUrl.searchParams.set(`fields[${index}]`, field);
-    });
 
     ORDER_FIELDS.forEach((field, index) => {
       airtableUrl.searchParams.set(`fields[${index}]`, field);
@@ -375,7 +365,7 @@ app.get("/api/orders", async (req, res) => {
       );
     }
 
-    res.json({
+    const responseData = {
       merchant: {
         id: merchant.id,
         store_name: merchant.store_name
@@ -385,7 +375,14 @@ app.get("/api/orders", async (req, res) => {
       next_offset: nextOffset,
       has_more: !!nextOffset,
       orders
+    };
+    
+    ordersCache.set(cacheKey, {
+      createdAt: Date.now(),
+      data: responseData
     });
+    
+    res.json(responseData);
   } catch (err) {
     console.error(err);
     res.status(500).json({
