@@ -269,6 +269,25 @@
     }
 
     th {
+      position: relative;
+      user-select: none;
+    }
+    
+    .resizer {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 8px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 2;
+    }
+    
+    .resizer:hover {
+      background: rgba(102,179,255,0.25);
+    }
+
+    th {
       color: var(--muted);
       font-size: 12px;
       text-transform: uppercase;
@@ -553,6 +572,27 @@
       fulfilled: "Fulfilled"
     };
 
+    const columnWidths = {
+      order_number: 130,
+      product: 320,
+      sku: 150,
+      size: 80,
+      brand: 130,
+      selling_price: 130,
+      date: 120,
+      offer: 120,
+      offer_vat_type: 120,
+      eta: 110,
+      allocated_price: 140,
+      vat: 110,
+      invoice_price: 160,
+      vat_type: 120,
+      status: 150,
+      warehouse_tracking: 180,
+      tracking_number: 180,
+      actions: 150
+    };
+
     const columnsByView = {
       open: [
         ["order_number", "Order Number"],
@@ -781,7 +821,16 @@
     
       const thead = document.querySelector("thead tr");
       thead.innerHTML = columns
-        .map(([, label]) => `<th>${escapeHtml(label)}</th>`)
+        .map(([key, label]) => {
+          const width = columnWidths[key] || 140;
+      
+          return `
+            <th data-key="${key}" style="width:${width}px; min-width:${width}px;">
+              ${escapeHtml(label)}
+              <div class="resizer" data-key="${key}"></div>
+            </th>
+          `;
+        })
         .join("");
     
       if (!orders.length) {
@@ -796,7 +845,15 @@
       ordersTableBody.innerHTML = orders.map((order) => {
         return `
           <tr>
-            ${columns.map(([key]) => `<td>${renderCell(order, key)}</td>`).join("")}
+            ${columns.map(([key]) => {
+              const width = columnWidths[key] || 140;
+            
+              return `
+                <td data-key="${key}" style="width:${width}px; min-width:${width}px;">
+                  ${renderCell(order, key)}
+                </td>
+              `;
+            }).join("")}
           </tr>
         `;
       }).join("");
@@ -979,6 +1036,43 @@
     logoutBtn.addEventListener("click", () => {
       localStorage.removeItem("lojiq_merchant");
       window.location.href = "/";
+    });
+
+    let resizingKey = null;
+    let startX = 0;
+    let startWidth = 0;
+    
+    document.addEventListener("mousedown", (event) => {
+      if (!event.target.classList.contains("resizer")) return;
+    
+      resizingKey = event.target.dataset.key;
+      startX = event.pageX;
+      startWidth = columnWidths[resizingKey] || 140;
+    
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    });
+    
+    document.addEventListener("mousemove", (event) => {
+      if (!resizingKey) return;
+    
+      const diff = event.pageX - startX;
+      const newWidth = Math.max(70, startWidth + diff);
+    
+      columnWidths[resizingKey] = newWidth;
+    
+      document.querySelectorAll(`[data-key="${resizingKey}"]`).forEach((cell) => {
+        cell.style.width = `${newWidth}px`;
+        cell.style.minWidth = `${newWidth}px`;
+      });
+    });
+    
+    document.addEventListener("mouseup", () => {
+      if (!resizingKey) return;
+    
+      resizingKey = null;
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
     });
 
     async function init() {
