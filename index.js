@@ -209,6 +209,8 @@ app.get("/api/orders", async (req, res) => {
     const merchantId = asText(req.query.merchant_id);
     const view = asText(req.query.view) || "open";
     const search = asText(req.query.search).toLowerCase();
+    const pageSize = Math.min(Number(req.query.page_size || 20), 50);
+    const offset = asText(req.query.offset);
 
     if (!merchantId) {
       return res.status(400).json({ error: "Missing merchant_id" });
@@ -226,12 +228,37 @@ app.get("/api/orders", async (req, res) => {
 
     if (viewFormula) formulaParts.push(viewFormula);
 
-    const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
-      .select({
-        filterByFormula: `AND(${formulaParts.join(",")})`,
-        sort: [{ field: "Order Date", direction: "desc" }]
-      })
-      .all();
+    const airtableUrl = new URL(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)}`
+    );
+    
+    airtableUrl.searchParams.set("filterByFormula", `AND(${formulaParts.join(",")})`);
+    airtableUrl.searchParams.set("pageSize", String(pageSize));
+    airtableUrl.searchParams.set("sort[0][field]", "Order Date");
+    airtableUrl.searchParams.set("sort[0][direction]", "desc");
+    
+    if (offset) {
+      airtableUrl.searchParams.set("offset", offset);
+    }
+    
+    const airtableResponse = await fetch(airtableUrl, {
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_TOKEN}`
+      }
+    });
+    
+    const airtableData = await airtableResponse.json();
+    
+    if (!airtableResponse.ok) {
+      throw new Error(
+        airtableData?.error?.message ||
+        airtableData?.error?.type ||
+        "Airtable request failed"
+      );
+    }
+    
+    const records = airtableData.records || [];
+    const nextOffset = airtableData.offset || "";
 
     let orders = records.map((record) => {
       const f = record.fields;
@@ -279,6 +306,8 @@ app.get("/api/orders", async (req, res) => {
       },
       view,
       count: orders.length,
+      next_offset: nextOffset,
+      has_more: !!nextOffset,
       orders
     });
   } catch (err) {
