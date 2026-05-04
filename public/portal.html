@@ -317,6 +317,39 @@
       background: rgba(240,68,56,0.15);
       color: #ff9b95;
     }
+    
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    
+    .action-btn {
+      cursor: pointer;
+      border-radius: 10px;
+      border: none;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 900;
+      color: white;
+    }
+    
+    .action-btn.green {
+      background: #16B364;
+    }
+    
+    .action-btn.red {
+      background: #F04438;
+    }
+    
+    .action-btn.blue {
+      background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+    }
+    
+    .action-btn.disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
 
     .label-link {
       color: var(--primary-soft);
@@ -352,39 +385,6 @@
       .button,
       .search-input {
         width: 100%;
-      }
-
-      .action-row {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      
-      .action-btn {
-        cursor: pointer;
-        border-radius: 10px;
-        border: none;
-        padding: 9px 12px;
-        font-size: 12px;
-        font-weight: 900;
-        color: white;
-      }
-      
-      .action-btn.green {
-        background: #16B364;
-      }
-      
-      .action-btn.red {
-        background: #F04438;
-      }
-      
-      .action-btn.blue {
-        background: linear-gradient(135deg, var(--primary), var(--primary-soft));
-      }
-      
-      .action-btn.disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
       }
     }
   </style>
