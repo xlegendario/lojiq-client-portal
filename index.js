@@ -212,7 +212,7 @@ const ORDER_FIELDS = [
   "SKU",
   "Size",
   "Brand",
-  "Shopify Selling Price",
+  "Selling Price",
   "Order Date",
   "Offer To Store",
   "Offer VAT Type",
