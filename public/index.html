@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lojiq Portal - Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    :root {
+      --bg: #07111F;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --text: #DCEBFF;
+      --muted: #8FAECC;
+      --panel: #0E2238;
+      --border: #163252;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top, rgba(47,128,237,0.18), transparent 30%),
+        linear-gradient(180deg, #050D18 0%, var(--bg) 100%);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login-card {
+      width: min(420px, calc(100% - 32px));
+      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 34px;
+      box-shadow: 0 18px 44px rgba(0,0,0,0.35);
+    }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .brand-title {
+      font-size: 42px;
+      font-weight: 900;
+      letter-spacing: -1px;
+    }
+
+    .brand-subtitle {
+      color: var(--muted);
+      letter-spacing: 4px;
+      font-size: 13px;
+      margin-top: 8px;
+      text-transform: uppercase;
+    }
+
+    .field-label {
+      font-size: 14px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+
+    .input {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(7,17,31,0.7);
+      color: var(--text);
+      padding: 15px;
+      font-size: 15px;
+      outline: none;
+      margin-bottom: 16px;
+    }
+
+    .input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(47,128,237,0.15);
+    }
+
+    .button {
+      width: 100%;
+      cursor: pointer;
+      border-radius: 12px;
+      border: none;
+      padding: 15px;
+      font-size: 15px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+      color: white;
+    }
+
+    .error {
+      margin-top: 16px;
+      color: #ff9b95;
+      font-weight: 700;
+      font-size: 14px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-title">Lojiq</div>
+      <div class="brand-subtitle">Merchant Portal</div>
+    </div>
+
+    <form id="loginForm">
+      <div class="field-label">Email</div>
+      <input id="emailInput" class="input" type="email" autocomplete="email" required />
+
+      <div class="field-label">Password</div>
+      <input id="passwordInput" class="input" type="password" autocomplete="current-password" required />
+
+      <button class="button" type="submit">Login</button>
+
+      <div id="errorBox" class="error"></div>
+    </form>
+  </div>
+
+  <script>
+    const loginForm = document.getElementById("loginForm");
+    const emailInput = document.getElementById("emailInput");
+    const passwordInput = document.getElementById("passwordInput");
+    const errorBox = document.getElementById("errorBox");
+
+    const existingMerchant = localStorage.getItem("lojiq_merchant");
+    if (existingMerchant) {
+      window.location.href = "/portal.html";
+    }
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      errorBox.style.display = "none";
+      errorBox.textContent = "";
+
+      try {
+        const response = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: emailInput.value,
+            password: passwordInput.value
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Login failed");
+        }
+
+        localStorage.setItem("lojiq_merchant", JSON.stringify(data.merchant));
+        window.location.href = "/portal.html";
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = "block";
+      }
+    });
+  </script>
+</body>
+</html>
