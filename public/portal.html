@@ -668,6 +668,8 @@
     let hasMore = false;
     let isLoadingMore = false;
     let currentOrders = [];
+    let preloadedBatch = null;
+    let preloadedOffset = "";
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -813,7 +815,9 @@
         nextOffset = "";
         hasMore = false;
         currentOrders = [];
-    
+        preloadedBatch = null;
+        preloadedOffset = "";
+      
         ordersTableBody.innerHTML = `
           <tr>
             <td colspan="${(columnsByView[currentView] || columnsByView.open).length}" class="empty">Loading orders...</td>
@@ -833,11 +837,19 @@
       }
     
       try {
-        const response = await fetch(`/api/orders?${params.toString()}`);
-        const data = await response.json();
-    
-        if (!response.ok) {
-          throw new Error(data.details || data.error || "Failed to load orders");
+        let data;
+
+        if (!reset && preloadedBatch && preloadedOffset === nextOffset) {
+          data = preloadedBatch;
+          preloadedBatch = null;
+          preloadedOffset = "";
+        } else {
+          const response = await fetch(`/api/orders?${params.toString()}`);
+          data = await response.json();
+        
+          if (!response.ok) {
+            throw new Error(data.details || data.error || "Failed to load orders");
+          }
         }
     
         nextOffset = data.next_offset || "";
@@ -854,8 +866,33 @@
         currentViewStat.textContent = currentOrders.length;
     
         renderOrders(currentOrders);
+        preloadNextBatch();
       } finally {
         isLoadingMore = false;
+      }
+    }
+
+    async function preloadNextBatch() {
+      if (!hasMore || !nextOffset || preloadedBatch || isLoadingMore) return;
+    
+      const params = new URLSearchParams({
+        merchant_id: merchant.id,
+        view: currentView,
+        search: searchInput.value || "",
+        page_size: "20",
+        offset: nextOffset
+      });
+    
+      try {
+        const response = await fetch(`/api/orders?${params.toString()}`);
+        const data = await response.json();
+    
+        if (!response.ok) return;
+    
+        preloadedBatch = data;
+        preloadedOffset = nextOffset;
+      } catch (err) {
+        console.error("Preload failed", err);
       }
     }
 
