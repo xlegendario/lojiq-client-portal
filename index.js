@@ -98,6 +98,112 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+function displayValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => asText(v)).filter(Boolean).join(", ");
+  }
+
+  return asText(value);
+}
+
+function moneyValue(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const n = Number(raw);
+
+  if (!Number.isFinite(n)) return displayValue(value) || "";
+
+  return new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency: "EUR"
+  }).format(n);
+}
+
+function dateValue(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return "";
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return displayValue(value);
+
+  return d.toLocaleDateString("nl-NL");
+}
+
+function getPortalStatus(fields, view) {
+  const fulfillment = displayValue(fields["Fulfillment Status"]);
+  const shipping = displayValue(fields["Shipping Status"]);
+
+  if (view === "allocated") {
+    if (fulfillment === "StockX Processing" || fulfillment === "Claim Processing") {
+      return "Processing";
+    }
+
+    return fulfillment;
+  }
+
+  if (view === "shipped" || view === "fulfilled") {
+    return shipping;
+  }
+
+  return fulfillment;
+}
+
+function buildOrderViewFormula(view) {
+  if (view === "open") {
+    return `OR(
+      {Fulfillment Status} = 'Pending',
+      {Fulfillment Status} = 'Outsource',
+      {Fulfillment Status} = 'Confirmed'
+    )`;
+  }
+
+  if (view === "offers") {
+    return `OR(
+      {Fulfillment Status} = 'Pending',
+      {Fulfillment Status} = 'Outsource'
+    )`;
+  }
+
+  if (view === "allocated") {
+    return `OR(
+      {Fulfillment Status} = 'Allocated',
+      {Fulfillment Status} = 'Found',
+      {Fulfillment Status} = 'Awaiting Label',
+      {Fulfillment Status} = 'StockX Processing',
+      {Fulfillment Status} = 'Claim Processing'
+    )`;
+  }
+
+  if (view === "label_requests") {
+    return `{Fulfillment Status} = 'Requested Label'`;
+  }
+
+  if (view === "ready_to_ship") {
+    return `{Fulfillment Status} = 'Ready to Ship'`;
+  }
+
+  if (view === "shipped") {
+    return `AND(
+      OR(
+        {Fulfillment Status} = 'Ready to Ship',
+        {Fulfillment Status} = 'Fulfilled'
+      ),
+      {Shipping Status} = 'Shipped'
+    )`;
+  }
+
+  if (view === "fulfilled") {
+    return `AND(
+      OR(
+        {Fulfillment Status} = 'Ready to Ship',
+        {Fulfillment Status} = 'Fulfilled'
+      ),
+      {Shipping Status} = 'Delivered'
+    )`;
+  }
+
+  return "";
+}
+
 app.get("/api/orders", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
@@ -112,39 +218,18 @@ app.get("/api/orders", async (req, res) => {
     const merchant = normalizeMerchant(merchantRecord);
 
     const safeStoreName = escapeFormulaValue(merchant.store_name);
-
-    let statusFormula = "";
-
-    if (view === "open") {
-      statusFormula = `OR({Fulfillment Status} = BLANK(), {Fulfillment Status} = 'Open', {Fulfillment Status} = 'Pending')`;
-    }
-
-    if (view === "allocated") {
-      statusFormula = `{Fulfillment Status} = 'Allocated'`;
-    }
-
-    if (view === "label_requests") {
-      statusFormula = `{Fulfillment Status} = 'Label Request'`;
-    }
-
-    if (view === "shipped") {
-      statusFormula = `{Shipping Status} = 'Shipped'`;
-    }
-
-    if (view === "fulfilled") {
-      statusFormula = `{Fulfillment Status} = 'Fulfilled'`;
-    }
+    const viewFormula = buildOrderViewFormula(view);
 
     const formulaParts = [
       `TRIM({Store Name} & '') = '${safeStoreName}'`
     ];
 
-    if (statusFormula) formulaParts.push(statusFormula);
+    if (viewFormula) formulaParts.push(viewFormula);
 
     const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
       .select({
         filterByFormula: `AND(${formulaParts.join(",")})`,
-        sort: [{ field: "Created", direction: "desc" }]
+        sort: [{ field: "Order Date", direction: "desc" }]
       })
       .all();
 
@@ -153,32 +238,38 @@ app.get("/api/orders", async (req, res) => {
 
       return {
         id: record.id,
-        order_number: asText(f["Shopify Order Number"]),
-        store_name: asText(f["Store Name"]),
-        product_name: asText(f["Product Name"]),
-        sku: asText(f["SKU"]),
-        size: asText(f["Size"]),
-        fulfillment_status: asText(f["Fulfillment Status"]),
-        shipping_status: asText(f["Shipping Status"]),
-        tracking_number: asText(f["Tracking Number"]),
-        shipping_label_url: getFirstAttachmentUrl(f["Shipping Label"]),
-        created: asText(f["Created"])
+
+        order_number: displayValue(f["Shopify Order Number"]),
+        product: displayValue(f["Shopify Product Name"]),
+        sku: displayValue(f["SKU"]),
+        size: displayValue(f["Size"]),
+        brand: displayValue(f["Brand"]),
+        selling_price: moneyValue(f["Shopify Selling Price"]),
+        date: dateValue(f["Order Date"]),
+
+        offer: moneyValue(f["Offer To Store"]),
+        offer_vat_type: displayValue(f["Offer VAT Type"]),
+        eta: displayValue(f["Estimated Time"]),
+
+        allocated_price: moneyValue(f["Final Buying Price"]),
+        vat: moneyValue(f["Buying VAT Amount"]),
+        invoice_price: moneyValue(f["Invoice Price (VAT Included)"]),
+        vat_type: displayValue(f["VAT Type"]),
+
+        fulfillment_status: displayValue(f["Fulfillment Status"]),
+        shipping_status: displayValue(f["Shipping Status"]),
+        status: getPortalStatus(f, view),
+
+        warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
+        tracking_number: displayValue(f["Tracking Number"]),
+        tracking_url: displayValue(f["Tracking URL"])
       };
     });
 
     if (search) {
-      orders = orders.filter((order) => {
-        return [
-          order.order_number,
-          order.store_name,
-          order.product_name,
-          order.sku,
-          order.size,
-          order.fulfillment_status,
-          order.shipping_status,
-          order.tracking_number
-        ].join(" ").toLowerCase().includes(search);
-      });
+      orders = orders.filter((order) =>
+        Object.values(order).join(" ").toLowerCase().includes(search)
+      );
     }
 
     res.json({
@@ -192,7 +283,10 @@ app.get("/api/orders", async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to load orders", details: err.message });
+    res.status(500).json({
+      error: "Failed to load orders",
+      details: err.message
+    });
   }
 });
 
