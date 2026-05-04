@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lojiq Portal - Orders</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    :root {
+      --bg: #07111F;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --text: #DCEBFF;
+      --muted: #8FAECC;
+      --panel: #0E2238;
+      --panel-2: #102944;
+      --border: #163252;
+      --green: #16B364;
+      --red: #F04438;
+      --warning: #F59E0B;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(47,128,237,0.16), transparent 28%),
+        linear-gradient(180deg, #050D18 0%, var(--bg) 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: rgba(5,13,24,0.72);
+      padding: 22px 16px;
+    }
+
+    .logo {
+      font-size: 30px;
+      font-weight: 900;
+      margin-bottom: 28px;
+      letter-spacing: -1px;
+    }
+
+    .sidebar-section-title {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin: 18px 12px 10px;
+    }
+
+    .nav-main {
+      border-radius: 14px;
+      padding: 13px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 800;
+      background: rgba(47,128,237,0.14);
+      border: 1px solid rgba(102,179,255,0.18);
+      margin-bottom: 8px;
+    }
+
+    .nav-sub {
+      cursor: pointer;
+      border-radius: 12px;
+      padding: 11px 12px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .nav-sub:hover,
+    .nav-sub.active {
+      background: rgba(47,128,237,0.13);
+      color: var(--text);
+    }
+
+    .count-pill {
+      min-width: 24px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(220,235,255,0.10);
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .main {
+      min-width: 0;
+    }
+
+    .topbar {
+      height: 72px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      background: rgba(5,13,24,0.5);
+    }
+
+    .topbar-title {
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .merchant-box {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .logout-btn {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-weight: 800;
+    }
+
+    .content {
+      padding: 28px;
+    }
+
+    .page-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      margin-bottom: 22px;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 34px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+    }
+
+    .page-subtitle {
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 15px;
+    }
+
+    .search-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .search-input {
+      width: min(680px, 100%);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(7,17,31,0.70);
+      color: var(--text);
+      padding: 15px;
+      font-size: 15px;
+      outline: none;
+    }
+
+    .button {
+      cursor: pointer;
+      border-radius: 14px;
+      border: none;
+      padding: 14px 18px;
+      font-size: 15px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+      color: white;
+      white-space: nowrap;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card {
+      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 900;
+    }
+
+    .table-card {
+      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+
+    .table-head {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .table-title {
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .table-count {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      min-width: 1100px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 15px 14px;
+      border-bottom: 1px solid rgba(22,50,82,0.75);
+      text-align: left;
+      vertical-align: middle;
+      font-size: 14px;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: rgba(7,17,31,0.35);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .product-name {
+      font-weight: 900;
+      max-width: 260px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .muted {
+      color: var(--muted);
+      margin-top: 4px;
+      font-size: 13px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 900;
+      background: rgba(143,174,204,0.14);
+      color: var(--text);
+    }
+
+    .status.green {
+      background: rgba(22,179,100,0.15);
+      color: #83e6ad;
+    }
+
+    .status.warning {
+      background: rgba(245,158,11,0.15);
+      color: #fbc76f;
+    }
+
+    .status.red {
+      background: rgba(240,68,56,0.15);
+      color: #ff9b95;
+    }
+
+    .label-link {
+      color: var(--primary-soft);
+      font-weight: 900;
+      text-decoration: none;
+    }
+
+    .empty {
+      padding: 44px;
+      text-align: center;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .page-head,
+      .search-row {
+        flex-direction: column;
+      }
+
+      .button,
+      .search-input {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">Lojiq</div>
+
+      <div class="sidebar-section-title">Portal</div>
+
+      <div class="nav-main">
+        <span>Orders</span>
+        <span>⌄</span>
+      </div>
+
+      <div class="nav-sub active" data-view="open">
+        <span>Open Orders</span>
+        <span id="count-open" class="count-pill">0</span>
+      </div>
+
+      <div class="nav-sub" data-view="allocated">
+        <span>Allocated</span>
+        <span id="count-allocated" class="count-pill">0</span>
+      </div>
+
+      <div class="nav-sub" data-view="label_requests">
+        <span>Label Requests</span>
+        <span id="count-label_requests" class="count-pill">0</span>
+      </div>
+
+      <div class="nav-sub" data-view="shipped">
+        <span>Shipped</span>
+        <span id="count-shipped" class="count-pill">0</span>
+      </div>
+
+      <div class="nav-sub" data-view="fulfilled">
+        <span>Fulfilled</span>
+        <span id="count-fulfilled" class="count-pill">0</span>
+      </div>
+
+      <div class="sidebar-section-title">Coming soon</div>
+
+      <div class="nav-sub">
+        <span>Returns</span>
+      </div>
+
+      <div class="nav-sub">
+        <span>Inventory</span>
+      </div>
+
+      <div class="nav-sub">
+        <span>Finance</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-title">Merchant Portal</div>
+        <div class="merchant-box">
+          <span id="merchantName">Loading...</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-title">Orders</h1>
+            <div id="pageSubtitle" class="page-subtitle">Open Orders</div>
+          </div>
+        </div>
+
+        <div class="search-row">
+          <input id="searchInput" class="search-input" placeholder="Search order, product, SKU, size, tracking..." />
+          <button id="searchBtn" class="button">Search</button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Current View</div>
+            <div id="currentViewStat" class="stat-value">0</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-label">Open Orders</div>
+            <div id="openStat" class="stat-value">0</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-label">Shipped</div>
+            <div id="shippedStat" class="stat-value">0</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-label">Fulfilled</div>
+            <div id="fulfilledStat" class="stat-value">0</div>
+          </div>
+        </div>
+
+        <div class="table-card">
+          <div class="table-head">
+            <div id="tableTitle" class="table-title">Open Orders</div>
+            <div id="tableCount" class="table-count">0 Orders</div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Product</th>
+                  <th>SKU</th>
+                  <th>Size</th>
+                  <th>Fulfillment</th>
+                  <th>Shipping</th>
+                  <th>Tracking</th>
+                  <th>Label</th>
+                </tr>
+              </thead>
+              <tbody id="ordersTableBody">
+                <tr>
+                  <td colspan="8" class="empty">Loading orders...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const merchantName = document.getElementById("merchantName");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const searchInput = document.getElementById("searchInput");
+    const searchBtn = document.getElementById("searchBtn");
+    const ordersTableBody = document.getElementById("ordersTableBody");
+    const tableTitle = document.getElementById("tableTitle");
+    const tableCount = document.getElementById("tableCount");
+    const pageSubtitle = document.getElementById("pageSubtitle");
+    const currentViewStat = document.getElementById("currentViewStat");
+    const openStat = document.getElementById("openStat");
+    const shippedStat = document.getElementById("shippedStat");
+    const fulfilledStat = document.getElementById("fulfilledStat");
+
+    const viewLabels = {
+      open: "Open Orders",
+      allocated: "Allocated",
+      label_requests: "Label Requests",
+      shipped: "Shipped",
+      fulfilled: "Fulfilled"
+    };
+
+    let currentView = "open";
+    let merchant = null;
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function getStatusClass(value) {
+      const v = String(value || "").toLowerCase();
+
+      if (v.includes("fulfilled") || v.includes("shipped") || v.includes("ready")) return "green";
+      if (v.includes("pending") || v.includes("request") || v.includes("allocated")) return "warning";
+      if (v.includes("error") || v.includes("cancel")) return "red";
+
+      return "";
+    }
+
+    function requireLogin() {
+      const raw = localStorage.getItem("lojiq_merchant");
+
+      if (!raw) {
+        window.location.href = "/";
+        return;
+      }
+
+      merchant = JSON.parse(raw);
+      merchantName.textContent = merchant.store_name || merchant.portal_email || "Merchant";
+    }
+
+    function renderOrders(orders) {
+      if (!orders.length) {
+        ordersTableBody.innerHTML = `
+          <tr>
+            <td colspan="8" class="empty">No orders found</td>
+          </tr>
+        `;
+        return;
+      }
+
+      ordersTableBody.innerHTML = orders.map((order) => {
+        const fulfillmentStatus = order.fulfillment_status || "Pending";
+        const shippingStatus = order.shipping_status || "Pending";
+
+        return `
+          <tr>
+            <td>
+              <div class="product-name">#${escapeHtml(order.order_number || order.id)}</div>
+              <div class="muted">${escapeHtml(order.store_name || "")}</div>
+            </td>
+
+            <td>
+              <div class="product-name">${escapeHtml(order.product_name || "Unknown Product")}</div>
+            </td>
+
+            <td>${escapeHtml(order.sku || "—")}</td>
+            <td>${escapeHtml(order.size || "—")}</td>
+
+            <td>
+              <span class="status ${getStatusClass(fulfillmentStatus)}">
+                ${escapeHtml(fulfillmentStatus)}
+              </span>
+            </td>
+
+            <td>
+              <span class="status ${getStatusClass(shippingStatus)}">
+                ${escapeHtml(shippingStatus)}
+              </span>
+            </td>
+
+            <td>${escapeHtml(order.tracking_number || "—")}</td>
+
+            <td>
+              ${
+                order.shipping_label_url
+                  ? `<a class="label-link" href="${escapeHtml(order.shipping_label_url)}" target="_blank">Download</a>`
+                  : "—"
+              }
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function loadOrders() {
+      const label = viewLabels[currentView] || "Orders";
+      tableTitle.textContent = label;
+      pageSubtitle.textContent = label;
+
+      ordersTableBody.innerHTML = `
+        <tr>
+          <td colspan="8" class="empty">Loading orders...</td>
+        </tr>
+      `;
+
+      const params = new URLSearchParams({
+        merchant_id: merchant.id,
+        view: currentView,
+        search: searchInput.value || ""
+      });
+
+      const response = await fetch(`/api/orders?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.details || data.error || "Failed to load orders");
+      }
+
+      tableCount.textContent = `${data.count} Orders`;
+      currentViewStat.textContent = data.count;
+
+      renderOrders(data.orders);
+    }
+
+    async function loadCountForView(view) {
+      const params = new URLSearchParams({
+        merchant_id: merchant.id,
+        view
+      });
+
+      const response = await fetch(`/api/orders?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) return 0;
+
+      const countEl = document.getElementById(`count-${view}`);
+      if (countEl) countEl.textContent = data.count;
+
+      if (view === "open") openStat.textContent = data.count;
+      if (view === "shipped") shippedStat.textContent = data.count;
+      if (view === "fulfilled") fulfilledStat.textContent = data.count;
+
+      return data.count;
+    }
+
+    async function loadAllCounts() {
+      await Promise.all([
+        loadCountForView("open"),
+        loadCountForView("allocated"),
+        loadCountForView("label_requests"),
+        loadCountForView("shipped"),
+        loadCountForView("fulfilled")
+      ]);
+    }
+
+    document.querySelectorAll(".nav-sub[data-view]").forEach((item) => {
+      item.addEventListener("click", async () => {
+        document.querySelectorAll(".nav-sub[data-view]").forEach((el) => el.classList.remove("active"));
+
+        item.classList.add("active");
+        currentView = item.dataset.view;
+
+        await loadOrders();
+      });
+    });
+
+    searchBtn.addEventListener("click", loadOrders);
+
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        loadOrders();
+      }
+    });
+
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("lojiq_merchant");
+      window.location.href = "/";
+    });
+
+    async function init() {
+      requireLogin();
+      await loadAllCounts();
+      await loadOrders();
+    }
+
+    init().catch((err) => {
+      console.error(err);
+      ordersTableBody.innerHTML = `
+        <tr>
+          <td colspan="8" class="empty">${escapeHtml(err.message)}</td>
+        </tr>
+      `;
+    });
+  </script>
+</body>
+</html>
