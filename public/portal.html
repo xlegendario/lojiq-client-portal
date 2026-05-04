@@ -881,51 +881,26 @@
     }
 
     async function loadAllCounts() {
-      await Promise.all([
-        loadCountForView("open"),
-        loadCountForView("offers"),
-        loadCountForView("allocated"),
-        loadCountForView("label_requests"),
-        loadCountForView("ready_to_ship"),
-        loadCountForView("shipped"),
-        loadCountForView("fulfilled")
-      ]);
-    }
-
-    document.querySelectorAll(".nav-sub[data-view]").forEach((item) => {
-      item.addEventListener("click", async () => {
-        document.querySelectorAll(".nav-sub[data-view]").forEach((el) => el.classList.remove("active"));
-
-        item.classList.add("active");
-        currentView = item.dataset.view;
-
-        await loadOrders(true);
+      const params = new URLSearchParams({
+        merchant_id: merchant.id
       });
-    });
-
-    searchBtn.addEventListener("click", () => loadOrders(true));
-
-    searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        loadOrders(true);
-      }
-    });
-
-    document.querySelector(".table-wrap").addEventListener("scroll", async (event) => {
-      const el = event.target;
     
-      const nearBottom =
-        el.scrollTop + el.clientHeight >= el.scrollHeight - 120;
+      const response = await fetch(`/api/orders/counts?${params.toString()}`);
+      const data = await response.json();
     
-      if (nearBottom && hasMore && !isLoadingMore) {
-        await loadOrders(false);
-      }
-    });
-
-    logoutBtn.addEventListener("click", () => {
-      localStorage.removeItem("lojiq_merchant");
-      window.location.href = "/";
-    });
+      if (!response.ok) return;
+    
+      const counts = data.counts || {};
+    
+      Object.entries(counts).forEach(([view, count]) => {
+        const countEl = document.getElementById(`count-${view}`);
+        if (countEl) countEl.textContent = count;
+      });
+    
+      openStat.textContent = counts.open ?? 0;
+      shippedStat.textContent = counts.shipped ?? 0;
+      fulfilledStat.textContent = counts.fulfilled ?? 0;
+    }
 
     async function init() {
       requireLogin();
