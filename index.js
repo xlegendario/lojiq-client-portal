@@ -319,6 +319,46 @@ app.get("/api/orders", async (req, res) => {
   }
 });
 
+app.get("/api/orders/count", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+    const view = asText(req.query.view) || "open";
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchantRecord = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId);
+    const merchant = normalizeMerchant(merchantRecord);
+
+    const safeStoreName = escapeFormulaValue(merchant.store_name);
+    const viewFormula = buildOrderViewFormula(view);
+
+    const formulaParts = [
+      `TRIM({Store Name} & '') = '${safeStoreName}'`
+    ];
+
+    if (viewFormula) formulaParts.push(viewFormula);
+
+    const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
+      .select({
+        filterByFormula: `AND(${formulaParts.join(",")})`
+      })
+      .all(); // ⚠️ hier willen we juist ALLES ophalen voor count
+
+    res.json({
+      count: records.length
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: "Failed to load count",
+      details: err.message
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Lojiq Merchant Portal running on port ${PORT}`);
 });
