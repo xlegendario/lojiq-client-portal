@@ -541,6 +541,16 @@
     const shippedStat = document.getElementById("shippedStat");
     const fulfilledStat = document.getElementById("fulfilledStat");
 
+    const viewLabels = {
+      open: "Open Orders",
+      offers: "Offers",
+      allocated: "Allocated",
+      label_requests: "Label Requests",
+      ready_to_ship: "Ready To Ship",
+      shipped: "Shipped",
+      fulfilled: "Fulfilled"
+    };
+
     const columnsByView = {
       open: [
         ["order_number", "Order Number"],
