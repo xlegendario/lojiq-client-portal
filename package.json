@@ -1,5 +1,5 @@
 {
-  "name": "lojiq-merchant-portal",
+  "name": "lojiq-client-portal"
   "version": "1.0.0",
   "description": "Lojiq Merchant Portal",
   "main": "index.js",
