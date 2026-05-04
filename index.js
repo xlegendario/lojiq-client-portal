@@ -240,6 +240,32 @@ app.get("/api/orders", async (req, res) => {
     if (offset) {
       airtableUrl.searchParams.set("offset", offset);
     }
+
+    const fields = [
+      "Shopify Order Number",
+      "Shopify Product Name",
+      "SKU",
+      "Size",
+      "Brand",
+      "Shopify Selling Price",
+      "Order Date",
+      "Offer To Store",
+      "Offer VAT Type",
+      "Estimated Time",
+      "Final Buying Price",
+      "Buying VAT Amount",
+      "Invoice Price (VAT Included)",
+      "VAT Type",
+      "Fulfillment Status",
+      "Shipping Status",
+      "GOAT Tracking Number",
+      "Tracking Number",
+      "Tracking URL"
+    ];
+    
+    fields.forEach((field, index) => {
+      airtableUrl.searchParams.set(`fields[${index}]`, field);
+    });
     
     const airtableResponse = await fetch(airtableUrl, {
       headers: {
@@ -342,9 +368,10 @@ app.get("/api/orders/count", async (req, res) => {
 
     const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
       .select({
+        fields: ["Shopify Order Number"],
         filterByFormula: `AND(${formulaParts.join(",")})`
       })
-      .all(); // ⚠️ hier willen we juist ALLES ophalen voor count
+      .all();
 
     res.json({
       count: records.length
