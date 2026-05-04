@@ -929,8 +929,12 @@
 
     async function init() {
       requireLogin();
-      await loadAllCounts();
+    
       await loadOrders(true);
+    
+      loadAllCounts().catch((err) => {
+        console.error("Failed to load counts", err);
+      });
     }
 
     init().catch((err) => {
