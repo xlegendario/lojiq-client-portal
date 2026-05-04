@@ -337,7 +337,7 @@ app.get("/api/orders", async (req, res) => {
         sku: displayValue(f["SKU"]),
         size: displayValue(f["Size"]),
         brand: displayValue(f["Brand"]),
-        selling_price: moneyValue(f["Shopify Selling Price"]),
+        selling_price: moneyValue(f["Selling Price"]),
         date: dateValue(f["Order Date"]),
 
         offer: moneyValue(f["Offer To Store"]),
