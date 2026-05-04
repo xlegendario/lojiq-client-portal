@@ -353,6 +353,39 @@
       .search-input {
         width: 100%;
       }
+
+      .action-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      
+      .action-btn {
+        cursor: pointer;
+        border-radius: 10px;
+        border: none;
+        padding: 9px 12px;
+        font-size: 12px;
+        font-weight: 900;
+        color: white;
+      }
+      
+      .action-btn.green {
+        background: #16B364;
+      }
+      
+      .action-btn.red {
+        background: #F04438;
+      }
+      
+      .action-btn.blue {
+        background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+      }
+      
+      .action-btn.disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
     }
   </style>
 </head>
@@ -508,12 +541,113 @@
     const shippedStat = document.getElementById("shippedStat");
     const fulfilledStat = document.getElementById("fulfilledStat");
 
-    const viewLabels = {
-      open: "Open Orders",
-      allocated: "Allocated",
-      label_requests: "Label Requests",
-      shipped: "Shipped",
-      fulfilled: "Fulfilled"
+    const columnsByView = {
+      open: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["actions", "Actions"]
+      ],
+    
+      offers: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["offer", "Offer"],
+        ["offer_vat_type", "VAT Type"],
+        ["eta", "ETA"],
+        ["actions", "Actions"]
+      ],
+    
+      allocated: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
+        ["status", "Status"],
+        ["warehouse_tracking", "Warehouse Tracking"]
+      ],
+    
+      label_requests: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
+        ["status", "Status"],
+        ["actions", "Actions"]
+      ],
+    
+      ready_to_ship: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
+        ["status", "Status"],
+        ["tracking_number", "Tracking Number"]
+      ],
+    
+      shipped: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
+        ["status", "Status"],
+        ["tracking_number", "Tracking Number"],
+        ["actions", "Actions"]
+      ],
+    
+      fulfilled: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
+        ["status", "Status"],
+        ["tracking_number", "Tracking Number"],
+        ["actions", "Actions"]
+      ]
     };
 
     let currentView = "open";
@@ -550,60 +684,106 @@
       merchantName.textContent = merchant.store_name || merchant.portal_email || "Merchant";
     }
 
+    function renderActions(order) {
+      if (currentView === "open") {
+        return `
+          <div class="action-row">
+            <button class="action-btn red disabled" type="button">CANCEL</button>
+          </div>
+        `;
+      }
+    
+      if (currentView === "offers") {
+        return `
+          <div class="action-row">
+            <button class="action-btn green disabled" type="button">ACCEPT</button>
+            <button class="action-btn red disabled" type="button">DENY</button>
+          </div>
+        `;
+      }
+    
+      if (currentView === "label_requests") {
+        return `
+          <div class="action-row">
+            <button class="action-btn blue disabled" type="button">UPLOAD</button>
+          </div>
+        `;
+      }
+    
+      if (currentView === "shipped") {
+        return `
+          <div class="action-row">
+            ${
+              order.tracking_url
+                ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
+                : `<button class="action-btn blue disabled" type="button">TRACK</button>`
+            }
+          </div>
+        `;
+      }
+    
+      if (currentView === "fulfilled") {
+        return `
+          <div class="action-row">
+            ${
+              order.tracking_url
+                ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
+                : `<button class="action-btn blue disabled" type="button">TRACK</button>`
+            }
+            <button class="action-btn red disabled" type="button">RETURN</button>
+          </div>
+        `;
+      }
+    
+      return "";
+    }
+    
+    function renderCell(order, key) {
+      if (key === "actions") return renderActions(order);
+    
+      if (key === "status") {
+        const status = order.status || "—";
+    
+        return `
+          <span class="status ${getStatusClass(status)}">
+            ${escapeHtml(status)}
+          </span>
+        `;
+      }
+    
+      if (key === "product") {
+        return `<div class="product-name">${escapeHtml(order.product || "—")}</div>`;
+      }
+    
+      return escapeHtml(order[key] || "—");
+    }
+    
     function renderOrders(orders) {
+      const columns = columnsByView[currentView] || columnsByView.open;
+    
+      const thead = document.querySelector("thead tr");
+      thead.innerHTML = columns
+        .map(([, label]) => `<th>${escapeHtml(label)}</th>`)
+        .join("");
+    
       if (!orders.length) {
         ordersTableBody.innerHTML = `
           <tr>
-            <td colspan="8" class="empty">No orders found</td>
+            <td colspan="${columns.length}" class="empty">No orders found</td>
           </tr>
         `;
         return;
       }
-
+    
       ordersTableBody.innerHTML = orders.map((order) => {
-        const fulfillmentStatus = order.fulfillment_status || "Pending";
-        const shippingStatus = order.shipping_status || "Pending";
-
         return `
           <tr>
-            <td>
-              <div class="product-name">#${escapeHtml(order.order_number || order.id)}</div>
-              <div class="muted">${escapeHtml(order.store_name || "")}</div>
-            </td>
-
-            <td>
-              <div class="product-name">${escapeHtml(order.product_name || "Unknown Product")}</div>
-            </td>
-
-            <td>${escapeHtml(order.sku || "—")}</td>
-            <td>${escapeHtml(order.size || "—")}</td>
-
-            <td>
-              <span class="status ${getStatusClass(fulfillmentStatus)}">
-                ${escapeHtml(fulfillmentStatus)}
-              </span>
-            </td>
-
-            <td>
-              <span class="status ${getStatusClass(shippingStatus)}">
-                ${escapeHtml(shippingStatus)}
-              </span>
-            </td>
-
-            <td>${escapeHtml(order.tracking_number || "—")}</td>
-
-            <td>
-              ${
-                order.shipping_label_url
-                  ? `<a class="label-link" href="${escapeHtml(order.shipping_label_url)}" target="_blank">Download</a>`
-                  : "—"
-              }
-            </td>
+            ${columns.map(([key]) => `<td>${renderCell(order, key)}</td>`).join("")}
           </tr>
         `;
       }).join("");
     }
-
+    
     async function loadOrders() {
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
@@ -658,8 +838,10 @@
     async function loadAllCounts() {
       await Promise.all([
         loadCountForView("open"),
+        loadCountForView("offers"),
         loadCountForView("allocated"),
         loadCountForView("label_requests"),
+        loadCountForView("ready_to_ship"),
         loadCountForView("shipped"),
         loadCountForView("fulfilled")
       ]);
