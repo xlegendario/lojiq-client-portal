@@ -519,7 +519,7 @@
               </thead>
               <tbody id="ordersTableBody">
                 <tr>
-                  <td colspan="${(columnsByView[currentView] || columnsByView.open).length}" class="empty">Loading orders...</td>
+                  <td colspan="8" class="empty">Loading orders...</td>
                 </tr>
               </tbody>
             </table>
@@ -866,21 +866,24 @@
         currentViewStat.textContent = currentOrders.length;
     
         renderOrders(currentOrders);
-        preloadNextBatch();
       } finally {
         isLoadingMore = false;
       }
+      
+      preloadNextBatch();
     }
 
     async function preloadNextBatch() {
-      if (!hasMore || !nextOffset || preloadedBatch || isLoadingMore) return;
+      if (!hasMore || !nextOffset || preloadedBatch) return;
+    
+      const offsetToPreload = nextOffset;
     
       const params = new URLSearchParams({
         merchant_id: merchant.id,
         view: currentView,
         search: searchInput.value || "",
         page_size: "20",
-        offset: nextOffset
+        offset: offsetToPreload
       });
     
       try {
@@ -890,7 +893,7 @@
         if (!response.ok) return;
     
         preloadedBatch = data;
-        preloadedOffset = nextOffset;
+        preloadedOffset = offsetToPreload;
       } catch (err) {
         console.error("Preload failed", err);
       }
@@ -938,6 +941,45 @@
       shippedStat.textContent = counts.shipped ?? 0;
       fulfilledStat.textContent = counts.fulfilled ?? 0;
     }
+
+    document.querySelectorAll(".nav-sub[data-view]").forEach((item) => {
+      item.addEventListener("click", async () => {
+        document.querySelectorAll(".nav-sub[data-view]").forEach((el) => {
+          el.classList.remove("active");
+        });
+    
+        item.classList.add("active");
+        currentView = item.dataset.view;
+    
+        await loadOrders(true);
+      });
+    });
+    
+    searchBtn.addEventListener("click", () => {
+      loadOrders(true);
+    });
+    
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        loadOrders(true);
+      }
+    });
+    
+    const tableWrap = document.querySelector(".table-wrap");
+    
+    tableWrap.addEventListener("scroll", async () => {
+      const nearBottom =
+        tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 180;
+    
+      if (nearBottom && hasMore && !isLoadingMore) {
+        await loadOrders(false);
+      }
+    });
+    
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("lojiq_merchant");
+      window.location.href = "/";
+    });
 
     async function init() {
       requireLogin();
