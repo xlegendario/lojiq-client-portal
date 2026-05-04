@@ -249,7 +249,9 @@
     }
 
     .table-wrap {
-      overflow-x: auto;
+      overflow: auto;
+      max-height: calc(100vh - 360px);
+      min-height: 420px;
     }
 
     table {
@@ -662,6 +664,10 @@
 
     let currentView = "open";
     let merchant = null;
+    let nextOffset = "";
+    let hasMore = false;
+    let isLoadingMore = false;
+    let currentOrders = [];
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -794,34 +800,63 @@
       }).join("");
     }
     
-    async function loadOrders() {
+    async function loadOrders(reset = true) {
+      if (isLoadingMore) return;
+    
+      isLoadingMore = true;
+    
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
       pageSubtitle.textContent = label;
-
-      ordersTableBody.innerHTML = `
-        <tr>
-          <td colspan="8" class="empty">Loading orders...</td>
-        </tr>
-      `;
-
+    
+      if (reset) {
+        nextOffset = "";
+        hasMore = false;
+        currentOrders = [];
+    
+        ordersTableBody.innerHTML = `
+          <tr>
+            <td colspan="8" class="empty">Loading orders...</td>
+          </tr>
+        `;
+      }
+    
       const params = new URLSearchParams({
         merchant_id: merchant.id,
         view: currentView,
-        search: searchInput.value || ""
+        search: searchInput.value || "",
+        page_size: "20"
       });
-
-      const response = await fetch(`/api/orders?${params.toString()}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.details || data.error || "Failed to load orders");
+    
+      if (!reset && nextOffset) {
+        params.set("offset", nextOffset);
       }
-
-      tableCount.textContent = `${data.count} Orders`;
-      currentViewStat.textContent = data.count;
-
-      renderOrders(data.orders);
+    
+      try {
+        const response = await fetch(`/api/orders?${params.toString()}`);
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.details || data.error || "Failed to load orders");
+        }
+    
+        nextOffset = data.next_offset || "";
+        hasMore = !!data.has_more;
+    
+        currentOrders = reset
+          ? data.orders
+          : [...currentOrders, ...data.orders];
+    
+        tableCount.textContent = hasMore
+          ? `${currentOrders.length}+ Orders`
+          : `${currentOrders.length} Orders`;
+    
+        currentViewStat.textContent = currentOrders.length;
+    
+        renderOrders(currentOrders);
+      } finally {
+        isLoadingMore = false;
+      }
     }
 
     async function loadCountForView(view) {
@@ -864,15 +899,26 @@
         item.classList.add("active");
         currentView = item.dataset.view;
 
-        await loadOrders();
+        await loadOrders(true);
       });
     });
 
-    searchBtn.addEventListener("click", loadOrders);
+    searchBtn.addEventListener("click", () => loadOrders(true));
 
     searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
-        loadOrders();
+        loadOrders(true);
+      }
+    });
+
+    document.querySelector(".table-wrap").addEventListener("scroll", async (event) => {
+      const el = event.target;
+    
+      const nearBottom =
+        el.scrollTop + el.clientHeight >= el.scrollHeight - 120;
+    
+      if (nearBottom && hasMore && !isLoadingMore) {
+        await loadOrders(false);
       }
     });
 
@@ -884,7 +930,7 @@
     async function init() {
       requireLogin();
       await loadAllCounts();
-      await loadOrders();
+      await loadOrders(true);
     }
 
     init().catch((err) => {
