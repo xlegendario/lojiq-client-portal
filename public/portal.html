@@ -864,19 +864,19 @@
         merchant_id: merchant.id,
         view
       });
-
-      const response = await fetch(`/api/orders?${params.toString()}`);
+    
+      const response = await fetch(`/api/orders/count?${params.toString()}`);
       const data = await response.json();
-
+    
       if (!response.ok) return 0;
-
+    
       const countEl = document.getElementById(`count-${view}`);
       if (countEl) countEl.textContent = data.count;
-
+    
       if (view === "open") openStat.textContent = data.count;
       if (view === "shipped") shippedStat.textContent = data.count;
       if (view === "fulfilled") fulfilledStat.textContent = data.count;
-
+    
       return data.count;
     }
 
