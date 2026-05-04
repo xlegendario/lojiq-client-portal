@@ -159,9 +159,12 @@ function buildOrderViewFormula(view) {
   }
 
   if (view === "offers") {
-    return `OR(
-      {Fulfillment Status} = 'Pending',
-      {Fulfillment Status} = 'Outsource'
+    return `AND(
+      OR(
+        {Fulfillment Status} = 'Pending',
+        {Fulfillment Status} = 'Outsource'
+      ),
+      {Offer To Store} != BLANK()
     )`;
   }
 
