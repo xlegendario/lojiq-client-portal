@@ -219,6 +219,7 @@ const ORDER_FIELDS = [
   "Selling Price",
   "Order Date",
   "Offer To Store",
+  "Offer Sent At",
   "Offer VAT Type",
   "Estimated Time",
   "Final Buying Price",
@@ -345,6 +346,7 @@ app.get("/api/orders", async (req, res) => {
         date: dateValue(f["Order Date"]),
 
         offer: moneyValue(f["Offer To Store"]),
+        offer_date: dateValue(f["Offer Sent At"]),
         offer_vat_type: displayValue(f["Offer VAT Type"]),
         eta: displayValue(f["Estimated Time"]),
 
