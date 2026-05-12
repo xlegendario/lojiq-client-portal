@@ -21,7 +21,8 @@ const {
   AIRTABLE_TOKEN,
   AIRTABLE_BASE_ID,
   AIRTABLE_MERCHANTS_TABLE = "Merchants",
-  AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE = "Unfulfilled Orders Log"
+  AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE = "Unfulfilled Orders Log",
+  RETURN_SERVICE_BASE_URL = "https://lojiq-return-service.onrender.com"
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -207,6 +208,10 @@ function buildOrderViewFormula(view) {
     )`;
   }
 
+  if (view === "issues") {
+    return `{Issue Status} = 'Troubled'`;
+  }
+
   return "";
 }
 
@@ -231,7 +236,9 @@ const ORDER_FIELDS = [
   "Shipping Status",
   "GOAT Tracking Number",
   "Tracking Number",
-  "Tracking URL"
+  "Tracking URL",
+  "Issue Status",
+  "Issue Notes"
 ];
 
 const merchantCache = new Map();
@@ -373,7 +380,9 @@ app.get("/api/orders", async (req, res) => {
 
         warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
         tracking_number: displayValue(f["Tracking Number"]),
-        tracking_url: displayValue(f["Tracking URL"])
+        tracking_url: displayValue(f["Tracking URL"]),
+        issue_status: displayValue(f["Issue Status"]),
+        issue_notes: displayValue(f["Issue Notes"])
       };
     });
 
@@ -435,7 +444,8 @@ app.get("/api/orders/counts", async (req, res) => {
       "label_requests",
       "ready_to_ship",
       "shipped",
-      "fulfilled"
+      "fulfilled",
+      "issues"
     ];
 
     const counts = {};
@@ -603,6 +613,95 @@ app.post("/api/orders/:recordId/offer", async (req, res) => {
       error: "Failed to process offer action",
       details: err.message
     });
+  }
+});
+
+app.post("/api/orders/:recordId/return", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    if (displayValue(order.fields["Store Name"]) !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    const response = await fetch(`${RETURN_SERVICE_BASE_URL}/create-return`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_record_id: recordId,
+        vat_type: displayValue(order.fields["VAT Type"]) || undefined
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.details || data.error || "Return creation failed");
+    }
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to create return", details: err.message });
+  }
+});
+
+app.post("/api/orders/:recordId/issue", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+    const issueNotes = asText(req.body.issue_notes);
+
+    if (!issueNotes) {
+      return res.status(400).json({ error: "Issue notes are required" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    if (displayValue(order.fields["Store Name"]) !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(recordId, {
+      "Issue Status": "Troubled",
+      "Issue Notes": issueNotes
+    });
+
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to report issue", details: err.message });
+  }
+});
+
+app.post("/api/orders/:recordId/solve-issue", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    if (displayValue(order.fields["Store Name"]) !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(recordId, {
+      "Issue Status": "Solved"
+    });
+
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to solve issue", details: err.message });
   }
 });
 
