@@ -515,8 +515,9 @@
 
       <div class="sidebar-section-title">Coming soon</div>
 
-      <div class="nav-sub">
+      <div class="nav-sub" data-view="returns">
         <span>Returns</span>
+        <span id="count-returns" class="count-pill">0</span>
       </div>
 
       <div class="nav-sub">
@@ -630,6 +631,7 @@
       shipped: "Shipped",
       fulfilled: "Fulfilled",
       issues: "Issues"
+      returns: "Returns"
     };
 
     const columnWidths = {
@@ -651,7 +653,12 @@
       status: 150,
       warehouse_tracking: 180,
       tracking_number: 180,
-      actions: 150
+      actions: 150,
+      return_created: 140,
+      verified_at: 140,
+      packing_slip_url: 130,
+      condition: 140,
+      qc_notes: 120
     };
 
     const columnsByView = {
@@ -780,6 +787,21 @@
         ["issue_notes", "Issue"],
         ["issue_status", "Issue Status"],
         ["actions", "Actions"]
+      ],
+
+      returns: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["return_created", "Return Created"],
+        ["status", "Status"],
+        ["verified_at", "Verified At"],
+        ["packing_slip_url", "Labels URL"],
+        ["tracking_number", "Tracking Number"],
+        ["tracking_url", "Tracking URL"],
+        ["condition", "Condition"],
+        ["qc_notes", "QC Note"]
       ]
     };
 
@@ -953,6 +975,29 @@
           </button>
         `;
       }
+
+      if (key === "packing_slip_url") {
+        return order.packing_slip_url
+          ? `<a class="action-btn blue" href="${escapeHtml(order.packing_slip_url)}" target="_blank">LABEL</a>`
+          : "—";
+      }
+      
+      if (key === "tracking_url") {
+        return order.tracking_url
+          ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
+          : "—";
+      }
+      
+      if (key === "qc_notes") {
+        const notes = order.qc_notes || "";
+        if (!notes) return "—";
+      
+        return `
+          <button class="action-btn blue" type="button" onclick="showIssueNotes('${escapeHtml(notes)}')">
+            VIEW
+          </button>
+        `;
+      }
     
       return escapeHtml(order[key] || "—");
     }
@@ -1045,7 +1090,8 @@
           preloadedBatch = null;
           preloadedOffset = "";
         } else {
-          const response = await fetch(`/api/orders?${params.toString()}`);
+          const endpoint = currentView === "returns" ? "/api/returns" : "/api/orders";
+          const response = await fetch(`${endpoint}?${params.toString()}`);
           data = await response.json();
         
           if (!response.ok) {
