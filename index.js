@@ -166,7 +166,10 @@ function buildOrderViewFormula(view) {
         {Fulfillment Status} = 'Outsource'
       ),
       {Offer To Store} != BLANK(),
-      NOT({Offer Denied?})
+      OR(
+        {Offer Denied?} = 0,
+        {Offer Denied?} = BLANK()
+      )
     )`;
   }
 
