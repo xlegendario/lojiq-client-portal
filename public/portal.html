@@ -763,9 +763,10 @@
         ["vat", "VAT"],
         ["invoice_price", "Invoice Price"],
         ["vat_type", "VAT Type"],
-        ["issue_status", "Issue Status"],
-        ["issue_notes", "Issue"],
+        ["status", "Status"],
         ["tracking_number", "Tracking Number"],
+        ["issue_notes", "Issue"],
+        ["issue_status", "Issue Status"],
         ["actions", "Actions"]
       ]
     };
@@ -893,9 +894,16 @@
       }
 
       if (currentView === "issues") {
+        const alreadySolved =
+          String(order.issue_status || "").toLowerCase() === "solved";
+      
         return `
           <div class="action-row">
-            <button class="action-btn green" type="button" onclick="solveIssue('${escapeHtml(order.id)}')">
+            <button
+              class="action-btn green ${alreadySolved ? "disabled" : ""}"
+              type="button"
+              ${alreadySolved ? "disabled" : `onclick="solveIssue('${escapeHtml(order.id)}')"`}
+            >
               SOLVED
             </button>
           </div>
