@@ -917,8 +917,8 @@
       if (key === "actions") return renderActions(order);
     
       if (key === "status" || key === "issue_status") {
-        const status = order.status || "—";
-    
+        const status = order[key] || "—";
+      
         return `
           <span class="status ${getStatusClass(status)}">
             ${escapeHtml(status)}
