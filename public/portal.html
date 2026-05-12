@@ -1040,6 +1040,8 @@
       openStat.textContent = counts.open ?? 0;
       shippedStat.textContent = counts.shipped ?? 0;
       fulfilledStat.textContent = counts.fulfilled ?? 0;
+      const activeCount = counts[currentView] ?? currentOrders.length;
+      tableCount.textContent = `${activeCount} Orders`;
     }
 
     async function handleOfferAction(recordId, action) {
