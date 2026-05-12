@@ -22,7 +22,7 @@ const {
   AIRTABLE_BASE_ID,
   AIRTABLE_MERCHANTS_TABLE = "Merchants",
   AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE = "Unfulfilled Orders Log",
-  RETURN_SERVICE_BASE_URL = "https://lojiq-return-service.onrender.com"
+  RETURN_SERVICE_BASE_URL = "https://lojiq-wms.onrender.com"
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
