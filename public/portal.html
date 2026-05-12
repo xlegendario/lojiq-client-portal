@@ -523,7 +523,10 @@
         <div class="table-card">
           <div class="table-head">
             <div id="tableTitle" class="table-title">Open Orders</div>
-            <div id="tableCount" class="table-count">0 Orders</div>
+            <div class="table-actions">
+              <div id="tableCount" class="table-count">0 Orders</div>
+              <button id="refreshBtn" class="refresh-btn" type="button" title="Refresh current view">↻</button>
+            </div>
           </div>
 
           <div class="table-wrap">
@@ -708,7 +711,7 @@
       ]
     };
 
-    let currentView = "open";
+    let currentView = localStorage.getItem("lojiq_current_view") || "open";
     let merchant = null;
     let nextOffset = "";
     let hasMore = false;
@@ -928,9 +931,10 @@
           ? data.orders
           : [...currentOrders, ...data.orders];
     
-        tableCount.textContent = hasMore
-          ? `${currentOrders.length}+ Orders`
-          : `${currentOrders.length} Orders`;
+        const currentTabCount =
+          document.getElementById(`count-${currentView}`)?.textContent || currentOrders.length;
+        
+        tableCount.textContent = `${currentTabCount} Orders`;
     
         currentViewStat.textContent = currentOrders.length;
     
@@ -1093,7 +1097,8 @@
     
         item.classList.add("active");
         currentView = item.dataset.view;
-    
+        localStorage.setItem("lojiq_current_view", currentView);
+        
         await loadOrders(true);
       });
     });
