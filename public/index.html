@@ -146,6 +146,16 @@
 
       <div id="errorBox" class="error"></div>
     </form>
+
+    <form id="forgotForm" style="display:none;">
+      <div class="field-label">Email</div>
+      <input id="forgotEmailInput" class="input" type="email" autocomplete="email" required />
+    
+      <button class="button" type="submit">Request password reset</button>
+      <button id="backToLoginBtn" class="forgot-btn" type="button">Back to login</button>
+    
+      <div id="forgotMessageBox" class="error"></div>
+    </form>
   </div>
 
   <script>
@@ -154,6 +164,10 @@
     const passwordInput = document.getElementById("passwordInput");
     const errorBox = document.getElementById("errorBox");
     const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
+    const forgotForm = document.getElementById("forgotForm");
+    const forgotEmailInput = document.getElementById("forgotEmailInput");
+    const backToLoginBtn = document.getElementById("backToLoginBtn");
+    const forgotMessageBox = document.getElementById("forgotMessageBox");
 
     const existingMerchant = localStorage.getItem("lojiq_merchant");
     if (existingMerchant) {
@@ -193,12 +207,10 @@
     forgotPasswordBtn.addEventListener("click", async () => {
       const email = emailInput.value.trim();
     
-      if (!email) {
-        errorBox.style.color = "#ff9b95";
-        errorBox.textContent = "Fill in your email first.";
-        errorBox.style.display = "block";
-        return;
-      }
+      forgotPasswordBtn.addEventListener("click", () => {
+        loginForm.style.display = "none";
+        forgotForm.style.display = "block";
+      });
     
       try {
         const response = await fetch("/api/forgot-password", {
@@ -222,6 +234,44 @@
         errorBox.style.color = "#ff9b95";
         errorBox.textContent = err.message;
         errorBox.style.display = "block";
+      }
+    });
+
+    backToLoginBtn.addEventListener("click", () => {
+      forgotForm.style.display = "none";
+      loginForm.style.display = "block";
+    });
+    
+    forgotForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+    
+      forgotMessageBox.style.display = "none";
+      forgotMessageBox.textContent = "";
+    
+      try {
+        const response = await fetch("/api/forgot-password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            email: forgotEmailInput.value.trim()
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to send reset email");
+        }
+    
+        forgotMessageBox.style.color = "#83e6ad";
+        forgotMessageBox.textContent = "If this email exists, a reset link has been sent.";
+        forgotMessageBox.style.display = "block";
+      } catch (err) {
+        forgotMessageBox.style.color = "#ff9b95";
+        forgotMessageBox.textContent = err.message;
+        forgotMessageBox.style.display = "block";
       }
     });
   </script>
