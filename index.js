@@ -683,7 +683,12 @@ app.post("/api/orders/:recordId/issue", async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: "Failed to report issue", details: err.message });
+    console.error("Report issue failed:", err);
+  
+    res.status(500).json({
+      error: "Failed to report issue",
+      details: err.message
+    });
   }
 });
 
