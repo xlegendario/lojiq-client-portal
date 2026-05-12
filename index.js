@@ -317,10 +317,12 @@ app.get("/api/orders", async (req, res) => {
       airtableUrl.searchParams.set("offset", offset);
     }
 
-    ORDER_FIELDS.forEach((field, index) => {
-      airtableUrl.searchParams.set(`fields[${index}]`, field);
-    });
-    
+    // Disabled because Airtable rejects Issue Status in fields[].
+    // We fetch all fields and still map only what we need below.
+    // ORDER_FIELDS.forEach((field, index) => {
+    //   airtableUrl.searchParams.set(`fields[${index}]`, field);
+    // });
+        
     const airtableResponse = await fetch(airtableUrl, {
       headers: {
         Authorization: `Bearer ${AIRTABLE_TOKEN}`
