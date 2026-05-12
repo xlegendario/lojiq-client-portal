@@ -495,6 +495,11 @@
         <span id="count-fulfilled" class="count-pill">0</span>
       </div>
 
+      <div class="nav-sub" data-view="issues">
+        <span>Issues</span>
+        <span id="count-issues" class="count-pill">0</span>
+      </div>
+
       <div class="sidebar-section-title">Coming soon</div>
 
       <div class="nav-sub">
@@ -611,7 +616,8 @@
       label_requests: "Label Requests",
       ready_to_ship: "Ready To Ship",
       shipped: "Shipped",
-      fulfilled: "Fulfilled"
+      fulfilled: "Fulfilled",
+      issues: "Issues"
     };
 
     const columnWidths = {
@@ -743,6 +749,19 @@
         ["status", "Status"],
         ["tracking_number", "Tracking Number"],
         ["actions", "Actions"]
+      ],
+
+      issues: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["status", "Status"],
+        ["issue_notes", "Issue Notes"],
+        ["actions", "Actions"]
       ]
     };
 
@@ -768,7 +787,7 @@
     function getStatusClass(value) {
       const v = String(value || "").toLowerCase();
 
-      if (v.includes("fulfilled") || v.includes("shipped") || v.includes("ready")) return "green";
+      if (v.includes("fulfilled") || v.includes("shipped") || v.includes("ready") || v.includes("delivered")) return "green";
       if (v.includes("pending") || v.includes("request") || v.includes("allocated")) return "warning";
       if (v.includes("error") || v.includes("cancel")) return "red";
 
@@ -844,7 +863,18 @@
                 ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
                 : `<button class="action-btn blue disabled" type="button">TRACK</button>`
             }
-            <button class="action-btn red disabled" type="button">RETURN</button>
+            <button class="action-btn green" type="button" onclick="createReturn('${escapeHtml(order.id)}')">RETURN</button>
+            <button class="action-btn red" type="button" onclick="reportIssue('${escapeHtml(order.id)}')">ISSUE</button>
+          </div>
+        `;
+      }
+
+      if (currentView === "issues") {
+        return `
+          <div class="action-row">
+            <button class="action-btn green" type="button" onclick="solveIssue('${escapeHtml(order.id)}')">
+              SOLVED
+            </button>
           </div>
         `;
       }
@@ -1058,6 +1088,80 @@
       fulfilledStat.textContent = counts.fulfilled ?? 0;
       const activeCount = counts[currentView] ?? currentOrders.length;
       tableCount.textContent = `${activeCount} Orders`;
+    }
+
+    async function createReturn(recordId) {
+      if (!confirm("Create a return for this order?")) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/return`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merchant_id: merchant.id })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to create return");
+        }
+    
+        alert("Return created successfully.");
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+    
+    async function reportIssue(recordId) {
+      const issueNotes = prompt("Describe the issue:");
+    
+      if (!issueNotes) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/issue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            merchant_id: merchant.id,
+            issue_notes: issueNotes
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to report issue");
+        }
+    
+        alert("Issue reported.");
+        loadAllCounts();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+    
+    async function solveIssue(recordId) {
+      if (!confirm("Mark this issue as solved?")) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/solve-issue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merchant_id: merchant.id })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to solve issue");
+        }
+    
+        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        renderOrders(currentOrders);
+        loadAllCounts();
+      } catch (err) {
+        alert(err.message);
+      }
     }
 
     async function handleOfferAction(recordId, action) {
