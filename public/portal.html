@@ -78,6 +78,27 @@
       margin-bottom: 8px;
     }
 
+    .nav-main {
+      cursor: pointer;
+    }
+    
+    .nav-section {
+      display: none;
+    }
+    
+    .nav-section.open {
+      display: block;
+    }
+    
+    .nav-arrow {
+      display: inline-block;
+      transition: transform 0.18s ease;
+    }
+    
+    .nav-main.open .nav-arrow {
+      transform: rotate(180deg);
+    }
+
     .nav-sub {
       cursor: pointer;
       border-radius: 12px;
@@ -476,63 +497,67 @@
 
       <div class="sidebar-section-title">Portal</div>
 
-      <div class="nav-main">
+      <div class="nav-main open" data-section-toggle="orders">
         <span>ORDERS</span>
-        <span>⌄</span>
-      </div>
-
-      <div class="nav-sub active" data-view="open">
-        <span>Open Orders</span>
-        <span id="count-open" class="count-pill">0</span>
+        <span class="nav-arrow">⌄</span>
       </div>
       
-      <div class="nav-sub" data-view="offers">
-        <span>Offers</span>
-        <span id="count-offers" class="count-pill">0</span>
+      <div id="section-orders" class="nav-section open">
+        <div class="nav-sub active" data-view="open">
+          <span>Open Orders</span>
+          <span id="count-open" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="offers">
+          <span>Offers</span>
+          <span id="count-offers" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="allocated">
+          <span>Allocated</span>
+          <span id="count-allocated" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="label_requests">
+          <span>Label Requests</span>
+          <span id="count-label_requests" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="ready_to_ship">
+          <span>Ready To Ship</span>
+          <span id="count-ready_to_ship" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="shipped">
+          <span>Shipped</span>
+          <span id="count-shipped" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="fulfilled">
+          <span>Fulfilled</span>
+          <span id="count-fulfilled" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="issues">
+          <span>Issues</span>
+          <span id="count-issues" class="count-pill">0</span>
+        </div>
       </div>
       
-      <div class="nav-sub" data-view="allocated">
-        <span>Allocated</span>
-        <span id="count-allocated" class="count-pill">0</span>
-      </div>
-      
-      <div class="nav-sub" data-view="label_requests">
-        <span>Label Requests</span>
-        <span id="count-label_requests" class="count-pill">0</span>
-      </div>
-      
-      <div class="nav-sub" data-view="ready_to_ship">
-        <span>Ready To Ship</span>
-        <span id="count-ready_to_ship" class="count-pill">0</span>
-      </div>
-      
-      <div class="nav-sub" data-view="shipped">
-        <span>Shipped</span>
-        <span id="count-shipped" class="count-pill">0</span>
-      </div>
-      
-      <div class="nav-sub" data-view="fulfilled">
-        <span>Fulfilled</span>
-        <span id="count-fulfilled" class="count-pill">0</span>
-      </div>
-
-      <div class="nav-sub" data-view="issues">
-        <span>Issues</span>
-        <span id="count-issues" class="count-pill">0</span>
-      </div>
-
-      <div class="nav-main">
+      <div class="nav-main" data-section-toggle="returns">
         <span>RETURNS</span>
-        <span>⌄</span>
+        <span class="nav-arrow">⌄</span>
       </div>
       
-      <div class="nav-sub" data-view="returns">
-        <span>Incoming Returns</span>
-        <span id="count-returns" class="count-pill">0</span>
-      </div>
+      <div id="section-returns" class="nav-section">
+        <div class="nav-sub" data-view="returns">
+          <span>Incoming Returns</span>
+          <span id="count-returns" class="count-pill">0</span>
+        </div>
       
-      <div class="nav-sub">
-        <span>Inventory</span>
+        <div class="nav-sub">
+          <span>Inventory</span>
+        </div>
       </div>
       
       <div class="sidebar-section-title">Coming soon</div>
@@ -1357,6 +1382,25 @@
         alert(err.message);
       }
     }
+
+    document.querySelectorAll("[data-section-toggle]").forEach((toggle) => {
+      toggle.addEventListener("click", () => {
+        const section = toggle.dataset.sectionToggle;
+    
+        document.querySelectorAll(".nav-section").forEach((el) => {
+          el.classList.remove("open");
+        });
+    
+        document.querySelectorAll("[data-section-toggle]").forEach((el) => {
+          el.classList.remove("open");
+        });
+    
+        const sectionEl = document.getElementById(`section-${section}`);
+        if (sectionEl) sectionEl.classList.add("open");
+    
+        toggle.classList.add("open");
+      });
+    });
 
     document.querySelectorAll(".nav-sub[data-view]").forEach((item) => {
       item.addEventListener("click", async () => {
