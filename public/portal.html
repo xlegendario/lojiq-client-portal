@@ -760,8 +760,12 @@
       if (currentView === "offers") {
         return `
           <div class="action-row">
-            <button class="action-btn green disabled" type="button">ACCEPT</button>
-            <button class="action-btn red disabled" type="button">DENY</button>
+            <button class="action-btn green" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
+              ACCEPT
+            </button>
+            <button class="action-btn red" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'deny')">
+              DENY
+            </button>
           </div>
         `;
       }
@@ -1003,6 +1007,44 @@
       openStat.textContent = counts.open ?? 0;
       shippedStat.textContent = counts.shipped ?? 0;
       fulfilledStat.textContent = counts.fulfilled ?? 0;
+    }
+
+    async function handleOfferAction(recordId, action) {
+      const label = action === "accept" ? "accept" : "deny";
+      const confirmed = window.confirm(`Are you sure you want to ${label} this offer?`);
+    
+      if (!confirmed) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/offer`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id,
+            action
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to process offer");
+        }
+    
+        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        renderOrders(currentOrders);
+    
+        tableCount.textContent = `${currentOrders.length} Orders`;
+        currentViewStat.textContent = currentOrders.length;
+    
+        loadAllCounts().catch((err) => {
+          console.error("Failed to refresh counts", err);
+        });
+      } catch (err) {
+        alert(err.message);
+      }
     }
 
     async function cancelOrder(recordId) {
