@@ -342,12 +342,16 @@
     .status {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      text-align: center;
+      min-width: 96px;
       border-radius: 999px;
       padding: 6px 10px;
       font-size: 12px;
       font-weight: 900;
       background: rgba(143,174,204,0.14);
       color: var(--text);
+      line-height: 1.15;
     }
 
     .status.green {
@@ -380,6 +384,13 @@
       font-size: 12px;
       font-weight: 900;
       color: white;
+    }
+    
+    a.action-btn {
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     
     .action-btn.green {
@@ -801,9 +812,14 @@
       }
     
       if (currentView === "label_requests") {
+        const labelRequestUrl =
+          `https://lojiq-wms.onrender.com/label-request.html?record_id=${encodeURIComponent(order.id)}`;
+      
         return `
           <div class="action-row">
-            <button class="action-btn blue disabled" type="button">UPLOAD</button>
+            <a class="action-btn blue" href="${labelRequestUrl}" target="_blank">
+              UPLOAD
+            </a>
           </div>
         `;
       }
