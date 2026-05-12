@@ -46,9 +46,15 @@
     }
 
     .brand-title {
-      font-size: 42px;
-      font-weight: 900;
-      letter-spacing: -1px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .brand-logo {
+      width: 240px;
+      height: auto;
+      display: block;
     }
 
     .brand-subtitle {
@@ -107,7 +113,9 @@
 <body>
   <div class="login-card">
     <div class="brand">
-      <div class="brand-title">Lojiq</div>
+      <div class="brand-title">
+        <img src="/logo.png" alt="Lojiq" class="brand-logo">
+      </div>
       <div class="brand-subtitle">Merchant Portal</div>
     </div>
 
