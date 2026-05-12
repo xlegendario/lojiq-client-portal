@@ -421,6 +421,7 @@
       text-align: center;
       color: var(--muted);
       font-weight: 800;
+      min-width: 100%;
     }
 
     @media (max-width: 900px) {
@@ -966,7 +967,11 @@
       if (!orders.length) {
         ordersTableBody.innerHTML = `
           <tr>
-            <td colspan="${columns.length}" class="empty">No orders found</td>
+            <td colspan="${columns.length}" class="empty">
+              <div style="position: sticky; left: 0; width: calc(100vw - 260px); text-align: center;">
+                No orders found
+              </div>
+            </td>
           </tr>
         `;
         return;
