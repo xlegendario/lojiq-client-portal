@@ -759,7 +759,6 @@
         ["brand", "Brand"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
-        ["status", "Status"],
         ["issue_status", "Issue Status"],
         ["issue_notes", "Issue Notes"],
         ["actions", "Actions"]
@@ -787,11 +786,29 @@
 
     function getStatusClass(value) {
       const v = String(value || "").toLowerCase();
-
-      if (v.includes("fulfilled") || v.includes("shipped") || v.includes("ready") || v.includes("delivered")) return "green";
-      if (v.includes("pending") || v.includes("request") || v.includes("allocated")) return "warning";
-      if (v.includes("error") || v.includes("cancel")) return "red";
-
+    
+      if (
+        v.includes("fulfilled") ||
+        v.includes("shipped") ||
+        v.includes("ready") ||
+        v.includes("delivered") ||
+        v.includes("solved")
+      ) return "green";
+    
+      if (
+        v.includes("pending") ||
+        v.includes("request") ||
+        v.includes("allocated") ||
+        v.includes("processing") ||
+        v.includes("troubled")
+      ) return "warning";
+    
+      if (
+        v.includes("error") ||
+        v.includes("cancel") ||
+        v.includes("lost")
+      ) return "red";
+    
       return "";
     }
 
@@ -886,7 +903,7 @@
     function renderCell(order, key) {
       if (key === "actions") return renderActions(order);
     
-      if (key === "status") {
+      if (key === "status" || key === "issue_status") {
         const status = order.status || "—";
     
         return `
