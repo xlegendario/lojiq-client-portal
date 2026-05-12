@@ -750,7 +750,9 @@
       if (currentView === "open") {
         return `
           <div class="action-row">
-            <button class="action-btn red disabled" type="button">CANCEL</button>
+            <button class="action-btn red" type="button" onclick="cancelOrder('${escapeHtml(order.id)}')">
+              CANCEL
+            </button>
           </div>
         `;
       }
@@ -1001,6 +1003,42 @@
       openStat.textContent = counts.open ?? 0;
       shippedStat.textContent = counts.shipped ?? 0;
       fulfilledStat.textContent = counts.fulfilled ?? 0;
+    }
+
+    async function cancelOrder(recordId) {
+      const confirmed = window.confirm("Are you sure you want to cancel this order?");
+    
+      if (!confirmed) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to cancel order");
+        }
+    
+        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        renderOrders(currentOrders);
+    
+        tableCount.textContent = `${currentOrders.length} Orders`;
+        currentViewStat.textContent = currentOrders.length;
+    
+        loadAllCounts().catch((err) => {
+          console.error("Failed to refresh counts", err);
+        });
+      } catch (err) {
+        alert(err.message);
+      }
     }
 
     document.querySelectorAll(".nav-sub[data-view]").forEach((item) => {
