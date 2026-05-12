@@ -332,6 +332,10 @@ app.get("/api/orders", async (req, res) => {
     const airtableData = await airtableResponse.json();
     
     if (!airtableResponse.ok) {
+      console.error("Airtable status:", airtableResponse.status);
+      console.error("Airtable request URL:", airtableUrl.toString());
+      console.error("Airtable error body:", JSON.stringify(airtableData, null, 2));
+    
       throw new Error(
         airtableData?.error?.message ||
         airtableData?.error?.type ||
