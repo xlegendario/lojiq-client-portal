@@ -417,11 +417,21 @@
     }
 
     .empty {
-      padding: 44px;
-      text-align: center;
+      position: relative;
+      height: 220px;
+      padding: 0;
       color: var(--muted);
       font-weight: 800;
-      min-width: 100%;
+    }
+    
+    .empty-floating {
+      position: sticky;
+      left: 50%;
+      transform: translateX(-50%);
+      width: fit-content;
+      margin-top: 44px;
+      text-align: center;
+      white-space: nowrap;
     }
 
     @media (max-width: 900px) {
@@ -968,9 +978,7 @@
         ordersTableBody.innerHTML = `
           <tr>
             <td colspan="${columns.length}" class="empty">
-              <div style="position: sticky; left: 0; width: calc(100vw - 260px); text-align: center;">
-                No orders found
-              </div>
+              <div class="empty-floating">No orders found</div>
             </td>
           </tr>
         `;
