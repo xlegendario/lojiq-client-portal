@@ -226,6 +226,7 @@ const ORDER_FIELDS = [
   "Buying VAT Amount",
   "Invoice Price (VAT Included)",
   "VAT Type",
+  "Client Country",
   "Fulfillment Status",
   "Shipping Status",
   "GOAT Tracking Number",
