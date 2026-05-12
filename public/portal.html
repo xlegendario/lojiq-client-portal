@@ -160,12 +160,6 @@
       letter-spacing: -0.02em;
     }
 
-    .page-subtitle {
-      color: var(--muted);
-      margin-top: 6px;
-      font-size: 15px;
-    }
-
     .search-row {
       display: flex;
       gap: 12px;
@@ -456,7 +450,7 @@
       <div class="sidebar-section-title">Portal</div>
 
       <div class="nav-main">
-        <span>Orders</span>
+        <span>ORDERS</span>
         <span>⌄</span>
       </div>
 
@@ -527,8 +521,7 @@
       <div class="content">
         <div class="page-head">
           <div>
-            <h1 class="page-title">Orders</h1>
-            <div id="pageSubtitle" class="page-subtitle">Open Orders</div>
+            <h1 id="pageTitle" class="page-title">Open Orders</h1>
           </div>
         </div>
 
@@ -603,7 +596,7 @@
     const tableTitle = document.getElementById("tableTitle");
     const tableCount = document.getElementById("tableCount");
     const refreshBtn = document.getElementById("refreshBtn");
-    const pageSubtitle = document.getElementById("pageSubtitle");
+    const pageTitle = document.getElementById("pageTitle");
     const currentViewStat = document.getElementById("currentViewStat");
     const openStat = document.getElementById("openStat");
     const shippedStat = document.getElementById("shippedStat");
@@ -995,7 +988,7 @@
     
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
-      pageSubtitle.textContent = label;
+      pageTitle.textContent = label;
     
       if (reset) {
         nextOffset = "";
