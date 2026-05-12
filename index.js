@@ -462,6 +462,71 @@ app.get("/api/orders/counts", async (req, res) => {
     });
   }
 });
+
+app.post("/api/orders/:recordId/cancel", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!recordId) {
+      return res.status(400).json({ error: "Missing recordId" });
+    }
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    const orderStoreName = displayValue(order.fields["Store Name"]);
+    const currentStatus = displayValue(order.fields["Fulfillment Status"]);
+
+    if (orderStoreName !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    const lockedStatuses = new Set([
+      "Allocated",
+      "Awaiting Label",
+      "Requested Label",
+      "Ready To Ship",
+      "Ready to Ship",
+      "Fulfilled",
+      "GOAT Processing",
+      "StockX Processing",
+      "Claim Processing"
+    ]);
+
+    if (lockedStatuses.has(currentStatus)) {
+      return res.status(409).json({
+        error: "This order can no longer be cancelled",
+        current_status: currentStatus
+      });
+    }
+
+    await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(recordId, {
+      "Fulfillment Status": "Store Fulfilled"
+    });
+
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json({
+      ok: true,
+      record_id: recordId,
+      fulfillment_status: "Store Fulfilled"
+    });
+  } catch (err) {
+    console.error("Cancel order failed:", err);
+
+    res.status(500).json({
+      error: "Failed to cancel order",
+      details: err.message
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Lojiq Merchant Portal running on port ${PORT}`);
 });
