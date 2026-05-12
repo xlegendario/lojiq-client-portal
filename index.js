@@ -209,7 +209,7 @@ function buildOrderViewFormula(view) {
   }
 
   if (view === "issues") {
-    return `{Issue Status} != BLANK()`;
+    return `NOT({Issue Status} = BLANK())`;
   }
 
   return "";
