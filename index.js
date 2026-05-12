@@ -164,7 +164,8 @@ function buildOrderViewFormula(view) {
         {Fulfillment Status} = 'Pending',
         {Fulfillment Status} = 'Outsource'
       ),
-      {Offer To Store} != BLANK()
+      {Offer To Store} != BLANK(),
+      NOT({Offer Denied?})
     )`;
   }
 
@@ -522,6 +523,70 @@ app.post("/api/orders/:recordId/cancel", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to cancel order",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/orders/:recordId/offer", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+    const action = asText(req.body.action).toLowerCase();
+
+    if (!recordId) {
+      return res.status(400).json({ error: "Missing recordId" });
+    }
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    if (!["accept", "deny"].includes(action)) {
+      return res.status(400).json({ error: "Invalid action" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    const orderStoreName = displayValue(order.fields["Store Name"]);
+
+    if (orderStoreName !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    if (action === "accept") {
+      await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(recordId, {
+        "Offer Accepted?": true,
+        "Offer Denied?": false,
+        "Fulfillment Status": "Confirmed"
+      });
+    }
+
+    if (action === "deny") {
+      const offerText = displayValue(order.fields["Offer To Store"]);
+
+      await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(recordId, {
+        "Offer Denied?": true,
+        "Offer Notes": offerText
+          ? `❌ Store Denied offer ${offerText}`
+          : "❌ Store Denied offer"
+      });
+    }
+
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json({
+      ok: true,
+      record_id: recordId,
+      action
+    });
+  } catch (err) {
+    console.error("Offer action failed:", err);
+
+    res.status(500).json({
+      error: "Failed to process offer action",
       details: err.message
     });
   }
