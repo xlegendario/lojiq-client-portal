@@ -248,6 +248,29 @@
       font-weight: 800;
     }
 
+    .table-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .refresh-btn {
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: rgba(7,17,31,0.55);
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 900;
+      line-height: 1;
+    }
+    
+    .refresh-btn:hover {
+      border-color: var(--primary-soft);
+    }
+
     .table-wrap {
       overflow: auto;
       max-height: calc(100vh - 360px);
@@ -563,6 +586,7 @@
     const ordersTableBody = document.getElementById("ordersTableBody");
     const tableTitle = document.getElementById("tableTitle");
     const tableCount = document.getElementById("tableCount");
+    const refreshBtn = document.getElementById("refreshBtn");
     const pageSubtitle = document.getElementById("pageSubtitle");
     const currentViewStat = document.getElementById("currentViewStat");
     const openStat = document.getElementById("openStat");
@@ -719,6 +743,7 @@
     let currentOrders = [];
     let preloadedBatch = null;
     let preloadedOffset = "";
+    let ordersCacheBuster = "";
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -901,7 +926,8 @@
         merchant_id: merchant.id,
         view: currentView,
         search: searchInput.value || "",
-        page_size: "20"
+        page_size: "20",
+        refresh: ordersCacheBuster
       });
     
       if (!reset && nextOffset) {
@@ -956,7 +982,8 @@
         view: currentView,
         search: searchInput.value || "",
         page_size: "20",
-        offset: offsetToPreload
+        offset: offsetToPreload,
+        refresh: ordersCacheBuster
       });
     
       try {
@@ -1106,6 +1133,16 @@
     searchBtn.addEventListener("click", () => {
       loadOrders(true);
     });
+
+    refreshBtn.addEventListener("click", async () => {
+      ordersCacheBuster = Date.now();
+    
+      await loadOrders(true);
+    
+      loadAllCounts().catch((err) => {
+        console.error("Failed to refresh counts", err);
+      });
+    });
     
     searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -1168,6 +1205,14 @@
 
     async function init() {
       requireLogin();
+    
+      document.querySelectorAll(".nav-sub[data-view]").forEach((el) => {
+        el.classList.remove("active");
+    
+        if (el.dataset.view === currentView) {
+          el.classList.add("active");
+        }
+      });
     
       await loadOrders(true);
     
