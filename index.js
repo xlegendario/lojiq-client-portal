@@ -239,8 +239,7 @@ const ORDER_FIELDS = [
   "Shipping Status",
   "GOAT Tracking Number",
   "Tracking Number",
-  "Tracking URL",
-  "Issue Status"
+  "Tracking URL"
 ];
 
 const merchantCache = new Map();
