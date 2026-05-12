@@ -96,7 +96,7 @@
     }
     
     .nav-main.open .nav-arrow {
-      transform: rotate(180deg);
+      transform: rotate(90deg);
     }
 
     .nav-sub {
@@ -430,8 +430,14 @@
       background: #FFC533;
       color: #07111F;
       min-width: 52px;
-      font-size: 18px;
-      line-height: 1;
+      height: 38px;
+      padding: 0 12px;
+    }
+    
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     
     .action-btn.disabled {
@@ -486,6 +492,31 @@
         width: 100%;
       }
     }
+
+    td[data-key="status"],
+    td[data-key="issue_status"],
+    td[data-key="packing_slip_url"],
+    td[data-key="tracking_url"],
+    td[data-key="qc_notes"],
+    td[data-key="actions"] {
+      text-align: center;
+    }
+    
+    td[data-key="status"] .status,
+    td[data-key="issue_status"] .status {
+      margin: 0 auto;
+    }
+    
+    td[data-key="packing_slip_url"] .action-btn,
+    td[data-key="tracking_url"] .action-btn,
+    td[data-key="qc_notes"] .action-btn,
+    td[data-key="actions"] .action-row {
+      margin: 0 auto;
+    }
+    
+    td[data-key="actions"] .action-row {
+      justify-content: center;
+    }
   </style>
 </head>
 <body>
@@ -499,7 +530,7 @@
 
       <div class="nav-main open" data-section-toggle="orders">
         <span>ORDERS</span>
-        <span class="nav-arrow">⌄</span>
+        <span class="nav-arrow">›</span>
       </div>
       
       <div id="section-orders" class="nav-section open">
@@ -1016,7 +1047,19 @@
 
       if (key === "packing_slip_url") {
         return order.packing_slip_url
-          ? `<a class="action-btn yellow" href="${escapeHtml(order.packing_slip_url)}" target="_blank" title="Download label">⇩</a>`
+          ? `
+            <a class="action-btn yellow download-btn" href="${escapeHtml(order.packing_slip_url)}" target="_blank" title="Download label">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </a>
+          `
           : "—";
       }
       
@@ -1386,19 +1429,12 @@
     document.querySelectorAll("[data-section-toggle]").forEach((toggle) => {
       toggle.addEventListener("click", () => {
         const section = toggle.dataset.sectionToggle;
-    
-        document.querySelectorAll(".nav-section").forEach((el) => {
-          el.classList.remove("open");
-        });
-    
-        document.querySelectorAll("[data-section-toggle]").forEach((el) => {
-          el.classList.remove("open");
-        });
-    
         const sectionEl = document.getElementById(`section-${section}`);
-        if (sectionEl) sectionEl.classList.add("open");
     
-        toggle.classList.add("open");
+        if (!sectionEl) return;
+    
+        sectionEl.classList.toggle("open");
+        toggle.classList.toggle("open");
       });
     });
 
