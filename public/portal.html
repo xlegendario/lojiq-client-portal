@@ -45,10 +45,16 @@
     }
 
     .logo {
-      font-size: 30px;
-      font-weight: 900;
       margin-bottom: 28px;
-      letter-spacing: -1px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    
+    .logo-img {
+      width: 170px;
+      height: auto;
+      display: block;
     }
 
     .sidebar-section-title {
@@ -445,7 +451,9 @@
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="logo">Lojiq</div>
+      <div class="logo">
+        <img src="/logo.png" alt="Lojiq" class="logo-img">
+      </div>
 
       <div class="sidebar-section-title">Portal</div>
 
