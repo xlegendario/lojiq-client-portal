@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
+import crypto from "crypto";
+import sgMail from "@sendgrid/mail";
 import path from "path";
 import { fileURLToPath } from "url";
 import Airtable from "airtable";
@@ -22,11 +24,18 @@ const {
   AIRTABLE_BASE_ID,
   AIRTABLE_MERCHANTS_TABLE = "Merchants",
   AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE = "Unfulfilled Orders Log",
-  RETURN_SERVICE_BASE_URL = "https://lojiq-wms.onrender.com"
+  RETURN_SERVICE_BASE_URL = "https://lojiq-wms.onrender.com",
+  SENDGRID_API_KEY,
+  APP_PUBLIC_BASE_URL = "https://lojiq-client-portal.onrender.com",
+  RESET_EMAIL_FROM
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
 if (!AIRTABLE_BASE_ID) throw new Error("Missing AIRTABLE_BASE_ID");
+if (!SENDGRID_API_KEY) throw new Error("Missing SENDGRID_API_KEY");
+if (!RESET_EMAIL_FROM) throw new Error("Missing RESET_EMAIL_FROM");
+
+sgMail.setApiKey(SENDGRID_API_KEY);
 
 const airtable = new Airtable({ apiKey: AIRTABLE_TOKEN }).base(AIRTABLE_BASE_ID);
 
@@ -714,6 +723,152 @@ app.post("/api/orders/:recordId/solve-issue", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: "Failed to solve issue", details: err.message });
+  }
+});
+
+app.post("/api/forgot-password", async (req, res) => {
+  try {
+    const email = asText(req.body.email).toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const records = await airtable(AIRTABLE_MERCHANTS_TABLE)
+      .select({
+        filterByFormula: `LOWER(TRIM({Portal Email} & '')) = '${escapeFormulaValue(email)}'`,
+        maxRecords: 1
+      })
+      .firstPage();
+
+    // Altijd ok teruggeven, zodat niemand emails kan raden.
+    if (!records.length) {
+      return res.json({ ok: true });
+    }
+
+    const merchant = records[0];
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    await airtable(AIRTABLE_MERCHANTS_TABLE).update(merchant.id, {
+      "Password Reset Token": token,
+      "Password Reset Expires At": expiresAt
+    });
+
+    const resetUrl = `${APP_PUBLIC_BASE_URL}/reset-password.html?token=${token}`;
+
+    await sgMail.send({
+      to: email,
+      from: RESET_EMAIL_FROM,
+      subject: "Reset your Lojiq Merchant Portal password",
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;">
+          <h2>Reset your password</h2>
+
+          <p>Click the button below to reset your Lojiq Merchant Portal password.</p>
+
+          <p>
+            <a href="${resetUrl}"
+               style="
+                 background:#2F80ED;
+                 color:white;
+                 padding:12px 18px;
+                 border-radius:8px;
+                 text-decoration:none;
+                 font-weight:bold;
+                 display:inline-block;
+               ">
+              Reset password
+            </a>
+          </p>
+
+          <p>This link expires in 1 hour.</p>
+
+          <p style="color:#6B7280;font-size:13px;">
+            If you did not request this, you can ignore this email.
+          </p>
+        </div>
+      `
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Forgot password failed:", err);
+
+    res.status(500).json({
+      error: "Failed to send reset email",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/reset-password", async (req, res) => {
+  try {
+    const token = asText(req.body.token);
+    const password = asText(req.body.password);
+    const passwordConfirm = asText(req.body.password_confirm);
+
+    if (!token) {
+      return res.status(400).json({ error: "Missing reset token" });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({
+        error: "Password must be at least 8 characters"
+      });
+    }
+
+    if (password !== passwordConfirm) {
+      return res.status(400).json({
+        error: "Passwords do not match"
+      });
+    }
+
+    const records = await airtable(AIRTABLE_MERCHANTS_TABLE)
+      .select({
+        filterByFormula: `{Password Reset Token} = '${escapeFormulaValue(token)}'`,
+        maxRecords: 1
+      })
+      .firstPage();
+
+    if (!records.length) {
+      return res.status(400).json({
+        error: "Invalid or expired reset link"
+      });
+    }
+
+    const merchant = records[0];
+    const expiresAtRaw = merchant.fields["Password Reset Expires At"];
+
+    if (!expiresAtRaw) {
+      return res.status(400).json({
+        error: "Invalid or expired reset link"
+      });
+    }
+
+    const expiresAt = new Date(expiresAtRaw);
+
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) {
+      return res.status(400).json({
+        error: "Reset link expired"
+      });
+    }
+
+    await airtable(AIRTABLE_MERCHANTS_TABLE).update(merchant.id, {
+      "Portal Password": password,
+      "Password Reset Token": "",
+      "Password Reset Expires At": null
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Reset password failed:", err);
+
+    res.status(500).json({
+      error: "Failed to reset password",
+      details: err.message
+    });
   }
 });
 
