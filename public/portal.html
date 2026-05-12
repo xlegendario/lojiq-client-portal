@@ -759,8 +759,13 @@
         ["brand", "Brand"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
         ["issue_status", "Issue Status"],
-        ["issue_notes", "Issue Notes"],
+        ["issue_notes", "Issue"],
+        ["tracking_number", "Tracking Number"],
         ["actions", "Actions"]
       ]
     };
@@ -915,6 +920,18 @@
     
       if (key === "product") {
         return `<div class="product-name">${escapeHtml(order.product || "—")}</div>`;
+      }
+
+      if (key === "issue_notes") {
+        const notes = order.issue_notes || "";
+      
+        if (!notes) return "—";
+      
+        return `
+          <button class="action-btn blue" type="button" onclick="showIssueNotes('${escapeHtml(notes)}')">
+            VIEW
+          </button>
+        `;
       }
     
       return escapeHtml(order[key] || "—");
@@ -1106,6 +1123,10 @@
       fulfilledStat.textContent = counts.fulfilled ?? 0;
       const activeCount = counts[currentView] ?? currentOrders.length;
       tableCount.textContent = `${activeCount} Orders`;
+    }
+
+    function showIssueNotes(notes) {
+      alert(notes);
     }
 
     async function createReturn(recordId) {
