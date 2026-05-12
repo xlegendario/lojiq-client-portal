@@ -102,6 +102,20 @@
       color: white;
     }
 
+    .forgot-btn {
+      margin-top: 14px;
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--primary-soft);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    
+    .forgot-btn:hover {
+      text-decoration: underline;
+    }
+
     .error {
       margin-top: 16px;
       color: #ff9b95;
@@ -128,6 +142,7 @@
       <input id="passwordInput" class="input" type="password" autocomplete="current-password" required />
 
       <button class="button" type="submit">Login</button>
+      <button id="forgotPasswordBtn" class="forgot-btn" type="button">Forgot password?</button>
 
       <div id="errorBox" class="error"></div>
     </form>
@@ -138,6 +153,7 @@
     const emailInput = document.getElementById("emailInput");
     const passwordInput = document.getElementById("passwordInput");
     const errorBox = document.getElementById("errorBox");
+    const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
 
     const existingMerchant = localStorage.getItem("lojiq_merchant");
     if (existingMerchant) {
@@ -169,6 +185,41 @@
         localStorage.setItem("lojiq_merchant", JSON.stringify(data.merchant));
         window.location.href = "/portal.html";
       } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = "block";
+      }
+    });
+
+    forgotPasswordBtn.addEventListener("click", async () => {
+      const email = emailInput.value.trim();
+    
+      if (!email) {
+        errorBox.style.color = "#ff9b95";
+        errorBox.textContent = "Fill in your email first.";
+        errorBox.style.display = "block";
+        return;
+      }
+    
+      try {
+        const response = await fetch("/api/forgot-password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ email })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to send reset email");
+        }
+    
+        errorBox.style.color = "#83e6ad";
+        errorBox.textContent = "If this email exists, a reset link has been sent.";
+        errorBox.style.display = "block";
+      } catch (err) {
+        errorBox.style.color = "#ff9b95";
         errorBox.textContent = err.message;
         errorBox.style.display = "block";
       }
