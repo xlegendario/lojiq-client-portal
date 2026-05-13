@@ -171,7 +171,7 @@
 
     const existingMerchant = localStorage.getItem("lojiq_merchant");
     if (existingMerchant) {
-      window.location.href = "/portal.html";
+      window.location.href = "/portal";
     }
 
     loginForm.addEventListener("submit", async (event) => {
@@ -197,7 +197,7 @@
         }
 
         localStorage.setItem("lojiq_merchant", JSON.stringify(data.merchant));
-        window.location.href = "/portal.html";
+        window.location.href = "/portal";
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = "block";
