@@ -1135,7 +1135,7 @@ app.post("/api/forgot-password", async (req, res) => {
       "Password Reset Expires At": expiresAt
     });
 
-    const resetUrl = `${APP_PUBLIC_BASE_URL}/reset-password.html?token=${token}`;
+    const resetUrl = `${APP_PUBLIC_BASE_URL}/reset-password?token=${token}`;
 
     await sgMail.send({
       to: email,
