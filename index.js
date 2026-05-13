@@ -445,7 +445,9 @@ app.get("/api/orders", async (req, res) => {
         status: getPortalStatus(f, view),
 
         warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
-        tracking_number: displayValue(f["Tracking Number"]),
+        tracking_number: view === "stockx_orders"
+          ? displayValue(f["StockX Tracking Number"])
+          : displayValue(f["Tracking Number"]),
         tracking_url: view === "stockx_orders"
           ? displayValue(f["StockX Tracking URL"])
           : displayValue(f["Tracking URL"]),
