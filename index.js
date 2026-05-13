@@ -270,6 +270,16 @@ function buildOrderViewFormula(view) {
     )`;
   }
 
+  if (view === "stockx_second_orders") {
+    return `AND(
+      OR(
+        {Fulfillment Status} = 'Found',
+        {Fulfillment Status} = 'StockX Processing'
+      ),
+      {SecondLastAction} = 'SECOND_ORDER_PLACED'
+    )`;
+  }
+
   return "";
 }
 
@@ -417,6 +427,10 @@ app.get("/api/orders", async (req, res) => {
         second_active_bid: moneyValue(f["SecondCurrentBid"]),
         buying_price: moneyValue(f["Final StockX Price"]),
         order_status: displayValue(f["StockX Order Status"]),
+        second_buying_price: moneyValue(f["Second Final StockX Price"]),
+        second_extra_profit: moneyValue(f["Second Extra Profit"]),
+        second_stockx_order_number: displayValue(f["Second StockX Order Number"]),
+        second_order_status: displayValue(f["Second StockX Order Status"]),
         date: dateValue(f["Order Date"]),
 
         offer: moneyValue(f["Offer To Store"]),
@@ -445,12 +459,19 @@ app.get("/api/orders", async (req, res) => {
         status: getPortalStatus(f, view),
 
         warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
-        tracking_number: view === "stockx_orders"
-          ? displayValue(f["StockX Tracking Number"])
-          : displayValue(f["Tracking Number"]),
-        tracking_url: view === "stockx_orders"
-          ? displayValue(f["StockX Tracking URL"])
-          : displayValue(f["Tracking URL"]),
+        tracking_number:
+          view === "stockx_orders"
+            ? displayValue(f["StockX Tracking Number"])
+            : view === "stockx_second_orders"
+              ? displayValue(f["Second StockX Tracking Number"])
+              : displayValue(f["Tracking Number"]),
+        
+        tracking_url:
+          view === "stockx_orders"
+            ? displayValue(f["StockX Tracking URL"])
+            : view === "stockx_second_orders"
+              ? displayValue(f["Second StockX Tracking URL"])
+              : displayValue(f["Tracking URL"]),
         issue_status: displayValue(f["Issue Status"]),
         issue_notes: displayValue(f["Issue Notes"])
       };
@@ -520,7 +541,8 @@ app.get("/api/orders/counts", async (req, res) => {
       "inventory",
       "stockx_active_bids",
       "stockx_active_second_bids",
-      "stockx_orders"
+      "stockx_orders",
+      "stockx_second_orders"
     ];
 
     const counts = {};
