@@ -239,8 +239,6 @@ function buildOrderViewFormula(view) {
     return `AND(
       {Fulfillment Status} = 'Outsource',
       OR(
-        {LastAction} = 'BID_LIMITS_IN_PROGRESS',
-        {LastAction} = 'STOCKX_LIMITS_CALCULATED',
         {LastAction} = 'BID_IN_PROGRESS',
         {LastAction} = 'BID_CREATED',
         {LastAction} = 'BID_VERIFIED_STILL_LIVE',
