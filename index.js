@@ -247,6 +247,13 @@ function buildOrderViewFormula(view) {
     )`;
   }
 
+  if (view === "stockx_active_second_bids") {
+    return `AND(
+      {Fulfillment Status} = 'Found',
+      {Second Bid Flow Status} = 'SECOND_BID_PLACED'
+    )`;
+  }
+
   return "";
 }
 
@@ -391,6 +398,7 @@ app.get("/api/orders", async (req, res) => {
         brand: displayValue(f["Brand"]),
         selling_price: moneyValue(f["Selling Price"]),
         active_bid: moneyValue(f["CurrentBid"]),
+        second_active_bid: moneyValue(f["SecondCurrentBid"]),
         date: dateValue(f["Order Date"]),
 
         offer: moneyValue(f["Offer To Store"]),
@@ -488,7 +496,8 @@ app.get("/api/orders/counts", async (req, res) => {
       "issues",
       "returns",
       "inventory",
-      "stockx_active_bids"
+      "stockx_active_bids",
+      "stockx_active_second_bids"
     ];
 
     const counts = {};
@@ -727,6 +736,49 @@ app.post("/api/orders/:recordId/cancel", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to cancel order",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/orders/:recordId/remove-second-bid", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!recordId) {
+      return res.status(400).json({ error: "Missing recordId" });
+    }
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    const orderStoreName = displayValue(order.fields["Store Name"]);
+
+    if (orderStoreName !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(recordId, {
+      "Remove Second Bid?": true
+    });
+
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json({
+      ok: true,
+      record_id: recordId
+    });
+  } catch (err) {
+    console.error("Remove second bid failed:", err);
+
+    res.status(500).json({
+      error: "Failed to remove second bid",
       details: err.message
     });
   }
