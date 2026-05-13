@@ -471,24 +471,34 @@ app.get("/api/orders/counts", async (req, res) => {
       "shipped",
       "fulfilled",
       "issues",
-      "returns"
+      "returns",
+      "inventory"
     ];
 
     const counts = {};
 
     await Promise.all(
       views.map(async (view) => {
-        if (view === "returns") {
-          const records = await airtable(AIRTABLE_RETURNS_TABLE)
+        if (view === "inventory") {
+          const sellerIds = merchant.seller_ids || [];
+        
+          if (!sellerIds.length) {
+            counts[view] = 0;
+            return;
+          }
+        
+          const sellerFormula = `OR(${sellerIds
+            .map((sellerId) => `FIND('${escapeFormulaValue(sellerId)}', ARRAYJOIN({Seller Record ID}))`)
+            .join(",")})`;
+        
+          const records = await airtable(AIRTABLE_INVENTORY_TABLE)
             .select({
-              fields: ["Shopify Order Number", "Client"],
-              filterByFormula: `TRIM({Store Name} & '') = '${safeStoreName}'`
+              fields: ["Product Name"],
+              filterByFormula: sellerFormula
             })
             .all();
         
-          counts[view] = records.filter((record) =>
-            linkedRecordIncludes(record.fields["Client"], merchantId)
-          ).length;
+          counts[view] = records.length;
         
           return;
         }
