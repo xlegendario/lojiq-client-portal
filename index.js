@@ -792,6 +792,8 @@ app.get("/api/inventory", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
     const search = asText(req.query.search).toLowerCase();
+    const pageSize = Math.min(Number(req.query.page_size || 20), 50);
+    const offset = asText(req.query.offset);
 
     if (!merchantId) {
       return res.status(400).json({ error: "Missing merchant_id" });
@@ -811,32 +813,55 @@ app.get("/api/inventory", async (req, res) => {
       });
     }
 
-    const records = await airtable(AIRTABLE_INVENTORY_TABLE)
-      .select()
-      .all();
+    const sellerFormula = `OR(${sellerIds
+      .map((sellerId) => `FIND('${escapeFormulaValue(sellerId)}', ARRAYJOIN({Seller Record ID}))`)
+      .join(",")})`;
 
-    let inventory = records
-      .filter((record) => {
-        const recordSellerIds = record.fields["Seller ID"];
-        return sellerIds.some((sellerId) =>
-          linkedRecordIncludes(recordSellerIds, sellerId)
-        );
-      })
-      .map((record) => {
-        const f = record.fields || {};
+    const airtableUrl = new URL(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_INVENTORY_TABLE)}`
+    );
 
-        return {
-          id: record.id,
-          product: displayValue(f["Product Name"]),
-          sku: displayValue(f["SKU"]),
-          size: displayValue(f["Size"]),
-          brand: displayValue(f["Brand"]),
-          condition: displayValue(f["Condition"]),
-          status: displayValue(f["Status"]),
-          location: displayValue(f["Location"]),
-          created_at: dateValue(f["Created At"])
-        };
-      });
+    airtableUrl.searchParams.set("filterByFormula", sellerFormula);
+    airtableUrl.searchParams.set("pageSize", String(pageSize));
+
+    if (offset) {
+      airtableUrl.searchParams.set("offset", offset);
+    }
+
+    const airtableResponse = await fetch(airtableUrl, {
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_TOKEN}`
+      }
+    });
+
+    const airtableData = await airtableResponse.json();
+
+    if (!airtableResponse.ok) {
+      throw new Error(
+        airtableData?.error?.message ||
+        airtableData?.error?.type ||
+        "Airtable request failed"
+      );
+    }
+
+    const records = airtableData.records || [];
+    const nextOffset = airtableData.offset || "";
+
+    let inventory = records.map((record) => {
+      const f = record.fields || {};
+
+      return {
+        id: record.id,
+        product: displayValue(f["Product Name"]),
+        sku: displayValue(f["SKU"]),
+        size: displayValue(f["Size"]),
+        brand: displayValue(f["Brand"]),
+        condition: displayValue(f["Condition"]),
+        status: displayValue(f["Status"]),
+        location: displayValue(f["Location"]),
+        created_at: dateValue(f["Created At"])
+      };
+    });
 
     if (search) {
       inventory = inventory.filter((item) =>
@@ -848,8 +873,8 @@ app.get("/api/inventory", async (req, res) => {
       merchant: { id: merchant.id, store_name: merchant.store_name },
       view: "inventory",
       count: inventory.length,
-      next_offset: "",
-      has_more: false,
+      next_offset: nextOffset,
+      has_more: !!nextOffset,
       orders: inventory
     });
   } catch (err) {
