@@ -446,7 +446,9 @@ app.get("/api/orders", async (req, res) => {
 
         warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
         tracking_number: displayValue(f["Tracking Number"]),
-        tracking_url: displayValue(f["Tracking URL"]),
+        tracking_url: view === "stockx_orders"
+          ? displayValue(f["StockX Tracking URL"])
+          : displayValue(f["Tracking URL"]),
         issue_status: displayValue(f["Issue Status"]),
         issue_notes: displayValue(f["Issue Notes"])
       };
