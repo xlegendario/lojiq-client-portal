@@ -14,6 +14,14 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+app.get("/portal", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "portal.html"));
+});
+
+app.get("/reset-password", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "reset-password.html"));
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 app.use(compression());
