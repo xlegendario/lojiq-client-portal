@@ -257,6 +257,19 @@ function buildOrderViewFormula(view) {
     )`;
   }
 
+  if (view === "stockx_orders") {
+    return `AND(
+      OR(
+        {Fulfillment Status} = 'Found',
+        {Fulfillment Status} = 'StockX Processing'
+      ),
+      OR(
+        {LastAction} = 'ORDER_PLACED',
+        {LastAction} = 'FIRST_ORDER_PLACED'
+      )
+    )`;
+  }
+
   return "";
 }
 
@@ -402,6 +415,8 @@ app.get("/api/orders", async (req, res) => {
         selling_price: moneyValue(f["Selling Price"]),
         active_bid: moneyValue(f["CurrentBid"]),
         second_active_bid: moneyValue(f["SecondCurrentBid"]),
+        buying_price: moneyValue(f["Final StockX Price"]),
+        order_status: displayValue(f["StockX Order Status"]),
         date: dateValue(f["Order Date"]),
 
         offer: moneyValue(f["Offer To Store"]),
@@ -500,7 +515,8 @@ app.get("/api/orders/counts", async (req, res) => {
       "returns",
       "inventory",
       "stockx_active_bids",
-      "stockx_active_second_bids"
+      "stockx_active_second_bids",
+      "stockx_orders"
     ];
 
     const counts = {};
