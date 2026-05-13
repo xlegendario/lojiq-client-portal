@@ -856,10 +856,10 @@ app.get("/api/inventory", async (req, res) => {
         sku: displayValue(f["SKU"]),
         size: displayValue(f["Size"]),
         brand: displayValue(f["Brand"]),
-        condition: displayValue(f["Condition"]),
-        status: displayValue(f["Status"]),
-        location: displayValue(f["Location"]),
-        created_at: dateValue(f["Created At"])
+        listed_at: dateValue(f["Created Time"]),
+        selling_price: displayValue(f["Purchase Price"]),
+        vat_type: displayValue(f["VAT Type"]),
+        status: displayValue(f["Availability Status"])
       };
     });
 
