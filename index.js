@@ -65,7 +65,8 @@ function normalizeMerchant(record) {
     seller_ids: Array.isArray(record.fields["Seller ID"])
       ? record.fields["Seller ID"]
       : [],
-    stockx_account_mode: asText(record.fields["StockX Account Mode"])
+    stockx_account_mode: asText(record.fields["StockX Account Mode"]),
+    goat_account_mode: asText(record.fields["GOAT Account Mode"])
   };
 }
 
@@ -170,7 +171,7 @@ function getPortalStatus(fields, view) {
   return fulfillment;
 }
 
-function buildOrderViewFormula(view) {
+function buildOrderViewFormula(view, merchant = {}) {
   if (view === "open") {
     return `OR(
       {Fulfillment Status} = 'Pending',
@@ -194,13 +195,23 @@ function buildOrderViewFormula(view) {
   }
 
   if (view === "allocated") {
-    return `OR(
-      {Fulfillment Status} = 'Allocated',
-      {Fulfillment Status} = 'Found',
-      {Fulfillment Status} = 'Awaiting Label',
-      {Fulfillment Status} = 'StockX Processing',
-      {Fulfillment Status} = 'Claim Processing'
-    )`;
+    const statuses = [
+      "Allocated",
+      "Awaiting Label",
+      "Claim Processing"
+    ];
+  
+    if (merchant.stockx_account_mode !== "DEDICATED_ACCOUNT") {
+      statuses.push("StockX Processing");
+    }
+  
+    if (merchant.goat_account_mode !== "DEDICATED_ACCOUNT") {
+      statuses.push("GOAT Processing");
+    }
+  
+    return `OR(${statuses
+      .map((status) => `{Fulfillment Status} = '${status}'`)
+      .join(",")})`;
   }
 
   if (view === "label_requests") {
@@ -361,7 +372,7 @@ app.get("/api/orders", async (req, res) => {
     const merchant = await getCachedMerchant(merchantId);
 
     const safeStoreName = escapeFormulaValue(merchant.store_name);
-    const viewFormula = buildOrderViewFormula(view);
+    const viewFormula = buildOrderViewFormula(view, merchant);
 
     const formulaParts = [
       `TRIM({Store Name} & '') = '${safeStoreName}'`
@@ -588,7 +599,7 @@ app.get("/api/orders/counts", async (req, res) => {
           return;
         }
         
-        const viewFormula = buildOrderViewFormula(view);
+        const viewFormula = buildOrderViewFormula(view, merchant);
         
         const formulaParts = [
           `TRIM({Store Name} & '') = '${safeStoreName}'`
