@@ -598,9 +598,10 @@
           <span id="count-returns" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub">
-          <span>Inventory</span>
-        </div>
+        <div class="nav-sub" data-view="inventory">
+        <span>Inventory</span>
+        <span id="count-inventory" class="count-pill">0</span>
+      </div>
       </div>
       
       <div class="sidebar-section-title">Coming soon</div>
@@ -712,7 +713,8 @@
       shipped: "Shipped",
       fulfilled: "Fulfilled",
       issues: "Issues",
-      returns: "Incoming Returns"
+      returns: "Incoming Returns",
+      inventory: "Inventory"
     };
 
     const columnWidths = {
@@ -883,6 +885,17 @@
         ["tracking_url", "Tracking URL"],
         ["condition", "Condition"],
         ["qc_notes", "QC Note"]
+      ],
+
+      inventory: [
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["condition", "Condition"],
+        ["status", "Status"],
+        ["location", "Location"],
+        ["created_at", "Created At"]
       ]
     };
 
@@ -1183,7 +1196,12 @@
           preloadedBatch = null;
           preloadedOffset = "";
         } else {
-          const endpoint = currentView === "returns" ? "/api/returns" : "/api/orders";
+          const endpoint =
+            currentView === "returns"
+              ? "/api/returns"
+              : currentView === "inventory"
+                ? "/api/inventory"
+                : "/api/orders";
           const response = await fetch(`${endpoint}?${params.toString()}`);
           data = await response.json();
         
@@ -1228,8 +1246,15 @@
         refresh: ordersCacheBuster
       });
     
+      const endpoint =
+        currentView === "returns"
+          ? "/api/returns"
+          : currentView === "inventory"
+            ? "/api/inventory"
+            : "/api/orders";
+    
       try {
-        const response = await fetch(`/api/orders?${params.toString()}`);
+        const response = await fetch(`${endpoint}?${params.toString()}`);
         const data = await response.json();
     
         if (!response.ok) return;
