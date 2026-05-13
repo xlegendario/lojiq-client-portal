@@ -25,6 +25,7 @@ const {
   AIRTABLE_MERCHANTS_TABLE = "Merchants",
   AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE = "Unfulfilled Orders Log",
   AIRTABLE_RETURNS_TABLE = "Incoming Returns",
+  AIRTABLE_INVENTORY_TABLE = "Inventory Units",
   RETURN_SERVICE_BASE_URL = "https://lojiq-wms.onrender.com",
   SENDGRID_API_KEY,
   APP_PUBLIC_BASE_URL = "https://lojiq-client-portal.onrender.com",
@@ -60,7 +61,10 @@ function normalizeMerchant(record) {
     store_name: asText(record.fields["Store Name"]),
     portal_email: asText(record.fields["Portal Email"]),
     portal_password: asText(record.fields["Portal Password"]),
-    portal_enabled: record.fields["Portal Enabled"] === true
+    portal_enabled: record.fields["Portal Enabled"] === true,
+    seller_ids: Array.isArray(record.fields["Seller ID"])
+      ? record.fields["Seller ID"]
+      : []
   };
 }
 
@@ -781,6 +785,111 @@ app.post("/api/orders/:recordId/return", async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: "Failed to create return", details: err.message });
+  }
+});
+
+app.get("/api/inventory", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+    const search = asText(req.query.search).toLowerCase();
+    const pageSize = Math.min(Number(req.query.page_size || 20), 50);
+    const offset = asText(req.query.offset);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const sellerIds = merchant.seller_ids || [];
+
+    if (!sellerIds.length) {
+      return res.json({
+        merchant: {
+          id: merchant.id,
+          store_name: merchant.store_name
+        },
+        view: "inventory",
+        count: 0,
+        next_offset: "",
+        has_more: false,
+        orders: []
+      });
+    }
+
+    const sellerFormula = `OR(${sellerIds
+      .map((sellerId) => `FIND('${escapeFormulaValue(sellerId)}', ARRAYJOIN({Seller ID}))`)
+      .join(",")})`;
+
+    const airtableUrl = new URL(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_INVENTORY_TABLE)}`
+    );
+
+    airtableUrl.searchParams.set("filterByFormula", sellerFormula);
+    airtableUrl.searchParams.set("pageSize", String(pageSize));
+
+    if (offset) {
+      airtableUrl.searchParams.set("offset", offset);
+    }
+
+    const airtableResponse = await fetch(airtableUrl, {
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_TOKEN}`
+      }
+    });
+
+    const airtableData = await airtableResponse.json();
+
+    if (!airtableResponse.ok) {
+      throw new Error(
+        airtableData?.error?.message ||
+        airtableData?.error?.type ||
+        "Airtable request failed"
+      );
+    }
+
+    const records = airtableData.records || [];
+    const nextOffset = airtableData.offset || "";
+
+    let inventory = records.map((record) => {
+      const f = record.fields || {};
+
+      return {
+        id: record.id,
+        product: displayValue(f["Product Name"]),
+        sku: displayValue(f["SKU"]),
+        size: displayValue(f["Size"]),
+        brand: displayValue(f["Brand"]),
+        condition: displayValue(f["Condition"]),
+        status: displayValue(f["Status"]),
+        location: displayValue(f["Location"]),
+        created_at: dateValue(f["Created At"])
+      };
+    });
+
+    if (search) {
+      inventory = inventory.filter((item) =>
+        Object.values(item).join(" ").toLowerCase().includes(search)
+      );
+    }
+
+    res.json({
+      merchant: {
+        id: merchant.id,
+        store_name: merchant.store_name
+      },
+      view: "inventory",
+      count: inventory.length,
+      next_offset: nextOffset,
+      has_more: !!nextOffset,
+      orders: inventory
+    });
+  } catch (err) {
+    console.error("Failed to load inventory:", err);
+
+    res.status(500).json({
+      error: "Failed to load inventory",
+      details: err.message
+    });
   }
 });
 
