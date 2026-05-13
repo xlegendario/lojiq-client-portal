@@ -1088,7 +1088,7 @@
                 ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
                 : `<button class="action-btn blue disabled" type="button">TRACK</button>`
             }
-            <button class="action-btn green" type="button" onclick="createReturn('${escapeHtml(order.id)}')">RETURN</button>
+            <button class="action-btn yellow" type="button" onclick="createReturn('${escapeHtml(order.id)}')">RETURN</button>
             <button class="action-btn red" type="button" onclick="reportIssue('${escapeHtml(order.id)}')">ISSUE</button>
           </div>
         `;
