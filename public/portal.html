@@ -603,6 +603,30 @@
         <span id="count-inventory" class="count-pill">0</span>
       </div>
       </div>
+
+      <div id="stockxNavMain" class="nav-main" data-section-toggle="stockx" style="display:none;">
+        <span>STOCKX</span>
+        <span class="nav-arrow">›</span>
+      </div>
+      
+      <div id="section-stockx" class="nav-section">
+        <div class="nav-sub" data-view="stockx_active_bids">
+          <span>Active Bids</span>
+          <span id="count-stockx_active_bids" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub">
+          <span>Active Second Bids</span>
+        </div>
+      
+        <div class="nav-sub">
+          <span>Orders</span>
+        </div>
+      
+        <div class="nav-sub">
+          <span>Second Orders</span>
+        </div>
+      </div>
       
       <div class="sidebar-section-title">Coming soon</div>
 
@@ -714,7 +738,8 @@
       fulfilled: "Fulfilled",
       issues: "Issues",
       returns: "Incoming Returns",
-      inventory: "Inventory"
+      inventory: "Inventory",
+      stockx_active_bids: "Active Bids"
     };
 
     const columnWidths = {
@@ -741,7 +766,8 @@
       verified_at: 140,
       packing_slip_url: 130,
       condition: 140,
-      qc_notes: 120
+      qc_notes: 120,
+      active_bid: 130
     };
 
     const columnsByView = {
@@ -896,6 +922,18 @@
         ["selling_price", "Suggested Price"],
         ["vat_type", "VAT Type"],
         ["status", "Status"]
+      ],
+
+      stockx_active_bids: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["selling_price", "Selling Price"],
+        ["status", "Status"],
+        ["active_bid", "Active Bid"],
+        ["actions", "Actions"]
       ]
     };
 
@@ -1033,6 +1071,16 @@
               ${alreadySolved ? "disabled" : `onclick="solveIssue('${escapeHtml(order.id)}')"`}
             >
               SOLVED
+            </button>
+          </div>
+        `;
+      }
+
+      if (currentView === "stockx_active_bids") {
+        return `
+          <div class="action-row">
+            <button class="action-btn red" type="button" onclick="removeStockxBid('${escapeHtml(order.id)}')">
+              REMOVE
             </button>
           </div>
         `;
@@ -1463,6 +1511,42 @@
       }
     }
 
+    async function removeStockxBid(recordId) {
+      const confirmed = window.confirm("Remove this active bid?");
+    
+      if (!confirmed) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to remove bid");
+        }
+    
+        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        renderOrders(currentOrders);
+    
+        tableCount.textContent = `${currentOrders.length} Orders`;
+        currentViewStat.textContent = currentOrders.length;
+    
+        loadAllCounts().catch((err) => {
+          console.error("Failed to refresh counts", err);
+        });
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
     document.querySelectorAll("[data-section-toggle]").forEach((toggle) => {
       toggle.addEventListener("click", () => {
         const section = toggle.dataset.sectionToggle;
@@ -1564,6 +1648,15 @@
 
     async function init() {
       requireLogin();
+
+      const stockxNavMain = document.getElementById("stockxNavMain");
+
+      if (
+        merchant.stockx_account_mode === "DEDICATED_ACCOUNT" &&
+        stockxNavMain
+      ) {
+        stockxNavMain.style.display = "flex";
+      }
     
       document.querySelectorAll(".nav-sub[data-view]").forEach((el) => {
         el.classList.remove("active");
