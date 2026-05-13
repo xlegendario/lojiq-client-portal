@@ -64,7 +64,8 @@ function normalizeMerchant(record) {
     portal_enabled: record.fields["Portal Enabled"] === true,
     seller_ids: Array.isArray(record.fields["Seller ID"])
       ? record.fields["Seller ID"]
-      : []
+      : [],
+    stockx_account_mode: asText(record.fields["StockX Account Mode"])
   };
 }
 
@@ -106,7 +107,8 @@ app.post("/api/login", async (req, res) => {
       merchant: {
         id: merchant.id,
         store_name: merchant.store_name,
-        portal_email: merchant.portal_email
+        portal_email: merchant.portal_email,
+        stockx_account_mode: merchant.stockx_account_mode
       }
     });
   } catch (err) {
@@ -231,6 +233,20 @@ function buildOrderViewFormula(view) {
 
   if (view === "issues") {
     return `NOT({Issue Status} = BLANK())`;
+  }
+
+  if (view === "stockx_active_bids") {
+    return `AND(
+      {Fulfillment Status} = 'Outsource',
+      OR(
+        {LastAction} = 'BID_LIMITS_IN_PROGRESS',
+        {LastAction} = 'STOCKX_LIMITS_CALCULATED',
+        {LastAction} = 'BID_IN_PROGRESS',
+        {LastAction} = 'BID_CREATED',
+        {LastAction} = 'BID_VERIFIED_STILL_LIVE',
+        {LastAction} = 'BID_UPDATED'
+      )
+    )`;
   }
 
   return "";
@@ -376,6 +392,7 @@ app.get("/api/orders", async (req, res) => {
         size: displayValue(f["Size"]),
         brand: displayValue(f["Brand"]),
         selling_price: moneyValue(f["Selling Price"]),
+        active_bid: moneyValue(f["CurrentBid"]),
         date: dateValue(f["Order Date"]),
 
         offer: moneyValue(f["Offer To Store"]),
@@ -472,7 +489,8 @@ app.get("/api/orders/counts", async (req, res) => {
       "fulfilled",
       "issues",
       "returns",
-      "inventory"
+      "inventory",
+      "stockx_active_bids"
     ];
 
     const counts = {};
