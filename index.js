@@ -249,7 +249,10 @@ function buildOrderViewFormula(view) {
 
   if (view === "stockx_active_second_bids") {
     return `AND(
-      {Fulfillment Status} = 'Found',
+      OR(
+        {Fulfillment Status} = 'Found',
+        {Fulfillment Status} = 'StockX Processing'
+      ),
       {Second Bid Flow Status} = 'SECOND_BID_PLACED'
     )`;
   }
