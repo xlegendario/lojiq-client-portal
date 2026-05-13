@@ -479,6 +479,21 @@ app.get("/api/orders/counts", async (req, res) => {
 
     await Promise.all(
       views.map(async (view) => {
+    
+        if (view === "returns") {
+          const records = await airtable(AIRTABLE_RETURNS_TABLE)
+            .select({
+              fields: ["Shopify Order Number", "Client"]
+            })
+            .all();
+    
+          counts[view] = records.filter((record) =>
+            linkedRecordIncludes(record.fields["Client"], merchantId)
+          ).length;
+    
+          return;
+        }
+    
         if (view === "inventory") {
           const sellerIds = merchant.seller_ids || [];
         
