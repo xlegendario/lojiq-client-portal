@@ -454,15 +454,15 @@ app.get("/api/orders", async (req, res) => {
         invoice_price: moneyValue(f["Invoice Price (VAT Included)"]),
         vat_type: (() => {
           const originalVat = displayValue(f["VAT Type"]);
-          const country = displayValue(f["Client Country"])
-            .toLowerCase()
-            .trim();
+          const country = displayValue(f["Client Country"]).toLowerCase();
         
-          if (originalVat === "Margin") return "Margin";
+          if (originalVat === "Margin") {
+            return "Margin";
+          }
         
-          if (country.includes("netherlands")) return "VAT21";
-        
-          return "VAT0";
+          return country === "netherlands"
+            ? "VAT21"
+            : "VAT0";
         })(),
 
         fulfillment_status: displayValue(f["Fulfillment Status"]),
