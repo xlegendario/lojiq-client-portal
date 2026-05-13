@@ -739,7 +739,8 @@
       issues: "Issues",
       returns: "Incoming Returns",
       inventory: "Inventory",
-      stockx_active_bids: "Active Bids"
+      stockx_active_bids: "Active Bids",
+      stockx_active_second_bids: "Active Second Bids"
     };
 
     const columnWidths = {
@@ -767,7 +768,8 @@
       packing_slip_url: 130,
       condition: 140,
       qc_notes: 120,
-      active_bid: 130
+      active_bid: 130,
+      second_active_bid: 130
     };
 
     const columnsByView = {
@@ -935,6 +937,19 @@
         ["status", "Status"],
         ["active_bid", "Active Bid"],
         ["actions", "Actions"]
+      ],
+
+      stockx_active_second_bids: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["date", "Date"],
+        ["selling_price", "Selling Price"],
+        ["status", "Status"],
+        ["second_active_bid", "Active Bid"],
+        ["actions", "Actions"]
       ]
     };
 
@@ -1081,6 +1096,16 @@
         return `
           <div class="action-row">
             <button class="action-btn red" type="button" onclick="removeStockxBid('${escapeHtml(order.id)}')">
+              REMOVE
+            </button>
+          </div>
+        `;
+      }
+
+      if (currentView === "stockx_active_second_bids") {
+        return `
+          <div class="action-row">
+            <button class="action-btn red" type="button" onclick="removeStockxSecondBid('${escapeHtml(order.id)}')">
               REMOVE
             </button>
           </div>
@@ -1532,6 +1557,42 @@
     
         if (!response.ok) {
           throw new Error(data.error || data.details || "Failed to remove bid");
+        }
+    
+        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        renderOrders(currentOrders);
+    
+        tableCount.textContent = `${currentOrders.length} Orders`;
+        currentViewStat.textContent = currentOrders.length;
+    
+        loadAllCounts().catch((err) => {
+          console.error("Failed to refresh counts", err);
+        });
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function removeStockxSecondBid(recordId) {
+      const confirmed = window.confirm("Remove this second bid?");
+    
+      if (!confirmed) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/remove-second-bid`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to remove second bid");
         }
     
         currentOrders = currentOrders.filter((order) => order.id !== recordId);
