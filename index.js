@@ -158,6 +158,60 @@ function dateValue(value) {
   return d.toLocaleDateString("nl-NL");
 }
 
+function getAllocatedSupplierShippingStatus(f) {
+  const supplierStatus = displayValue(f["Supplier Shipping Status"]);
+  if (supplierStatus) return supplierStatus;
+
+  const stockxStatus = displayValue(f["StockX Order Status"]);
+  const goatStatus = displayValue(f["GOAT Order Status"]);
+  const goatTracking = displayValue(f["GOAT Tracking Number"]);
+
+  const stockxMap = {
+    "Order Confirmed": "Order is being prepaired",
+    "Seller Preparing Shipment": "Order is being prepaired",
+    "Order On Its Way to StockX": "Order is being prepaired",
+    "Order Received at StockX for Verification": "Order is being prepaired",
+    "Order StockX Verified": "Order is being prepaired",
+    "Order Picked Up By Carrier": "Order shipped to Lojiq",
+    "Your tracking link will be available after it has shipped.": "Order shipped to Lojiq",
+    "Order Delivered!": "Order received by Lojiq"
+  };
+
+  const goatMap = {
+    "Purchased": "Order is being prepaired",
+    "Order Confirmed": "Order is being prepaired",
+    "Shipped to GOAT": "Order is packed, waiting shipment to Lojiq",
+    "Delivered to GOAT": "Order is packed, waiting shipment to Lojiq",
+    "Order Packaged": "Order is packed, waiting shipment to Lojiq",
+    "Shipped to You": "Order shipped to Lojiq"
+  };
+
+  if (stockxStatus) return stockxMap[stockxStatus] || stockxStatus;
+
+  if (goatStatus === "Verified") {
+    return goatTracking
+      ? "Order shipped to Lojiq"
+      : "Order is packed, waiting shipment to Lojiq";
+  }
+
+  if (goatStatus) return goatMap[goatStatus] || goatStatus;
+
+  return "";
+}
+
+function getAllocatedTrackingNumber(f) {
+  const stockxTracking = displayValue(f["StockX Tracking Number"]);
+  const stockxTrackingUrl = displayValue(f["StockX Tracking URL"]).toLowerCase();
+
+  if (stockxTracking || stockxTrackingUrl) {
+    return stockxTrackingUrl.includes("dpdgroup")
+      ? ""
+      : stockxTracking;
+  }
+
+  return displayValue(f["GOAT Tracking Number"]);
+}
+
 function linkedRecordIncludes(value, recordId) {
   return Array.isArray(value) && value.includes(recordId);
 }
@@ -558,7 +612,8 @@ app.get("/api/orders", async (req, res) => {
         status: getPortalStatus(f, view),
         preferred_courier: preferredCourier,
 
-        warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
+        supplier_shipping_status: getAllocatedSupplierShippingStatus(f),
+        warehouse_tracking: getAllocatedTrackingNumber(f),
         tracking_number:
           view === "stockx_orders"
             ? displayValue(f["StockX Tracking Number"])
