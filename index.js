@@ -34,6 +34,8 @@ const {
   AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE = "Unfulfilled Orders Log",
   AIRTABLE_RETURNS_TABLE = "Incoming Returns",
   AIRTABLE_INVENTORY_TABLE = "Inventory Units",
+  AIRTABLE_SELLERS_TABLE = "Sellers Database",
+  AIRTABLE_LABEL_REQUEST_ROUTING_TABLE = "Label Request Routing",
   RETURN_SERVICE_BASE_URL = "https://lojiq-wms.onrender.com",
   SENDGRID_API_KEY,
   APP_PUBLIC_BASE_URL = "https://lojiq-client-portal.onrender.com",
@@ -158,6 +160,67 @@ function dateValue(value) {
 
 function linkedRecordIncludes(value, recordId) {
   return Array.isArray(value) && value.includes(recordId);
+}
+
+function looksLikeAirtableRecordId(value) {
+  return /^rec[a-zA-Z0-9]{14}$/.test(asText(value));
+}
+
+async function findSellerRecordBySellerId(sellerIdValue) {
+  const safeSellerId = escapeFormulaValue(sellerIdValue);
+
+  const records = await airtable(AIRTABLE_SELLERS_TABLE)
+    .select({
+      fields: ["Seller ID", "Country Code"],
+      filterByFormula: `TRIM({Seller ID} & '') = '${safeSellerId}'`,
+      maxRecords: 1
+    })
+    .firstPage();
+
+  return records[0] || null;
+}
+
+async function getSellerRecordFromValue(value) {
+  const sellerValue = asText(value);
+  if (!sellerValue) return null;
+
+  if (looksLikeAirtableRecordId(sellerValue)) {
+    return await airtable(AIRTABLE_SELLERS_TABLE).find(sellerValue);
+  }
+
+  return await findSellerRecordBySellerId(sellerValue);
+}
+
+async function getPreferredCourierFromOrderFields(fields) {
+  const linkedSellerValues = Array.isArray(fields["Linked Seller ID"])
+    ? fields["Linked Seller ID"]
+    : [];
+
+  const claimedSellerValues = Array.isArray(fields["Claimed Seller ID"])
+    ? fields["Claimed Seller ID"]
+    : [];
+
+  const sellerValue = linkedSellerValues[0] || claimedSellerValues[0];
+
+  if (!sellerValue) return "";
+
+  const sellerRecord = await getSellerRecordFromValue(sellerValue);
+  if (!sellerRecord) return "";
+
+  const countryCode = asText(sellerRecord.fields["Country Code"]);
+  if (!countryCode) return "";
+
+  const routingRecords = await airtable(AIRTABLE_LABEL_REQUEST_ROUTING_TABLE)
+    .select({
+      fields: ["Country Code", "Preferred Courier"],
+      filterByFormula: `TRIM({Country Code} & '') = '${escapeFormulaValue(countryCode)}'`,
+      maxRecords: 1
+    })
+    .firstPage();
+
+  return routingRecords.length
+    ? asText(routingRecords[0].fields["Preferred Courier"])
+    : "";
 }
 
 function getPortalStatus(fields, view) {
@@ -430,9 +493,14 @@ app.get("/api/orders", async (req, res) => {
     const records = airtableData.records || [];
     const nextOffset = airtableData.offset || "";
 
-    let orders = records.map((record) => {
+    let orders = await Promise.all(records.map(async (record) => {
       const f = record.fields;
-
+    
+      const preferredCourier =
+        view === "label_requests"
+          ? await getPreferredCourierFromOrderFields(f)
+          : "";
+    
       return {
         id: record.id,
 
@@ -476,6 +544,7 @@ app.get("/api/orders", async (req, res) => {
         fulfillment_status: displayValue(f["Fulfillment Status"]),
         shipping_status: displayValue(f["Shipping Status"]),
         status: getPortalStatus(f, view),
+        preferred_courier: preferredCourier,
 
         warehouse_tracking: displayValue(f["GOAT Tracking Number"]),
         tracking_number:
@@ -494,7 +563,7 @@ app.get("/api/orders", async (req, res) => {
         issue_status: displayValue(f["Issue Status"]),
         issue_notes: displayValue(f["Issue Notes"])
       };
-    });
+    }));
 
     if (search) {
       orders = orders.filter((order) =>
