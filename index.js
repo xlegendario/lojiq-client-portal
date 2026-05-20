@@ -163,6 +163,7 @@ function getAllocatedSupplierShippingStatus(f) {
   if (supplierStatus) return supplierStatus;
 
   const stockxStatus = displayValue(f["StockX Order Status"]);
+  const stockxTrackingUrl = displayValue(f["StockX Tracking URL"]);
   const goatStatus = displayValue(f["GOAT Order Status"]);
   const goatTracking = displayValue(f["GOAT Tracking Number"]);
 
@@ -171,7 +172,9 @@ function getAllocatedSupplierShippingStatus(f) {
     "Seller Preparing Shipment": "Order is being prepaired",
     "Order On Its Way to StockX": "Order is being prepaired",
     "Order Received at StockX for Verification": "Order is being prepaired",
-    "Order StockX Verified": "Order is being prepaired",
+    "Order StockX Verified": stockxTrackingUrl
+      ? "Order shipped to Lojiq"
+      : "Order is being prepaired",
     "Order Picked Up By Carrier": "Order shipped to Lojiq",
     "Your tracking link will be available after it has shipped.": "Order shipped to Lojiq",
     "Order Delivered!": "Order received by Lojiq"
