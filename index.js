@@ -206,8 +206,20 @@ async function getPreferredCourierFromOrderFields(fields) {
 
   const sellerRecord = await getSellerRecordFromValue(sellerValue);
   if (!sellerRecord) return "";
-
-  const countryCode = asText(sellerRecord.fields["Country Code"]);
+  
+  const sellerId = asText(sellerRecord.fields["Seller ID"]);
+  
+  const forcedNlSellerIds = [
+    "SE-00455",
+    "SE-00781",
+    "SE-00309",
+    "SE-00537"
+  ];
+  
+  const countryCode = forcedNlSellerIds.includes(sellerId)
+    ? "NL"
+    : asText(sellerRecord.fields["Country Code"]);
+  
   if (!countryCode) return "";
 
   const routingRecords = await airtable(AIRTABLE_LABEL_REQUEST_ROUTING_TABLE)
