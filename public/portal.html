@@ -1098,6 +1098,11 @@
             <button class="action-btn green" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
               ACCEPT
             </button>
+          
+            <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}', '${escapeHtml(order.offer || '')}')">
+              COUNTER
+            </button>
+          
             <button class="action-btn red" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'deny')">
               DENY
             </button>
@@ -1565,6 +1570,60 @@
         loadAllCounts().catch((err) => {
           console.error("Failed to refresh counts", err);
         });
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function handleCounterOffer(recordId, currentOffer) {
+      const raw = window.prompt(
+        `Maximum Price (incl. VAT)\n\nCurrent offer: ${currentOffer || "—"}\n\nEnter the maximum price you are willing to pay including VAT:`
+      );
+    
+      if (!raw) return;
+    
+      const price = Number(
+        String(raw)
+          .replace("€", "")
+          .replace(/\s/g, "")
+          .replace(",", ".")
+      );
+    
+      if (!Number.isFinite(price) || price <= 0) {
+        alert("Please enter a valid maximum price including VAT.");
+        return;
+      }
+    
+      const confirmed = window.confirm(
+        `Submit counter offer for €${price.toFixed(2)} incl. VAT?`
+      );
+    
+      if (!confirmed) return;
+    
+      try {
+        const response = await fetch(`/api/orders/${recordId}/counter-offer`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id,
+            store_counter_price: price
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to submit counter offer");
+        }
+    
+        alert(`Counter offer submitted. Counter requests created: ${data.count || 0}`);
+    
+        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        renderOrders(currentOrders);
+        loadAllCounts();
+    
       } catch (err) {
         alert(err.message);
       }
