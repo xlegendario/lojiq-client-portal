@@ -855,10 +855,6 @@
         Enter the maximum price you are willing to pay, including VAT.
       </p>
   
-      <div class="modal-current-offer">
-        Current offer: <strong id="counterCurrentOffer">—</strong>
-      </div>
-  
       <label class="modal-label">Maximum Price (incl. VAT)</label>
   
       <input
@@ -866,8 +862,10 @@
         class="modal-input"
         type="number"
         min="1"
-        step="0.01"
-        placeholder="Enter maximum price"
+        step="1"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        placeholder="Example: 250"
       />
   
       <button id="submitCounterBtn" class="modal-submit" type="button">
@@ -1716,7 +1714,6 @@
     function handleCounterOffer(recordId, currentOffer) {
       pendingCounterOrderId = recordId;
     
-      document.getElementById("counterCurrentOffer").textContent = currentOffer || "—";
       document.getElementById("counterPriceInput").value = "";
       document.getElementById("counterModal").style.display = "flex";
     
@@ -1734,8 +1731,8 @@
       const submitBtn = document.getElementById("submitCounterBtn");
       const price = Number(document.getElementById("counterPriceInput").value);
     
-      if (!Number.isFinite(price) || price <= 0) {
-        alert("Please enter a valid maximum price including VAT.");
+      if (!Number.isInteger(price) || price <= 0) {
+        alert("Please enter a valid whole number including VAT. Example: 250");
         return;
       }
     
