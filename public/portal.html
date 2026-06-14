@@ -845,6 +845,37 @@
     </main>
   </div>
 
+  <div id="counterModal" class="modal-backdrop">
+    <div class="custom-modal">
+      <button class="modal-close" type="button" onclick="closeCounterModal()">×</button>
+  
+      <h2>Counter Offer</h2>
+  
+      <p class="modal-subtitle">
+        Enter the maximum price you are willing to pay, including VAT.
+      </p>
+  
+      <div class="modal-current-offer">
+        Current offer: <strong id="counterCurrentOffer">—</strong>
+      </div>
+  
+      <label class="modal-label">Maximum Price (incl. VAT)</label>
+  
+      <input
+        id="counterPriceInput"
+        class="modal-input"
+        type="number"
+        min="1"
+        step="0.01"
+        placeholder="Enter maximum price"
+      />
+  
+      <button id="submitCounterBtn" class="modal-submit" type="button">
+        Submit Counter Offer
+      </button>
+    </div>
+  </div>
+
   <script>
     const merchantName = document.getElementById("merchantName");
     const logoutBtn = document.getElementById("logoutBtn");
@@ -1994,35 +2025,5 @@
       `;
     });
   </script>
-  <div id="counterModal" class="modal-backdrop">
-    <div class="custom-modal">
-      <button class="modal-close" type="button" onclick="closeCounterModal()">×</button>
-  
-      <h2>Counter Offer</h2>
-  
-      <p class="modal-subtitle">
-        Enter the maximum price you are willing to pay, including VAT.
-      </p>
-  
-      <div class="modal-current-offer">
-        Current offer: <strong id="counterCurrentOffer">—</strong>
-      </div>
-  
-      <label class="modal-label">Maximum Price (incl. VAT)</label>
-  
-      <input
-        id="counterPriceInput"
-        class="modal-input"
-        type="number"
-        min="1"
-        step="0.01"
-        placeholder="Enter maximum price"
-      />
-  
-      <button id="submitCounterBtn" class="modal-submit" type="button">
-        Submit Counter Offer
-      </button>
-    </div>
-  </div>
 </body>
 </html>
