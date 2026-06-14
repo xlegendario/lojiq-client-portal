@@ -39,7 +39,9 @@ const {
   RETURN_SERVICE_BASE_URL = "https://lojiq-wms.onrender.com",
   SENDGRID_API_KEY,
   APP_PUBLIC_BASE_URL = "https://lojiq-client-portal.onrender.com",
-  RESET_EMAIL_FROM
+  RESET_EMAIL_FROM,
+  KICKZ_PORTAL_BASE_URL = "https://kickzcaviar.com",
+  COUNTER_OFFERS_SECRET
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -1046,6 +1048,64 @@ app.post("/api/orders/:recordId/offer", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to process offer action",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/orders/:recordId/counter-offer", async (req, res) => {
+  try {
+    const recordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+    const storeCounterPrice = Number(req.body.store_counter_price);
+
+    if (!recordId) return res.status(400).json({ error: "Missing recordId" });
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+
+    if (!Number.isFinite(storeCounterPrice) || storeCounterPrice <= 0) {
+      return res.status(400).json({ error: "Invalid counter offer price" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
+
+    if (displayValue(order.fields["Store Name"]) !== merchant.store_name) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    if (!COUNTER_OFFERS_SECRET) {
+      return res.status(500).json({ error: "Missing COUNTER_OFFERS_SECRET" });
+    }
+
+    const response = await fetch(`${KICKZ_PORTAL_BASE_URL}/api/counter-offers/create`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-kc-secret": COUNTER_OFFERS_SECRET
+      },
+      body: JSON.stringify({
+        order_record_id: recordId,
+        store_counter_price: storeCounterPrice
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || data.details || "Failed to create counter offers");
+    }
+
+    ordersCache.clear();
+    countsCache.delete(`counts:${merchantId}`);
+
+    res.json({
+      ok: true,
+      ...data
+    });
+  } catch (err) {
+    console.error("Counter offer failed:", err);
+    res.status(500).json({
+      error: "Failed to submit counter offer",
       details: err.message
     });
   }
