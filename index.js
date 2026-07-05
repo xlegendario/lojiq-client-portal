@@ -205,16 +205,10 @@ function getAllocatedSupplierShippingStatus(f) {
 }
 
 function getAllocatedTrackingNumber(f) {
-  const stockxTracking = displayValue(f["StockX Tracking Number"]);
-  const stockxTrackingUrl = displayValue(f["StockX Tracking URL"]).toLowerCase();
-
-  if (stockxTracking || stockxTrackingUrl) {
-    return stockxTrackingUrl.includes("dpdgroup")
-      ? ""
-      : stockxTracking;
-  }
-
-  return displayValue(f["GOAT Tracking Number"]);
+  return (
+    displayValue(f["StockX Tracking Number"]) ||
+    displayValue(f["GOAT Tracking Number"])
+  );
 }
 
 function linkedRecordIncludes(value, recordId) {
