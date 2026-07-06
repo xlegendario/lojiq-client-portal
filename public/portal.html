@@ -517,6 +517,41 @@
       cursor: not-allowed;
     }
 
+    .pending-payment-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: -8px;
+      margin-bottom: 20px;
+      padding: 16px 18px;
+      border: 1px solid rgba(245,158,11,0.28);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(68,47,16,0.80), rgba(56,40,14,0.80));
+    }
+    
+    .pending-payment-bar.active {
+      display: flex;
+    }
+    
+    .pending-payment-title {
+      font-weight: 900;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    
+    .pending-payment-meta {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    
+    .pending-payment-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
     .label-link {
       color: var(--primary-soft);
       font-weight: 900;
@@ -847,6 +882,27 @@
           </button>
         </div>
 
+        <div id="pendingPaymentBar" class="pending-payment-bar">
+          <div>
+            <div id="pendingPaymentTitle" class="pending-payment-title">
+              Pending payment
+            </div>
+            <div id="pendingPaymentMeta" class="pending-payment-meta">
+              Loading...
+            </div>
+          </div>
+        
+          <div class="pending-payment-actions">
+            <button id="continuePaymentBtn" class="button" type="button">
+              Continue Payment
+            </button>
+        
+            <button id="cancelPaymentBatchBtn" class="action-btn red" type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
+
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">Current View</div>
@@ -950,6 +1006,11 @@
     const paymentBar = document.getElementById("paymentBar");
     const paymentSummary = document.getElementById("paymentSummary");
     const createPaymentBtn = document.getElementById("createPaymentBtn");
+    const pendingPaymentBar = document.getElementById("pendingPaymentBar");
+    const pendingPaymentTitle = document.getElementById("pendingPaymentTitle");
+    const pendingPaymentMeta = document.getElementById("pendingPaymentMeta");
+    const continuePaymentBtn = document.getElementById("continuePaymentBtn");
+    const cancelPaymentBatchBtn = document.getElementById("cancelPaymentBatchBtn");
 
     const viewLabels = {
       open: "Open Orders",
@@ -1260,6 +1321,8 @@
     let preloadedOffset = "";
     let ordersCacheBuster = "";
     let selectedPaymentOrderIds = new Set();
+    let openPaymentBatches = [];
+    let activePaymentBatch = null;
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -1695,6 +1758,7 @@
         currentViewStat.textContent = currentOrders.length;
     
         renderOrders(currentOrders);
+        await loadOpenPaymentBatches();
       } finally {
         isLoadingMore = false;
       }
@@ -1785,6 +1849,115 @@
       alert(notes);
     }
 
+    async function loadOpenPaymentBatches() {
+      if (!merchant || currentView !== "open_payments") {
+        openPaymentBatches = [];
+        activePaymentBatch = null;
+        renderPendingPaymentBar();
+        return;
+      }
+    
+      try {
+        const response = await fetch(
+          `/api/payment-batches/open?merchant_id=${encodeURIComponent(merchant.id)}`
+        );
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to load payment batches");
+        }
+    
+        openPaymentBatches = Array.isArray(data.batches) ? data.batches : [];
+        activePaymentBatch = openPaymentBatches[0] || null;
+    
+        renderPendingPaymentBar();
+      } catch (err) {
+        console.error(err);
+        openPaymentBatches = [];
+        activePaymentBatch = null;
+        renderPendingPaymentBar();
+      }
+    }
+    
+    function renderPendingPaymentBar() {
+      if (!pendingPaymentBar) return;
+    
+      if (currentView !== "open_payments" || !activePaymentBatch) {
+        pendingPaymentBar.classList.remove("active");
+        return;
+      }
+    
+      pendingPaymentBar.classList.add("active");
+    
+      const status = activePaymentBatch.payment_status || "Awaiting Payment";
+      const orderText = activePaymentBatch.order_numbers || "No orders";
+      const amountText = activePaymentBatch.amount || "";
+      const batchText = activePaymentBatch.batch_id || activePaymentBatch.id;
+    
+      pendingPaymentTitle.textContent =
+        status === "Payment Pending"
+          ? "Bank transfer pending"
+          : "Payment link already created";
+    
+      pendingPaymentMeta.textContent =
+        `${batchText} · ${amountText} · Orders: ${orderText}`;
+    
+      continuePaymentBtn.onclick = () => {
+        if (activePaymentBatch.payment_link) {
+          window.open(activePaymentBatch.payment_link, "_blank");
+        }
+      };
+    
+      cancelPaymentBatchBtn.style.display =
+        status === "Awaiting Payment" ? "inline-flex" : "none";
+    
+      cancelPaymentBatchBtn.onclick = cancelActivePaymentBatch;
+    }
+    
+    async function cancelActivePaymentBatch() {
+      if (!activePaymentBatch) return;
+    
+      const confirmed = confirm(
+        "Cancel this payment batch? The orders will become selectable again."
+      );
+    
+      if (!confirmed) return;
+    
+      try {
+        cancelPaymentBatchBtn.disabled = true;
+        cancelPaymentBatchBtn.textContent = "Cancelling...";
+    
+        const response = await fetch(`/api/payment-batches/${activePaymentBatch.id}/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to cancel payment batch");
+        }
+    
+        activePaymentBatch = null;
+        openPaymentBatches = [];
+    
+        await loadOrders(true);
+        await loadAllCounts();
+        await loadOpenPaymentBatches();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        cancelPaymentBatchBtn.disabled = false;
+        cancelPaymentBatchBtn.textContent = "Cancel";
+      }
+    }
+
     function togglePaymentSelection(orderId, checked) {
       if (checked) {
         selectedPaymentOrderIds.add(orderId);
@@ -1845,6 +2018,7 @@
     
         await loadOrders(true);
         await loadAllCounts();
+        await loadOpenPaymentBatches();
       } catch (err) {
         alert(err.message);
       } finally {
