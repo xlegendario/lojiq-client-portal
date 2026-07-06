@@ -2110,7 +2110,11 @@
     
       if (!confirmed) return;
     
+      let paymentWindow = null;
+
       try {
+        paymentWindow = window.open("about:blank", "_blank");
+
         createPaymentBtn.disabled = true;
         createPaymentBtn.textContent = "Creating...";
     
@@ -2131,7 +2135,11 @@
           throw new Error(data.error || data.details || "Failed to create payment link");
         }
     
-        window.open(data.payment_url, "_blank");
+        if (paymentWindow) {
+          paymentWindow.location.href = data.payment_url;
+        } else {
+          window.location.href = data.payment_url;
+        }
     
         selectedPaymentOrderIds.clear();
         ordersCacheBuster = Date.now();
