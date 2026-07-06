@@ -20,7 +20,40 @@
       --warning: #F59E0B;
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; }paymentWindow = window.open("", "_blank");
+
+if (paymentWindow) {
+  paymentWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Opening payment...</title>
+        <style>
+          body {
+            margin: 0;
+            background: #07111F;
+            color: #DCEBFF;
+            font-family: Arial, sans-serif;
+            display: flex;
+            height: 100vh;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+          }
+          div { font-weight: 900; }
+          span { color: #66B3FF; }
+        </style>
+      </head>
+      <body>
+        <div>
+          Creating payment link...<br>
+          <span>Please wait</span>
+        </div>
+      </body>
+    </html>
+  `);
+  paymentWindow.document.close();
+}
 
     body {
       margin: 0;
@@ -2139,8 +2172,8 @@
               </head>
               <body>
                 <div>
-                  Creating payment link...<br>
-                  <span>Please wait</span>
+                  Creating payment link<br>
+                  <span>Please wait...</span>
                 </div>
               </body>
             </html>
