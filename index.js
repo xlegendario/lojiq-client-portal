@@ -407,7 +407,11 @@ function buildOrderViewFormula(view, merchant = {}) {
 
   if (view === "open_payments") {
     return `AND(
-      {Fulfillment Status} = 'Requested Label',
+      OR(
+        {Fulfillment Status} = 'Requested Label',
+        {Fulfillment Status} = 'Ready to Ship',
+        {Fulfillment Status} = 'Fulfilled'
+      ),
       OR(
         {Invoice Status} = BLANK(),
         {Invoice Status} = 'Pending',
@@ -417,13 +421,10 @@ function buildOrderViewFormula(view, merchant = {}) {
   }
   
   if (view === "payment_history") {
-    return `AND(
-      {Fulfillment Status} = 'Requested Label',
-      OR(
-        {Invoice Status} = 'Paid',
-        {Invoice Status} = 'Expired',
-        {Invoice Status} = 'Cancelled'
-      )
+    return `OR(
+      {Invoice Status} = 'Paid',
+      {Invoice Status} = 'Expired',
+      {Invoice Status} = 'Cancelled'
     )`;
   }
 
