@@ -18,6 +18,10 @@ app.get("/portal", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "portal.html"));
 });
 
+app.get("/payment-summary", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "payment-summary.html"));
+});
+
 app.get("/reset-password", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "reset-password.html"));
 });
@@ -199,6 +203,25 @@ async function mollieRequest(pathname, options = {}) {
 
 function isoNow() {
   return new Date().toISOString();
+}
+
+function normalizePaymentBatch(record) {
+  const f = record.fields || {};
+
+  return {
+    id: record.id,
+    batch_id: displayValue(f["Batch ID"]) || record.id,
+    store: displayValue(f["Store"]),
+    linked_orders: Array.isArray(f["Linked Orders"]) ? f["Linked Orders"] : [],
+    order_numbers: displayValue(f["Order Numbers"]),
+    amount: moneyValue(f["Amount"]),
+    payment_link: displayValue(f["Payment Link"]),
+    mollie_payment_id: displayValue(f["Mollie Payment ID"]),
+    payment_status: displayValue(f["Payment Status"]),
+    payment_provider: displayValue(f["Payment Provider"]),
+    created_at: dateValue(f["Created At"]),
+    paid_at: dateValue(f["Paid At"])
+  };
 }
 
 function dateValue(value) {
@@ -1669,6 +1692,130 @@ app.post("/api/payments/create-link", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to create payment link",
+      details: err.message
+    });
+  }
+});
+
+app.get("/api/payment-batches/open", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const safeStoreName = escapeFormulaValue(merchant.store_name);
+
+    const records = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+      .select({
+        filterByFormula: `AND(
+          FIND('${safeStoreName}', ARRAYJOIN({Store})),
+          OR(
+            {Payment Status} = 'Awaiting Payment',
+            {Payment Status} = 'Payment Pending'
+          )
+        )`,
+        sort: [{ field: "Created At", direction: "desc" }],
+        maxRecords: 5
+      })
+      .firstPage();
+
+    res.json({
+      ok: true,
+      batches: records.map(normalizePaymentBatch)
+    });
+  } catch (err) {
+    console.error("Failed to load open payment batches:", err);
+
+    res.status(500).json({
+      error: "Failed to load open payment batches",
+      details: err.message
+    });
+  }
+});
+
+app.get("/api/payment-batches/:batchId", async (req, res) => {
+  try {
+    const batchId = asText(req.params.batchId);
+
+    if (!batchId) {
+      return res.status(400).json({ error: "Missing batchId" });
+    }
+
+    const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).find(batchId);
+
+    res.json({
+      ok: true,
+      batch: normalizePaymentBatch(batch)
+    });
+  } catch (err) {
+    console.error("Failed to load payment batch:", err);
+
+    res.status(500).json({
+      error: "Failed to load payment batch",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/payment-batches/:batchId/cancel", async (req, res) => {
+  try {
+    const batchId = asText(req.params.batchId);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!batchId) {
+      return res.status(400).json({ error: "Missing batchId" });
+    }
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).find(batchId);
+    const f = batch.fields || {};
+
+    const paymentStatus = displayValue(f["Payment Status"]);
+    const storeName = displayValue(f["Store"]);
+
+    if (!storeName.includes(merchant.store_name)) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    if (paymentStatus !== "Awaiting Payment") {
+      return res.status(400).json({
+        error: "Only Awaiting Payment batches can be cancelled"
+      });
+    }
+
+    const linkedOrders = Array.isArray(f["Linked Orders"]) ? f["Linked Orders"] : [];
+
+    await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
+      "Payment Status": "Cancelled"
+    });
+
+    await Promise.all(
+      linkedOrders.map((orderId) =>
+        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
+          "Invoice Status": "Pending"
+        })
+      )
+    );
+
+    ordersCache.clear();
+    countsCache.clear();
+
+    res.json({
+      ok: true,
+      batch_id: batch.id
+    });
+  } catch (err) {
+    console.error("Cancel payment batch failed:", err);
+
+    res.status(500).json({
+      error: "Failed to cancel payment batch",
       details: err.message
     });
   }
