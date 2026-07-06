@@ -947,7 +947,7 @@
           </div>
 
           <div class="stat-card">
-            <div class="stat-label">Open Orders</div>
+            <div id="openStatLabel" class="stat-label">Open Orders</div>
             <div id="openStat" class="stat-value">0</div>
           </div>
 
@@ -1054,6 +1054,7 @@
     const pageTitle = document.getElementById("pageTitle");
     const currentViewStat = document.getElementById("currentViewStat");
     const openStat = document.getElementById("openStat");
+    const openStatLabel = document.getElementById("openStatLabel");
     const shippedStat = document.getElementById("shippedStat");
     const fulfilledStat = document.getElementById("fulfilledStat");
     const paymentBar = document.getElementById("paymentBar");
@@ -1836,11 +1837,52 @@
     
         renderOrders(currentOrders);
         await loadOpenPaymentBatches();
+        
+        if (currentView === "open_payments") {
+          await loadOpenPaymentsTotal();
+        }
       } finally {
         isLoadingMore = false;
       }
       
       preloadNextBatch();
+    }
+
+    async function loadOpenPaymentsTotal() {
+      if (!merchant) return;
+    
+      let offset = "";
+      let total = 0;
+    
+      do {
+        const params = new URLSearchParams({
+          merchant_id: merchant.id,
+          view: "open_payments",
+          search: "",
+          page_size: "100",
+          refresh: ordersCacheBuster
+        });
+    
+        if (offset) params.set("offset", offset);
+    
+        const response = await fetch(`/api/orders?${params.toString()}`);
+        const data = await response.json();
+    
+        if (!response.ok) return;
+    
+        const orders = Array.isArray(data.orders) ? data.orders : [];
+    
+        total += orders.reduce((sum, order) => {
+          return sum + parseEuroMoney(order.invoice_price);
+        }, 0);
+    
+        offset = data.next_offset || "";
+      } while (offset);
+    
+      if (currentView === "open_payments") {
+        openStatLabel.textContent = "Open Amount";
+        openStat.textContent = formatEuro(total);
+      }
     }
 
     async function preloadNextBatch() {
@@ -1919,7 +1961,10 @@
       shippedStat.textContent = counts.shipped ?? 0;
       fulfilledStat.textContent = counts.fulfilled ?? 0;
       const activeCount = counts[currentView] ?? currentOrders.length;
-      tableCount.textContent = `${activeCount} Orders`;
+      if (currentView !== "open_payments") {
+        openStatLabel.textContent = "Open Orders";
+        openStat.textContent = counts.open ?? 0;
+      }
     }
 
     function showIssueNotes(notes) {
