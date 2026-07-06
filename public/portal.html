@@ -1082,7 +1082,8 @@
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
         ["invoice_status", "Invoice Status"],
-        ["payment_link", "Payment Link"]
+        ["status", "Status"],
+        ["tracking_url", "Tracking"]
       ],
 
       payment_history: [
@@ -1485,6 +1486,12 @@
             onchange="togglePaymentSelection('${escapeHtml(order.id)}', this.checked)"
           />
         `;
+      }
+
+      if (key === "tracking_url") {
+        return order.tracking_url
+          ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
+          : "—";
       }
     
       if (key === "payment_link") {
