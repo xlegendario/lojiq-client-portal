@@ -1229,7 +1229,8 @@ if (paymentWindow) {
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
         ["status", "Status"],
-        ["tracking_url", "Tracking"]
+        ["tracking_url", "Tracking"],
+        ["payment_action", "Action"]
       ],
 
       payment_history: [
@@ -1635,6 +1636,14 @@ if (paymentWindow) {
         `;
       }
 
+      if (key === "payment_action") {
+        const selectable = isPaymentSelectable(order);
+      
+        return selectable
+          ? `<button class="action-btn blue" type="button" onclick="paySingleOrder('${escapeHtml(order.id)}')">PAY</button>`
+          : "—";
+      }
+
       if (key === "tracking_url") {
         return order.tracking_url
           ? `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
@@ -1729,9 +1738,14 @@ if (paymentWindow) {
         .map(([key, label]) => {
           const width = columnWidths[key] || 140;
       
+          const headerContent =
+            key === "select" && currentView === "open_payments"
+              ? `<input id="selectAllPaymentsCheckbox" class="payment-checkbox" type="checkbox" onchange="toggleSelectAllPayments(this.checked)" />`
+              : escapeHtml(label);
+          
           return `
             <th data-key="${key}" style="width:${width}px; min-width:${width}px;">
-              ${escapeHtml(label)}
+              ${headerContent}
               <div class="resizer" data-key="${key}"></div>
             </th>
           `;
