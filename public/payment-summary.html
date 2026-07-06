@@ -182,7 +182,7 @@
 
         subtitle.textContent = isPaid
           ? "Your payment has been confirmed."
-          : "Your payment is not fully confirmed yet.";
+          : "We're waiting Mollie for the final confirmation of the payment.";
 
         content.innerHTML = `
           <div class="status ${isPending ? "pending" : ""}">
@@ -218,8 +218,9 @@
             Keep this batch reference for your bookkeeping.
             ${
               isPaid
+              </br>
                 ? ""
-                : "For bank transfers, the payment will be marked as paid once Mollie confirms receipt."
+                : "The payment will be marked as paid once Mollie confirms receipt."
             }
           </div>
         `;
