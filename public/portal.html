@@ -481,6 +481,42 @@
       cursor: not-allowed;
     }
 
+    .payment-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 20px;
+      padding: 16px 18px;
+      border: 1px solid rgba(102,179,255,0.18);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+    }
+    
+    .payment-bar.active {
+      display: flex;
+    }
+    
+    .payment-summary {
+      color: var(--text);
+      font-weight: 900;
+    }
+    
+    .payment-summary span {
+      color: var(--primary-soft);
+    }
+    
+    .payment-checkbox {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    
+    .payment-checkbox:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     .label-link {
       color: var(--primary-soft);
       font-weight: 900;
@@ -760,10 +796,23 @@
         </div>
       </div>
       
-      <div class="sidebar-section-title">Coming soon</div>
+      <div class="sidebar-section-title">Finance</div>
 
-      <div class="nav-sub">
-        <span>Finance</span>
+      <div class="nav-main" data-section-toggle="finance">
+        <span>FINANCE</span>
+        <span class="nav-arrow">›</span>
+      </div>
+      
+      <div id="section-finance" class="nav-section">
+        <div class="nav-sub" data-view="open_payments">
+          <span>Open Payments</span>
+          <span id="count-open_payments" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="payment_history">
+          <span>Payment History</span>
+          <span id="count-payment_history" class="count-pill">0</span>
+        </div>
       </div>
     </aside>
 
@@ -786,6 +835,16 @@
         <div class="search-row">
           <input id="searchInput" class="search-input" placeholder="Search order, product, SKU, size, tracking..." />
           <button id="searchBtn" class="button">Search</button>
+        </div>
+
+        <div id="paymentBar" class="payment-bar">
+          <div id="paymentSummary" class="payment-summary">
+            Selected: <span>0 orders</span> — Total: <span>€0,00</span>
+          </div>
+        
+          <button id="createPaymentBtn" class="button" type="button">
+            Create Payment Link
+          </button>
         </div>
 
         <div class="stats-grid">
@@ -888,6 +947,9 @@
     const openStat = document.getElementById("openStat");
     const shippedStat = document.getElementById("shippedStat");
     const fulfilledStat = document.getElementById("fulfilledStat");
+    const paymentBar = document.getElementById("paymentBar");
+    const paymentSummary = document.getElementById("paymentSummary");
+    const createPaymentBtn = document.getElementById("createPaymentBtn");
 
     const viewLabels = {
       open: "Open Orders",
@@ -903,7 +965,9 @@
       stockx_active_bids: "Active Bids",
       stockx_active_second_bids: "Active Second Bids",
       stockx_orders: "Orders",
-      stockx_second_orders: "Second Orders"
+      stockx_second_orders: "Second Orders",
+      open_payments: "Open Payments",
+      payment_history: "Payment History"
     };
 
     const columnWidths = {
@@ -940,7 +1004,11 @@
       second_buying_price: 150,
       second_extra_profit: 140,
       second_stockx_order_number: 180,
-      second_order_status: 170
+      second_order_status: 170,
+      select: 70,
+      invoice_status: 150,
+      payment_link: 150,
+      paid_at: 130
     };
 
     const columnsByView = {
@@ -1002,6 +1070,33 @@
         ["status", "Status"],
         ["preferred_courier", "Preferred Courier"],
         ["actions", "Actions"]
+            ],
+
+      open_payments: [
+        ["select", "Select"],
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["date", "Date"],
+        ["invoice_price", "Invoice Price"],
+        ["invoice_status", "Invoice Status"],
+        ["payment_link", "Payment Link"]
+      ],
+
+      payment_history: [
+        ["order_number", "Order Number"],
+        ["product", "Product"],
+        ["sku", "SKU"],
+        ["size", "Size"],
+        ["brand", "Brand"],
+        ["date", "Date"],
+        ["invoice_price", "Invoice Price"],
+        ["invoice_status", "Invoice Status"],
+        ["payment_batch_id", "Batch ID"],
+        ["paid_at", "Paid At"],
+        ["payment_link", "Payment Link"]
       ],
     
       ready_to_ship: [
@@ -1165,6 +1260,7 @@
     let preloadedBatch = null;
     let preloadedOffset = "";
     let ordersCacheBuster = "";
+    let selectedPaymentOrderIds = new Set();
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -1173,6 +1269,56 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+    }
+
+    function parseEuroMoney(value) {
+      const raw = String(value || "")
+        .replace(/[^\d,.-]/g, "")
+        .replace(/\./g, "")
+        .replace(",", ".");
+    
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : 0;
+    }
+    
+    function formatEuro(value) {
+      return new Intl.NumberFormat("nl-NL", {
+        style: "currency",
+        currency: "EUR"
+      }).format(value || 0);
+    }
+    
+    function isPaymentSelectable(order) {
+      const status = String(order.invoice_status || "").trim();
+    
+      return !status || status === "Pending";
+    }
+    
+    function updatePaymentSelectionSummary() {
+      if (!paymentBar) return;
+    
+      if (currentView !== "open_payments") {
+        paymentBar.classList.remove("active");
+        selectedPaymentOrderIds.clear();
+        return;
+      }
+    
+      paymentBar.classList.add("active");
+    
+      const selectedOrders = currentOrders.filter((order) =>
+        selectedPaymentOrderIds.has(order.id)
+      );
+    
+      const total = selectedOrders.reduce((sum, order) => {
+        return sum + parseEuroMoney(order.invoice_price);
+      }, 0);
+    
+      paymentSummary.innerHTML = `
+        Selected: <span>${selectedOrders.length} orders</span>
+        — Total: <span>${formatEuro(total)}</span>
+      `;
+    
+      createPaymentBtn.disabled = selectedOrders.length === 0;
     }
 
     function getStatusClass(value) {
@@ -1326,6 +1472,37 @@
     function renderCell(order, key) {
       if (key === "actions") return renderActions(order);
     
+      if (key === "select") {
+        const selectable = isPaymentSelectable(order);
+        const checked = selectedPaymentOrderIds.has(order.id) ? "checked" : "";
+    
+        return `
+          <input
+            class="payment-checkbox"
+            type="checkbox"
+            ${checked}
+            ${selectable ? "" : "disabled"}
+            onchange="togglePaymentSelection('${escapeHtml(order.id)}', this.checked)"
+          />
+        `;
+      }
+    
+      if (key === "payment_link") {
+        return order.payment_link
+          ? `<a class="action-btn blue" href="${escapeHtml(order.payment_link)}" target="_blank">PAY</a>`
+          : "—";
+      }
+    
+      if (key === "invoice_status") {
+        const status = order.invoice_status || "Pending";
+    
+        return `
+          <span class="status ${getStatusClass(status)}">
+            ${escapeHtml(status)}
+          </span>
+        `;
+      }
+    
       if (key === "status" || key === "issue_status") {
         const status = order[key] || "—";
       
@@ -1415,6 +1592,7 @@
             </td>
           </tr>
         `;
+        updatePaymentSelectionSummary();
         return;
       }
     
@@ -1433,6 +1611,8 @@
           </tr>
         `;
       }).join("");
+
+      updatePaymentSelectionSummary();
     }
     
     async function loadOrders(reset = true) {
@@ -1445,6 +1625,9 @@
       pageTitle.textContent = label;
     
       if (reset) {
+        selectedPaymentOrderIds.clear();
+        updatePaymentSelectionSummary();
+      
         nextOffset = "";
         hasMore = false;
         currentOrders = [];
@@ -1595,6 +1778,75 @@
 
     function showIssueNotes(notes) {
       alert(notes);
+    }
+
+    function togglePaymentSelection(orderId, checked) {
+      if (checked) {
+        selectedPaymentOrderIds.add(orderId);
+      } else {
+        selectedPaymentOrderIds.delete(orderId);
+      }
+    
+      updatePaymentSelectionSummary();
+    }
+    
+    async function createPaymentLink() {
+      const orderIds = Array.from(selectedPaymentOrderIds);
+    
+      if (!orderIds.length) {
+        alert("Select at least one order.");
+        return;
+      }
+    
+      const selectedOrders = currentOrders.filter((order) =>
+        selectedPaymentOrderIds.has(order.id)
+      );
+    
+      const total = selectedOrders.reduce((sum, order) => {
+        return sum + parseEuroMoney(order.invoice_price);
+      }, 0);
+    
+      const confirmed = confirm(
+        `Create one payment link for ${selectedOrders.length} orders?\n\nTotal: ${formatEuro(total)}`
+      );
+    
+      if (!confirmed) return;
+    
+      try {
+        createPaymentBtn.disabled = true;
+        createPaymentBtn.textContent = "Creating...";
+    
+        const response = await fetch("/api/payments/create-link", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            merchant_id: merchant.id,
+            order_ids: orderIds
+          })
+        });
+    
+        const data = await response.json();
+    
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to create payment link");
+        }
+    
+        window.open(data.payment_url, "_blank");
+    
+        selectedPaymentOrderIds.clear();
+        ordersCacheBuster = Date.now();
+    
+        await loadOrders(true);
+        await loadAllCounts();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        createPaymentBtn.disabled = false;
+        createPaymentBtn.textContent = "Create Payment Link";
+        updatePaymentSelectionSummary();
+      }
     }
 
     async function createReturn(recordId) {
@@ -1916,6 +2168,8 @@
     searchBtn.addEventListener("click", () => {
       loadOrders(true);
     });
+
+    createPaymentBtn.addEventListener("click", createPaymentLink);
 
     refreshBtn.addEventListener("click", async () => {
       ordersCacheBuster = Date.now();
