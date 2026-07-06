@@ -533,7 +533,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 18px;
       padding: 16px 18px;
       border: 1px solid rgba(102,179,255,0.18);
       border-radius: 18px;
@@ -551,24 +551,29 @@
     }
     
     .pending-payment-meta {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
       color: var(--muted);
       font-size: 13px;
       font-weight: 800;
+      line-height: 1.55;
     }
     
     .pending-payment-meta strong {
       color: var(--primary-soft);
     }
     
-    .pending-orders-inline {
-      max-width: 360px;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
+    .pending-orders-preview {
+      color: var(--text);
+    }
+    
+    .view-all-orders-link {
+      color: var(--primary-soft);
+      font-weight: 900;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    
+    .view-all-orders-link:hover {
+      text-decoration: underline;
     }
     
     .pending-payment-actions {
@@ -580,9 +585,27 @@
     
     .compact-btn {
       min-width: 92px;
-      height: 44px;
+      height: 42px;
       padding: 0 16px;
       border-radius: 12px;
+    }
+
+    .orders-modal-list {
+      display: grid;
+      gap: 8px;
+      max-height: 320px;
+      overflow: auto;
+      margin-top: 16px;
+      padding-right: 6px;
+    }
+    
+    .orders-modal-item {
+      padding: 11px 13px;
+      border-radius: 12px;
+      background: rgba(7,17,31,0.55);
+      border: 1px solid rgba(102,179,255,0.12);
+      font-weight: 900;
+      color: #fff;
     }
 
     .label-link {
@@ -915,30 +938,7 @@
           </button>
         </div>
 
-        <div id="pendingPaymentBar" class="pending-payment-bar">
-          <div class="pending-payment-left">
-            <div class="pending-payment-icon">↗</div>
-        
-            <div>
-              <div id="pendingPaymentTitle" class="pending-payment-title">
-                Payment link already created
-              </div>
-              <div id="pendingPaymentMeta" class="pending-payment-meta">
-                Loading...
-              </div>
-            </div>
-          </div>
-        
-          <div class="pending-payment-actions">
-            <button id="continuePaymentBtn" class="button" type="button">
-              Continue Payment
-            </button>
-        
-            <button id="cancelPaymentBatchBtn" class="action-btn red" type="button">
-              Cancel
-            </button>
-          </div>
-        </div>
+        <div id="pendingPaymentBar" class="pending-payment-bar"></div>
 
         <div class="stats-grid">
           <div class="stat-card">
@@ -1026,6 +1026,22 @@
     </div>
   </div>
 
+  <div id="ordersModal" class="modal-backdrop">
+    <div class="custom-modal">
+      <button class="modal-close" type="button" onclick="closeOrdersModal()">×</button>
+  
+      <h2 id="ordersModalTitle">Orders</h2>
+  
+      <p id="ordersModalSubtitle" class="modal-subtitle"></p>
+  
+      <div id="ordersModalList" class="orders-modal-list"></div>
+  
+      <button class="modal-submit" type="button" onclick="closeOrdersModal()">
+        Close
+      </button>
+    </div>
+  </div>
+
   <script>
     const merchantName = document.getElementById("merchantName");
     const logoutBtn = document.getElementById("logoutBtn");
@@ -1044,10 +1060,10 @@
     const paymentSummary = document.getElementById("paymentSummary");
     const createPaymentBtn = document.getElementById("createPaymentBtn");
     const pendingPaymentBar = document.getElementById("pendingPaymentBar");
-    const pendingPaymentTitle = document.getElementById("pendingPaymentTitle");
-    const pendingPaymentMeta = document.getElementById("pendingPaymentMeta");
-    const continuePaymentBtn = document.getElementById("continuePaymentBtn");
-    const cancelPaymentBatchBtn = document.getElementById("cancelPaymentBatchBtn");
+    const ordersModal = document.getElementById("ordersModal");
+    const ordersModalTitle = document.getElementById("ordersModalTitle");
+    const ordersModalSubtitle = document.getElementById("ordersModalSubtitle");
+    const ordersModalList = document.getElementById("ordersModalList");
 
     const viewLabels = {
       open: "Open Orders",
@@ -1916,6 +1932,43 @@
         renderPendingPaymentBar();
       }
     }
+
+    function getOrderPreview(orderText) {
+      const orderList = String(orderText || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+    
+      const visibleOrders = orderList.slice(0, 5);
+      const remainingCount = Math.max(orderList.length - visibleOrders.length, 0);
+    
+      return {
+        orderList,
+        orderCount: orderList.length,
+        preview: visibleOrders.join(", "),
+        remainingCount
+      };
+    }
+    
+    function openOrdersModal(batchId) {
+      const batch = openPaymentBatches.find((item) => item.id === batchId);
+      if (!batch) return;
+    
+      const { orderList, orderCount } = getOrderPreview(batch.order_numbers);
+    
+      ordersModalTitle.textContent = "Payment Orders";
+      ordersModalSubtitle.textContent = `${batch.batch_id || batch.id} · ${batch.amount || ""} · ${orderCount} orders`;
+    
+      ordersModalList.innerHTML = orderList.map((orderNumber) => {
+        return `<div class="orders-modal-item">Order ${escapeHtml(orderNumber)}</div>`;
+      }).join("");
+    
+      ordersModal.style.display = "flex";
+    }
+    
+    function closeOrdersModal() {
+      ordersModal.style.display = "none";
+    }
     
     function renderPendingPaymentBar() {
       if (!pendingPaymentBar) return;
@@ -1932,10 +1985,14 @@
         const status = batch.payment_status || "Awaiting Payment";
         const batchText = batch.batch_id || batch.id;
         const amountText = batch.amount || "";
-        const orderText = batch.order_numbers || "No orders";
-        const orderCount = orderText.split(",").filter(Boolean).length;
-    
+        const orderText = batch.order_numbers || "";
         const canCancel = status === "Awaiting Payment";
+    
+        const { orderCount, preview, remainingCount } = getOrderPreview(orderText);
+    
+        const ordersLine = remainingCount > 0
+          ? `${escapeHtml(preview)} · <span class="view-all-orders-link" onclick="openOrdersModal('${escapeHtml(batch.id)}')">View all ${orderCount} orders</span>`
+          : escapeHtml(preview || "No orders");
     
         return `
           <div class="pending-batch-row">
@@ -1945,12 +2002,8 @@
               </div>
     
               <div class="pending-payment-meta">
-                <strong>${escapeHtml(batchText)}</strong>
-                <span>·</span>
-                <strong>${escapeHtml(amountText)}</strong>
-                <span>·</span>
-                <span>${orderCount} orders</span>
-                <span class="pending-orders-inline">${escapeHtml(orderText)}</span>
+                <strong>${escapeHtml(batchText)}</strong> · <strong>${escapeHtml(amountText)}</strong> · ${orderCount} orders<br>
+                <span class="pending-orders-preview">${ordersLine}</span>
               </div>
             </div>
     
@@ -1997,8 +2050,6 @@
       if (!confirmed) return;
     
       try {
-        cancelPaymentBatchBtn.disabled = true;
-        cancelPaymentBatchBtn.textContent = "Cancelling...";
     
         const response = await fetch(`/api/payment-batches/${activePaymentBatch.id}/cancel`, {
           method: "POST",
@@ -2024,10 +2075,6 @@
         await loadOpenPaymentBatches();
       } catch (err) {
         alert(err.message);
-      } finally {
-        cancelPaymentBatchBtn.disabled = false;
-        cancelPaymentBatchBtn.textContent = "Cancel";
-      }
     }
 
     function togglePaymentSelection(orderId, checked) {
