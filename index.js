@@ -1602,7 +1602,6 @@ app.post("/api/payments/create-link", async (req, res) => {
     const batchId = `PB-${Date.now()}`;
 
     const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create({
-      "Batch ID": batchId,
       "Store": [merchantId],
       "Linked Orders": orderIds,
       "Order Numbers": orderNumbers.join(", "),
