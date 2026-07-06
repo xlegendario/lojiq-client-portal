@@ -414,7 +414,8 @@ function buildOrderViewFormula(view, merchant = {}) {
       ),
       OR(
         {Invoice Status} = 'Pending',
-        {Invoice Status} = 'Awaiting Payment'
+        {Invoice Status} = 'Awaiting Payment',
+        {Invoice Status} = 'Payment Pending'
       )
     )`;
   }
@@ -1616,8 +1617,8 @@ app.post("/api/payments/create-link", async (req, res) => {
           currency: "EUR",
           value: mollieAmount(total)
         },
-        description: `Lojiq orders ${orderNumbers.join(", ")}`,
-        redirectUrl: MOLLIE_REDIRECT_URL,
+        description: `Lojiq ${batchId}`,
+        redirectUrl: `${MOLLIE_REDIRECT_URL}?batch=${encodeURIComponent(batch.id)}`,
         webhookUrl: MOLLIE_WEBHOOK_URL,
         metadata: {
           batch_record_id: batch.id,
@@ -1692,18 +1693,39 @@ app.post("/api/mollie/webhook", async (req, res) => {
       return res.status(200).send("ok");
     }
 
+    if (payment.status === "pending") {
+      await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
+        "Payment Status": "Payment Pending",
+        "Mollie Payment ID": payment.id
+      });
+    
+      await Promise.all(
+        orderIds.map((orderId) =>
+          airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
+            "Invoice Status": "Payment Pending",
+            "Mollie Payment ID": payment.id
+          })
+        )
+      );
+    
+      ordersCache.clear();
+      countsCache.clear();
+    
+      return res.status(200).send("ok");
+    }
+    
     if (payment.status !== "paid") {
       return res.status(200).send("ok");
     }
-
+    
     const paidAt = isoNow();
-
+    
     await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
       "Payment Status": "Paid",
       "Paid At": paidAt,
       "Mollie Payment ID": payment.id
     });
-
+    
     await Promise.all(
       orderIds.map((orderId) =>
         airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
