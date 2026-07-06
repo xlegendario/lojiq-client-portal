@@ -1769,6 +1769,11 @@
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
       pageTitle.textContent = label;
+
+      if (currentView !== "open_payments") {
+        openStatLabel.textContent = "Open Orders";
+        openStat.textContent = document.getElementById("count-open")?.textContent || "0";
+      }
     
       if (reset) {
         selectedPaymentOrderIds.clear();
