@@ -1648,7 +1648,7 @@ app.post("/api/payments/create-link", async (req, res) => {
           "Invoice Status": "Awaiting Payment",
           "Payment Link": paymentUrl,
           "Mollie Payment ID": payment.id,
-          "Payment Batch ID": batchId
+          "Payment Batch ID": batch.id
         })
       )
     );
