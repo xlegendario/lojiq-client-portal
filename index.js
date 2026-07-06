@@ -1557,9 +1557,15 @@ app.post("/api/payments/create-link", async (req, res) => {
         return res.status(403).json({ error: "Not allowed for this merchant" });
       }
 
-      if (fulfillmentStatus !== "Requested Label") {
+      const payableStatuses = new Set([
+        "Requested Label",
+        "Ready to Ship",
+        "Fulfilled"
+      ]);
+      
+      if (!payableStatuses.has(fulfillmentStatus)) {
         return res.status(400).json({
-          error: "Only Requested Label orders can be paid"
+          error: "Only orders from Requested Label onward can be paid"
         });
       }
 
