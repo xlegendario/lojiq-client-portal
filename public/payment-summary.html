@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lojiq Payment Summary</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    :root {
+      --bg: #07111F;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --text: #DCEBFF;
+      --muted: #8FAECC;
+      --panel: #0E2238;
+      --border: #163252;
+      --green: #16B364;
+      --warning: #F59E0B;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top, rgba(47,128,237,0.18), transparent 30%),
+        linear-gradient(180deg, #050D18 0%, var(--bg) 100%);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      width: min(620px, 100%);
+      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 34px;
+      box-shadow: 0 18px 44px rgba(0,0,0,0.35);
+    }
+
+    .logo {
+      width: 220px;
+      display: block;
+      margin: 0 auto 26px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      text-align: center;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: var(--muted);
+      font-weight: 800;
+      margin-bottom: 28px;
+    }
+
+    .status {
+      text-align: center;
+      margin-bottom: 24px;
+      font-weight: 900;
+      color: #83e6ad;
+    }
+
+    .status.pending {
+      color: #fbc76f;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(143,174,204,0.12);
+    }
+
+    .label {
+      color: var(--muted);
+      font-weight: 900;
+    }
+
+    .value {
+      text-align: right;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .orders {
+      line-height: 1.6;
+      word-break: break-word;
+    }
+
+    .button {
+      margin-top: 28px;
+      width: 100%;
+      cursor: pointer;
+      border-radius: 14px;
+      border: none;
+      padding: 15px;
+      font-size: 15px;
+      font-weight: 900;
+      background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+      color: white;
+    }
+
+    .note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .error {
+      color: #ff9b95;
+      text-align: center;
+      font-weight: 900;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/logo.png" alt="Lojiq" class="logo">
+
+    <h1 id="title">Payment Summary</h1>
+    <div id="subtitle" class="subtitle">Loading payment details...</div>
+
+    <div id="content"></div>
+
+    <button class="button" onclick="window.location.href='/portal'">
+      Back to Portal
+    </button>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const batchId = params.get("batch");
+
+    const title = document.getElementById("title");
+    const subtitle = document.getElementById("subtitle");
+    const content = document.getElementById("content");
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    async function loadSummary() {
+      if (!batchId) {
+        subtitle.textContent = "";
+        content.innerHTML = `<div class="error">Missing payment batch.</div>`;
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/payment-batches/${encodeURIComponent(batchId)}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to load payment summary");
+        }
+
+        const batch = data.batch;
+        const status = batch.payment_status || "Unknown";
+
+        const isPaid = status === "Paid";
+        const isPending = status === "Payment Pending" || status === "Awaiting Payment";
+
+        title.textContent = isPaid ? "Payment Successful" : "Payment Submitted";
+
+        subtitle.textContent = isPaid
+          ? "Your payment has been confirmed."
+          : "Your payment is not fully confirmed yet.";
+
+        content.innerHTML = `
+          <div class="status ${isPending ? "pending" : ""}">
+            ${escapeHtml(status)}
+          </div>
+
+          <div class="row">
+            <div class="label">Batch</div>
+            <div class="value">${escapeHtml(batch.batch_id)}</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Orders</div>
+            <div class="value orders">${escapeHtml(batch.order_numbers)}</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Amount</div>
+            <div class="value">${escapeHtml(batch.amount)}</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Provider</div>
+            <div class="value">${escapeHtml(batch.payment_provider || "Mollie")}</div>
+          </div>
+
+          <div class="row">
+            <div class="label">Paid At</div>
+            <div class="value">${escapeHtml(batch.paid_at || "Not confirmed yet")}</div>
+          </div>
+
+          <div class="note">
+            Keep this batch reference for your bookkeeping.
+            ${
+              isPaid
+                ? ""
+                : "For bank transfers, the payment will be marked as paid once Mollie confirms receipt."
+            }
+          </div>
+        `;
+      } catch (err) {
+        subtitle.textContent = "";
+        content.innerHTML = `<div class="error">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    loadSummary();
+  </script>
+</body>
+</html>
