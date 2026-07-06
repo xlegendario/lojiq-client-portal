@@ -669,7 +669,6 @@ app.get("/api/orders", async (req, res) => {
         invoice_status: displayValue(f["Invoice Status"]),
         payment_link: displayValue(f["Payment Link"]),
         mollie_payment_id: displayValue(f["Mollie Payment ID"]),
-        payment_batch_id: displayValue(f["Payment Batch ID"]),
         paid_at: dateValue(f["Paid At"]),
         vat_type: (() => {
           const originalVat = displayValue(f["VAT Type"]);
@@ -1648,7 +1647,7 @@ app.post("/api/payments/create-link", async (req, res) => {
           "Invoice Status": "Awaiting Payment",
           "Payment Link": paymentUrl,
           "Mollie Payment ID": payment.id,
-          "Payment Batch ID": batch.id
+          "Payment Batches": [batch.id]
         })
       )
     );
