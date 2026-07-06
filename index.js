@@ -1705,26 +1705,24 @@ app.get("/api/payment-batches/open", async (req, res) => {
       return res.status(400).json({ error: "Missing merchant_id" });
     }
 
-    const merchant = await getCachedMerchant(merchantId);
-    const safeStoreName = escapeFormulaValue(merchant.store_name);
-
     const records = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
       .select({
-        filterByFormula: `AND(
-          FIND('${safeStoreName}', ARRAYJOIN({Store})),
-          OR(
-            {Payment Status} = 'Awaiting Payment',
-            {Payment Status} = 'Payment Pending'
-          )
+        filterByFormula: `OR(
+          {Payment Status} = 'Awaiting Payment',
+          {Payment Status} = 'Payment Pending'
         )`,
         sort: [{ field: "Created At", direction: "desc" }],
-        maxRecords: 5
+        maxRecords: 50
       })
       .firstPage();
 
+    const batches = records
+      .filter((record) => linkedRecordIncludes(record.fields["Store"], merchantId))
+      .map(normalizePaymentBatch);
+
     res.json({
       ok: true,
-      batches: records.map(normalizePaymentBatch)
+      batches
     });
   } catch (err) {
     console.error("Failed to load open payment batches:", err);
@@ -1778,9 +1776,7 @@ app.post("/api/payment-batches/:batchId/cancel", async (req, res) => {
     const f = batch.fields || {};
 
     const paymentStatus = displayValue(f["Payment Status"]);
-    const storeName = displayValue(f["Store"]);
-
-    if (!storeName.includes(merchant.store_name)) {
+    if (!linkedRecordIncludes(f["Store"], merchantId)) {
       return res.status(403).json({ error: "Not allowed for this merchant" });
     }
 
