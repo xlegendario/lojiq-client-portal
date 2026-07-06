@@ -24,6 +24,7 @@ app.get("/reset-password", (_req, res) => {
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 app.use(compression());
 
 const {
@@ -41,7 +42,12 @@ const {
   APP_PUBLIC_BASE_URL = "https://lojiq-client-portal.onrender.com",
   RESET_EMAIL_FROM,
   KICKZ_PORTAL_BASE_URL = "https://kickzcaviar.com",
-  COUNTER_OFFERS_SECRET
+  COUNTER_OFFERS_SECRET,
+  MOLLIE_API_KEY,
+  MOLLIE_MODE = "test",
+  MOLLIE_REDIRECT_URL = "https://portal.lojiq.io/portal",
+  MOLLIE_WEBHOOK_URL = "https://portal.lojiq.io/api/mollie/webhook",
+  AIRTABLE_PAYMENT_BATCHES_TABLE = "Payment Batches"
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -148,6 +154,51 @@ function moneyValue(value) {
     style: "currency",
     currency: "EUR"
   }).format(n);
+}
+
+function eurNumber(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const n = Number(raw);
+
+  if (!Number.isFinite(n)) return 0;
+
+  return Math.round(n * 100) / 100;
+}
+
+function mollieAmount(value) {
+  return eurNumber(value).toFixed(2);
+}
+
+async function mollieRequest(pathname, options = {}) {
+  if (!MOLLIE_API_KEY) {
+    throw new Error("Missing MOLLIE_API_KEY");
+  }
+
+  const response = await fetch(`https://api.mollie.com/v2${pathname}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${MOLLIE_API_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail ||
+      data.title ||
+      data.message ||
+      "Mollie request failed"
+    );
+  }
+
+  return data;
+}
+
+function isoNow() {
+  return new Date().toISOString();
 }
 
 function dateValue(value) {
@@ -352,6 +403,28 @@ function buildOrderViewFormula(view, merchant = {}) {
 
   if (view === "label_requests") {
     return `{Fulfillment Status} = 'Requested Label'`;
+  }
+
+  if (view === "open_payments") {
+    return `AND(
+      {Fulfillment Status} = 'Requested Label',
+      OR(
+        {Invoice Status} = BLANK(),
+        {Invoice Status} = 'Pending',
+        {Invoice Status} = 'Awaiting Payment'
+      )
+    )`;
+  }
+  
+  if (view === "payment_history") {
+    return `AND(
+      {Fulfillment Status} = 'Requested Label',
+      OR(
+        {Invoice Status} = 'Paid',
+        {Invoice Status} = 'Expired',
+        {Invoice Status} = 'Cancelled'
+      )
+    )`;
   }
 
   if (view === "ready_to_ship") {
@@ -593,6 +666,11 @@ app.get("/api/orders", async (req, res) => {
         allocated_price: moneyValue(f["Final Buying Price"]),
         vat: moneyValue(f["Buying VAT Amount"]),
         invoice_price: moneyValue(f["Invoice Price (VAT Included)"]),
+        invoice_status: displayValue(f["Invoice Status"]),
+        payment_link: displayValue(f["Payment Link"]),
+        mollie_payment_id: displayValue(f["Mollie Payment ID"]),
+        payment_batch_id: displayValue(f["Payment Batch ID"]),
+        paid_at: dateValue(f["Paid At"]),
         vat_type: (() => {
           const originalVat = displayValue(f["VAT Type"]);
           const country = displayValue(f["Client Country"]).toLowerCase();
@@ -687,6 +765,8 @@ app.get("/api/orders/counts", async (req, res) => {
       "offers",
       "allocated",
       "label_requests",
+      "open_payments",
+      "payment_history",
       "ready_to_ship",
       "shipped",
       "fulfilled",
@@ -1441,6 +1521,202 @@ app.post("/api/reset-password", async (req, res) => {
       error: "Failed to reset password",
       details: err.message
     });
+  }
+});
+
+app.post("/api/payments/create-link", async (req, res) => {
+  try {
+    const merchantId = asText(req.body.merchant_id);
+    const orderIds = Array.isArray(req.body.order_ids)
+      ? req.body.order_ids.map(asText).filter(Boolean)
+      : [];
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    if (!orderIds.length) {
+      return res.status(400).json({ error: "Select at least one order" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    const orders = await Promise.all(
+      orderIds.map((orderId) =>
+        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(orderId)
+      )
+    );
+
+    for (const order of orders) {
+      const orderStoreName = displayValue(order.fields["Store Name"]);
+      const fulfillmentStatus = displayValue(order.fields["Fulfillment Status"]);
+      const invoiceStatus = displayValue(order.fields["Invoice Status"]);
+
+      if (orderStoreName !== merchant.store_name) {
+        return res.status(403).json({ error: "Not allowed for this merchant" });
+      }
+
+      if (fulfillmentStatus !== "Requested Label") {
+        return res.status(400).json({
+          error: "Only Requested Label orders can be paid"
+        });
+      }
+
+      if (invoiceStatus === "Paid") {
+        return res.status(400).json({
+          error: "One of the selected orders is already paid"
+        });
+      }
+
+      if (invoiceStatus === "Awaiting Payment") {
+        return res.status(400).json({
+          error: "One of the selected orders already has a payment link"
+        });
+      }
+
+      if (invoiceStatus === "Expired" || invoiceStatus === "Cancelled") {
+        return res.status(400).json({
+          error: "One of the selected orders cannot be paid from the portal"
+        });
+      }
+    }
+
+    const total = orders.reduce((sum, order) => {
+      return sum + eurNumber(order.fields["Invoice Price (VAT Included)"]);
+    }, 0);
+
+    if (total <= 0) {
+      return res.status(400).json({ error: "Total amount is invalid" });
+    }
+
+    const orderNumbers = orders
+      .map((order) => displayValue(order.fields["Shopify Order Number"]))
+      .filter(Boolean);
+
+    const batchId = `PB-${Date.now()}`;
+
+    const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create({
+      "Batch ID": batchId,
+      "Store": [merchantId],
+      "Linked Orders": orderIds,
+      "Order Numbers": orderNumbers.join(", "),
+      "Amount": total,
+      "Payment Status": "Pending",
+      "Payment Provider": "Mollie"
+    });
+
+    const payment = await mollieRequest("/payments", {
+      method: "POST",
+      body: JSON.stringify({
+        amount: {
+          currency: "EUR",
+          value: mollieAmount(total)
+        },
+        description: `Lojiq orders ${orderNumbers.join(", ")}`,
+        redirectUrl: MOLLIE_REDIRECT_URL,
+        webhookUrl: MOLLIE_WEBHOOK_URL,
+        metadata: {
+          batch_record_id: batch.id,
+          batch_id: batchId,
+          merchant_id: merchantId,
+          order_ids: orderIds,
+          order_numbers: orderNumbers
+        }
+      })
+    });
+
+    const paymentUrl = payment?._links?.checkout?.href || "";
+
+    if (!paymentUrl) {
+      throw new Error("Mollie did not return a checkout URL");
+    }
+
+    await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
+      "Payment Status": "Awaiting Payment",
+      "Payment Link": paymentUrl,
+      "Mollie Payment ID": payment.id
+    });
+
+    await Promise.all(
+      orderIds.map((orderId) =>
+        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
+          "Invoice Status": "Awaiting Payment",
+          "Payment Link": paymentUrl,
+          "Mollie Payment ID": payment.id,
+          "Payment Batch ID": batchId
+        })
+      )
+    );
+
+    ordersCache.clear();
+    countsCache.delete(`counts:${merchantId}`);
+
+    res.json({
+      ok: true,
+      payment_url: paymentUrl,
+      mollie_payment_id: payment.id,
+      batch_id: batchId,
+      batch_record_id: batch.id,
+      total
+    });
+  } catch (err) {
+    console.error("Create Mollie payment failed:", err);
+
+    res.status(500).json({
+      error: "Failed to create payment link",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/mollie/webhook", async (req, res) => {
+  try {
+    const paymentId = asText(req.body.id);
+
+    if (!paymentId) {
+      return res.status(400).send("Missing payment id");
+    }
+
+    const payment = await mollieRequest(`/payments/${encodeURIComponent(paymentId)}`);
+
+    const metadata = payment.metadata || {};
+    const batchRecordId = asText(metadata.batch_record_id);
+    const orderIds = Array.isArray(metadata.order_ids) ? metadata.order_ids : [];
+
+    if (!batchRecordId || !orderIds.length) {
+      console.error("Mollie webhook missing metadata:", paymentId, metadata);
+      return res.status(200).send("ok");
+    }
+
+    if (payment.status !== "paid") {
+      return res.status(200).send("ok");
+    }
+
+    const paidAt = isoNow();
+
+    await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
+      "Payment Status": "Paid",
+      "Paid At": paidAt,
+      "Mollie Payment ID": payment.id
+    });
+
+    await Promise.all(
+      orderIds.map((orderId) =>
+        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
+          "Invoice Status": "Paid",
+          "Paid At": paidAt,
+          "Mollie Payment ID": payment.id
+        })
+      )
+    );
+
+    ordersCache.clear();
+    countsCache.clear();
+
+    res.status(200).send("ok");
+  } catch (err) {
+    console.error("Mollie webhook failed:", err);
+    res.status(500).send("webhook failed");
   }
 });
 
