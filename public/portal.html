@@ -1435,6 +1435,16 @@
       `;
     
       createPaymentBtn.disabled = selectedOrders.length === 0;
+
+      const selectAll = document.getElementById("selectAllPaymentsCheckbox");
+
+      if (selectAll) {
+        const selectable = currentOrders.filter(isPaymentSelectable);
+      
+        selectAll.checked =
+          selectable.length > 0 &&
+          selectable.every(o => selectedPaymentOrderIds.has(o.id));
+      }
     }
 
     function getStatusClass(value) {
@@ -1607,7 +1617,7 @@
         const selectable = isPaymentSelectable(order);
       
         return selectable
-          ? `<button class="action-btn blue" type="button" onclick="paySingleOrder('${escapeHtml(order.id)}')">PAY</button>`
+          ? `<button class="action-btn green" type="button" onclick="paySingleOrder('${escapeHtml(order.id)}')">PAY</button>`
           : "—";
       }
 
@@ -2092,6 +2102,20 @@
       }
     }
 
+    function toggleSelectAllPayments(checked) {
+      currentOrders.forEach(order => {
+        if (!isPaymentSelectable(order)) return;
+    
+        if (checked) {
+          selectedPaymentOrderIds.add(order.id);
+        } else {
+          selectedPaymentOrderIds.delete(order.id);
+        }
+      });
+    
+      renderOrders(currentOrders);
+    }
+
     function togglePaymentSelection(orderId, checked) {
       if (checked) {
         selectedPaymentOrderIds.add(orderId);
@@ -2100,6 +2124,15 @@
       }
     
       updatePaymentSelectionSummary();
+    }
+
+    async function paySingleOrder(orderId) {
+      selectedPaymentOrderIds.clear();
+      selectedPaymentOrderIds.add(orderId);
+    
+      renderOrders(currentOrders);
+    
+      await createPaymentLink();
     }
     
     async function createPaymentLink() {
