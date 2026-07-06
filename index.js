@@ -413,7 +413,6 @@ function buildOrderViewFormula(view, merchant = {}) {
         {Fulfillment Status} = 'Fulfilled'
       ),
       OR(
-        {Invoice Status} = BLANK(),
         {Invoice Status} = 'Pending',
         {Invoice Status} = 'Awaiting Payment'
       )
