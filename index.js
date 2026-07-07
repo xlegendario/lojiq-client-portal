@@ -438,7 +438,7 @@ function buildOrderViewFormula(view, merchant = {}) {
       OR(
         {Invoice Status} = 'Pending',
         {Invoice Status} = 'Awaiting Payment',
-        {Invoice Status} = 'Payment Pending'
+        {Invoice Status} = 'Pending Payment'
       )
     )`;
   }
@@ -1709,7 +1709,7 @@ app.get("/api/payment-batches/open", async (req, res) => {
       .select({
         filterByFormula: `OR(
           {Payment Status} = 'Awaiting Payment',
-          {Payment Status} = 'Payment Pending'
+          {Payment Status} = 'Pending Payment'
         )`,
         sort: [{ field: "Created At", direction: "desc" }],
         maxRecords: 50
@@ -1746,7 +1746,7 @@ app.post("/api/payment-batches/:batchId/mark-pending", async (req, res) => {
     const f = batch.fields || {};
     const status = displayValue(f["Payment Status"]);
 
-    if (status === "Paid" || status === "Payment Pending") {
+    if (status === "Paid" || status === "Pending Payment") {
       return res.json({
         ok: true,
         batch: normalizePaymentBatch(batch)
@@ -1763,13 +1763,13 @@ app.post("/api/payment-batches/:batchId/mark-pending", async (req, res) => {
     const linkedOrders = Array.isArray(f["Linked Orders"]) ? f["Linked Orders"] : [];
 
     const updatedBatch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
-      "Payment Status": "Payment Pending"
+      "Payment Status": "Pending Payment"
     });
 
     await Promise.all(
       linkedOrders.map((orderId) =>
         airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-          "Invoice Status": "Payment Pending"
+          "Invoice Status": "Pending Payment"
         })
       )
     );
@@ -1895,14 +1895,14 @@ app.post("/api/mollie/webhook", async (req, res) => {
 
     if (payment.status === "pending") {
       await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
-        "Payment Status": "Payment Pending",
+        "Payment Status": "Pending Payment",
         "Mollie Payment ID": payment.id
       });
     
       await Promise.all(
         orderIds.map((orderId) =>
           airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-            "Invoice Status": "Payment Pending",
+            "Invoice Status": "Pending Payment",
             "Mollie Payment ID": payment.id
           })
         )
