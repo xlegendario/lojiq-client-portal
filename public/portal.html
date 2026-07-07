@@ -2061,6 +2061,7 @@
         const amountText = batch.amount || "";
         const orderText = batch.order_numbers || "";
         const canCancel = status === "Awaiting Payment";
+        const isPaymentPending = status === "Payment Pending";
     
         const { orderCount, preview, remainingCount } = getOrderPreview(orderText);
     
@@ -2072,24 +2073,36 @@
           <div class="pending-batch-row">
             <div class="pending-batch-info">
               <div class="pending-payment-title">
-                ${status === "Payment Pending" ? "Payment Pending" : "Pending Payment"}
+                ${isPaymentPending ? "Waiting for Mollie confirmation" : "Pending Payment"}
               </div>
     
               <div class="pending-payment-meta">
                 <strong>${escapeHtml(batchText)}</strong> · <strong>${escapeHtml(amountText)}</strong> · ${orderCount} orders<br>
-                <span class="pending-orders-preview">${ordersLine}</span>
+                <span class="pending-orders-preview">
+                  ${
+                    isPaymentPending
+                      ? `Bank transfer submitted. These orders can no longer be selected. We'll mark them as paid once Mollie confirms receipt.`
+                      : ordersLine
+                  }
+                </span>
               </div>
             </div>
     
             <div class="pending-payment-actions">
-              <button class="button compact-btn" type="button" onclick="continuePaymentBatch('${escapeHtml(batch.id)}')">
-                Continue
-              </button>
-    
               ${
-                canCancel
-                  ? `<button class="action-btn red compact-btn" type="button" onclick="cancelPaymentBatchById('${escapeHtml(batch.id)}')">Cancel</button>`
-                  : ""
+                isPaymentPending
+                  ? ""
+                  : `
+                    <button class="button compact-btn" type="button" onclick="continuePaymentBatch('${escapeHtml(batch.id)}')">
+                      Continue
+                    </button>
+            
+                    ${
+                      canCancel
+                        ? `<button class="action-btn red compact-btn" type="button" onclick="cancelPaymentBatchById('${escapeHtml(batch.id)}')">Cancel</button>`
+                        : ""
+                    }
+                  `
               }
             </div>
           </div>
