@@ -165,7 +165,9 @@
       }
 
       try {
-        const response = await fetch(`/api/payment-batches/${encodeURIComponent(batchId)}`);
+        const response = await fetch(`/api/payment-batches/${encodeURIComponent(batchId)}/mark-pending`, {
+          method: "POST"
+        });
         const data = await response.json();
 
         if (!response.ok) {
