@@ -1734,6 +1734,63 @@ app.get("/api/payment-batches/open", async (req, res) => {
   }
 });
 
+app.post("/api/payment-batches/:batchId/mark-pending", async (req, res) => {
+  try {
+    const batchId = asText(req.params.batchId);
+
+    if (!batchId) {
+      return res.status(400).json({ error: "Missing batchId" });
+    }
+
+    const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).find(batchId);
+    const f = batch.fields || {};
+    const status = displayValue(f["Payment Status"]);
+
+    if (status === "Paid" || status === "Payment Pending") {
+      return res.json({
+        ok: true,
+        batch: normalizePaymentBatch(batch)
+      });
+    }
+
+    if (status !== "Awaiting Payment") {
+      return res.json({
+        ok: true,
+        batch: normalizePaymentBatch(batch)
+      });
+    }
+
+    const linkedOrders = Array.isArray(f["Linked Orders"]) ? f["Linked Orders"] : [];
+
+    const updatedBatch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
+      "Payment Status": "Payment Pending"
+    });
+
+    await Promise.all(
+      linkedOrders.map((orderId) =>
+        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
+          "Invoice Status": "Payment Pending"
+        })
+      )
+    );
+
+    ordersCache.clear();
+    countsCache.clear();
+
+    res.json({
+      ok: true,
+      batch: normalizePaymentBatch(updatedBatch)
+    });
+  } catch (err) {
+    console.error("Mark payment pending failed:", err);
+
+    res.status(500).json({
+      error: "Failed to mark payment pending",
+      details: err.message
+    });
+  }
+});
+
 app.get("/api/payment-batches/:batchId", async (req, res) => {
   try {
     const batchId = asText(req.params.batchId);
