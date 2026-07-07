@@ -178,7 +178,7 @@
         const status = batch.payment_status || "Unknown";
 
         const isPaid = status === "Paid";
-        const isPending = status === "Payment Pending" || status === "Awaiting Payment";
+        const isPending = status === "Pending Payment" || status === "Awaiting Payment";
 
         title.textContent = isPaid ? "Payment Successful" : "Payment Submitted";
 
