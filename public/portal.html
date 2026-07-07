@@ -2061,7 +2061,7 @@
         const amountText = batch.amount || "";
         const orderText = batch.order_numbers || "";
         const canCancel = status === "Awaiting Payment";
-        const isPaymentPending = status === "Payment Pending";
+        const isPaymentPending = status === "Pending Payment";
     
         const { orderCount, preview, remainingCount } = getOrderPreview(orderText);
     
