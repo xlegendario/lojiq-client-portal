@@ -271,6 +271,16 @@ function amountNumber(amountObject) {
   return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
 }
 
+function rawAmountNumber(amountObject) {
+  const value =
+    amountObject && typeof amountObject === "object"
+      ? amountObject.value
+      : amountObject;
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
 function firstMollieDate(...values) {
   for (const value of values) {
     if (!value) continue;
@@ -434,13 +444,13 @@ function getSettlementFinancialSummary(settlement) {
         : [];
 
       for (const revenue of revenueRows) {
-        grossAmount += amountNumber(
+        grossAmount += rawAmountNumber(
           revenue?.amountGross || revenue?.amountNet
         );
       }
 
       for (const cost of costRows) {
-        feeAmount += amountNumber(
+        feeAmount += rawAmountNumber(
           cost?.amountGross || cost?.amountNet
         );
       }
