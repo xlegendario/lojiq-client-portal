@@ -2547,6 +2547,7 @@ app.post(
 
             const fields = {
               "Settlement ID": settlementId,
+              "Settlement Reference": asText(settlement?.reference),
               "Settlement Status": settlementStatus,
               "Settlement Gross Amount":
                 financials.grossAmount,
@@ -2580,6 +2581,7 @@ app.post(
 
           settlementResults.push({
             settlement_id: settlementId,
+            settlement_reference: asText(settlement?.reference),
             mollie_status: asText(settlement?.status),
             airtable_status: settlementStatus,
             payment_count: payments.length,
