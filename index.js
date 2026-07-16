@@ -48,6 +48,9 @@ const {
   KICKZ_PORTAL_BASE_URL = "https://kickzcaviar.com",
   COUNTER_OFFERS_SECRET,
   MOLLIE_API_KEY,
+  MOLLIE_REPORTING_TOKEN,
+  MOLLIE_PROFILE_ID,
+  ADMIN_SYNC_SECRET,
   MOLLIE_MODE = "test",
   MOLLIE_REDIRECT_URL = "https://portal.lojiq.io/portal",
   MOLLIE_WEBHOOK_URL = "https://portal.lojiq.io/api/mollie/webhook",
@@ -199,6 +202,205 @@ async function mollieRequest(pathname, options = {}) {
   }
 
   return data;
+}
+
+async function mollieReportingRequest(pathname, options = {}) {
+  if (!MOLLIE_REPORTING_TOKEN) {
+    throw new Error("Missing MOLLIE_REPORTING_TOKEN");
+  }
+
+  const response = await fetch(`https://api.mollie.com/v2${pathname}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${MOLLIE_REPORTING_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      data.detail ||
+      data.title ||
+      data.message ||
+      `Mollie reporting request failed with status ${response.status}`
+    );
+
+    error.statusCode = response.status;
+    error.mollieResponse = data;
+
+    throw error;
+  }
+
+  return data;
+}
+
+function requireAdminSyncSecret(req, res, next) {
+  if (!ADMIN_SYNC_SECRET) {
+    return res.status(500).json({
+      error: "Missing ADMIN_SYNC_SECRET"
+    });
+  }
+
+  const authorization = asText(req.headers.authorization);
+  const expected = `Bearer ${ADMIN_SYNC_SECRET}`;
+
+  if (authorization !== expected) {
+    return res.status(401).json({
+      error: "Unauthorized"
+    });
+  }
+
+  next();
+}
+
+function mollieEmbeddedItems(data, key) {
+  const items = data?._embedded?.[key];
+  return Array.isArray(items) ? items : [];
+}
+
+function amountNumber(amountObject) {
+  const value =
+    amountObject && typeof amountObject === "object"
+      ? amountObject.value
+      : amountObject;
+
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
+}
+
+function firstMollieDate(...values) {
+  for (const value of values) {
+    if (!value) continue;
+
+    const date = new Date(value);
+
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return "";
+}
+
+async function listAllSettlementPayments(settlementId) {
+  const payments = [];
+  let from = "";
+
+  do {
+    const params = new URLSearchParams({
+      limit: "250",
+      sort: "asc"
+    });
+
+    if (from) {
+      params.set("from", from);
+    }
+
+    if (MOLLIE_PROFILE_ID) {
+      params.set("profileId", MOLLIE_PROFILE_ID);
+    }
+
+    const data = await mollieReportingRequest(
+      `/settlements/${encodeURIComponent(settlementId)}/payments?${params.toString()}`
+    );
+
+    const pagePayments = mollieEmbeddedItems(data, "payments");
+    payments.push(...pagePayments);
+
+    const nextHref = data?._links?.next?.href || "";
+
+    if (!nextHref || pagePayments.length === 0) {
+      from = "";
+      continue;
+    }
+
+    const nextUrl = new URL(nextHref);
+    const nextFrom = nextUrl.searchParams.get("from") || "";
+
+    from = nextFrom && nextFrom !== from ? nextFrom : "";
+  } while (from);
+
+  return payments;
+}
+
+async function loadPaymentBatchIndex() {
+  const records = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+    .select({
+      fields: [
+        "Batch ID",
+        "Amount",
+        "Mollie Payment ID",
+        "Payment Status",
+        "Order Numbers",
+        "Settlement ID"
+      ]
+    })
+    .all();
+
+  const byMolliePaymentId = new Map();
+
+  for (const record of records) {
+    const molliePaymentId = displayValue(
+      record.fields["Mollie Payment ID"]
+    );
+
+    if (!molliePaymentId) continue;
+
+    byMolliePaymentId.set(molliePaymentId, {
+      record_id: record.id,
+      batch_id:
+        displayValue(record.fields["Batch ID"]) ||
+        record.id,
+      amount: eurNumber(record.fields["Amount"]),
+      payment_status: displayValue(
+        record.fields["Payment Status"]
+      ),
+      order_numbers: displayValue(
+        record.fields["Order Numbers"]
+      ),
+      current_settlement_id: displayValue(
+        record.fields["Settlement ID"]
+      )
+    });
+  }
+
+  return byMolliePaymentId;
+}
+
+function normalizeSettlementPreview(settlement) {
+  const status = asText(settlement?.status);
+
+  const settlementStatus =
+    status === "paidout" || status === "paid"
+      ? "Paid"
+      : "Pending";
+
+  const netAmount = amountNumber(settlement?.amount);
+
+  return {
+    id: asText(settlement?.id),
+    reference: asText(settlement?.reference),
+    mollie_status: status,
+    airtable_status: settlementStatus,
+    currency:
+      asText(settlement?.amount?.currency) ||
+      "EUR",
+    net_amount: netAmount,
+    created_at: firstMollieDate(
+      settlement?.createdAt
+    ),
+    settled_at: firstMollieDate(
+      settlement?.settledAt,
+      settlement?.paidOutAt
+    ),
+    payout_date: firstMollieDate(
+      settlement?.paidOutAt,
+      settlement?.settledAt
+    )
+  };
 }
 
 function isoNow() {
@@ -1945,6 +2147,195 @@ app.post("/api/mollie/webhook", async (req, res) => {
     res.status(500).send("webhook failed");
   }
 });
+
+// --------------------------------------------------
+// MOLLIE SETTLEMENT PREVIEW
+// Read-only: this endpoint does not update Airtable.
+// --------------------------------------------------
+
+app.get(
+  "/api/admin/mollie/settlements/preview",
+  requireAdminSyncSecret,
+  async (_req, res) => {
+    try {
+      const batchIndex = await loadPaymentBatchIndex();
+
+      const settlementsData = await mollieReportingRequest(
+        "/settlements?limit=50"
+      );
+
+      const completedSettlements = mollieEmbeddedItems(
+        settlementsData,
+        "settlements"
+      );
+
+      let nextSettlement = null;
+      let nextSettlementError = "";
+
+      try {
+        nextSettlement = await mollieReportingRequest(
+          "/settlements/next"
+        );
+      } catch (err) {
+        if (err.statusCode === 404) {
+          nextSettlement = null;
+        } else {
+          nextSettlementError = err.message;
+        }
+      }
+
+      const uniqueSettlements = new Map();
+
+      for (const settlement of completedSettlements) {
+        if (settlement?.id) {
+          uniqueSettlements.set(settlement.id, settlement);
+        }
+      }
+
+      if (nextSettlement?.id) {
+        uniqueSettlements.set(
+          nextSettlement.id,
+          nextSettlement
+        );
+      }
+
+      const previewSettlements = [];
+
+      for (const settlement of uniqueSettlements.values()) {
+        const normalized =
+          normalizeSettlementPreview(settlement);
+
+        let payments = [];
+        let paymentsError = "";
+
+        try {
+          payments = await listAllSettlementPayments(
+            normalized.id
+          );
+        } catch (err) {
+          paymentsError = err.message;
+        }
+
+        const paymentRows = payments.map((payment) => {
+          const paymentId = asText(payment?.id);
+          const matchedBatch =
+            batchIndex.get(paymentId) || null;
+
+          return {
+            mollie_payment_id: paymentId,
+            description: asText(payment?.description),
+            payment_status: asText(payment?.status),
+            method: asText(payment?.method),
+            amount: amountNumber(payment?.amount),
+            settlement_amount: amountNumber(
+              payment?.settlementAmount
+            ),
+            paid_at: firstMollieDate(
+              payment?.paidAt,
+              payment?.createdAt
+            ),
+            matched: !!matchedBatch,
+            matched_batch: matchedBatch
+          };
+        });
+
+        const grossPaymentsAmount = paymentRows.reduce(
+          (sum, payment) => sum + payment.amount,
+          0
+        );
+
+        const settlementPaymentsAmount = paymentRows.reduce(
+          (sum, payment) =>
+            sum +
+            (
+              payment.settlement_amount ||
+              payment.amount
+            ),
+          0
+        );
+
+        previewSettlements.push({
+          ...normalized,
+          payment_count: paymentRows.length,
+          matched_payment_count: paymentRows.filter(
+            (payment) => payment.matched
+          ).length,
+          unmatched_payment_count: paymentRows.filter(
+            (payment) => !payment.matched
+          ).length,
+          gross_payments_amount:
+            Math.round(grossPaymentsAmount * 100) / 100,
+          settlement_payments_amount:
+            Math.round(settlementPaymentsAmount * 100) / 100,
+          payments_error: paymentsError,
+          payments: paymentRows,
+          raw_settlement: settlement
+        });
+      }
+
+      previewSettlements.sort((a, b) => {
+        const aDate = new Date(
+          a.payout_date ||
+          a.settled_at ||
+          a.created_at ||
+          0
+        ).getTime();
+
+        const bDate = new Date(
+          b.payout_date ||
+          b.settled_at ||
+          b.created_at ||
+          0
+        ).getTime();
+
+        return bDate - aDate;
+      });
+
+      const unmatchedPayments =
+        previewSettlements.flatMap((settlement) =>
+          settlement.payments
+            .filter((payment) => !payment.matched)
+            .map((payment) => ({
+              settlement_id: settlement.id,
+              ...payment
+            }))
+        );
+
+      res.json({
+        ok: true,
+        read_only: true,
+        generated_at: isoNow(),
+        completed_settlement_count:
+          completedSettlements.length,
+        next_settlement_found: !!nextSettlement,
+        next_settlement_error: nextSettlementError,
+        total_unique_settlements:
+          previewSettlements.length,
+        matched_payment_count:
+          previewSettlements.reduce(
+            (sum, settlement) =>
+              sum + settlement.matched_payment_count,
+            0
+          ),
+        unmatched_payment_count:
+          unmatchedPayments.length,
+        unmatched_payments: unmatchedPayments,
+        settlements: previewSettlements
+      });
+    } catch (err) {
+      console.error(
+        "Mollie settlement preview failed:",
+        err
+      );
+
+      res.status(500).json({
+        error: "Failed to preview Mollie settlements",
+        details: err.message,
+        mollie_response: err.mollieResponse || null
+      });
+    }
+  }
+);
 
 app.listen(PORT, () => {
   console.log(`Lojiq Merchant Portal running on port ${PORT}`);
