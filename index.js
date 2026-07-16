@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Airtable from "airtable";
 import compression from "compression";
+import cron from "node-cron";
 
 dotenv.config();
 
@@ -2454,6 +2455,230 @@ app.get(
 // Writes settlement information to Payment Batches.
 // --------------------------------------------------
 
+async function performMollieSettlementSync() {
+  const settlementsData = await mollieReportingRequest(
+    "/settlements?limit=250"
+  );
+
+  const settlements = mollieEmbeddedItems(
+    settlementsData,
+    "settlements"
+  ).filter((settlement) => {
+    const settlementId = asText(settlement?.id);
+
+    return settlementId && settlementId !== "next";
+  });
+
+  const batchIndex = await loadPaymentBatchIndex();
+  const updatesByBatchRecordId = new Map();
+
+  const settlementResults = [];
+  const unmatchedPayments = [];
+  const amountWarnings = [];
+  const settlementErrors = [];
+  let skippedBatchCount = 0;
+
+  for (const settlement of settlements) {
+    const settlementId = asText(settlement?.id);
+
+    try {
+      const payments = await listAllSettlementPayments(
+        settlementId
+      );
+
+      const financials =
+        getSettlementFinancialSummary(settlement);
+
+      const settlementStatus = mapSettlementStatus(
+        settlement?.status
+      );
+
+      const settlementDate = firstMollieDate(
+        settlement?.settledAt,
+        settlement?.createdAt
+      );
+
+      const payoutDate =
+        settlementStatus === "Paid"
+          ? firstMollieDate(
+              settlement?.paidOutAt,
+              settlement?.settledAt
+            )
+          : "";
+
+      const syncedAt = isoNow();
+      let matchedCount = 0;
+
+      for (const payment of payments) {
+        const paymentId = asText(payment?.id);
+        const matchedBatch =
+          batchIndex.get(paymentId) || null;
+
+        if (!matchedBatch) {
+          unmatchedPayments.push({
+            settlement_id: settlementId,
+            mollie_payment_id: paymentId,
+            description: asText(payment?.description),
+            amount: amountNumber(payment?.amount)
+          });
+
+          continue;
+        }
+
+        const alreadyFullySynced =
+          matchedBatch.current_settlement_id ===
+            settlementId &&
+          matchedBatch.current_settlement_status ===
+            settlementStatus &&
+          matchedBatch.current_settlement_reference ===
+            asText(settlement?.reference) &&
+          !!matchedBatch.settlement_synced_at;
+
+        if (
+          alreadyFullySynced &&
+          settlementStatus === "Paid"
+        ) {
+          skippedBatchCount += 1;
+          continue;
+        }
+
+        matchedCount += 1;
+
+        const paymentAmount = amountNumber(
+          payment?.amount
+        );
+
+        const batchAmount = Number(
+          matchedBatch.amount || 0
+        );
+
+        if (
+          Math.abs(paymentAmount - batchAmount) > 0.01
+        ) {
+          amountWarnings.push({
+            settlement_id: settlementId,
+            mollie_payment_id: paymentId,
+            batch_record_id: matchedBatch.record_id,
+            batch_id: matchedBatch.batch_id,
+            payment_amount: paymentAmount,
+            batch_amount: batchAmount
+          });
+        }
+
+        const fields = {
+          "Settlement ID": settlementId,
+          "Settlement Reference":
+            asText(settlement?.reference),
+          "Settlement Status": settlementStatus,
+          "Settlement Gross Amount":
+            financials.grossAmount,
+          "Settlement Fee":
+            financials.feeAmount,
+          "Settlement Net Amount":
+            financials.netAmount,
+          "Settlement Invoice Reference":
+            financials.invoiceReference,
+          "Mollie Settlement Synced At":
+            syncedAt
+        };
+
+        if (settlementDate) {
+          fields["Settlement Date"] = settlementDate;
+        }
+
+        if (payoutDate) {
+          fields["Settlement Payout Date"] =
+            payoutDate;
+        }
+
+        updatesByBatchRecordId.set(
+          matchedBatch.record_id,
+          {
+            id: matchedBatch.record_id,
+            fields
+          }
+        );
+      }
+
+      settlementResults.push({
+        settlement_id: settlementId,
+        settlement_reference:
+          asText(settlement?.reference),
+        mollie_status:
+          asText(settlement?.status),
+        airtable_status: settlementStatus,
+        payment_count: payments.length,
+        matched_payment_count: matchedCount,
+        unmatched_payment_count:
+          payments.length -
+          matchedCount -
+          payments.filter((payment) => {
+            const matchedBatch = batchIndex.get(
+              asText(payment?.id)
+            );
+
+            return (
+              matchedBatch &&
+              matchedBatch.current_settlement_id ===
+                settlementId &&
+              matchedBatch.current_settlement_status ===
+                settlementStatus &&
+              matchedBatch.current_settlement_reference ===
+                asText(settlement?.reference) &&
+              !!matchedBatch.settlement_synced_at &&
+              settlementStatus === "Paid"
+            );
+          }).length,
+        gross_amount: financials.grossAmount,
+        fee_amount: financials.feeAmount,
+        net_amount: financials.netAmount,
+        invoice_reference:
+          financials.invoiceReference,
+        settlement_date: settlementDate,
+        payout_date: payoutDate
+      });
+    } catch (err) {
+      settlementErrors.push({
+        settlement_id: settlementId,
+        error: err.message
+      });
+    }
+  }
+
+  const updates = Array.from(
+    updatesByBatchRecordId.values()
+  );
+
+  const updateChunks = chunkArray(updates, 10);
+
+  for (const chunk of updateChunks) {
+    await airtable(
+      AIRTABLE_PAYMENT_BATCHES_TABLE
+    ).update(chunk);
+  }
+
+  return {
+    ok: true,
+    written: true,
+    synced_at: isoNow(),
+    settlement_count: settlements.length,
+    processed_settlement_count:
+      settlementResults.length,
+    failed_settlement_count:
+      settlementErrors.length,
+    updated_batch_count: updates.length,
+    skipped_batch_count: skippedBatchCount,
+    unmatched_payment_count:
+      unmatchedPayments.length,
+    amount_warning_count:
+      amountWarnings.length,
+    settlements: settlementResults,
+    unmatched_payments: unmatchedPayments,
+    amount_warnings: amountWarnings,
+    settlement_errors: settlementErrors
+  };
+}
+
 app.post(
   "/api/admin/mollie/settlements/sync",
   requireAdminSyncSecret,
@@ -2462,208 +2687,15 @@ app.post(
       if (req.body?.confirm !== true) {
         return res.status(400).json({
           error: "Confirmation required",
-          details: "Send JSON body: { \"confirm\": true }"
+          details:
+            "Send JSON body: { \"confirm\": true }"
         });
       }
 
-      const settlementsData = await mollieReportingRequest(
-        "/settlements?limit=250"
-      );
+      const result =
+        await performMollieSettlementSync();
 
-      const settlements = mollieEmbeddedItems(
-        settlementsData,
-        "settlements"
-      ).filter((settlement) => {
-        const settlementId = asText(settlement?.id);
-
-        return settlementId && settlementId !== "next";
-      });
-
-      const batchIndex = await loadPaymentBatchIndex();
-      const updatesByBatchRecordId = new Map();
-
-      const settlementResults = [];
-      const unmatchedPayments = [];
-      const amountWarnings = [];
-      const settlementErrors = [];
-      let skippedBatchCount = 0;
-
-      for (const settlement of settlements) {
-        const settlementId = asText(settlement?.id);
-
-        try {
-          const payments = await listAllSettlementPayments(
-            settlementId
-          );
-
-          const financials =
-            getSettlementFinancialSummary(settlement);
-
-          const settlementStatus = mapSettlementStatus(
-            settlement?.status
-          );
-
-          const settlementDate = firstMollieDate(
-            settlement?.settledAt,
-            settlement?.createdAt
-          );
-
-          // Mollie does not return a separate paidOutAt field
-          // in the current response. For paid-out settlements,
-          // settledAt is used as the payout timestamp.
-          const payoutDate =
-            settlementStatus === "Paid"
-              ? firstMollieDate(
-                  settlement?.paidOutAt,
-                  settlement?.settledAt
-                )
-              : "";
-
-          const syncedAt = isoNow();
-          let matchedCount = 0;
-
-          for (const payment of payments) {
-            const paymentId = asText(payment?.id);
-            const matchedBatch =
-              batchIndex.get(paymentId) || null;
-
-            if (!matchedBatch) {
-              unmatchedPayments.push({
-                settlement_id: settlementId,
-                mollie_payment_id: paymentId,
-                description: asText(payment?.description),
-                amount: amountNumber(payment?.amount)
-              });
-
-              continue;
-            }
-
-            const alreadyFullySynced =
-              matchedBatch.current_settlement_id === settlementId &&
-              matchedBatch.current_settlement_status === settlementStatus &&
-              matchedBatch.current_settlement_reference ===
-                asText(settlement?.reference) &&
-              !!matchedBatch.settlement_synced_at;
-            
-            if (
-              alreadyFullySynced &&
-              settlementStatus === "Paid"
-            ) {
-              skippedBatchCount += 1;
-              continue;
-            }
-
-            matchedCount += 1;
-
-            const paymentAmount = amountNumber(payment?.amount);
-            const batchAmount = Number(
-              matchedBatch.amount || 0
-            );
-
-            if (
-              Math.abs(paymentAmount - batchAmount) > 0.01
-            ) {
-              amountWarnings.push({
-                settlement_id: settlementId,
-                mollie_payment_id: paymentId,
-                batch_record_id: matchedBatch.record_id,
-                batch_id: matchedBatch.batch_id,
-                payment_amount: paymentAmount,
-                batch_amount: batchAmount
-              });
-            }
-
-            const fields = {
-              "Settlement ID": settlementId,
-              "Settlement Reference": asText(settlement?.reference),
-              "Settlement Status": settlementStatus,
-              "Settlement Gross Amount":
-                financials.grossAmount,
-              "Settlement Fee":
-                financials.feeAmount,
-              "Settlement Net Amount":
-                financials.netAmount,
-              "Settlement Invoice Reference":
-                financials.invoiceReference,
-              "Mollie Settlement Synced At":
-                syncedAt
-            };
-
-            if (settlementDate) {
-              fields["Settlement Date"] = settlementDate;
-            }
-
-            if (payoutDate) {
-              fields["Settlement Payout Date"] =
-                payoutDate;
-            }
-
-            updatesByBatchRecordId.set(
-              matchedBatch.record_id,
-              {
-                id: matchedBatch.record_id,
-                fields
-              }
-            );
-          }
-
-          settlementResults.push({
-            settlement_id: settlementId,
-            settlement_reference: asText(settlement?.reference),
-            mollie_status: asText(settlement?.status),
-            airtable_status: settlementStatus,
-            payment_count: payments.length,
-            matched_payment_count: matchedCount,
-            unmatched_payment_count:
-              payments.length - matchedCount,
-            gross_amount: financials.grossAmount,
-            fee_amount: financials.feeAmount,
-            net_amount: financials.netAmount,
-            invoice_reference:
-              financials.invoiceReference,
-            settlement_date: settlementDate,
-            payout_date: payoutDate
-          });
-        } catch (err) {
-          settlementErrors.push({
-            settlement_id: settlementId,
-            error: err.message
-          });
-        }
-      }
-
-      const updates = Array.from(
-        updatesByBatchRecordId.values()
-      );
-
-      const updateChunks = chunkArray(updates, 10);
-
-      for (const chunk of updateChunks) {
-        await airtable(
-          AIRTABLE_PAYMENT_BATCHES_TABLE
-        ).update(chunk);
-      }
-
-      res.json({
-        ok: true,
-        written: true,
-        synced_at: isoNow(),
-        settlement_count: settlements.length,
-        processed_settlement_count:
-          settlementResults.length,
-        failed_settlement_count:
-          settlementErrors.length,
-        updated_batch_count: updates.length,
-        skipped_batch_count: skippedBatchCount,
-        unmatched_payment_count:
-          unmatchedPayments.length,
-        amount_warning_count:
-          amountWarnings.length,
-        settlements: settlementResults,
-        unmatched_payments: unmatchedPayments,
-        amount_warnings: amountWarnings,
-        settlement_errors: settlementErrors
-      });
+      res.json(result);
     } catch (err) {
       console.error(
         "Mollie settlement sync failed:",
@@ -2671,11 +2703,52 @@ app.post(
       );
 
       res.status(500).json({
-        error: "Failed to sync Mollie settlements",
+        error:
+          "Failed to sync Mollie settlements",
         details: err.message,
-        mollie_response: err.mollieResponse || null
+        mollie_response:
+          err.mollieResponse || null
       });
     }
+  }
+);
+
+cron.schedule(
+  "0 15 * * *",
+  async () => {
+    console.log(
+      "Starting scheduled Mollie settlement sync..."
+    );
+
+    try {
+      const result =
+        await performMollieSettlementSync();
+
+      console.log(
+        "Scheduled Mollie settlement sync completed:",
+        JSON.stringify({
+          updated_batch_count:
+            result.updated_batch_count,
+          skipped_batch_count:
+            result.skipped_batch_count,
+          unmatched_payment_count:
+            result.unmatched_payment_count,
+          amount_warning_count:
+            result.amount_warning_count,
+          failed_settlement_count:
+            result.failed_settlement_count
+        })
+      );
+    } catch (err) {
+      console.error(
+        "Scheduled Mollie settlement sync failed:",
+        err
+      );
+    }
+  },
+  {
+    timezone: "Europe/Amsterdam",
+    noOverlap: true
   }
 );
 
