@@ -345,7 +345,10 @@ async function loadPaymentBatchIndex() {
         "Mollie Payment ID",
         "Payment Status",
         "Order Numbers",
-        "Settlement ID"
+        "Settlement ID",
+        "Settlement Status",
+        "Settlement Reference",
+        "Mollie Settlement Synced At"
       ]
     })
     .all();
@@ -373,6 +376,15 @@ async function loadPaymentBatchIndex() {
       ),
       current_settlement_id: displayValue(
         record.fields["Settlement ID"]
+      ),
+      current_settlement_status: displayValue(
+        record.fields["Settlement Status"]
+      ),
+      current_settlement_reference: displayValue(
+        record.fields["Settlement Reference"]
+      ),
+      settlement_synced_at: displayValue(
+        record.fields["Mollie Settlement Synced At"]
       )
     });
   }
@@ -2474,6 +2486,7 @@ app.post(
       const unmatchedPayments = [];
       const amountWarnings = [];
       const settlementErrors = [];
+      let skippedBatchCount = 0;
 
       for (const settlement of settlements) {
         const settlementId = asText(settlement?.id);
@@ -2522,6 +2535,21 @@ app.post(
                 amount: amountNumber(payment?.amount)
               });
 
+              continue;
+            }
+
+            const alreadyFullySynced =
+              matchedBatch.current_settlement_id === settlementId &&
+              matchedBatch.current_settlement_status === settlementStatus &&
+              matchedBatch.current_settlement_reference ===
+                asText(settlement?.reference) &&
+              !!matchedBatch.settlement_synced_at;
+            
+            if (
+              alreadyFullySynced &&
+              settlementStatus === "Paid"
+            ) {
+              skippedBatchCount += 1;
               continue;
             }
 
@@ -2626,6 +2654,7 @@ app.post(
         failed_settlement_count:
           settlementErrors.length,
         updated_batch_count: updates.length,
+        skipped_batch_count: skippedBatchCount,
         unmatched_payment_count:
           unmatchedPayments.length,
         amount_warning_count:
