@@ -443,11 +443,25 @@
       gap: 6px;
       padding: 6px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(245,158,11,0.5);
-      background: rgba(245,158,11,0.15);
-      color: #fbc76f;
+      border: 1px solid rgba(143,174,204,0.25);
+      background: rgba(143,174,204,0.08);
+      color: rgba(230,236,244,0.65);
       font-size: 12px;
       font-weight: 900;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .pill-btn:hover {
+      background: rgba(143,174,204,0.16);
+      color: var(--text);
+    }
+
+    .pill-btn.active {
+      border-color: rgba(245,158,11,0.5);
+      background: rgba(245,158,11,0.15);
+      color: #fbc76f;
     }
 
     .pill-btn .pill-count {
@@ -1400,6 +1414,7 @@
     };
 
     let currentView = localStorage.getItem("lojiq_current_view") || "open";
+    let activeOfferPillFilter = "open"; // NEW — additive only: Open vs Countered pill within the offers view
     let merchant = null;
     let nextOffset = "";
     let hasMore = false;
@@ -1533,6 +1548,20 @@
       }
     
       if (currentView === "offers") {
+        if (order.round_type === "countered") {
+          return `
+            <div class="action-row">
+              <button class="action-btn blue" type="button" onclick="handleEditOffer('${escapeHtml(order.id)}', '${escapeHtml(order.offer || '')}')">
+                EDIT
+              </button>
+
+              <button class="action-btn red" type="button" onclick="handleDeleteOffer('${escapeHtml(order.id)}')">
+                DELETE
+              </button>
+            </div>
+          `;
+        }
+
         return `
           <div class="action-row">
             <button class="action-btn green" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
@@ -1742,11 +1771,12 @@
     }
     
     // NEW — additive only: mirrors dashboard.js's pill-row pattern
-    // (Open/Countered/Denied filter buttons above the table) — only
-    // "Open" exists so far (Fase 1), so this shows just that one pill
-    // with its count, not yet clickable since there's nothing else to
-    // switch to. Countered/Denied pills get added here once those
-    // phases are built.
+    // (Open/Countered/Denied filter buttons above the table). Denied
+    // pill gets added here once that phase is built. Per dashboard.js's
+    // own documented behavior, an inactive pill's count only updates
+    // once you've visited it at least once this session.
+    let offerPillCounts = { open: "", countered: "" };
+
     function renderPillRow(count) {
       if (currentView !== "offers") {
         pillRow.classList.add("hidden");
@@ -1754,13 +1784,35 @@
         return;
       }
 
+      offerPillCounts[activeOfferPillFilter] = count;
+
       pillRow.classList.remove("hidden");
-      pillRow.innerHTML = `
-        <span class="pill-btn">
-          <span>Open</span>
-          <span class="pill-count">${count}</span>
-        </span>
-      `;
+      pillRow.innerHTML = ["open", "countered"].map((key) => {
+        const label = key === "open" ? "Open" : "Countered";
+        const isActive = key === activeOfferPillFilter;
+
+        return `
+          <button
+            class="pill-btn ${isActive ? "active" : ""}"
+            type="button"
+            data-pill-filter="${key}"
+          >
+            <span>${label}</span>
+            <span class="pill-count">${offerPillCounts[key]}</span>
+          </button>
+        `;
+      }).join("");
+
+      pillRow.querySelectorAll("[data-pill-filter]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const filter = btn.dataset.pillFilter;
+          if (filter === activeOfferPillFilter) return;
+          activeOfferPillFilter = filter;
+          loadOrders(true).catch((err) => {
+            console.error("Failed to switch pill", err);
+          });
+        });
+      });
     }
 
     function renderOrders(orders) {
@@ -1873,7 +1925,7 @@
               : currentView === "inventory"
                 ? "/api/inventory"
                 : currentView === "offers"
-                  ? "/api/orders/offers-open"
+                  ? (activeOfferPillFilter === "countered" ? "/api/orders/offers-countered" : "/api/orders/offers-open")
                   : "/api/orders";
 
           const requestParams =
@@ -1888,18 +1940,21 @@
             throw new Error(data.details || data.error || "Failed to load orders");
           }
 
-          // NEW — additive only: the new offers-open endpoint returns
-          // "fresh" and "counter" items with different field names for
-          // the same displayed concept (offer/vat_type vs
-          // sellers_offer/vat_type) — normalize here so the existing
-          // "offer"/"offer_vat_type" columns work unchanged for both.
+          // NEW — additive only: fresh/counter/countered items each use
+          // a different field name for the same displayed concept
+          // (offer/vat_type, sellers_offer/vat_type, my_offer/vat_type)
+          // — normalize here so the existing "offer"/"offer_vat_type"
+          // columns work unchanged for all three.
           if (currentView === "offers") {
             data = {
               ...data,
               orders: (data.items || []).map((item) => ({
                 ...item,
                 order_number: item.order_number,
-                offer: item.round_type === "fresh" ? item.offer : item.sellers_offer,
+                offer:
+                  item.round_type === "fresh" ? item.offer
+                  : item.round_type === "countered" ? item.my_offer
+                  : item.sellers_offer,
                 offer_vat_type: item.vat_type
               }))
             };
@@ -2516,9 +2571,11 @@
     }
 
     let pendingCounterOrderId = "";
+    let pendingCounterMode = "counter"; // NEW — additive only: "counter" (existing) or "edit"
 
     function handleCounterOffer(recordId) {
       pendingCounterOrderId = recordId;
+      pendingCounterMode = "counter";
     
       document.getElementById("counterPriceInput").value = "";
       document.getElementById("counterModal").style.display = "flex";
@@ -2527,10 +2584,60 @@
         document.getElementById("counterPriceInput").focus();
       }, 50);
     }
+
+    // NEW — additive only: Edit on a Countered item — reuses the same
+    // modal, pre-filled with the store's current pending price.
+    function handleEditOffer(recordId, currentOffer) {
+      pendingCounterOrderId = recordId;
+      pendingCounterMode = "edit";
+
+      const numericCurrent = Number(String(currentOffer).replace(/[^\d.,-]/g, "").replace(",", "."));
+      document.getElementById("counterPriceInput").value = Number.isFinite(numericCurrent) ? Math.round(numericCurrent) : "";
+      document.getElementById("counterModal").style.display = "flex";
+
+      setTimeout(() => {
+        document.getElementById("counterPriceInput").focus();
+      }, 50);
+    }
+
+    // NEW — additive only: Delete on a Countered item — withdraws the
+    // store's own pending counter.
+    async function handleDeleteOffer(recordId) {
+      const confirmed = window.confirm("Are you sure you want to withdraw this counter offer?");
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch(`/api/orders/counter-offers/${recordId}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merchant_id: merchant.id })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to withdraw offer");
+        }
+
+        currentOrders = currentOrders.filter((o) => o.id !== recordId);
+        renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
+
+        tableCount.textContent = `${currentOrders.length} Orders`;
+        currentViewStat.textContent = currentOrders.length;
+
+        loadAllCounts().catch((err) => {
+          console.error("Failed to refresh counts", err);
+        });
+      } catch (err) {
+        alert(err.message);
+      }
+    }
     
     function closeCounterModal() {
       document.getElementById("counterModal").style.display = "none";
       pendingCounterOrderId = "";
+      pendingCounterMode = "counter";
     }
 
     document.getElementById("submitCounterBtn").addEventListener("click", async () => {
@@ -2542,11 +2649,44 @@
         return;
       }
 
-      // NEW — additive only: a "fresh" item's first counter still goes
-      // through the existing, proven round-1 endpoint
-      // (/counter-offer). A "counter" item (already has an open round)
-      // goes through the new counter-offers counter endpoint using its
-      // own round id.
+      // NEW — additive only: three cases now share this one modal. A
+      // "fresh" item's first counter still goes through the existing,
+      // proven round-1 endpoint (/counter-offer). A "counter" item
+      // (already has an open round) goes through the counter-offers
+      // counter endpoint. An "edit" (on a Countered item) goes through
+      // the counter-offers edit endpoint instead.
+      if (pendingCounterMode === "edit") {
+        try {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Submitting...";
+
+          const response = await fetch(`/api/orders/counter-offers/${pendingCounterOrderId}/edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ merchant_id: merchant.id, price })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || data.details || "Failed to edit offer");
+          }
+
+          closeCounterModal();
+          alert("Offer updated.");
+
+          // Edit doesn't move the item out of the Countered pill — just
+          // reload the current pill's data to reflect the new price.
+          await loadOrders(true);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+        }
+        return;
+      }
+
       const order = currentOrders.find((o) => o.id === pendingCounterOrderId);
 
       if (!order) {
