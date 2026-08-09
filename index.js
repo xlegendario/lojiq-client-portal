@@ -1527,6 +1527,154 @@ app.get("/api/orders/offers-open", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------
+// NEW — additive only: Open pill actions. Thin proxies, same pattern as
+// /counter-offer above — resolve merchant → store_name, forward to the
+// already-proven kickz-caviar-portal endpoints with the shared secret.
+// No negotiation logic lives here.
+// ---------------------------------------------------------------------
+
+async function proxyToKickzPortal(path, body) {
+  if (!COUNTER_OFFERS_SECRET) {
+    throw new Error("Missing COUNTER_OFFERS_SECRET");
+  }
+
+  const response = await fetch(`${KICKZ_PORTAL_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-kc-secret": COUNTER_OFFERS_SECRET
+    },
+    body: JSON.stringify(body)
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || data.details || "Request to kickz-caviar-portal failed");
+  }
+
+  return data;
+}
+
+// Genuine open counter round — seller already moved, store responding.
+
+app.post("/api/orders/counter-offers/:id/accept", async (req, res) => {
+  try {
+    const counterOfferRecordId = asText(req.params.id);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/${counterOfferRecordId}/store-accept`, {
+      store_name: merchant.store_name
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Accept (counter round) failed:", err);
+    res.status(500).json({ error: "Failed to accept offer", details: err.message });
+  }
+});
+
+app.post("/api/orders/counter-offers/:id/deny", async (req, res) => {
+  try {
+    const counterOfferRecordId = asText(req.params.id);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/${counterOfferRecordId}/store-deny`, {
+      store_name: merchant.store_name
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Deny (counter round) failed:", err);
+    res.status(500).json({ error: "Failed to deny offer", details: err.message });
+  }
+});
+
+app.post("/api/orders/counter-offers/:id/counter", async (req, res) => {
+  try {
+    const counterOfferRecordId = asText(req.params.id);
+    const merchantId = asText(req.body.merchant_id);
+    const price = Number(req.body.price);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+    if (!Number.isInteger(price) || price <= 0) {
+      return res.status(400).json({ error: "Invalid counter price" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/${counterOfferRecordId}/store-counter`, {
+      store_name: merchant.store_name,
+      price
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Counter (counter round) failed:", err);
+    res.status(500).json({ error: "Failed to submit counter offer", details: err.message });
+  }
+});
+
+// Fresh, never-countered offer — no round exists yet.
+
+app.post("/api/orders/:recordId/accept-fresh", async (req, res) => {
+  try {
+    const orderRecordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+    const sellerOfferRecordId = asText(req.body.seller_offer_record_id);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+    if (!sellerOfferRecordId) return res.status(400).json({ error: "Missing seller_offer_record_id" });
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    const created = await proxyToKickzPortal("/api/counter-offers/create-fresh-round", {
+      order_record_id: orderRecordId,
+      seller_offer_record_id: sellerOfferRecordId,
+      store_name: merchant.store_name
+    });
+
+    const accepted = await proxyToKickzPortal(`/api/counter-offers/${created.counter_offer_record_id}/store-accept`, {
+      store_name: merchant.store_name
+    });
+
+    res.json({ ok: true, ...accepted });
+  } catch (err) {
+    console.error("Accept (fresh offer) failed:", err);
+    res.status(500).json({ error: "Failed to accept offer", details: err.message });
+  }
+});
+
+app.post("/api/orders/:recordId/deny-fresh", async (req, res) => {
+  try {
+    const orderRecordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+    const sellerOfferRecordId = asText(req.body.seller_offer_record_id);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+    if (!sellerOfferRecordId) return res.status(400).json({ error: "Missing seller_offer_record_id" });
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    const data = await proxyToKickzPortal("/api/counter-offers/deny-fresh", {
+      order_record_id: orderRecordId,
+      seller_offer_record_id: sellerOfferRecordId,
+      store_name: merchant.store_name
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Deny (fresh offer) failed:", err);
+    res.status(500).json({ error: "Failed to deny offer", details: err.message });
+  }
+});
+
 app.post("/api/orders/:recordId/counter-offer", async (req, res) => {
   try {
     const recordId = asText(req.params.recordId);
