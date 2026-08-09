@@ -1553,7 +1553,7 @@
         if (order.round_type === "countered") {
           return `
             <div class="action-row">
-              <button class="action-btn blue" type="button" onclick="handleEditOffer('${escapeHtml(order.id)}', '${escapeHtml(order.offer || '')}')">
+              <button class="action-btn blue" type="button" onclick="handleEditOffer('${escapeHtml(order.id)}', '${escapeHtml(order.offer || '')}', '${escapeHtml(order.order_record_id || '')}', ${order.previous_record_id ? "false" : "true"})">
                 EDIT
               </button>
 
@@ -2646,9 +2646,19 @@
 
     // NEW — additive only: Edit on a Countered item — reuses the same
     // modal, pre-filled with the store's current pending price.
-    function handleEditOffer(recordId, currentOffer) {
+    let pendingEditIsRoundOne = false;
+    let pendingEditOrderRecordId = "";
+
+    function handleEditOffer(recordId, currentOffer, orderRecordId, isRoundOne) {
       pendingCounterOrderId = recordId;
       pendingCounterMode = "edit";
+      // NEW — additive only: his explicit, confirmed business
+      // requirement — a round-1 counter (no Previous Record ID) is
+      // several sibling rows, one per matching seller, that all need
+      // editing together. Tracked separately since it uses a
+      // different endpoint, keyed by the order rather than one round.
+      pendingEditIsRoundOne = !!isRoundOne;
+      pendingEditOrderRecordId = orderRecordId || "";
 
       const numericCurrent = Number(String(currentOffer).replace(/[^\d.,-]/g, "").replace(",", "."));
       document.getElementById("counterPriceInput").value = Number.isFinite(numericCurrent) ? Math.round(numericCurrent) : "";
@@ -2719,7 +2729,11 @@
           submitBtn.disabled = true;
           submitBtn.textContent = "Submitting...";
 
-          const response = await fetch(`/api/orders/counter-offers/${pendingCounterOrderId}/edit`, {
+          const editEndpoint = pendingEditIsRoundOne
+            ? `/api/orders/${pendingEditOrderRecordId}/edit-round-one`
+            : `/api/orders/counter-offers/${pendingCounterOrderId}/edit`;
+
+          const response = await fetch(editEndpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ merchant_id: merchant.id, price })
@@ -2732,7 +2746,11 @@
           }
 
           closeCounterModal();
-          alert("Offer updated.");
+          alert(
+            pendingEditIsRoundOne
+              ? `Offer updated. Sellers notified: ${data.sellers_updated ?? 0}.`
+              : "Offer updated."
+          );
 
           // Edit doesn't move the item out of the Countered pill — just
           // reload the current pill's data to reflect the new price.
