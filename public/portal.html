@@ -1194,7 +1194,8 @@
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["offer_date", "Offer Date"],
-        ["offer", "Offer"],
+        ["my_offer_display", "My Offer"],
+        ["offer", "Seller's Offer"],
         ["offer_vat_type", "VAT Type"],
         ["eta", "ETA"],
         ["actions", "Actions"]
@@ -1948,17 +1949,20 @@
           // a different field name for the same displayed concept
           // (offer/vat_type, sellers_offer/vat_type, my_offer/vat_type)
           // — normalize here so the existing "offer"/"offer_vat_type"
-          // columns work unchanged for all three.
+          // columns work unchanged for all three. FIXED — his catch:
+          // "offer" (Seller's Offer column) must always show the
+          // SELLER's price, not the store's own pending counter —
+          // matching dashboard.js's Buying tab exactly, which never
+          // conflates the two. "my_offer_display" (My Offer column) is
+          // the store's own side, separately, for every round_type.
           if (currentView === "offers") {
             data = {
               ...data,
               orders: (data.items || []).map((item) => ({
                 ...item,
                 order_number: item.order_number,
-                offer:
-                  item.round_type === "fresh" ? item.offer
-                  : item.round_type === "countered" ? item.my_offer
-                  : item.sellers_offer,
+                offer: item.round_type === "fresh" ? item.offer : item.sellers_offer,
+                my_offer_display: item.my_offer,
                 offer_vat_type: item.vat_type
               }))
             };
