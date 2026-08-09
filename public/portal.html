@@ -1063,6 +1063,7 @@
         step="1"
         inputmode="numeric"
         pattern="[0-9]*"
+        oninput="this.value = this.value.replace(/[^0-9]/g, '')"
         placeholder="Example: 250"
       />
   
@@ -1822,9 +1823,19 @@
 
     function renderOrders(orders) {
       const columns = columnsByView[currentView] || columnsByView.open;
+
+      // NEW — additive only: his catch — "Seller's Offer" should read
+      // "Seller's Last Offer" specifically on Countered (and later
+      // Denied), matching dashboard.js's own per-pill naming exactly —
+      // makes clear it's the seller's PREVIOUS position, still
+      // acceptable via the Accept button, not a fresh untouched offer.
+      const displayColumns =
+        currentView === "offers" && activeOfferPillFilter !== "open"
+          ? columns.map(([key, label]) => key === "offer" ? [key, "Seller's Last Offer"] : [key, label])
+          : columns;
     
       const thead = document.querySelector("thead tr");
-      thead.innerHTML = columns
+      thead.innerHTML = displayColumns
         .map(([key, label]) => {
           const width = columnWidths[key] || 140;
       
