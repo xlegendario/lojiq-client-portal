@@ -2748,7 +2748,7 @@
           closeCounterModal();
           alert(
             pendingEditIsRoundOne
-              ? `Offer updated. Sellers notified: ${data.sellers_updated ?? 0}.`
+              ? `Offer updated. Sellers notified: ${data.updated ?? 0}${data.skipped ? `, skipped (already below your new price): ${data.skipped}` : ""}.`
               : "Offer updated."
           );
 
