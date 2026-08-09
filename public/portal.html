@@ -425,6 +425,36 @@
       background: rgba(240,68,56,0.15);
       color: #ff9b95;
     }
+
+    .pill-row {
+      display: flex;
+      gap: 8px;
+      padding: 12px 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .pill-row.hidden {
+      display: none;
+    }
+
+    .pill-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(245,158,11,0.5);
+      background: rgba(245,158,11,0.15);
+      color: #fbc76f;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .pill-btn .pill-count {
+      font-size: 11px;
+      font-weight: 700;
+      opacity: 0.8;
+    }
     
     .action-row {
       display: flex;
@@ -971,6 +1001,8 @@
             </div>
           </div>
 
+          <div id="pillRow" class="pill-row hidden"></div>
+
           <div class="table-wrap">
             <table>
               <thead>
@@ -1049,6 +1081,7 @@
     const searchBtn = document.getElementById("searchBtn");
     const ordersTableBody = document.getElementById("ordersTableBody");
     const tableTitle = document.getElementById("tableTitle");
+    const pillRow = document.getElementById("pillRow");
     const tableCount = document.getElementById("tableCount");
     const refreshBtn = document.getElementById("refreshBtn");
     const pageTitle = document.getElementById("pageTitle");
@@ -1144,7 +1177,6 @@
         ["sku", "SKU"],
         ["size", "Size"],
         ["brand", "Brand"],
-        ["round_type", "Status"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["offer_date", "Offer Date"],
@@ -1645,16 +1677,6 @@
         `;
       }
     
-      if (key === "round_type") {
-        const isFresh = order.round_type === "fresh";
-
-        return `
-          <span class="status warning">
-            ${isFresh ? "Fresh Offer" : "Seller Countered"}
-          </span>
-        `;
-      }
-
       if (key === "status" || key === "issue_status") {
         const status = order[key] || "—";
       
@@ -1719,6 +1741,28 @@
       return escapeHtml(order[key] || "—");
     }
     
+    // NEW — additive only: mirrors dashboard.js's pill-row pattern
+    // (Open/Countered/Denied filter buttons above the table) — only
+    // "Open" exists so far (Fase 1), so this shows just that one pill
+    // with its count, not yet clickable since there's nothing else to
+    // switch to. Countered/Denied pills get added here once those
+    // phases are built.
+    function renderPillRow(count) {
+      if (currentView !== "offers") {
+        pillRow.classList.add("hidden");
+        pillRow.innerHTML = "";
+        return;
+      }
+
+      pillRow.classList.remove("hidden");
+      pillRow.innerHTML = `
+        <span class="pill-btn">
+          <span>Open</span>
+          <span class="pill-count">${count}</span>
+        </span>
+      `;
+    }
+
     function renderOrders(orders) {
       const columns = columnsByView[currentView] || columnsByView.open;
     
@@ -1877,6 +1921,7 @@
         currentViewStat.textContent = currentOrders.length;
     
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
         await loadOpenPaymentBatches();
         
         if (currentView === "open_payments") {
@@ -2213,6 +2258,7 @@
       });
     
       renderOrders(currentOrders);
+      renderPillRow(currentOrders.length);
     }
 
     function togglePaymentSelection(orderId, checked) {
@@ -2230,6 +2276,7 @@
       selectedPaymentOrderIds.add(orderId);
     
       renderOrders(currentOrders);
+      renderPillRow(currentOrders.length);
     
       await createPaymentLink();
     }
@@ -2403,6 +2450,7 @@
     
         currentOrders = currentOrders.filter((order) => order.id !== recordId);
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
         loadAllCounts();
       } catch (err) {
         alert(err.message);
@@ -2454,6 +2502,7 @@
     
         currentOrders = currentOrders.filter((o) => o.id !== recordId);
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
     
         tableCount.textContent = `${currentOrders.length} Orders`;
         currentViewStat.textContent = currentOrders.length;
@@ -2541,6 +2590,7 @@
     
         currentOrders = currentOrders.filter((order) => order.id !== submittedOrderId);
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
     
         tableCount.textContent = `${currentOrders.length} Orders`;
         currentViewStat.textContent = currentOrders.length;
@@ -2579,6 +2629,7 @@
     
         currentOrders = currentOrders.filter((order) => order.id !== recordId);
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
     
         tableCount.textContent = `${currentOrders.length} Orders`;
         currentViewStat.textContent = currentOrders.length;
@@ -2615,6 +2666,7 @@
     
         currentOrders = currentOrders.filter((order) => order.id !== recordId);
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
     
         tableCount.textContent = `${currentOrders.length} Orders`;
         currentViewStat.textContent = currentOrders.length;
@@ -2651,6 +2703,7 @@
     
         currentOrders = currentOrders.filter((order) => order.id !== recordId);
         renderOrders(currentOrders);
+        renderPillRow(currentOrders.length);
     
         tableCount.textContent = `${currentOrders.length} Orders`;
         currentViewStat.textContent = currentOrders.length;
