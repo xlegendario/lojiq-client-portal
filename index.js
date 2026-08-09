@@ -1711,6 +1711,35 @@ app.post("/api/orders/counter-offers/:id/edit", async (req, res) => {
   }
 });
 
+// NEW — additive only: edit a round-1 (never-yet-answered broadcast)
+// counter — keyed by the ORDER, not one specific round, since round 1
+// is several sibling rows (one per matching seller) that all need
+// updating together.
+app.post("/api/orders/:recordId/edit-round-one", async (req, res) => {
+  try {
+    const orderRecordId = asText(req.params.recordId);
+    const merchantId = asText(req.body.merchant_id);
+    const price = Number(req.body.price);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+    if (!Number.isInteger(price) || price <= 0) {
+      return res.status(400).json({ error: "Invalid price" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/edit-round-one`, {
+      store_name: merchant.store_name,
+      order_record_id: orderRecordId,
+      price
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Edit (round 1) failed:", err);
+    res.status(500).json({ error: err.message || "Failed to edit offer", details: err.message });
+  }
+});
+
 // Fresh, never-countered offer — no round exists yet.
 
 app.post("/api/orders/:recordId/accept-fresh", async (req, res) => {
