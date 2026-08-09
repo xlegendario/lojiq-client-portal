@@ -1474,6 +1474,48 @@ app.post("/api/orders/:recordId/offer", async (req, res) => {
 // kickz-caviar-portal with the shared secret, never expose that
 // secret to the browser).
 // ---------------------------------------------------------------------
+// NEW — additive only: Fase 2, the Countered pill — the store's own
+// pending counter, awaiting the seller. Single fetch, no fresh-items
+// merge needed (Countered has no "fresh" equivalent — every item here
+// already has an active round).
+app.get("/api/orders/offers-countered", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (!COUNTER_OFFERS_SECRET) {
+      return res.status(500).json({ error: "Missing COUNTER_OFFERS_SECRET" });
+    }
+
+    const storeNameParam = encodeURIComponent(merchant.store_name);
+
+    const response = await fetch(`${KICKZ_PORTAL_BASE_URL}/api/dashboard/store-counter-offers?store_name=${storeNameParam}&filter=countered`, {
+      headers: { "x-kc-secret": COUNTER_OFFERS_SECRET }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || data.details || "Failed to load countered offers");
+    }
+
+    const items = (data.items || []).map((item) => ({ ...item, round_type: "countered" }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Failed to load countered offers:", err);
+    res.status(500).json({
+      error: "Failed to load countered offers",
+      details: err.message
+    });
+  }
+});
+
 app.get("/api/orders/offers-open", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
