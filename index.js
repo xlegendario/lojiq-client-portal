@@ -1621,6 +1621,27 @@ app.post("/api/orders/counter-offers/:id/counter", async (req, res) => {
   }
 });
 
+// NEW — additive only: withdraw the store's own pending counter (a
+// Countered-pill item), same thin-proxy pattern as the other actions.
+app.post("/api/orders/counter-offers/:id/cancel", async (req, res) => {
+  try {
+    const counterOfferRecordId = asText(req.params.id);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/${counterOfferRecordId}/store-cancel`, {
+      store_name: merchant.store_name
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Cancel (counter round) failed:", err);
+    res.status(500).json({ error: "Failed to cancel offer", details: err.message });
+  }
+});
+
 // Fresh, never-countered offer — no round exists yet.
 
 app.post("/api/orders/:recordId/accept-fresh", async (req, res) => {
