@@ -1144,6 +1144,7 @@
         ["sku", "SKU"],
         ["size", "Size"],
         ["brand", "Brand"],
+        ["round_type", "Status"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["offer_date", "Offer Date"],
@@ -1506,7 +1507,7 @@
               ACCEPT
             </button>
           
-            <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}', '${escapeHtml(order.offer || '')}')">
+            <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
               COUNTER
             </button>
           
@@ -1644,6 +1645,16 @@
         `;
       }
     
+      if (key === "round_type") {
+        const isFresh = order.round_type === "fresh";
+
+        return `
+          <span class="status warning">
+            ${isFresh ? "Fresh Offer" : "Seller Countered"}
+          </span>
+        `;
+      }
+
       if (key === "status" || key === "issue_status") {
         const status = order[key] || "—";
       
@@ -1817,12 +1828,37 @@
               ? "/api/returns"
               : currentView === "inventory"
                 ? "/api/inventory"
-                : "/api/orders";
-          const response = await fetch(`${endpoint}?${params.toString()}`);
+                : currentView === "offers"
+                  ? "/api/orders/offers-open"
+                  : "/api/orders";
+
+          const requestParams =
+            currentView === "offers"
+              ? new URLSearchParams({ merchant_id: merchant.id })
+              : params;
+
+          const response = await fetch(`${endpoint}?${requestParams.toString()}`);
           data = await response.json();
         
           if (!response.ok) {
             throw new Error(data.details || data.error || "Failed to load orders");
+          }
+
+          // NEW — additive only: the new offers-open endpoint returns
+          // "fresh" and "counter" items with different field names for
+          // the same displayed concept (offer/vat_type vs
+          // sellers_offer/vat_type) — normalize here so the existing
+          // "offer"/"offer_vat_type" columns work unchanged for both.
+          if (currentView === "offers") {
+            data = {
+              ...data,
+              orders: (data.items || []).map((item) => ({
+                ...item,
+                order_number: item.order_number,
+                offer: item.round_type === "fresh" ? item.offer : item.sellers_offer,
+                offer_vat_type: item.vat_type
+              }))
+            };
           }
         }
     
@@ -2374,21 +2410,40 @@
     }
 
     async function handleOfferAction(recordId, action) {
+      const order = currentOrders.find((o) => o.id === recordId);
+
+      if (!order) {
+        alert("Could not find this offer — please refresh and try again.");
+        return;
+      }
+
       const label = action === "accept" ? "accept" : "deny";
       const confirmed = window.confirm(`Are you sure you want to ${label} this offer?`);
     
       if (!confirmed) return;
     
       try {
-        const response = await fetch(`/api/orders/${recordId}/offer`, {
+        // NEW — additive only: a "fresh" (never-countered) offer has no
+        // Counter Offers round yet, so it goes through accept-fresh/
+        // deny-fresh (needs which seller's raw offer this is). A
+        // "counter" item is an existing, open round — goes through the
+        // matching counter-offers endpoint using its own id.
+        const endpoint =
+          order.round_type === "fresh"
+            ? `/api/orders/${recordId}/${action}-fresh`
+            : `/api/orders/counter-offers/${recordId}/${action}`;
+
+        const body =
+          order.round_type === "fresh"
+            ? { merchant_id: merchant.id, seller_offer_record_id: order.seller_offer_record_id }
+            : { merchant_id: merchant.id };
+
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            merchant_id: merchant.id,
-            action
-          })
+          body: JSON.stringify(body)
         });
     
         const data = await response.json();
@@ -2397,7 +2452,7 @@
           throw new Error(data.error || data.details || "Failed to process offer");
         }
     
-        currentOrders = currentOrders.filter((order) => order.id !== recordId);
+        currentOrders = currentOrders.filter((o) => o.id !== recordId);
         renderOrders(currentOrders);
     
         tableCount.textContent = `${currentOrders.length} Orders`;
@@ -2413,7 +2468,7 @@
 
     let pendingCounterOrderId = "";
 
-    function handleCounterOffer(recordId, currentOffer) {
+    function handleCounterOffer(recordId) {
       pendingCounterOrderId = recordId;
     
       document.getElementById("counterPriceInput").value = "";
@@ -2437,20 +2492,39 @@
         alert("Please enter a valid whole number including VAT. Example: 250");
         return;
       }
+
+      // NEW — additive only: a "fresh" item's first counter still goes
+      // through the existing, proven round-1 endpoint
+      // (/counter-offer). A "counter" item (already has an open round)
+      // goes through the new counter-offers counter endpoint using its
+      // own round id.
+      const order = currentOrders.find((o) => o.id === pendingCounterOrderId);
+
+      if (!order) {
+        alert("Could not find this offer — please refresh and try again.");
+        return;
+      }
+
+      const isFresh = order.round_type === "fresh";
+
+      const endpoint = isFresh
+        ? `/api/orders/${pendingCounterOrderId}/counter-offer`
+        : `/api/orders/counter-offers/${pendingCounterOrderId}/counter`;
+
+      const body = isFresh
+        ? { merchant_id: merchant.id, store_counter_price: price }
+        : { merchant_id: merchant.id, price };
     
       try {
         submitBtn.disabled = true;
         submitBtn.textContent = "Submitting...";
     
-        const response = await fetch(`/api/orders/${pendingCounterOrderId}/counter-offer`, {
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            merchant_id: merchant.id,
-            store_counter_price: price
-          })
+          body: JSON.stringify(body)
         });
     
         const data = await response.json();
@@ -2463,7 +2537,7 @@
     
         closeCounterModal();
     
-        alert(`Counter offer submitted. Counter requests created: ${data.count || 0}`);
+        alert(isFresh ? `Counter offer submitted. Counter requests created: ${data.count || 0}` : "Counter offer submitted.");
     
         currentOrders = currentOrders.filter((order) => order.id !== submittedOrderId);
         renderOrders(currentOrders);
