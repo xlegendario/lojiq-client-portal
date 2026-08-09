@@ -1555,6 +1555,10 @@
                 EDIT
               </button>
 
+              <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
+                ACCEPT ${escapeHtml(order.sellers_offer || '')}
+              </button>
+
               <button class="action-btn red" type="button" onclick="handleDeleteOffer('${escapeHtml(order.id)}')">
                 DELETE
               </button>
@@ -2507,6 +2511,46 @@
         renderOrders(currentOrders);
         renderPillRow(currentOrders.length);
         loadAllCounts();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // NEW — additive only: "Accept current lowest" on a Countered
+    // item — mirrors Member WTB's Buying tab exactly. Accepts the
+    // SELLER's actual current price (not the store's own pending
+    // counter sitting on this round) by reusing the same
+    // create-fresh-round + store-accept combination already proven
+    // for fresh items — no new backend endpoint needed, since this is
+    // the identical underlying operation: "lock in a deal at this
+    // seller's current price," regardless of which pill it was
+    // triggered from.
+    async function handleAcceptCurrentLowest(orderRecordId, sellerOfferRecordId) {
+      if (!orderRecordId || !sellerOfferRecordId) {
+        alert("Could not find this offer — please refresh and try again.");
+        return;
+      }
+
+      const confirmed = window.confirm("Accept the current lowest offer?");
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch(`/api/orders/${orderRecordId}/accept-fresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merchant_id: merchant.id, seller_offer_record_id: sellerOfferRecordId })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to accept offer");
+        }
+
+        await loadOrders(true);
+        loadAllCounts().catch((err) => {
+          console.error("Failed to refresh counts", err);
+        });
       } catch (err) {
         alert(err.message);
       }
