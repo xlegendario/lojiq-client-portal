@@ -1616,7 +1616,7 @@ app.post("/api/orders/counter-offers/:id/accept", async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     console.error("Accept (counter round) failed:", err);
-    res.status(500).json({ error: "Failed to accept offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to accept offer", details: err.message });
   }
 });
 
@@ -1635,7 +1635,7 @@ app.post("/api/orders/counter-offers/:id/deny", async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     console.error("Deny (counter round) failed:", err);
-    res.status(500).json({ error: "Failed to deny offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to deny offer", details: err.message });
   }
 });
 
@@ -1659,7 +1659,7 @@ app.post("/api/orders/counter-offers/:id/counter", async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     console.error("Counter (counter round) failed:", err);
-    res.status(500).json({ error: "Failed to submit counter offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to submit counter offer", details: err.message });
   }
 });
 
@@ -1680,7 +1680,7 @@ app.post("/api/orders/counter-offers/:id/cancel", async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     console.error("Cancel (counter round) failed:", err);
-    res.status(500).json({ error: "Failed to cancel offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to cancel offer", details: err.message });
   }
 });
 
@@ -1707,7 +1707,7 @@ app.post("/api/orders/counter-offers/:id/edit", async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     console.error("Edit (counter round) failed:", err);
-    res.status(500).json({ error: "Failed to edit offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to edit offer", details: err.message });
   }
 });
 
@@ -1737,7 +1737,7 @@ app.post("/api/orders/:recordId/accept-fresh", async (req, res) => {
     res.json({ ok: true, ...accepted });
   } catch (err) {
     console.error("Accept (fresh offer) failed:", err);
-    res.status(500).json({ error: "Failed to accept offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to accept offer", details: err.message });
   }
 });
 
@@ -1761,7 +1761,7 @@ app.post("/api/orders/:recordId/deny-fresh", async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     console.error("Deny (fresh offer) failed:", err);
-    res.status(500).json({ error: "Failed to deny offer", details: err.message });
+    res.status(500).json({ error: err.message || "Failed to deny offer", details: err.message });
   }
 });
 
