@@ -1684,6 +1684,33 @@ app.post("/api/orders/counter-offers/:id/cancel", async (req, res) => {
   }
 });
 
+// NEW — additive only: edit the store's own pending counter (a
+// Countered-pill item), while the seller hasn't responded yet.
+app.post("/api/orders/counter-offers/:id/edit", async (req, res) => {
+  try {
+    const counterOfferRecordId = asText(req.params.id);
+    const merchantId = asText(req.body.merchant_id);
+    const price = Number(req.body.price);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+    if (!Number.isInteger(price) || price <= 0) {
+      return res.status(400).json({ error: "Invalid price" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/${counterOfferRecordId}/edit`, {
+      store_name: merchant.store_name,
+      actor: "store",
+      price
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Edit (counter round) failed:", err);
+    res.status(500).json({ error: "Failed to edit offer", details: err.message });
+  }
+});
+
 // Fresh, never-countered offer — no round exists yet.
 
 app.post("/api/orders/:recordId/accept-fresh", async (req, res) => {
