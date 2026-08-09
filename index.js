@@ -1465,6 +1465,68 @@ app.post("/api/orders/:recordId/offer", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------
+// NEW — additive only: Open pill for the Lojiq Portal's Offers tab.
+// Combines both halves built on kickz-caviar-portal-main (fresh,
+// never-countered offers + genuine seller counter-back rounds) into
+// one response, same thin-proxy pattern as the existing
+// /counter-offer endpoint below (resolve merchant → store_name, call
+// kickz-caviar-portal with the shared secret, never expose that
+// secret to the browser).
+// ---------------------------------------------------------------------
+app.get("/api/orders/offers-open", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (!COUNTER_OFFERS_SECRET) {
+      return res.status(500).json({ error: "Missing COUNTER_OFFERS_SECRET" });
+    }
+
+    const storeNameParam = encodeURIComponent(merchant.store_name);
+
+    const [freshResponse, counteredResponse] = await Promise.all([
+      fetch(`${KICKZ_PORTAL_BASE_URL}/api/dashboard/store-offers?store_name=${storeNameParam}`, {
+        headers: { "x-kc-secret": COUNTER_OFFERS_SECRET }
+      }),
+      fetch(`${KICKZ_PORTAL_BASE_URL}/api/dashboard/store-counter-offers?store_name=${storeNameParam}&filter=open`, {
+        headers: { "x-kc-secret": COUNTER_OFFERS_SECRET }
+      })
+    ]);
+
+    const [freshData, counteredData] = await Promise.all([
+      freshResponse.json(),
+      counteredResponse.json()
+    ]);
+
+    if (!freshResponse.ok) {
+      throw new Error(freshData.error || freshData.details || "Failed to load fresh offers");
+    }
+
+    if (!counteredResponse.ok) {
+      throw new Error(counteredData.error || counteredData.details || "Failed to load countered offers");
+    }
+
+    const items = [
+      ...(freshData.items || []).map((item) => ({ ...item, round_type: item.round_type || "fresh" })),
+      ...(counteredData.items || []).map((item) => ({ ...item, round_type: item.round_type || "counter" }))
+    ];
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Failed to load open offers:", err);
+    res.status(500).json({
+      error: "Failed to load open offers",
+      details: err.message
+    });
+  }
+});
+
 app.post("/api/orders/:recordId/counter-offer", async (req, res) => {
   try {
     const recordId = asText(req.params.recordId);
