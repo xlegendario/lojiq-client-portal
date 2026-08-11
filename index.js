@@ -1726,6 +1726,55 @@ app.post("/api/orders/counter-offers/:id/cancel", async (req, res) => {
   }
 });
 
+// NEW — additive only: store retries a NEW counter from the Denied
+// pill (case B — a seller denied the store's counter). Thin proxy to
+// the store-retry-counter endpoint, which validates the new price in
+// the store's own visible scale (same band rules as a normal counter).
+app.post("/api/orders/counter-offers/:id/retry-counter", async (req, res) => {
+  try {
+    const counterOfferRecordId = asText(req.params.id);
+    const merchantId = asText(req.body.merchant_id);
+    const price = Number(req.body.price);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+    if (!Number.isFinite(price) || price <= 0) {
+      return res.status(400).json({ error: "Invalid counter price" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/${counterOfferRecordId}/store-retry-counter`, {
+      store_name: merchant.store_name,
+      price
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Retry counter failed:", err);
+    res.status(500).json({ error: err.message || "Failed to retry counter", details: err.message });
+  }
+});
+
+// NEW — additive only: store hides a denied FRESH seller offer (case A)
+// from the Denied pill. Thin proxy to the fresh-denied hide endpoint.
+app.post("/api/orders/fresh-denied/:sellerOfferId/hide", async (req, res) => {
+  try {
+    const sellerOfferId = asText(req.params.sellerOfferId);
+    const merchantId = asText(req.body.merchant_id);
+
+    if (!merchantId) return res.status(400).json({ error: "Missing merchant_id" });
+
+    const merchant = await getCachedMerchant(merchantId);
+    const data = await proxyToKickzPortal(`/api/counter-offers/fresh-denied/${sellerOfferId}/hide`, {
+      store_name: merchant.store_name
+    });
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Hide fresh-denied offer failed:", err);
+    res.status(500).json({ error: err.message || "Failed to hide offer", details: err.message });
+  }
+});
+
 // NEW — additive only: edit the store's own pending counter (a
 // Countered-pill item), while the seller hasn't responded yet.
 app.post("/api/orders/counter-offers/:id/edit", async (req, res) => {
