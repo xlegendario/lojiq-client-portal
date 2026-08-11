@@ -1550,6 +1550,13 @@
       }
     
       if (currentView === "offers") {
+        if (order.round_type === "denied") {
+          // A denied round is closed — no actions, just shown as a
+          // record in the Denied pill (mirrors the Kickz Caviar Portal
+          // Buying section's Denied pill).
+          return `<div class="action-row"><span class="muted">Denied</span></div>`;
+        }
+
         if (order.round_type === "countered") {
           return `
             <div class="action-row">
@@ -1559,6 +1566,10 @@
 
               <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
                 ACCEPT ${escapeHtml(order.sellers_offer || '')}
+              </button>
+
+              <button class="action-btn red" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'deny')">
+                DENY
               </button>
 
               <button class="action-btn red" type="button" onclick="handleDeleteOffer('${escapeHtml(order.id)}')">
@@ -1781,7 +1792,7 @@
     // pill gets added here once that phase is built. Per dashboard.js's
     // own documented behavior, an inactive pill's count only updates
     // once you've visited it at least once this session.
-    let offerPillCounts = { open: "", countered: "" };
+    let offerPillCounts = { open: "", countered: "", denied: "" };
 
     function renderPillRow(count) {
       if (currentView !== "offers") {
@@ -1793,8 +1804,8 @@
       offerPillCounts[activeOfferPillFilter] = count;
 
       pillRow.classList.remove("hidden");
-      pillRow.innerHTML = ["open", "countered"].map((key) => {
-        const label = key === "open" ? "Open" : "Countered";
+      pillRow.innerHTML = ["open", "countered", "denied"].map((key) => {
+        const label = key === "open" ? "Open" : (key === "countered" ? "Countered" : "Denied");
         const isActive = key === activeOfferPillFilter;
 
         return `
@@ -1941,7 +1952,9 @@
               : currentView === "inventory"
                 ? "/api/inventory"
                 : currentView === "offers"
-                  ? (activeOfferPillFilter === "countered" ? "/api/orders/offers-countered" : "/api/orders/offers-open")
+                  ? (activeOfferPillFilter === "countered" ? "/api/orders/offers-countered"
+                     : activeOfferPillFilter === "denied" ? "/api/orders/offers-denied"
+                     : "/api/orders/offers-open")
                   : "/api/orders";
 
           const requestParams =
