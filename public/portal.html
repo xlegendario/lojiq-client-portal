@@ -1551,10 +1551,30 @@
     
       if (currentView === "offers") {
         if (order.round_type === "denied") {
-          // A denied round is closed — no actions, just shown as a
-          // record in the Denied pill (mirrors the Kickz Caviar Portal
-          // Buying section's Denied pill).
-          return `<div class="action-row"><span class="muted">Denied</span></div>`;
+          // The store can revise a denial: ACCEPT the seller's last
+          // offer after all, COUNTER/RETRY again (server enforces the
+          // band + "no room" rules), or DELETE to clear it visually.
+          // Case A (fresh_denied): store denied a fresh seller offer —
+          // accept/counter operate on the raw seller offer. Case B
+          // (a denied counter round): accept the seller's last offer,
+          // retry = a new counter.
+          const acceptLabel = order.sellers_offer ? `ACCEPT ${escapeHtml(order.sellers_offer)}` : "ACCEPT";
+          const counterLabel = order._kind === "fresh_denied" ? "COUNTER" : "RETRY";
+          return `
+            <div class="action-row">
+              <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
+                ${acceptLabel}
+              </button>
+
+              <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
+                ${counterLabel}
+              </button>
+
+              <button class="action-btn red" type="button" onclick="${order._kind === 'fresh_denied' ? `handleHideFreshDenied('${escapeHtml(order.seller_offer_record_id || order.id)}')` : `handleDeleteOffer('${escapeHtml(order.id)}')`}">
+                DELETE
+              </button>
+            </div>
+          `;
         }
 
         if (order.round_type === "countered") {
@@ -2684,6 +2704,33 @@
 
     // NEW — additive only: Delete on a Countered item — withdraws the
     // store's own pending counter.
+    // NEW — additive only: Delete on a fresh_denied item (case A) —
+    // hides the seller offer from the portal (Delete Offer=true), so it
+    // disappears visually without blocking the seller from re-offering.
+    async function handleHideFreshDenied(sellerOfferId) {
+      const confirmed = window.confirm("Remove this denied offer from your portal?");
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch(`/api/orders/fresh-denied/${sellerOfferId}/hide`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ merchant_id: merchant.id })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.details || "Failed to remove offer");
+        }
+
+        await loadOrders(true);
+        loadAllCounts().catch((err) => console.error("Failed to refresh counts", err));
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
     async function handleDeleteOffer(recordId) {
       const confirmed = window.confirm("Are you sure you want to withdraw this counter offer?");
       if (!confirmed) return;
@@ -2785,14 +2832,29 @@
       }
 
       const isFresh = order.round_type === "fresh";
+      const isDenied = order.round_type === "denied";
+      const isFreshDenied = order._kind === "fresh_denied";
 
-      const endpoint = isFresh
-        ? `/api/orders/${pendingCounterOrderId}/counter-offer`
-        : `/api/orders/counter-offers/${pendingCounterOrderId}/counter`;
-
-      const body = isFresh
-        ? { merchant_id: merchant.id, store_counter_price: price }
-        : { merchant_id: merchant.id, price };
+      // Denied pill retry routing:
+      //  - case A (fresh_denied): store denied a fresh seller offer →
+      //    a brand-new counter goes through the round-one endpoint.
+      //  - case B (denied counter round): store retries against the
+      //    seller's denied position → store-retry-counter.
+      let endpoint;
+      let body;
+      if (isDenied && isFreshDenied) {
+        endpoint = `/api/orders/${order.order_record_id}/counter-offer`;
+        body = { merchant_id: merchant.id, store_counter_price: price };
+      } else if (isDenied) {
+        endpoint = `/api/orders/counter-offers/${pendingCounterOrderId}/retry-counter`;
+        body = { merchant_id: merchant.id, price };
+      } else if (isFresh) {
+        endpoint = `/api/orders/${pendingCounterOrderId}/counter-offer`;
+        body = { merchant_id: merchant.id, store_counter_price: price };
+      } else {
+        endpoint = `/api/orders/counter-offers/${pendingCounterOrderId}/counter`;
+        body = { merchant_id: merchant.id, price };
+      }
     
       try {
         submitBtn.disabled = true;
