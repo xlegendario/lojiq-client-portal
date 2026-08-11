@@ -1516,6 +1516,48 @@ app.get("/api/orders/offers-countered", async (req, res) => {
   }
 });
 
+// NEW — additive only: Denied pill data, mirroring the Kickz Caviar
+// Portal Buying section's Denied pill. Same shape as offers-countered
+// but asks the already-existing kickz backend for filter=denied. No
+// negotiation logic here — pure proxy.
+app.get("/api/orders/offers-denied", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (!COUNTER_OFFERS_SECRET) {
+      return res.status(500).json({ error: "Missing COUNTER_OFFERS_SECRET" });
+    }
+
+    const storeNameParam = encodeURIComponent(merchant.store_name);
+
+    const response = await fetch(`${KICKZ_PORTAL_BASE_URL}/api/dashboard/store-counter-offers?store_name=${storeNameParam}&filter=denied`, {
+      headers: { "x-kc-secret": COUNTER_OFFERS_SECRET }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || data.details || "Failed to load denied offers");
+    }
+
+    const items = (data.items || []).map((item) => ({ ...item, round_type: "denied" }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Failed to load denied offers:", err);
+    res.status(500).json({
+      error: "Failed to load denied offers",
+      details: err.message
+    });
+  }
+});
+
 app.get("/api/orders/offers-open", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
