@@ -1050,10 +1050,10 @@
       <h2>Counter Offer</h2>
   
       <p class="modal-subtitle">
-        Enter the maximum price you are willing to pay, including VAT.
+        Enter the price you are willing to pay.
       </p>
   
-      <label class="modal-label">Maximum Price (incl. VAT)</label>
+      <label class="modal-label">Your Price</label>
   
       <input
         id="counterPriceInput"
@@ -2770,7 +2770,7 @@
       const price = Number(document.getElementById("counterPriceInput").value);
     
       if (!Number.isInteger(price) || price <= 0) {
-        alert("Please enter a valid whole number including VAT. Example: 250");
+        alert("Please enter a valid whole number. Example: 250");
         return;
       }
 
