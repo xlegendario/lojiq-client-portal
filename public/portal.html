@@ -1810,6 +1810,56 @@
     // once you've visited it at least once this session.
     let offerPillCounts = { open: "", countered: "", denied: "" };
 
+    // NEW — the pill row only ever knew the count of the pill you were
+    // standing on; the other two showed whatever was left in memory, or
+    // nothing. Fetching the two you are NOT looking at fills them in, so
+    // "Open 9 · Countered 7 · Denied 4" is true the moment the tab opens
+    // and the header can show a real total.
+    //
+    // Two extra requests, only on Offers, and only the counts are used.
+    const OFFER_PILL_ENDPOINTS = {
+      open: "/api/orders/offers-open",
+      countered: "/api/orders/offers-countered",
+      denied: "/api/orders/offers-denied"
+    };
+
+    let offerPillCountsToken = 0;
+
+    async function refreshOfferPillCounts() {
+      const token = ++offerPillCountsToken;
+
+      const others = Object.keys(OFFER_PILL_ENDPOINTS).filter(
+        (key) => key !== activeOfferPillFilter
+      );
+
+      await Promise.all(
+        others.map(async (key) => {
+          try {
+            const res = await fetch(
+              `${OFFER_PILL_ENDPOINTS[key]}?${new URLSearchParams({ merchant_id: merchant.id })}`
+            );
+
+            if (!res.ok) return;
+
+            const data = await res.json();
+            offerPillCounts[key] = (data.orders || []).length;
+          } catch (err) {
+            console.error(`Could not count the ${key} offers:`, err);
+          }
+        })
+      );
+
+      // A newer load started while these were in flight; its numbers win.
+      if (token !== offerPillCountsToken) return;
+
+      renderPillRow(offerPillCounts[activeOfferPillFilter] || 0);
+
+      const pillTotal = ["open", "countered", "denied"]
+        .reduce((sum, key) => sum + (Number(offerPillCounts[key]) || 0), 0);
+
+      tableCount.textContent = `${pillTotal} Orders`;
+    }
+
     function renderPillRow(count) {
       if (currentView !== "offers") {
         pillRow.classList.add("hidden");
@@ -2016,15 +2066,31 @@
           ? data.orders
           : [...currentOrders, ...data.orders];
     
-        const currentTabCount =
-          document.getElementById(`count-${currentView}`)?.textContent || currentOrders.length;
-        
-        tableCount.textContent = `${currentTabCount} Orders`;
+        // FIXED — this copied the SIDEBAR badge, which is loaded separately.
+        // Render before those counts arrive and the badge still reads "0" —
+        // and "0" is a truthy string, so the fallback never kicked in. Hence
+        // "0 Orders" above a full table.
+        //
+        // The number now says what it should: how many rows you are looking
+        // at. On Offers, where three pills split one list, it shows the total
+        // across all three and each pill carries its own number.
+        if (currentView === "offers") {
+          const pillTotal = ["open", "countered", "denied"]
+            .reduce((sum, key) => sum + (Number(offerPillCounts[key]) || 0), 0);
+
+          tableCount.textContent = `${pillTotal} Orders`;
+        } else {
+          tableCount.textContent = `${currentOrders.length} Orders`;
+        }
     
         currentViewStat.textContent = currentOrders.length;
     
         renderOrders(currentOrders);
         renderPillRow(currentOrders.length);
+
+        if (currentView === "offers") {
+          refreshOfferPillCounts();
+        }
         await loadOpenPaymentBatches();
         
         if (currentView === "open_payments") {
