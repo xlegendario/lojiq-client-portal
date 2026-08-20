@@ -411,10 +411,12 @@
       font-variant-numeric: tabular-nums;
     }
 
-    /* Een dichte ondergrond, anders schuiven de andere kolommen er
-       zichtbaar onderdoor. */
-    th[data-key="product"]:first-child,
-    td[data-key="product"]:first-child {
+    /* Product en de actiekolom worden herkend aan hun sleutel, niet aan
+       hun positie: bij Open Payments staat er een selectievakje voor
+       Product, en dan hoort die mee vast te zitten in plaats van dat
+       Product zijn plek verliest. */
+    th[data-key="product"],
+    td[data-key="product"] {
       position: sticky;
       left: 0;
       z-index: 3;
@@ -423,8 +425,28 @@
       box-shadow: 1px 0 0 rgba(143,174,204,0.16);
     }
 
-    th[data-key="actions"]:last-child,
-    td[data-key="actions"]:last-child {
+    th[data-key="select"],
+    td[data-key="select"] {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: #0A1A2C;
+    }
+
+    th[data-key="select"] + th[data-key="product"],
+    td[data-key="select"] + td[data-key="product"] {
+      left: 70px;
+    }
+
+    /* De knoppenkolom heet niet overal "actions": bij Open Payments en
+       Payment History staat de PAY-knop onder een eigen sleutel. Alle drie
+       horen ze rechts te blijven staan. */
+    th[data-key="actions"],
+    td[data-key="actions"],
+    th[data-key="payment_action"],
+    td[data-key="payment_action"],
+    th[data-key="payment_link"],
+    td[data-key="payment_link"] {
       position: sticky;
       right: 0;
       z-index: 3;
@@ -439,20 +461,27 @@
       background: #0B1C30;
     }
 
-    thead th[data-key="product"]:first-child,
-    thead th[data-key="actions"]:last-child {
+    thead th[data-key="product"],
+    thead th[data-key="select"],
+    thead th[data-key="actions"],
+    thead th[data-key="payment_action"],
+    thead th[data-key="payment_link"] {
       z-index: 5;
       background: #0B1C30;
     }
 
     /* De slagschaduw verschijnt pas zodra er echt iets onder wegschuift. */
-    .table-wrap.scrolled-x th[data-key="product"]:first-child,
-    .table-wrap.scrolled-x td[data-key="product"]:first-child {
+    .table-wrap.scrolled-x th[data-key="product"],
+    .table-wrap.scrolled-x td[data-key="product"] {
       box-shadow: 10px 0 14px -10px rgba(0,0,0,0.75), 1px 0 0 rgba(143,174,204,0.16);
     }
 
-    .table-wrap:not(.at-end) th[data-key="actions"]:last-child,
-    .table-wrap:not(.at-end) td[data-key="actions"]:last-child {
+    .table-wrap:not(.at-end) th[data-key="actions"],
+    .table-wrap:not(.at-end) td[data-key="actions"],
+    .table-wrap:not(.at-end) th[data-key="payment_action"],
+    .table-wrap:not(.at-end) td[data-key="payment_action"],
+    .table-wrap:not(.at-end) th[data-key="payment_link"],
+    .table-wrap:not(.at-end) td[data-key="payment_link"] {
       box-shadow: -10px 0 14px -10px rgba(0,0,0,0.75), -1px 0 0 rgba(143,174,204,0.16);
     }
 
@@ -777,7 +806,9 @@
       text-align: center;
     }
 
-    td[data-key="actions"] {
+    td[data-key="actions"],
+    td[data-key="payment_action"],
+    td[data-key="payment_link"] {
       text-align: right;
     }
     
