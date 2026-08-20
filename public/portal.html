@@ -1842,7 +1842,9 @@
             if (!res.ok) return;
 
             const data = await res.json();
-            offerPillCounts[key] = (data.orders || []).length;
+            // These endpoints answer { count, items } — not { orders },
+            // which is what the table loader above receives.
+            offerPillCounts[key] = Number(data.count) || (data.items || []).length;
           } catch (err) {
             console.error(`Could not count the ${key} offers:`, err);
           }
