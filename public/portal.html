@@ -390,6 +390,72 @@
       text-overflow: ellipsis;
     }
 
+    /* ---- UX-ronde 1.2 ------------------------------------------------
+       Het productblok en de actieknoppen blijven staan terwijl je zijwaarts
+       scrollt, en de kolomkoppen blijven staan terwijl je naar beneden
+       scrollt. Je weet zo altijd naar welke order je kijkt en wat een
+       kolom betekent, ook halverwege een brede tabel.
+       ---------------------------------------------------------------- */
+
+    .product-cell {
+      min-width: 0;
+    }
+
+    .product-meta {
+      margin-top: 3px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Een dichte ondergrond, anders schuiven de andere kolommen er
+       zichtbaar onderdoor. */
+    th[data-key="product"]:first-child,
+    td[data-key="product"]:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: #0A1A2C;
+      text-align: left;
+      box-shadow: 1px 0 0 rgba(143,174,204,0.16);
+    }
+
+    th[data-key="actions"]:last-child,
+    td[data-key="actions"]:last-child {
+      position: sticky;
+      right: 0;
+      z-index: 3;
+      background: #0A1A2C;
+      box-shadow: -1px 0 0 rgba(143,174,204,0.16);
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+      background: #0B1C30;
+    }
+
+    thead th[data-key="product"]:first-child,
+    thead th[data-key="actions"]:last-child {
+      z-index: 5;
+      background: #0B1C30;
+    }
+
+    /* De slagschaduw verschijnt pas zodra er echt iets onder wegschuift. */
+    .table-wrap.scrolled-x th[data-key="product"]:first-child,
+    .table-wrap.scrolled-x td[data-key="product"]:first-child {
+      box-shadow: 10px 0 14px -10px rgba(0,0,0,0.75), 1px 0 0 rgba(143,174,204,0.16);
+    }
+
+    .table-wrap:not(.at-end) th[data-key="actions"]:last-child,
+    .table-wrap:not(.at-end) td[data-key="actions"]:last-child {
+      box-shadow: -10px 0 14px -10px rgba(0,0,0,0.75), -1px 0 0 rgba(143,174,204,0.16);
+    }
+
     .muted {
       color: var(--muted);
       margin-top: 4px;
@@ -429,7 +495,8 @@
     .pill-row {
       display: flex;
       gap: 8px;
-      padding: 12px 20px 0;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
     }
 
@@ -459,9 +526,10 @@
     }
 
     .pill-btn.active {
-      border-color: rgba(245,158,11,0.5);
-      background: rgba(245,158,11,0.15);
-      color: #fbc76f;
+      border-color: var(--primary);
+      background: rgba(47,128,237,0.24);
+      color: #CFE4FF;
+      box-shadow: 0 0 0 1px rgba(47,128,237,0.25);
     }
 
     .pill-btn .pill-count {
@@ -479,12 +547,13 @@
     
     .action-btn {
       cursor: pointer;
-      border-radius: 10px;
+      border-radius: 8px;
       border: none;
-      padding: 9px 12px;
+      padding: 8px 11px;
       font-size: 12px;
       font-weight: 900;
       color: white;
+      white-space: nowrap;
     }
     
     a.action-btn {
@@ -704,9 +773,12 @@
     td[data-key="issue_status"],
     td[data-key="packing_slip_url"],
     td[data-key="tracking_url"],
-    td[data-key="qc_notes"],
-    td[data-key="actions"] {
+    td[data-key="qc_notes"] {
       text-align: center;
+    }
+
+    td[data-key="actions"] {
+      text-align: right;
     }
     
     td[data-key="status"] .status,
@@ -716,13 +788,12 @@
     
     td[data-key="packing_slip_url"] .action-btn,
     td[data-key="tracking_url"] .action-btn,
-    td[data-key="qc_notes"] .action-btn,
-    td[data-key="actions"] .action-row {
+    td[data-key="qc_notes"] .action-btn {
       margin: 0 auto;
     }
     
     td[data-key="actions"] .action-row {
-      justify-content: center;
+      justify-content: flex-end;
     }
 
     .modal-backdrop {
@@ -1135,7 +1206,7 @@
 
     const columnWidths = {
       order_number: 130,
-      product: 320,
+      product: 300,
       sku: 150,
       size: 80,
       brand: 130,
@@ -1154,7 +1225,7 @@
       preferred_courier: 160,
       warehouse_tracking: 180,
       tracking_number: 180,
-      actions: 150,
+      actions: 210,
       return_created: 140,
       verified_at: 140,
       packing_slip_url: 130,
@@ -1176,22 +1247,16 @@
 
     const columnsByView = {
       open: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["actions", "Actions"]
       ],
     
       offers: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["offer_date", "Offer Date"],
@@ -1203,11 +1268,8 @@
       ],
     
       allocated: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["allocated_price", "Allocated Price"],
@@ -1220,11 +1282,8 @@
       ],
     
       label_requests: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["allocated_price", "Allocated Price"],
@@ -1238,11 +1297,8 @@
 
       open_payments: [
         ["select", "Select"],
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
         ["status", "Status"],
@@ -1251,11 +1307,8 @@
       ],
 
       payment_history: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
         ["invoice_status", "Invoice Status"],
@@ -1264,11 +1317,8 @@
       ],
     
       ready_to_ship: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["allocated_price", "Allocated Price"],
@@ -1280,11 +1330,8 @@
       ],
     
       shipped: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["allocated_price", "Allocated Price"],
@@ -1297,11 +1344,8 @@
       ],
     
       fulfilled: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["allocated_price", "Allocated Price"],
@@ -1314,11 +1358,8 @@
       ],
 
       issues: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
         ["allocated_price", "Allocated Price"],
@@ -1333,10 +1374,8 @@
       ],
 
       returns: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
+        ["order_number", "Order Number"],
         ["return_created", "Return Created"],
         ["status", "Status"],
         ["verified_at", "Verified At"],
@@ -1349,9 +1388,6 @@
 
       inventory: [
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
         ["listed_at", "Listed At"],
         ["selling_price", "Suggested Price"],
         ["vat_type", "VAT Type"],
@@ -1359,11 +1395,8 @@
       ],
 
       stockx_active_bids: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["date", "Date"],
         ["selling_price", "Selling Price"],
         ["status", "Status"],
@@ -1372,11 +1405,8 @@
       ],
 
       stockx_active_second_bids: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["date", "Date"],
         ["selling_price", "Selling Price"],
         ["status", "Status"],
@@ -1385,11 +1415,8 @@
       ],
 
       stockx_orders: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["status", "Status"],
         ["buying_price", "Buying Price"],
@@ -1399,11 +1426,8 @@
       ],
 
       stockx_second_orders: [
-        ["order_number", "Order Number"],
         ["product", "Product"],
-        ["sku", "SKU"],
-        ["size", "Size"],
-        ["brand", "Brand"],
+        ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["status", "Status"],
         ["second_buying_price", "Buying Price"],
@@ -1750,7 +1774,22 @@
       }
     
       if (key === "product") {
-        return `<div class="product-name">${escapeHtml(order.product || "—")}</div>`;
+        // GEWIJZIGD — SKU, Size en Brand hadden elk een eigen kolom en
+        // stonden daardoor los van de naam waar ze bij horen. Ze staan nu
+        // onder de productnaam in hetzelfde blok. Niets verdwijnt; de
+        // tabel wordt drie kolommen smaller.
+        const meta = [
+          order.sku,
+          order.size ? `Size ${order.size}` : "",
+          order.brand
+        ].filter(Boolean).map(escapeHtml).join(" &middot; ");
+
+        return `
+          <div class="product-cell">
+            <div class="product-name" title="${escapeHtml(order.product || "")}">${escapeHtml(order.product || "—")}</div>
+            ${meta ? `<div class="product-meta">${meta}</div>` : ""}
+          </div>
+        `;
       }
 
       if (key === "issue_notes") {
@@ -3121,6 +3160,21 @@
     });
     
     const tableWrap = document.querySelector(".table-wrap");
+
+    // NEW — additief: de slagschaduw naast het vastgezette productblok
+    // hoort alleen te verschijnen zodra er daadwerkelijk iets onder
+    // wegschuift, anders staat er een streep zonder aanleiding.
+    if (tableWrap) {
+      const syncStickyShadows = () => {
+        tableWrap.classList.toggle("scrolled-x", tableWrap.scrollLeft > 2);
+        const end = tableWrap.scrollWidth - tableWrap.clientWidth - tableWrap.scrollLeft;
+        tableWrap.classList.toggle("at-end", end <= 2);
+      };
+
+      tableWrap.addEventListener("scroll", syncStickyShadows, { passive: true });
+      window.addEventListener("resize", syncStickyShadows);
+      syncStickyShadows();
+    }
     
     tableWrap.addEventListener("scroll", async () => {
       const nearBottom =
