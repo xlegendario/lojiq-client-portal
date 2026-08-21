@@ -402,13 +402,19 @@
     }
 
     .product-meta {
-      margin-top: 3px;
-      font-size: 12px;
-      color: var(--muted);
+      margin-top: 4px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #A9C8E6;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       font-variant-numeric: tabular-nums;
+    }
+
+    .product-sku {
+      color: var(--text);
+      font-weight: 900;
     }
 
     /* Product en de actiekolom worden herkend aan hun sleutel, niet aan
@@ -839,12 +845,20 @@
 
       /* De bovenbalk was op deze breedte al krap; met de menuknop erbij
          liep hij over. "Merchant Portal" staat een regel lager toch al als
-         paginatitel, dus die mag hier weg, en de winkelnaam krimpt mee. */
+         paginatitel, dus die mag hier weg, en de winkelnaam krimpt mee.
+
+         Hij blijft ook staan tijdens het scrollen: anders moet je vanaf rij
+         veertig helemaal terug naar boven om van tab te wisselen of uit te
+         loggen. */
       .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 900;
         height: auto;
-        min-height: 64px;
-        padding: 10px 14px;
+        min-height: 56px;
+        padding: 9px 14px;
         gap: 10px;
+        background: #061120;
       }
 
       .topbar-title {
@@ -1035,6 +1049,13 @@
       }
 
       .table-wrap .resizer {
+        display: none;
+      }
+
+      /* De maat heeft op het bureaublad een eigen kolom om snel te kunnen
+         scannen. Op een kaart staat hij al in het productblok bovenaan,
+         dus daar zou de losse regel dubbelop zijn. */
+      .table-wrap td[data-key="size"] {
         display: none;
       }
 
@@ -1472,7 +1493,7 @@
       order_number: 130,
       product: 300,
       sku: 150,
-      size: 80,
+      size: 90,
       brand: 130,
       selling_price: 130,
       date: 120,
@@ -1512,6 +1533,7 @@
     const columnsByView = {
       open: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1520,6 +1542,7 @@
     
       offers: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1533,6 +1556,7 @@
     
       allocated: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1547,6 +1571,7 @@
     
       label_requests: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1562,6 +1587,7 @@
       open_payments: [
         ["select", "Select"],
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
@@ -1572,6 +1598,7 @@
 
       payment_history: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
@@ -1582,6 +1609,7 @@
     
       ready_to_ship: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1595,6 +1623,7 @@
     
       shipped: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1609,6 +1638,7 @@
     
       fulfilled: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1623,6 +1653,7 @@
 
       issues: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
@@ -1639,6 +1670,7 @@
 
       returns: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["return_created", "Return Created"],
         ["status", "Status"],
@@ -1652,6 +1684,7 @@
 
       inventory: [
         ["product", "Product"],
+        ["size", "Size"],
         ["listed_at", "Listed At"],
         ["selling_price", "Suggested Price"],
         ["vat_type", "VAT Type"],
@@ -1660,6 +1693,7 @@
 
       stockx_active_bids: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["date", "Date"],
         ["selling_price", "Selling Price"],
@@ -1670,6 +1704,7 @@
 
       stockx_active_second_bids: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["date", "Date"],
         ["selling_price", "Selling Price"],
@@ -1680,6 +1715,7 @@
 
       stockx_orders: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["status", "Status"],
@@ -1691,6 +1727,7 @@
 
       stockx_second_orders: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["status", "Status"],
@@ -2042,11 +2079,13 @@
         // stonden daardoor los van de naam waar ze bij horen. Ze staan nu
         // onder de productnaam in hetzelfde blok. Niets verdwijnt; de
         // tabel wordt drie kolommen smaller.
-        const meta = [
-          order.sku,
-          order.size ? `Size ${order.size}` : "",
-          order.brand
-        ].filter(Boolean).map(escapeHtml).join(" &middot; ");
+        // De SKU is het veld waar het meest op gezocht wordt, dus die
+        // krijgt de volle tekstkleur; maat en merk blijven secundair.
+        const delen = [];
+        if (order.sku) delen.push(`<span class="product-sku">${escapeHtml(order.sku)}</span>`);
+        if (order.size) delen.push(escapeHtml(`Size ${order.size}`));
+        if (order.brand) delen.push(escapeHtml(order.brand));
+        const meta = delen.join(" &middot; ");
 
         return `
           <div class="product-cell">
