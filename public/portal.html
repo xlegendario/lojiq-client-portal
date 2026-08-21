@@ -887,45 +887,67 @@
          Hij blijft ook staan tijdens het scrollen: anders moet je vanaf rij
          veertig helemaal terug naar boven om van tab te wisselen of uit te
          loggen. */
+      /* Een slanke balk die blijft staan: menu links, de naam van de weergave
+         in het midden, Logout rechts. Al het andere — zoekbalk, tellers —
+         scrolt gewoon weg, zodat er tijdens het lezen zo min mogelijk vast in
+         beeld staat.
+
+         Drie kolommen waarvan de buitenste even breed zijn, zodat de titel
+         echt in het midden staat en niet net ernaast. */
       .topbar {
         position: sticky;
         top: 0;
         z-index: 900;
-        height: auto;
-        min-height: 56px;
-        padding: 9px 14px;
-        gap: 10px;
-        background: #061120;
-      }
 
-      .topbar-title {
-        display: none;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 10px;
+
+        height: auto;
+        min-height: 0;
+        padding: 8px 12px;
+        background: #061120;
       }
 
       .menu-btn {
         margin-right: 0;
-        flex: 0 0 auto;
+        grid-column: 1;
+        justify-self: start;
+      }
+
+      /* De naam van de weergave stond alleen groot onder de balk. Die staat nu
+         in de balk zelf, zodat je bij het scrollen blijft zien waar je bent. */
+      .topbar-title {
+        display: block;
+        grid-column: 2;
+        justify-self: center;
+        font-size: 17px;
+        letter-spacing: -0.2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .merchant-box {
         min-width: 0;
-        gap: 10px;
-        margin-left: auto;
+        gap: 8px;
+        grid-column: 3;
+        justify-self: end;
       }
 
+      /* De winkelnaam staat al in het menu; in de balk is alleen Logout nodig. */
       .merchant-box span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 13px;
+        display: none;
       }
 
       .content {
-        padding: 18px 14px;
+        padding: 16px 14px;
       }
 
-      .page-title {
-        font-size: 26px;
+      /* De grote kop onder de balk zou nu hetzelfde zeggen als de balk. */
+      .page-head {
+        display: none;
       }
 
       .stats-grid {
@@ -1027,6 +1049,13 @@
         background: none !important;
         box-shadow: none !important;
         text-align: right;
+      }
+
+      /* De statuspil staat op het bureaublad gecentreerd in zijn kolom via
+         `margin: 0 auto`. In een kaart duwt dat hem naar het midden terwijl
+         alle andere waarden rechts uitlijnen. */
+      .table-wrap td .status {
+        margin: 0;
       }
 
       .table-wrap td::before {
@@ -1395,7 +1424,7 @@
           Menu
         </button>
 
-        <div class="topbar-title">Merchant Portal</div>
+        <div id="topbarTitle" class="topbar-title">Merchant Portal</div>
         <div class="merchant-box">
           <span id="merchantName">Loading...</span>
           <button id="logoutBtn" class="logout-btn">Logout</button>
@@ -2437,6 +2466,11 @@ function bedragVoorKnop(waarde) {
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
       pageTitle.textContent = label;
+
+      // NEW — op een telefoon staat de naam van de weergave in de
+      // bovenbalk, zodat je bij het scrollen blijft zien waar je bent.
+      const balkTitel = document.getElementById("topbarTitle");
+      if (balkTitel) balkTitel.textContent = label;
 
       if (currentView !== "open_payments") {
         openStatLabel.textContent = "Open Orders";
