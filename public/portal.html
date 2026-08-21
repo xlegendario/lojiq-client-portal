@@ -338,6 +338,26 @@
       width: 100%;
       min-width: 1100px;
       border-collapse: collapse;
+
+      /* GEWIJZIGD — met een vaste indeling bepalen de opgegeven breedtes de
+         kolommen, in plaats van dat de browser de restruimte naar rato
+         verdeelt. Dat verdelen was de reden dat dezelfde kolom in elke tab
+         een andere breedte kreeg. */
+      table-layout: fixed;
+    }
+
+    /* Product is de enige kolom zonder vaste breedte en slokt daardoor alles
+       op wat overblijft. Dat is ook de kolom die de ruimte verdient: daar
+       wordt nu tekst afgekapt. */
+    th[data-key="product"],
+    td[data-key="product"] {
+      width: auto;
+    }
+
+    /* De actiekolom wordt na het tekenen aan zijn eigen knoppen gemeten. */
+    th[data-key="actions"],
+    td[data-key="actions"] {
+      width: var(--actiebreedte, 200px);
     }
 
     th, td {
@@ -385,9 +405,14 @@
     .product-name {
       font-weight: 900;
       width: 100%;
-      white-space: nowrap;
+      line-height: 1.25;
+      min-height: 2.5em;
+
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
-      text-overflow: ellipsis;
+      overflow-wrap: anywhere;
     }
 
     /* ---- UX-ronde 1.2 ------------------------------------------------
@@ -580,11 +605,20 @@
       flex-wrap: nowrap;
     }
     
+    /* GEWIJZIGD — er waren vier knopvormen terwijl er maar één nodig is.
+       Drie waren al gelijk op de kleur na; de gele week af met een eigen
+       hoogte en zijruimte. Nu één hoogte, één hoekafronding, één
+       lettergrootte. Kleur is het enige dat nog verschilt, want dat is wat
+       kleur hoort te doen. */
     .action-btn {
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 34px;
       border-radius: 8px;
       border: none;
-      padding: 8px 11px;
+      padding: 0 12px;
       font-size: 12px;
       font-weight: 900;
       color: white;
@@ -613,9 +647,12 @@
     .action-btn.yellow {
       background: #FFC533;
       color: #07111F;
-      min-width: 52px;
-      height: 38px;
-      padding: 0 12px;
+    }
+
+    /* Het pictogram voor het pakbon-label blijft vierkant. */
+    .action-btn.download-btn {
+      width: 40px;
+      padding: 0;
     }
     
     .download-btn {
@@ -1045,14 +1082,23 @@
         justify-content: stretch;
         gap: 8px;
         width: 100%;
+
+        /* Past het niet op één regel, dan zakt de breedste knop naar de
+           volgende in plaats van dat zijn tekst wordt afgeknipt. */
+        flex-wrap: wrap;
       }
 
+      /* GEWIJZIGD — stond op `flex: 1 1 0` met `min-width: 0`: dan krijgt elke
+         knop precies een derde van de breedte, wat er ook in staat, en mag hij
+         onder zijn eigen inhoud krimpen. "ACCEPT € 172,50" viel daardoor
+         buiten de knop. Met `auto` groeit elke knop vanaf zijn eigen tekst,
+         dus Accept krijgt meer dan Delete en er wordt niets afgeknipt. */
       .table-wrap td[data-key="actions"] .action-btn,
       .table-wrap td[data-key="payment_action"] .action-btn,
       .table-wrap td[data-key="payment_link"] .action-btn {
-        flex: 1 1 0;
-        min-width: 0;
-        padding: 11px 8px;
+        flex: 1 1 auto;
+        height: 44px;
+        padding: 0 12px;
         text-align: center;
       }
 
@@ -1087,6 +1133,31 @@
       display: none;
       align-items: center;
       justify-content: center;
+      padding: 24px;
+    }    /* ---- UX-lijst A1 en A2 ---------------------------------------------
+       .modal-backdrop kon niet scrollen: een hoge kaart stak er aan de boven- en
+       onderkant uit en er was geen manier om erbij te komen. Gemeten op View
+       Sizes met veertien maten: kaart 5285 px hoog in een scherm van 812, met
+       de bovenkant op -2236.
+       -------------------------------------------------------------------- */
+
+    .modal-backdrop {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      align-items: flex-start;
+      justify-items: stretch;
+    }
+
+    .modal-backdrop .custom-modal {
+      /* Midden in beeld zolang het past, bovenaan zodra het niet meer past. */
+      margin: auto;
+      max-height: none;
+    }
+
+    /* Zolang er een venster open staat mag de pagina erachter niet meescrollen. */
+    html.venster-open,
+    body.venster-open {
+      overflow: hidden;
     }
     
     .custom-modal {
@@ -1496,45 +1567,56 @@
       payment_history: "Payment History"
     };
 
+    // GEWIJZIGD — was dertien willekeurige getallen; nu zeven maten
+    // per soort inhoud, in beide portals gelijk. Een datum is overal
+    // even breed, een bedrag ook, dus niets verspringt meer als je van
+    // tab wisselt.
+    //
+    // product en actions staan hier bewust niet in: product slokt de
+    // overgebleven ruimte op en actions wordt gemeten aan zijn knoppen.
     const columnWidths = {
-      order_number: 130,
-      product: 300,
-      sku: 150,
-      size: 90,
-      brand: 130,
-      selling_price: 130,
-      date: 120,
-      offer_date: 120,
-      offer: 120,
-      offer_vat_type: 120,
-      eta: 110,
-      allocated_price: 140,
-      vat: 110,
-      invoice_price: 160,
-      vat_type: 120,
-      status: 150,
-      supplier_shipping_status: 220,
-      preferred_courier: 160,
-      warehouse_tracking: 180,
-      tracking_number: 180,
-      actions: 210,
-      return_created: 140,
-      verified_at: 140,
-      packing_slip_url: 130,
-      condition: 140,
-      qc_notes: 120,
-      active_bid: 130,
-      second_active_bid: 130,
-      buying_price: 130,
-      order_status: 160,
-      second_buying_price: 150,
-      second_extra_profit: 140,
-      second_stockx_order_number: 180,
-      second_order_status: 170,
-      select: 70,
-      invoice_status: 150,
-      payment_link: 150,
-      paid_at: 130
+      select: 60,
+      size: 75,
+      vat_type: 85,
+      offer_vat_type: 85,
+      condition: 85,
+      date: 105,
+      offer_date: 105,
+      listed_at: 105,
+      return_created: 105,
+      verified_at: 105,
+      paid_at: 105,
+      eta: 105,
+      selling_price: 100,
+      allocated_price: 100,
+      invoice_price: 100,
+      vat: 100,
+      offer: 100,
+      my_offer_display: 100,
+      active_bid: 100,
+      second_active_bid: 100,
+      buying_price: 100,
+      second_buying_price: 100,
+      second_extra_profit: 100,
+      order_number: 110,
+      brand: 110,
+      sku: 110,
+      second_stockx_order_number: 140,
+      status: 130,
+      issue_status: 130,
+      invoice_status: 130,
+      order_status: 130,
+      second_order_status: 130,
+      supplier_shipping_status: 130,
+      tracking_number: 140,
+      warehouse_tracking: 140,
+      preferred_courier: 140,
+      packing_slip_url: 80,
+      tracking_url: 80,
+      qc_notes: 80,
+      issue_notes: 80,
+      payment_link: 80,
+      payment_action: 80,
     };
 
     const columnsByView = {
@@ -2265,7 +2347,11 @@
       const thead = document.querySelector("thead tr");
       thead.innerHTML = displayColumns
         .map(([key, label]) => {
-          const width = columnWidths[key] || 140;
+          // Zonder waarde in de tabel krijgt de kolom geen vaste breedte:
+          // dat geldt voor product (slokt de rest op) en actions (past
+          // zich aan zijn knoppen aan).
+          const width = columnWidths[key];
+          const maat = width ? `width:${width}px; min-width:${width}px;` : "";
       
           const headerContent =
             key === "select" && currentView === "open_payments"
@@ -2273,7 +2359,7 @@
               : escapeHtml(label);
           
           return `
-            <th data-key="${key}" style="width:${width}px; min-width:${width}px;">
+            <th data-key="${key}" style="${maat}">
               ${headerContent}
               <div class="resizer" data-key="${key}"></div>
             </th>
@@ -2297,14 +2383,15 @@
         return `
           <tr>
             ${displayColumns.map(([key, label]) => {
-              const width = columnWidths[key] || 140;
+              const width = columnWidths[key];
+              const maat = width ? `width:${width}px; min-width:${width}px;` : "";
 
               // NEW — additief: op een telefoon wordt elke rij een kaart
               // en staat de kolomnaam naast de waarde. Zonder dit label
               // weet een cel niet bij welke kolom hij hoort zodra de kop
               // weg is.
               return `
-                <td data-key="${key}" data-label="${escapeHtml(label)}" style="width:${width}px; min-width:${width}px;">
+                <td data-key="${key}" data-label="${escapeHtml(label)}" style="${maat}">
                   ${renderCell(order, key)}
                 </td>
               `;
@@ -2314,6 +2401,7 @@
       }).join("");
 
       updatePaymentSelectionSummary();
+      fitColumns();
     }
     
     async function loadOrders(reset = true) {
@@ -3476,6 +3564,56 @@
     // NEW — additief: de menuknop schuift de zijbalk uit en het doek
     // erachter sluit hem weer. Kiezen van een tab sluit hem ook, anders
     // blijft hij over de tabel heen staan.
+    // NEW — additief: vensters gedroegen zich niet. De achtergrond schoof mee
+    // tijdens het scrollen en Escape sloot niets. Beide horen bij het venster
+    // zelf, niet bij de plek die hem opent, dus staat het hier op één plek voor
+    // alle vensters van dit portal.
+    (function () {
+      const VENSTERS = ".modal-backdrop";
+      const SLUITKNOPPEN = ".modal-close";
+
+      function openVensters() {
+        return Array.from(document.querySelectorAll(VENSTERS))
+          .filter((v) => getComputedStyle(v).display !== "none");
+      }
+
+      function bijwerken() {
+        const open = openVensters().length > 0;
+        document.documentElement.classList.toggle("venster-open", open);
+        document.body.classList.toggle("venster-open", open);
+      }
+
+      // Alleen de vensters zelf in de gaten houden, niet de hele pagina: de
+      // tabellen wisselen voortdurend van klasse en dat hoeft hier niets te doen.
+      const waarnemer = new MutationObserver(bijwerken);
+      document.querySelectorAll(VENSTERS).forEach((v) => {
+        waarnemer.observe(v, { attributes: true, attributeFilter: ["class", "style"] });
+      });
+
+      document.addEventListener("keydown", (gebeurtenis) => {
+        if (gebeurtenis.key !== "Escape") return;
+
+        const open = openVensters();
+        if (!open.length) return;
+
+        // Het bovenste venster sluiten via zijn eigen sluitknop, zodat de
+        // opruimcode die daaraan hangt gewoon loopt.
+        const bovenste = open[open.length - 1];
+        const knop = bovenste.querySelector(SLUITKNOPPEN);
+
+        if (knop) {
+          knop.click();
+        } else {
+          bovenste.classList.add("hidden");
+          bovenste.style.display = "none";
+        }
+
+        bijwerken();
+      });
+
+      bijwerken();
+    })();
+
     const sidebarEl = document.getElementById("sidebar");
     const sidebarBackdrop = document.getElementById("sidebarBackdrop");
     const menuBtn = document.getElementById("menuBtn");
@@ -3501,6 +3639,43 @@
     });
 
     const tableWrap = document.querySelector(".table-wrap");
+
+    // NEW — additief: de actiekolom stond op een vast getal en had daardoor
+    // vaak veel lege ruimte: 210 px voor één knop van zeventig. Hij wordt nu
+    // gemeten aan de knoppen die er werkelijk in staan.
+    //
+    // En de tabel krijgt een ondergrens die past bij de kolommen van deze
+    // weergave plus 240 px voor Product, zodat die nooit te smal wordt.
+    function fitColumns() {
+      const tabel = document.querySelector(".table-wrap table");
+      if (!tabel) return;
+
+      const rijen = Array.from(
+        document.querySelectorAll('#ordersTableBody td[data-key="actions"] .action-row')
+      );
+
+      if (rijen.length) {
+        // De knoppen zelf optellen, niet de rij die hen bevat: die rekt zich
+        // uit tot de cel en dan meet je je eigen uitkomst.
+        const breedste = Math.max(...rijen.map((r) => {
+          const knoppen = Array.from(r.children);
+          if (!knoppen.length) return 0;
+          const tussenruimte = parseFloat(getComputedStyle(r).gap) || 0;
+          return knoppen.reduce((som, k) => som + k.getBoundingClientRect().width, 0)
+               + tussenruimte * (knoppen.length - 1);
+        }));
+
+        if (breedste > 0) {
+          tabel.style.setProperty("--actiebreedte", Math.ceil(breedste) + 28 + "px");
+        }
+      }
+
+      const vast = Array.from(document.querySelectorAll("thead th"))
+        .filter((th) => th.dataset.key !== "product")
+        .reduce((som, th) => som + th.getBoundingClientRect().width, 0);
+
+      tabel.style.minWidth = Math.round(vast + 275) + "px";
+    }
 
     // NEW — additief: de slagschaduw naast het vastgezette productblok
     // hoort alleen te verschijnen zodra er daadwerkelijk iets onder
