@@ -1161,6 +1161,54 @@
       }
     }
 
+
+    /* ---- UX-lijst D3 ----------------------------------------------------
+       Een kruisje om in een keer te wissen. Verschijnt pas zodra er iets staat,
+       zodat het veld leeg net zo rustig blijft als eerst.
+       -------------------------------------------------------------------- */
+
+    .search-row {
+      position: relative;
+    }
+
+    .search-input {
+      padding-right: 44px;
+    }
+
+    .zoek-wissen {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+
+      display: none;
+      align-items: center;
+      justify-content: center;
+
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: none;
+      border-radius: 999px;
+
+      background: rgba(143,174,204,0.18);
+      color: var(--text);
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .search-row.heeft-tekst .zoek-wissen {
+      display: inline-flex;
+    }
+
+    /* Het ingebouwde kruisje van type="search" is in een donker vlak vrijwel
+       onzichtbaar; we tonen ons eigen kruisje. */
+    .search-input::-webkit-search-cancel-button {
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -1440,7 +1488,6 @@
 
         <div class="search-row">
           <input id="searchInput" class="search-input" placeholder="Search order, product, SKU, size, tracking..." />
-          <button id="searchBtn" class="button">Search</button>
         </div>
 
         <div id="paymentBar" class="payment-bar">
@@ -1564,6 +1611,8 @@
     const merchantName = document.getElementById("merchantName");
     const logoutBtn = document.getElementById("logoutBtn");
     const searchInput = document.getElementById("searchInput");
+    // GEWIJZIGD — de Search-knop is weg; er wordt gefilterd tijdens het
+    // typen. Deze verwijzing blijft leeg en wordt nergens meer gebruikt.
     const searchBtn = document.getElementById("searchBtn");
     const ordersTableBody = document.getElementById("ordersTableBody");
     const tableTitle = document.getElementById("tableTitle");
@@ -3659,9 +3708,36 @@ function bedragVoorKnop(waarde) {
       });
     });
     
-    searchBtn.addEventListener("click", () => {
+    // GEWIJZIGD — zoeken kostte een extra klik. Nu filtert het tijdens het
+    // typen. Op de meeste weergaven doet de server het werk, dus wachten we
+    // 350 ms na de laatste toets; anders sturen we een verzoek per aanslag.
+    // Op Offers filtert de server niet mee en gebeurt het meteen in de
+    // rijen die er al staan.
+    let zoekWachter = null;
+
+    function voerZoekopdrachtUit() {
+      clearTimeout(zoekWachter);
+
+      if (currentView === "offers") {
+        filterZichtbareRijen();
+        return;
+      }
+
       loadOrders(true);
-    });
+    }
+
+    function planZoekopdracht() {
+      clearTimeout(zoekWachter);
+
+      if (currentView === "offers") {
+        filterZichtbareRijen();
+        return;
+      }
+
+      zoekWachter = setTimeout(voerZoekopdrachtUit, 350);
+    }
+
+    searchInput.addEventListener("input", planZoekopdracht);
 
     createPaymentBtn.addEventListener("click", createPaymentLink);
 
@@ -3676,9 +3752,7 @@ function bedragVoorKnop(waarde) {
     });
     
     searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        loadOrders(true);
-      }
+      if (event.key === "Enter") voerZoekopdrachtUit();
     });
     
     // NEW — additief: de menuknop schuift de zijbalk uit en het doek
@@ -3738,6 +3812,37 @@ function bedragVoorKnop(waarde) {
     searchInput?.addEventListener("input", () => {
       if (currentView === "offers") filterZichtbareRijen();
     });
+
+
+    // NEW — een kruisje om het zoekveld in een keer leeg te maken. Wordt hier
+    // aangemaakt in plaats van in de HTML, zodat er geen extra bestand mee hoeft
+    // in de uitrol.
+    (function () {
+      const veld = searchInput;
+      const rij = veld && veld.closest(".search-row");
+      if (!veld || !rij) return;
+    
+      const knop = document.createElement("button");
+      knop.type = "button";
+      knop.className = "zoek-wissen";
+      knop.setAttribute("aria-label", "Clear search");
+      knop.textContent = "\u00d7";
+      rij.appendChild(knop);
+    
+      function toonOfVerberg() {
+        rij.classList.toggle("heeft-tekst", !!veld.value);
+      }
+    
+      knop.addEventListener("click", () => {
+        veld.value = "";
+        toonOfVerberg();
+        voerZoekopdrachtUit();
+        veld.focus();
+      });
+    
+      veld.addEventListener("input", toonOfVerberg);
+      toonOfVerberg();
+    })();
 
     const sidebarEl = document.getElementById("sidebar");
     const sidebarBackdrop = document.getElementById("sidebarBackdrop");
