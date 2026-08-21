@@ -1093,6 +1093,14 @@
          onder zijn eigen inhoud krimpen. "ACCEPT € 172,50" viel daardoor
          buiten de knop. Met `auto` groeit elke knop vanaf zijn eigen tekst,
          dus Accept krijgt meer dan Delete en er wordt niets afgeknipt. */
+      /* Is er maar één knop, dan vult die de volle breedte zonder van flex
+         af te hangen — dat werkt in elke browser hetzelfde. */
+      .table-wrap td[data-key="actions"] .action-row > *:only-child,
+      .table-wrap td[data-key="payment_action"] .action-btn:only-child,
+      .table-wrap td[data-key="payment_link"] .action-btn:only-child {
+        width: 100%;
+      }
+
       .table-wrap td[data-key="actions"] .action-btn,
       .table-wrap td[data-key="payment_action"] .action-btn,
       .table-wrap td[data-key="payment_link"] .action-btn {
@@ -1952,6 +1960,23 @@
       merchantName.textContent = merchant.store_name || merchant.portal_email || "Merchant";
     }
 
+// NEW — één plek voor bedragen op knoppen. De bestaande code deed
+// `€${Number(payout)}`, wat van 172,50 een "172.5" maakt: punt in plaats van
+// komma en de laatste nul weg. Kan de waarde niet gelezen worden, dan komt er
+// niets op de knop te staan in plaats van "€NaN".
+function bedragVoorKnop(waarde) {
+  const tekst = String(waarde === null || waarde === undefined ? "" : waarde).trim();
+  if (!tekst) return "";
+
+  // Al opgemaakt door de API (bijvoorbeeld "€ 172,50")? Dan zo laten.
+  if (tekst.indexOf("\u20ac") >= 0) return tekst;
+
+  const getal = Number(tekst.replace(/\s/g, "").replace(",", "."));
+  if (!Number.isFinite(getal) || getal <= 0) return "";
+
+  return "\u20ac " + getal.toFixed(2).replace(".", ",");
+}
+
     function renderActions(order) {
       if (currentView === "open") {
         return `
@@ -1972,7 +1997,7 @@
           // accept/counter operate on the raw seller offer. Case B
           // (a denied counter round): accept the seller's last offer,
           // retry = a new counter.
-          const acceptLabel = order.sellers_offer ? `ACCEPT ${escapeHtml(order.sellers_offer)}` : "ACCEPT";
+          const acceptLabel = `ACCEPT ${escapeHtml(bedragVoorKnop(order.sellers_offer))}`.trim();
           const counterLabel = order._kind === "fresh_denied" ? "COUNTER" : "RETRY";
           return `
             <div class="action-row">
@@ -1999,7 +2024,7 @@
               </button>
 
               <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
-                ACCEPT ${escapeHtml(order.sellers_offer || '')}
+                ACCEPT ${escapeHtml(bedragVoorKnop(order.sellers_offer))}
               </button>
 
               <button class="action-btn red" type="button" onclick="handleDeleteOffer('${escapeHtml(order.id)}')">
@@ -2012,7 +2037,7 @@
         return `
           <div class="action-row">
             <button class="action-btn green" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
-              ACCEPT
+              ACCEPT ${escapeHtml(bedragVoorKnop(order.offer))}
             </button>
           
             <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
