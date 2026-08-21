@@ -1035,13 +1035,25 @@
         content: none;
       }
 
-      .table-wrap td[data-key="actions"] .action-row {
+      /* De knoppen vullen samen altijd de volle kaartbreedte: bij één knop
+         is dat een balk onderaan die meteen als scheiding tussen de kaarten
+         werkt, bij twee of drie verdelen ze de ruimte gelijk. */
+      .table-wrap td[data-key="actions"] .action-row,
+      .table-wrap td[data-key="payment_action"],
+      .table-wrap td[data-key="payment_link"] {
+        display: flex;
         justify-content: stretch;
+        gap: 8px;
+        width: 100%;
       }
 
-      .table-wrap td[data-key="actions"] .action-btn {
-        flex: 1;
+      .table-wrap td[data-key="actions"] .action-btn,
+      .table-wrap td[data-key="payment_action"] .action-btn,
+      .table-wrap td[data-key="payment_link"] .action-btn {
+        flex: 1 1 0;
+        min-width: 0;
         padding: 11px 8px;
+        text-align: center;
       }
 
       .table-wrap tbody tr:last-child td:last-child {
@@ -1052,12 +1064,7 @@
         display: none;
       }
 
-      /* De maat heeft op het bureaublad een eigen kolom om snel te kunnen
-         scannen. Op een kaart staat hij al in het productblok bovenaan,
-         dus daar zou de losse regel dubbelop zijn. */
-      .table-wrap td[data-key="size"] {
-        display: none;
-      }
+
 
       /* De lege staat is één cel met colspan; die hoort geen kaart te zijn. */
       .table-wrap td.empty {
