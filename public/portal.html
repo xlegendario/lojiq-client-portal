@@ -6,6 +6,229 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
+
+/* ---- vensters: kleuren van dit portal -------------------------------
+   De structuur hieronder is in beide portals gelijk; alleen deze acht
+   waarden verschillen. Ze verwijzen naar de variabelen die dit portal al
+   had, zodat een kleurwijziging daar vanzelf meekomt.
+   -------------------------------------------------------------------- */
+
+:root {
+  --kc-dialog-surface: var(--panel, #0E2238);
+  --kc-dialog-border: var(--border, #163252);
+  --kc-dialog-text: var(--text, #DCEBFF);
+  --kc-dialog-muted: var(--muted, #8FAECC);
+  --kc-dialog-accent: linear-gradient(180deg, var(--primary-soft, #66B3FF), var(--primary, #2F80ED));
+  --kc-dialog-accent-text: #04182E;
+  --kc-dialog-accent-ring: var(--primary, #2F80ED);
+  --kc-dialog-danger: linear-gradient(180deg, #F87171, var(--red, #F04438));
+}
+
+/* ---- vensters: structuur --------------------------------------------
+   Hoort bij showAlert / showConfirm / showPrompt. Eigen klassen in plaats
+   van de bestaande vensterklassen van het portal: die verschillen per
+   portal en dan zou hetzelfde venster zich op twee plekken anders
+   gedragen.
+   -------------------------------------------------------------------- */
+
+html.kc-dialog-open,
+body.kc-dialog-open {
+  overflow: hidden;
+}
+
+.kc-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+}
+
+.kc-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.kc-dialog-card {
+  position: relative;
+
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+
+  padding: 26px 24px 22px;
+
+  border-radius: 20px;
+  border: 1px solid var(--kc-dialog-border);
+  background: var(--kc-dialog-surface);
+  color: var(--kc-dialog-text);
+
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+
+  animation: kc-dialog-in 140ms ease-out;
+}
+
+@keyframes kc-dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kc-dialog-card { animation: none; }
+}
+
+.kc-dialog-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.3;
+  color: var(--kc-dialog-text);
+}
+
+.kc-dialog-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--kc-dialog-muted);
+  white-space: pre-wrap;
+}
+
+.kc-dialog-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  margin-top: 16px;
+  padding: 0 14px;
+
+  border: 1px solid var(--kc-dialog-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.kc-dialog-field:focus-within {
+  border-color: var(--kc-dialog-accent-ring);
+}
+
+.kc-dialog-prefix {
+  font-size: 16px;
+  font-weight: 900;
+  opacity: 0.65;
+}
+
+.kc-dialog-input {
+  flex: 1;
+  min-width: 0;
+
+  height: 50px;
+  border: none;
+  background: none;
+  color: inherit;
+
+  font-size: 16px;   /* 16px voorkomt dat iOS bij focus inzoomt */
+  font-weight: 700;
+  outline: none;
+}
+
+.kc-dialog-error {
+  margin: 8px 2px 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ff9b9b;
+}
+
+.kc-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  margin-top: 22px;
+}
+
+.kc-dialog-btn {
+  min-width: 108px;
+  height: 46px;
+  padding: 0 20px;
+
+  border: 1px solid transparent;
+  border-radius: 14px;
+
+  font-size: 14.5px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.kc-dialog-btn.cancel {
+  border-color: var(--kc-dialog-border);
+  background: transparent;
+  color: var(--kc-dialog-muted);
+}
+
+.kc-dialog-btn.cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.kc-dialog-btn.confirm {
+  background: var(--kc-dialog-accent);
+  color: var(--kc-dialog-accent-text);
+}
+
+.kc-dialog-btn.confirm:hover {
+  filter: brightness(1.06);
+}
+
+/* Verwijderen en afwijzen krijgen rood, zodat je aan de knop ziet dat er
+   iets onomkeerbaars gebeurt. */
+.kc-dialog-btn.confirm.danger {
+  background: var(--kc-dialog-danger);
+  color: #fff;
+}
+
+.kc-dialog-btn:focus-visible {
+  outline: 2px solid var(--kc-dialog-accent-ring);
+  outline-offset: 2px;
+}
+
+/* Op een telefoon staat het venster onderaan en zijn de knoppen volle
+   breedte: daar reikt een duim, en 50 px hoog is genoeg om te raken. */
+@media (max-width: 768px) {
+  .kc-dialog {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .kc-dialog-card {
+    max-width: none;
+    max-height: 86vh;
+    padding: 24px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    border-radius: 22px 22px 0 0;
+    border-bottom: none;
+    animation: kc-dialog-up 160ms ease-out;
+  }
+
+  @keyframes kc-dialog-up {
+    from { transform: translateY(14px); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+  }
+
+  .kc-dialog-actions {
+    flex-direction: column-reverse;
+    gap: 9px;
+  }
+
+  .kc-dialog-btn {
+    width: 100%;
+    height: 50px;
+  }
+}
+
     :root {
       --bg: #07111F;
       --primary: #2F80ED;
@@ -1608,6 +1831,240 @@
   </div>
 
   <script>
+
+/* ==================================================================
+   NEW — vensters in plaats van de grijze vakjes van de browser.
+   ==================================================================
+
+   Verving 78 alert(), 18 confirm() en 12 prompt(). Die zien er per
+   telefoon en per browser anders uit, negeren de huisstijl volledig, en
+   bij een prompt krijg je een gewoon tekstveld voor iets waar alleen een
+   bedrag in hoort — dus geen numeriek toetsenbord en geen controle.
+
+   Drie functies, allemaal een belofte, zodat een aanroep leest als de
+   oude:
+
+     alert(x)              ->  showAlert(x)
+     if (!confirm(x))      ->  if (!(await showConfirm(x)))
+     const y = prompt(x)   ->  const y = await showPrompt(x)
+
+   Eigen klassen in plaats van de vensterklassen van het portal: die
+   verschillen per portal en dan zou hetzelfde venster er op twee plekken
+   anders uitzien.
+   ================================================================== */
+
+const kcDialogState = {
+  open: 0,
+  vorigeFocus: null
+};
+
+function kcDialogVergrendel(aan) {
+  kcDialogState.open += aan ? 1 : -1;
+
+  if (kcDialogState.open < 0) kcDialogState.open = 0;
+
+  const bezet = kcDialogState.open > 0;
+
+  document.documentElement.classList.toggle("kc-dialog-open", bezet);
+  document.body.classList.toggle("kc-dialog-open", bezet);
+}
+
+function kcDialogEscape(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * De kern. De andere drie functies zijn er een laagje omheen.
+ *
+ * soort:  "alert" | "confirm" | "prompt"
+ * opties: { title, confirmLabel, cancelLabel, danger, money,
+ *           placeholder, value, validate }
+ */
+function kcDialog(soort, tekst, opties) {
+  const o = opties || {};
+
+  return new Promise((klaar) => {
+    const laag = document.createElement("div");
+    laag.className = "kc-dialog";
+    laag.setAttribute("role", "dialog");
+    laag.setAttribute("aria-modal", "true");
+
+    const heeftInvoer = soort === "prompt";
+    const heeftAnnuleer = soort !== "alert";
+
+    const titel = o.title || (
+      soort === "confirm" ? "Are you sure?" :
+      soort === "prompt" ? "" : ""
+    );
+
+    const bevestigTekst = o.confirmLabel || (
+      soort === "alert" ? "OK" :
+      soort === "confirm" ? "Confirm" : "Confirm"
+    );
+
+    laag.innerHTML =
+      '<div class="kc-dialog-backdrop" data-kc-cancel></div>' +
+      '<div class="kc-dialog-card">' +
+        (titel ? '<h3 class="kc-dialog-title">' + kcDialogEscape(titel) + "</h3>" : "") +
+        '<p class="kc-dialog-text">' + kcDialogEscape(tekst) + "</p>" +
+        (heeftInvoer
+          ? '<label class="kc-dialog-field' + (o.money ? " money" : "") + '">' +
+              (o.money ? '<span class="kc-dialog-prefix">&euro;</span>' : "") +
+              '<input class="kc-dialog-input" type="text"' +
+              (o.money ? ' inputmode="decimal"' : "") +
+              ' placeholder="' + kcDialogEscape(o.placeholder || "") + '"' +
+              ' value="' + kcDialogEscape(o.value || "") + '" />' +
+            "</label>" +
+            '<p class="kc-dialog-error" hidden></p>'
+          : "") +
+        '<div class="kc-dialog-actions">' +
+          (heeftAnnuleer
+            ? '<button type="button" class="kc-dialog-btn cancel" data-kc-cancel>' +
+              kcDialogEscape(o.cancelLabel || "Cancel") + "</button>"
+            : "") +
+          '<button type="button" class="kc-dialog-btn confirm' +
+          (o.danger ? " danger" : "") + '">' + kcDialogEscape(bevestigTekst) + "</button>" +
+        "</div>" +
+      "</div>";
+
+    document.body.appendChild(laag);
+    kcDialogVergrendel(true);
+
+    // Zodat de focus na het sluiten terugkeert naar de knop waar je vandaan
+    // kwam, in plaats van naar de bovenkant van de pagina.
+    if (kcDialogState.open === 1) {
+      kcDialogState.vorigeFocus = document.activeElement;
+    }
+
+    const invoer = laag.querySelector(".kc-dialog-input");
+    const fout = laag.querySelector(".kc-dialog-error");
+    const bevestigKnop = laag.querySelector(".kc-dialog-btn.confirm");
+
+    function sluit(waarde) {
+      document.removeEventListener("keydown", opToets, true);
+      laag.remove();
+      kcDialogVergrendel(false);
+
+      if (kcDialogState.open === 0 && kcDialogState.vorigeFocus) {
+        try { kcDialogState.vorigeFocus.focus(); } catch (e) { /* weggehaald */ }
+        kcDialogState.vorigeFocus = null;
+      }
+
+      klaar(waarde);
+    }
+
+    function annuleer() {
+      sluit(soort === "prompt" ? null : soort === "confirm" ? false : undefined);
+    }
+
+    function bevestig() {
+      if (!heeftInvoer) {
+        sluit(soort === "confirm" ? true : undefined);
+        return;
+      }
+
+      const waarde = invoer.value.trim();
+
+      // De aanroeper mag zelf bepalen wat geldig is; zonder controle laten
+      // we alles door en blijft het gedrag gelijk aan het oude prompt().
+      if (typeof o.validate === "function") {
+        const melding = o.validate(waarde);
+
+        if (melding) {
+          fout.textContent = melding;
+          fout.hidden = false;
+          invoer.focus();
+          invoer.select();
+          return;
+        }
+      }
+
+      sluit(waarde);
+    }
+
+    laag.querySelectorAll("[data-kc-cancel]").forEach((el) => {
+      el.addEventListener("click", annuleer);
+    });
+
+    bevestigKnop.addEventListener("click", bevestig);
+
+    function opToets(gebeurtenis) {
+      // Alleen het bovenste venster reageert, anders sluiten er twee
+      // tegelijk als er eentje bovenop een andere staat.
+      if (laag !== document.querySelector(".kc-dialog:last-of-type")) return;
+
+      if (gebeurtenis.key === "Escape") {
+        gebeurtenis.preventDefault();
+        gebeurtenis.stopPropagation();
+        annuleer();
+        return;
+      }
+
+      if (gebeurtenis.key === "Enter") {
+        // In een tekstveld met meerdere regels hoort Enter een regel te
+        // maken, niet te bevestigen.
+        if (gebeurtenis.target && gebeurtenis.target.tagName === "TEXTAREA") return;
+
+        gebeurtenis.preventDefault();
+        bevestig();
+      }
+    }
+
+    document.addEventListener("keydown", opToets, true);
+
+    // Een frame wachten zodat de invoer op mobiel het toetsenbord opent.
+    requestAnimationFrame(() => {
+      if (invoer) {
+        invoer.focus();
+        invoer.select();
+      } else {
+        bevestigKnop.focus();
+      }
+    });
+  });
+}
+
+/**
+ * Standaardcontrole voor de bedragvensters.
+ *
+ * Het oude prompt() nam alles aan: een lege regel, "abc", een negatief
+ * getal. Dat ging dan naar de server en kwam terug als een foutmelding, of
+ * erger, als een order van nul euro. Hier wordt het meteen tegengehouden,
+ * naast het veld, zonder dat je opnieuw hoeft te beginnen.
+ *
+ * Komma en punt allebei goed: op een Nederlands toetsenbord typ je een
+ * komma, en dat hoort gewoon te werken.
+ */
+function kcMoneyCheck(waarde) {
+  const tekst = String(waarde || "").replace(/\s/g, "").replace(",", ".");
+
+  if (!tekst) return "Please enter an amount.";
+
+  const getal = Number(tekst);
+
+  if (!Number.isFinite(getal)) return "That is not a valid amount.";
+  if (getal <= 0) return "The amount must be higher than 0.";
+
+  return "";
+}
+
+function showAlert(tekst, opties) {
+  return kcDialog("alert", tekst, opties);
+}
+
+function showConfirm(tekst, opties) {
+  return kcDialog("confirm", tekst, opties);
+}
+
+function showPrompt(tekst, opties) {
+  return kcDialog("prompt", tekst, opties);
+}
+
     const merchantName = document.getElementById("merchantName");
     const logoutBtn = document.getElementById("logoutBtn");
     const searchInput = document.getElementById("searchInput");
@@ -2835,7 +3292,7 @@ function bedragVoorKnop(waarde) {
     }
 
     function showIssueNotes(notes) {
-      alert(notes);
+      showAlert(notes);
     }
 
     async function loadOpenPaymentBatches() {
@@ -2992,7 +3449,7 @@ function bedragVoorKnop(waarde) {
     async function cancelActivePaymentBatch() {
       if (!activePaymentBatch) return;
     
-      const confirmed = confirm(
+      const confirmed = await showConfirm(
         "Cancel this payment batch? The orders will become selectable again."
       );
     
@@ -3023,7 +3480,7 @@ function bedragVoorKnop(waarde) {
         await loadAllCounts();
         await loadOpenPaymentBatches();
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
@@ -3066,7 +3523,7 @@ function bedragVoorKnop(waarde) {
       const orderIds = Array.from(selectedPaymentOrderIds);
     
       if (!orderIds.length) {
-        alert("Select at least one order.");
+        showAlert("Select at least one order.");
         return;
       }
     
@@ -3078,7 +3535,7 @@ function bedragVoorKnop(waarde) {
         return sum + parseEuroMoney(order.invoice_price);
       }, 0);
     
-      const confirmed = confirm(
+      const confirmed = await showConfirm(
         `Create one payment link for ${selectedOrders.length} orders?\n\nTotal: ${formatEuro(total)}`
       );
     
@@ -3155,7 +3612,7 @@ function bedragVoorKnop(waarde) {
         await loadAllCounts();
         await loadOpenPaymentBatches();
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       } finally {
         createPaymentBtn.disabled = false;
         createPaymentBtn.textContent = "Create Payment Link";
@@ -3164,7 +3621,7 @@ function bedragVoorKnop(waarde) {
     }
 
     async function createReturn(recordId) {
-      if (!confirm("Create a return for this order?")) return;
+      if (!(await showConfirm("Create a return for this order?"))) return;
     
       try {
         const response = await fetch(`/api/orders/${recordId}/return`, {
@@ -3179,14 +3636,14 @@ function bedragVoorKnop(waarde) {
           throw new Error(data.error || data.details || "Failed to create return");
         }
     
-        alert("Return created successfully.");
+        showAlert("Return created successfully.");
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
     
     async function reportIssue(recordId) {
-      const issueNotes = prompt("Describe the issue:");
+      const issueNotes = await showPrompt("Describe the issue:");
     
       if (!issueNotes) return;
     
@@ -3206,15 +3663,15 @@ function bedragVoorKnop(waarde) {
           throw new Error(data.error || data.details || "Failed to report issue");
         }
     
-        alert("Issue reported.");
+        showAlert("Issue reported.");
         loadAllCounts();
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
     
     async function solveIssue(recordId) {
-      if (!confirm("Mark this issue as solved?")) return;
+      if (!(await showConfirm("Mark this issue as solved?"))) return;
     
       try {
         const response = await fetch(`/api/orders/${recordId}/solve-issue`, {
@@ -3234,7 +3691,7 @@ function bedragVoorKnop(waarde) {
         renderPillRow(currentOrders.length);
         loadAllCounts();
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
@@ -3249,11 +3706,11 @@ function bedragVoorKnop(waarde) {
     // triggered from.
     async function handleAcceptCurrentLowest(orderRecordId, sellerOfferRecordId) {
       if (!orderRecordId || !sellerOfferRecordId) {
-        alert("Could not find this offer — please refresh and try again.");
+        showAlert("Could not find this offer — please refresh and try again.");
         return;
       }
 
-      const confirmed = window.confirm("Accept the current lowest offer?");
+      const confirmed = await showConfirm("Accept the current lowest offer?");
       if (!confirmed) return;
 
       try {
@@ -3274,7 +3731,7 @@ function bedragVoorKnop(waarde) {
           console.error("Failed to refresh counts", err);
         });
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
@@ -3282,12 +3739,12 @@ function bedragVoorKnop(waarde) {
       const order = currentOrders.find((o) => o.id === recordId);
 
       if (!order) {
-        alert("Could not find this offer — please refresh and try again.");
+        showAlert("Could not find this offer — please refresh and try again.");
         return;
       }
 
       const label = action === "accept" ? "accept" : "deny";
-      const confirmed = window.confirm(`Are you sure you want to ${label} this offer?`);
+      const confirmed = await showConfirm(`Are you sure you want to ${label} this offer?`);
     
       if (!confirmed) return;
     
@@ -3332,7 +3789,7 @@ function bedragVoorKnop(waarde) {
           console.error("Failed to refresh counts", err);
         });
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
@@ -3382,7 +3839,7 @@ function bedragVoorKnop(waarde) {
     // hides the seller offer from the portal (Delete Offer=true), so it
     // disappears visually without blocking the seller from re-offering.
     async function handleHideFreshDenied(sellerOfferId) {
-      const confirmed = window.confirm("Remove this denied offer from your portal?");
+      const confirmed = await showConfirm("Remove this denied offer from your portal?");
       if (!confirmed) return;
 
       try {
@@ -3401,12 +3858,12 @@ function bedragVoorKnop(waarde) {
         await loadOrders(true);
         loadAllCounts().catch((err) => console.error("Failed to refresh counts", err));
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
     async function handleDeleteOffer(recordId) {
-      const confirmed = window.confirm("Are you sure you want to withdraw this counter offer?");
+      const confirmed = await showConfirm("Are you sure you want to withdraw this counter offer?");
       if (!confirmed) return;
 
       try {
@@ -3433,7 +3890,7 @@ function bedragVoorKnop(waarde) {
           console.error("Failed to refresh counts", err);
         });
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
     
@@ -3448,7 +3905,7 @@ function bedragVoorKnop(waarde) {
       const price = Number(document.getElementById("counterPriceInput").value);
     
       if (!Number.isInteger(price) || price <= 0) {
-        alert("Please enter a valid whole number. Example: 250");
+        showAlert("Please enter a valid whole number. Example: 250");
         return;
       }
 
@@ -3480,7 +3937,7 @@ function bedragVoorKnop(waarde) {
           }
 
           closeCounterModal();
-          alert(
+          showAlert(
             pendingEditIsRoundOne
               ? `Offer updated. Sellers notified: ${data.updated ?? 0}${data.skipped ? `, skipped (already below your new price): ${data.skipped}` : ""}.`
               : "Offer updated."
@@ -3490,7 +3947,7 @@ function bedragVoorKnop(waarde) {
           // reload the current pill's data to reflect the new price.
           await loadOrders(true);
         } catch (err) {
-          alert(err.message);
+          showAlert(err.message);
         } finally {
           submitBtn.disabled = false;
           submitBtn.textContent = "Submit";
@@ -3501,7 +3958,7 @@ function bedragVoorKnop(waarde) {
       const order = currentOrders.find((o) => o.id === pendingCounterOrderId);
 
       if (!order) {
-        alert("Could not find this offer — please refresh and try again.");
+        showAlert("Could not find this offer — please refresh and try again.");
         return;
       }
 
@@ -3552,7 +4009,7 @@ function bedragVoorKnop(waarde) {
     
         closeCounterModal();
     
-        alert(isFresh ? `Counter offer submitted. Counter requests created: ${data.count || 0}` : "Counter offer submitted.");
+        showAlert(isFresh ? `Counter offer submitted. Counter requests created: ${data.count || 0}` : "Counter offer submitted.");
     
         currentOrders = currentOrders.filter((order) => order.id !== submittedOrderId);
         renderOrders(currentOrders);
@@ -3564,7 +4021,7 @@ function bedragVoorKnop(waarde) {
         loadAllCounts();
     
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = "Submit Counter Offer";
@@ -3572,7 +4029,7 @@ function bedragVoorKnop(waarde) {
     });
     
     async function cancelOrder(recordId) {
-      const confirmed = window.confirm("Are you sure you want to cancel this order?");
+      const confirmed = await showConfirm("Are you sure you want to cancel this order?");
     
       if (!confirmed) return;
     
@@ -3604,12 +4061,12 @@ function bedragVoorKnop(waarde) {
           console.error("Failed to refresh counts", err);
         });
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
     async function removeStockxBid(recordId) {
-      const confirmed = window.confirm("Remove this active bid?");
+      const confirmed = await showConfirm("Remove this active bid?");
     
       if (!confirmed) return;
     
@@ -3641,12 +4098,12 @@ function bedragVoorKnop(waarde) {
           console.error("Failed to refresh counts", err);
         });
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
     async function removeStockxSecondBid(recordId) {
-      const confirmed = window.confirm("Remove this second bid?");
+      const confirmed = await showConfirm("Remove this second bid?");
     
       if (!confirmed) return;
     
@@ -3678,7 +4135,7 @@ function bedragVoorKnop(waarde) {
           console.error("Failed to refresh counts", err);
         });
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
       }
     }
 
