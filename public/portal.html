@@ -2006,6 +2006,62 @@ function bedragVoorKnop(waarde) {
   return "\u20ac " + getal.toFixed(2).replace(".", ",");
 }
 
+// NEW — een filter na het tekenen in plaats van in elk renderpad apart. De
+    // rijen staan al in de tabel, dus verbergen we wat de zoekterm niet bevat.
+    // Werkt daardoor op elk pad, ook op paden die er later bij komen.
+    //
+    // De aantallen in de zijbalk en op de pills blijven tellen wat er werkelijk
+    // is: die komen uit de API en worden hier niet aangeraakt.
+    function zoektermVanDashboard() {
+      return String(searchInput?.value || "").trim().toLowerCase();
+    }
+    
+    function filterZichtbareRijen() {
+      const lichaam = document.getElementById("ordersTableBody");
+      if (!lichaam) return;
+    
+      const rijen = Array.from(lichaam.querySelectorAll("tr"))
+        .filter((rij) => !rij.dataset.zoekMelding);
+    
+      if (currentView !== "offers") {
+        rijen.forEach((rij) => { rij.style.display = ""; });
+        return;
+      }
+    
+      const term = zoektermVanDashboard();
+      let gevonden = 0;
+    
+      rijen.forEach((rij) => {
+        // De lege staat is een cel met colspan; die hoort altijd te blijven staan.
+        const isLegeStaat = rij.children.length === 1 && rij.children[0].hasAttribute("colspan");
+    
+        if (!term || isLegeStaat) {
+          rij.style.display = "";
+          if (!isLegeStaat) gevonden++;
+          return;
+        }
+    
+        const raak = rij.textContent.toLowerCase().includes(term);
+        rij.style.display = raak ? "" : "none";
+        if (raak) gevonden++;
+      });
+    
+      // Een eigen regel als de zoekterm niets oplevert, anders staar je naar een
+      // lege tabel zonder te weten waarom.
+      const bestaande = lichaam.querySelector("[data-zoek-melding]");
+      if (bestaande) bestaande.remove();
+    
+      if (term && gevonden === 0 && rijen.length) {
+        const melding = document.createElement("tr");
+        melding.dataset.zoekMelding = "1";
+        melding.innerHTML =
+          '<td colspan="20" style="padding:28px 14px;text-align:center;opacity:.7">' +
+          "Niets gevonden voor \u201c" + term.replace(/[<>&]/g, "") + "\u201d" +
+          "</td>";
+        lichaam.appendChild(melding);
+      }
+    }
+
     function renderActions(order) {
       if (currentView === "open") {
         return `
@@ -2456,6 +2512,11 @@ function bedragVoorKnop(waarde) {
 
       updatePaymentSelectionSummary();
       fitColumns();
+
+      // NEW — de Offers-weergave bouwt zijn eigen verzoek met alleen
+      // merchant_id, dus daar filtert de server niet mee. Op de andere
+      // weergaven doet hij dat wel en blijft dit een lege handeling.
+      filterZichtbareRijen();
     }
     
     async function loadOrders(reset = true) {
@@ -3673,6 +3734,11 @@ function bedragVoorKnop(waarde) {
       bijwerken();
     })();
 
+    // Typen filtert meteen; op Offers is dat het enige dat filtert.
+    searchInput?.addEventListener("input", () => {
+      if (currentView === "offers") filterZichtbareRijen();
+    });
+
     const sidebarEl = document.getElementById("sidebar");
     const sidebarBackdrop = document.getElementById("sidebarBackdrop");
     const menuBtn = document.getElementById("menuBtn");
@@ -3751,14 +3817,30 @@ function bedragVoorKnop(waarde) {
       syncStickyShadows();
     }
     
-    tableWrap.addEventListener("scroll", async () => {
-      const nearBottom =
-        tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 180;
-    
-      if (nearBottom && hasMore && !isLoadingMore) {
+    // GEWIJZIGD — luisterde alleen naar het tabelvak. Op een telefoon is
+    // dat vak niet meer wat scrolt: de rijen zijn kaarten en de pagina
+    // scrolt. Daardoor werd er nooit bijgeladen en bleef je op twintig
+    // regels steken, ook met eenenzestig openstaande orders.
+    function dichtBijOnderkant() {
+      const vakScrolt = tableWrap.scrollHeight > tableWrap.clientHeight + 1;
+
+      if (vakScrolt) {
+        return tableWrap.scrollTop + tableWrap.clientHeight
+          >= tableWrap.scrollHeight - 180;
+      }
+
+      const doc = document.documentElement;
+      return window.innerHeight + window.scrollY >= doc.scrollHeight - 220;
+    }
+
+    async function laadMeerAlsNodig() {
+      if (dichtBijOnderkant() && hasMore && !isLoadingMore) {
         await loadOrders(false);
       }
-    });
+    }
+
+    tableWrap.addEventListener("scroll", laadMeerAlsNodig, { passive: true });
+    window.addEventListener("scroll", laadMeerAlsNodig, { passive: true });
     
     logoutBtn.addEventListener("click", () => {
       localStorage.removeItem("lojiq_merchant");
