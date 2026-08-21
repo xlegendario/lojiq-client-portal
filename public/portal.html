@@ -774,13 +774,107 @@
       white-space: nowrap;
     }
 
+    /* ---- UX-ronde 1.1 ------------------------------------------------
+       De zijbalk stond onder 900 pixels op display:none, dus op een telefoon
+       was er geen enkele manier meer om naar Offers of Returns te komen.
+       Hij schuift nu uit vanaf een knop, hetzelfde patroon als het
+       Kickz Caviar-dashboard al gebruikt.
+       ---------------------------------------------------------------- */
+
+    .menu-btn {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      height: 40px;
+      padding: 0 14px;
+      margin-right: 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: rgba(3,9,17,0.66);
+      backdrop-filter: blur(4px);
+    }
+
+    .sidebar-backdrop.open {
+      display: block;
+    }
+
     @media (max-width: 900px) {
       .app {
         grid-template-columns: 1fr;
       }
 
+      .menu-btn {
+        display: inline-flex;
+      }
+
       .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1000;
+        width: min(280px, 84vw);
+        height: 100vh;
+        overflow-y: auto;
+        transform: translateX(-105%);
+        transition: transform 0.22s ease;
+        background: #071322;
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      /* De bovenbalk was op deze breedte al krap; met de menuknop erbij
+         liep hij over. "Merchant Portal" staat een regel lager toch al als
+         paginatitel, dus die mag hier weg, en de winkelnaam krimpt mee. */
+      .topbar {
+        height: auto;
+        min-height: 64px;
+        padding: 10px 14px;
+        gap: 10px;
+      }
+
+      .topbar-title {
         display: none;
+      }
+
+      .menu-btn {
+        margin-right: 0;
+        flex: 0 0 auto;
+      }
+
+      .merchant-box {
+        min-width: 0;
+        gap: 10px;
+        margin-left: auto;
+      }
+
+      .merchant-box span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+
+      .content {
+        padding: 18px 14px;
+      }
+
+      .page-title {
+        font-size: 26px;
       }
 
       .stats-grid {
@@ -825,6 +919,135 @@
     
     td[data-key="actions"] .action-row {
       justify-content: flex-end;
+    }
+
+
+    /* ---- UX-ronde 1.3 ------------------------------------------------
+       Een tabel van tien kolommen is op een telefoon niet te lezen. Onder
+       768 pixels wordt elke rij een kaart: de productnaam als kop, daarna
+       per regel de kolomnaam links en de waarde rechts, en de knoppen
+       onderaan. Dezelfde gegevens, andere vorm.
+       ---------------------------------------------------------------- */
+
+    @media (max-width: 768px) {
+      .table-wrap {
+        overflow: visible;
+        max-height: none;
+        min-height: 0;
+        padding: 12px;
+      }
+
+      .table-wrap table {
+        min-width: 0;
+        display: block;
+      }
+
+      .table-wrap thead {
+        display: none;
+      }
+
+      .table-wrap tbody {
+        display: block;
+      }
+
+      .table-wrap tbody tr {
+        display: block;
+        margin-bottom: 12px;
+        padding: 14px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: rgba(10,26,44,0.6);
+      }
+
+      /* De vaste breedtes staan als stijl op de cel zelf, vandaar het
+         zwaardere gewicht hier. */
+      .table-wrap th,
+      .table-wrap td {
+        width: auto !important;
+        min-width: 0 !important;
+        position: static !important;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 7px 0;
+        border: none;
+        border-bottom: 1px solid rgba(143,174,204,0.10);
+        background: none !important;
+        box-shadow: none !important;
+        text-align: right;
+      }
+
+      .table-wrap td::before {
+        content: attr(data-label);
+        flex: 0 0 auto;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        text-align: left;
+      }
+
+      /* Het productblok is de kop van de kaart, dus zonder opschrift en
+         over de volle breedte. */
+      .table-wrap td[data-key="product"] {
+        display: block;
+        padding: 0 0 10px;
+        text-align: left;
+      }
+
+      .table-wrap td[data-key="product"]::before {
+        content: none;
+      }
+
+      .table-wrap td[data-key="product"] .product-name {
+        white-space: normal;
+        font-size: 15px;
+      }
+
+      /* De knoppen onderaan, over de volle breedte, zonder opschrift. */
+      .table-wrap td[data-key="actions"],
+      .table-wrap td[data-key="payment_action"],
+      .table-wrap td[data-key="payment_link"] {
+        display: block;
+        padding: 12px 0 0;
+        border-bottom: none;
+      }
+
+      .table-wrap td[data-key="actions"]::before,
+      .table-wrap td[data-key="payment_action"]::before,
+      .table-wrap td[data-key="payment_link"]::before {
+        content: none;
+      }
+
+      .table-wrap td[data-key="actions"] .action-row {
+        justify-content: stretch;
+      }
+
+      .table-wrap td[data-key="actions"] .action-btn {
+        flex: 1;
+        padding: 11px 8px;
+      }
+
+      .table-wrap tbody tr:last-child td:last-child {
+        border-bottom: none;
+      }
+
+      .table-wrap .resizer {
+        display: none;
+      }
+
+      /* De lege staat is één cel met colspan; die hoort geen kaart te zijn. */
+      .table-wrap td.empty {
+        display: block;
+        text-align: center;
+        border: none;
+      }
+
+      .table-wrap td.empty::before {
+        content: none;
+      }
     }
 
     .modal-backdrop {
@@ -935,7 +1158,9 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
+    <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+
+    <aside id="sidebar" class="sidebar">
       <div class="logo">
         <img src="/logo.png" alt="Lojiq" class="logo-img">
       </div>
@@ -1055,6 +1280,14 @@
 
     <main class="main">
       <div class="topbar">
+        <button id="menuBtn" class="menu-btn" type="button" aria-label="Menu">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor"
+              stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+          Menu
+        </button>
+
         <div class="topbar-title">Merchant Portal</div>
         <div class="merchant-box">
           <span id="merchantName">Loading...</span>
@@ -2017,11 +2250,15 @@
       ordersTableBody.innerHTML = orders.map((order) => {
         return `
           <tr>
-            ${columns.map(([key]) => {
+            ${displayColumns.map(([key, label]) => {
               const width = columnWidths[key] || 140;
-            
+
+              // NEW — additief: op een telefoon wordt elke rij een kaart
+              // en staat de kolomnaam naast de waarde. Zonder dit label
+              // weet een cel niet bij welke kolom hij hoort zodra de kop
+              // weg is.
               return `
-                <td data-key="${key}" style="width:${width}px; min-width:${width}px;">
+                <td data-key="${key}" data-label="${escapeHtml(label)}" style="width:${width}px; min-width:${width}px;">
                   ${renderCell(order, key)}
                 </td>
               `;
@@ -3190,6 +3427,33 @@
       }
     });
     
+    // NEW — additief: de menuknop schuift de zijbalk uit en het doek
+    // erachter sluit hem weer. Kiezen van een tab sluit hem ook, anders
+    // blijft hij over de tabel heen staan.
+    const sidebarEl = document.getElementById("sidebar");
+    const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+    const menuBtn = document.getElementById("menuBtn");
+
+    function closeSidebar() {
+      sidebarEl?.classList.remove("open");
+      sidebarBackdrop?.classList.remove("open");
+    }
+
+    menuBtn?.addEventListener("click", () => {
+      sidebarEl?.classList.add("open");
+      sidebarBackdrop?.classList.add("open");
+    });
+
+    sidebarBackdrop?.addEventListener("click", closeSidebar);
+
+    document.querySelectorAll(".nav-sub[data-view]").forEach((item) => {
+      item.addEventListener("click", closeSidebar);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeSidebar();
+    });
+
     const tableWrap = document.querySelector(".table-wrap");
 
     // NEW — additief: de slagschaduw naast het vastgezette productblok
