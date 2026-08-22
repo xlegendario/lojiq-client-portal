@@ -7,10 +7,10 @@
 
   <style>
 
-/* ---- vensters: kleuren van dit portal -------------------------------
-   De structuur hieronder is in beide portals gelijk; alleen deze acht
-   waarden verschillen. Ze verwijzen naar de variabelen die dit portal al
-   had, zodat een kleurwijziging daar vanzelf meekomt.
+/* ---- dialogs: this portal's colours ---------------------------------
+   The structure below is identical in both portals; only these eight
+   values differ. They point at the variables this portal already had, so a
+   colour change there carries through by itself.
    -------------------------------------------------------------------- */
 
 :root {
@@ -24,11 +24,11 @@
   --kc-dialog-danger: linear-gradient(180deg, #F87171, var(--red, #F04438));
 }
 
-/* ---- vensters: structuur --------------------------------------------
-   Hoort bij showAlert / showConfirm / showPrompt. Eigen klassen in plaats
-   van de bestaande vensterklassen van het portal: die verschillen per
-   portal en dan zou hetzelfde venster zich op twee plekken anders
-   gedragen.
+/* ---- dialogs: structure ---------------------------------------------
+   Belongs to showAlert / showConfirm / showPrompt. Own class names rather
+   than the portal's existing modal classes: those differ per portal, and
+   then the same dialog would behave differently depending on where you
+   opened it.
    -------------------------------------------------------------------- */
 
 html.kc-dialog-open,
@@ -132,7 +132,7 @@ body.kc-dialog-open {
   background: none;
   color: inherit;
 
-  font-size: 16px;   /* 16px voorkomt dat iOS bij focus inzoomt */
+  font-size: 16px;   /* 16px stops iOS from zooming in on focus */
   font-weight: 700;
   outline: none;
 }
@@ -184,8 +184,8 @@ body.kc-dialog-open {
   filter: brightness(1.06);
 }
 
-/* Verwijderen en afwijzen krijgen rood, zodat je aan de knop ziet dat er
-   iets onomkeerbaars gebeurt. */
+/* Deleting and denying get red, so the button itself tells you something
+   irreversible is about to happen. */
 .kc-dialog-btn.confirm.danger {
   background: var(--kc-dialog-danger);
   color: #fff;
@@ -196,8 +196,8 @@ body.kc-dialog-open {
   outline-offset: 2px;
 }
 
-/* Op een telefoon staat het venster onderaan en zijn de knoppen volle
-   breedte: daar reikt een duim, en 50 px hoog is genoeg om te raken. */
+/* On a phone the dialog sits at the bottom and the buttons run full
+   width: that is where a thumb reaches, and 50 px is tall enough to hit. */
 @media (max-width: 768px) {
   .kc-dialog {
     align-items: flex-end;
@@ -562,25 +562,25 @@ body.kc-dialog-open {
       min-width: 1100px;
       border-collapse: collapse;
 
-      /* GEWIJZIGD — met een vaste indeling bepalen de opgegeven breedtes de
-         kolommen, in plaats van dat de browser de restruimte naar rato
-         verdeelt. Dat verdelen was de reden dat dezelfde kolom in elke tab
-         een andere breedte kreeg. */
+      /* CHANGED — with a fixed layout the declared widths decide the
+         columns, instead of the browser dividing the leftover space
+         proportionally. That dividing was why the same column ended up a
+         different width in every tab. */
       table-layout: fixed;
     }
 
-    /* Product is de enige kolom zonder vaste breedte en slokt daardoor alles
-       op wat overblijft. Dat is ook de kolom die de ruimte verdient: daar
-       wordt nu tekst afgekapt. */
+    /* Product is the only column without a fixed width and therefore soaks
+       up whatever is left. It is also the column that deserves the room:
+       that is where text is being cut off today. */
     th[data-key="product"],
     td[data-key="product"] {
       width: auto;
     }
 
-    /* De actiekolom wordt na het tekenen aan zijn eigen knoppen gemeten. */
+    /* The action column is measured against its own buttons after render. */
     th[data-key="actions"],
     td[data-key="actions"] {
-      width: var(--actiebreedte, 200px);
+      width: var(--action-width, 200px);
     }
 
     th, td {
@@ -638,11 +638,11 @@ body.kc-dialog-open {
       overflow-wrap: anywhere;
     }
 
-    /* ---- UX-ronde 1.2 ------------------------------------------------
-       Het productblok en de actieknoppen blijven staan terwijl je zijwaarts
-       scrollt, en de kolomkoppen blijven staan terwijl je naar beneden
-       scrollt. Je weet zo altijd naar welke order je kijkt en wat een
-       kolom betekent, ook halverwege een brede tabel.
+    /* ---- UX round 1.2 ------------------------------------------------
+       The product block and the action buttons stay put while you scroll
+       sideways, and the column headers stay put while you scroll down. That
+       way you always know which order you are looking at and what a column
+       means, even halfway across a wide table.
        ---------------------------------------------------------------- */
 
     .product-cell {
@@ -665,10 +665,10 @@ body.kc-dialog-open {
       font-weight: 900;
     }
 
-    /* Product en de actiekolom worden herkend aan hun sleutel, niet aan
-       hun positie: bij Open Payments staat er een selectievakje voor
-       Product, en dan hoort die mee vast te zitten in plaats van dat
-       Product zijn plek verliest. */
+    /* Product and the action column are recognised by their key rather than
+       their position: Open Payments has a checkbox in front of Product, and
+       then that should be pinned along with it instead of Product losing
+       its place. */
     th[data-key="product"],
     td[data-key="product"] {
       position: sticky;
@@ -692,9 +692,9 @@ body.kc-dialog-open {
       left: 70px;
     }
 
-    /* De knoppenkolom heet niet overal "actions": bij Open Payments en
-       Payment History staat de PAY-knop onder een eigen sleutel. Alle drie
-       horen ze rechts te blijven staan. */
+    /* The button column is not called "actions" everywhere: in Open Payments
+       and Payment History the PAY button sits under a key of its own. All
+       three should stay pinned to the right. */
     th[data-key="actions"],
     td[data-key="actions"],
     th[data-key="payment_action"],
@@ -724,7 +724,7 @@ body.kc-dialog-open {
       background: #0B1C30;
     }
 
-    /* De slagschaduw verschijnt pas zodra er echt iets onder wegschuift. */
+    /* The shadow only appears once something actually slides underneath. */
     .table-wrap.scrolled-x th[data-key="product"],
     .table-wrap.scrolled-x td[data-key="product"] {
       box-shadow: 10px 0 14px -10px rgba(0,0,0,0.75), 1px 0 0 rgba(143,174,204,0.16);
@@ -828,11 +828,11 @@ body.kc-dialog-open {
       flex-wrap: nowrap;
     }
     
-    /* GEWIJZIGD — er waren vier knopvormen terwijl er maar één nodig is.
-       Drie waren al gelijk op de kleur na; de gele week af met een eigen
-       hoogte en zijruimte. Nu één hoogte, één hoekafronding, één
-       lettergrootte. Kleur is het enige dat nog verschilt, want dat is wat
-       kleur hoort te doen. */
+    /* CHANGED — there were four button shapes where one is enough. Three
+       were already identical apart from colour; the yellow one differed with
+       its own height and side padding. Now one height, one corner radius,
+       one font size. Colour is the only thing that still differs, which is
+       what colour is for. */
     .action-btn {
       cursor: pointer;
       display: inline-flex;
@@ -872,7 +872,7 @@ body.kc-dialog-open {
       color: #07111F;
     }
 
-    /* Het pictogram voor het pakbon-label blijft vierkant. */
+    /* The packing-slip icon stays square. */
     .action-btn.download-btn {
       width: 40px;
       padding: 0;
@@ -1040,11 +1040,10 @@ body.kc-dialog-open {
       white-space: nowrap;
     }
 
-    /* ---- UX-ronde 1.1 ------------------------------------------------
-       De zijbalk stond onder 900 pixels op display:none, dus op een telefoon
-       was er geen enkele manier meer om naar Offers of Returns te komen.
-       Hij schuift nu uit vanaf een knop, hetzelfde patroon als het
-       Kickz Caviar-dashboard al gebruikt.
+    /* ---- UX round 1.1 ------------------------------------------------
+       Below 900 pixels the sidebar was display:none, so on a phone there
+       was no way left to reach Offers or Returns. It now slides out from a
+       button, the same pattern the Kickz Caviar dashboard already uses.
        ---------------------------------------------------------------- */
 
     .menu-btn {
@@ -1103,20 +1102,20 @@ body.kc-dialog-open {
         transform: translateX(0);
       }
 
-      /* De bovenbalk was op deze breedte al krap; met de menuknop erbij
-         liep hij over. "Merchant Portal" staat een regel lager toch al als
-         paginatitel, dus die mag hier weg, en de winkelnaam krimpt mee.
+      /* The top bar was already tight at this width; with the menu button
+         added it overflowed. "Merchant Portal" appears a line lower as the
+         page title anyway, so it can go here, and the store name shrinks
+         with it.
 
-         Hij blijft ook staan tijdens het scrollen: anders moet je vanaf rij
-         veertig helemaal terug naar boven om van tab te wisselen of uit te
-         loggen. */
-      /* Een slanke balk die blijft staan: menu links, de naam van de weergave
-         in het midden, Logout rechts. Al het andere — zoekbalk, tellers —
-         scrolt gewoon weg, zodat er tijdens het lezen zo min mogelijk vast in
-         beeld staat.
+         It also stays put while scrolling: otherwise you have to travel all
+         the way back up from row forty to switch tabs or log out. */
+      /* A slim bar that stays put: menu on the left, the name of the current
+         view in the middle, Logout on the right. Everything else — search
+         box, counters — scrolls away as normal, so as little as possible
+         stays fixed on screen while reading.
 
-         Drie kolommen waarvan de buitenste even breed zijn, zodat de titel
-         echt in het midden staat en niet net ernaast. */
+         Three columns whose outer two are equally wide, so the title sits
+         truly in the middle rather than just beside it. */
       .topbar {
         position: sticky;
         top: 0;
@@ -1139,8 +1138,9 @@ body.kc-dialog-open {
         justify-self: start;
       }
 
-      /* De naam van de weergave stond alleen groot onder de balk. Die staat nu
-         in de balk zelf, zodat je bij het scrollen blijft zien waar je bent. */
+      /* The name of the current view only appeared in large type below the
+         bar. It now sits in the bar itself, so you keep seeing where you are
+         while scrolling. */
       .topbar-title {
         display: block;
         grid-column: 2;
@@ -1159,7 +1159,7 @@ body.kc-dialog-open {
         justify-self: end;
       }
 
-      /* De winkelnaam staat al in het menu; in de balk is alleen Logout nodig. */
+      /* The store name is already in the menu; the bar only needs Logout. */
       .merchant-box span {
         display: none;
       }
@@ -1168,7 +1168,7 @@ body.kc-dialog-open {
         padding: 16px 14px;
       }
 
-      /* De grote kop onder de balk zou nu hetzelfde zeggen als de balk. */
+      /* The large heading below the bar would now repeat the bar. */
       .page-head {
         display: none;
       }
@@ -1218,11 +1218,11 @@ body.kc-dialog-open {
     }
 
 
-    /* ---- UX-ronde 1.3 ------------------------------------------------
-       Een tabel van tien kolommen is op een telefoon niet te lezen. Onder
-       768 pixels wordt elke rij een kaart: de productnaam als kop, daarna
-       per regel de kolomnaam links en de waarde rechts, en de knoppen
-       onderaan. Dezelfde gegevens, andere vorm.
+    /* ---- UX round 1.3 ------------------------------------------------
+       A ten-column table is unreadable on a phone. Below 768 pixels every
+       row becomes a card: the product name as its heading, then one line per
+       column with the column name on the left and the value on the right,
+       and the buttons at the bottom. Same data, different shape.
        ---------------------------------------------------------------- */
 
     @media (max-width: 768px) {
@@ -1255,8 +1255,8 @@ body.kc-dialog-open {
         background: rgba(10,26,44,0.6);
       }
 
-      /* De vaste breedtes staan als stijl op de cel zelf, vandaar het
-         zwaardere gewicht hier. */
+      /* The fixed widths are set as an inline style on the cell itself, hence
+         the heavier weight needed here. */
       .table-wrap th,
       .table-wrap td {
         width: auto !important;
@@ -1274,9 +1274,9 @@ body.kc-dialog-open {
         text-align: right;
       }
 
-      /* De statuspil staat op het bureaublad gecentreerd in zijn kolom via
-         `margin: 0 auto`. In een kaart duwt dat hem naar het midden terwijl
-         alle andere waarden rechts uitlijnen. */
+      /* On desktop the status pill is centred in its column through
+         `margin: 0 auto`. In a card that pushes it to the middle while every
+         other value aligns right. */
       .table-wrap td .status {
         margin: 0;
       }
@@ -1292,8 +1292,8 @@ body.kc-dialog-open {
         text-align: left;
       }
 
-      /* Het productblok is de kop van de kaart, dus zonder opschrift en
-         over de volle breedte. */
+      /* The product block is the card's heading, so no label and full
+         width. */
       .table-wrap td[data-key="product"] {
         display: block;
         padding: 0 0 10px;
@@ -1309,7 +1309,7 @@ body.kc-dialog-open {
         font-size: 15px;
       }
 
-      /* De knoppen onderaan, over de volle breedte, zonder opschrift. */
+      /* The buttons at the bottom, full width, no label. */
       .table-wrap td[data-key="actions"],
       .table-wrap td[data-key="payment_action"],
       .table-wrap td[data-key="payment_link"] {
@@ -1324,9 +1324,9 @@ body.kc-dialog-open {
         content: none;
       }
 
-      /* De knoppen vullen samen altijd de volle kaartbreedte: bij één knop
-         is dat een balk onderaan die meteen als scheiding tussen de kaarten
-         werkt, bij twee of drie verdelen ze de ruimte gelijk. */
+      /* Together the buttons always fill the card's width: with one button
+         that is a bar at the bottom which doubles as the divider between
+         cards, and with two or three they share the space evenly. */
       .table-wrap td[data-key="actions"] .action-row,
       .table-wrap td[data-key="payment_action"],
       .table-wrap td[data-key="payment_link"] {
@@ -1335,18 +1335,18 @@ body.kc-dialog-open {
         gap: 8px;
         width: 100%;
 
-        /* Past het niet op één regel, dan zakt de breedste knop naar de
-           volgende in plaats van dat zijn tekst wordt afgeknipt. */
+        /* If it does not fit on one line the widest button drops to the next
+           rather than having its text clipped. */
         flex-wrap: wrap;
       }
 
-      /* GEWIJZIGD — stond op `flex: 1 1 0` met `min-width: 0`: dan krijgt elke
-         knop precies een derde van de breedte, wat er ook in staat, en mag hij
-         onder zijn eigen inhoud krimpen. "ACCEPT € 172,50" viel daardoor
-         buiten de knop. Met `auto` groeit elke knop vanaf zijn eigen tekst,
-         dus Accept krijgt meer dan Delete en er wordt niets afgeknipt. */
-      /* Is er maar één knop, dan vult die de volle breedte zonder van flex
-         af te hangen — dat werkt in elke browser hetzelfde. */
+      /* CHANGED — this was `flex: 1 1 0` with `min-width: 0`: every button
+         then gets exactly a third of the width whatever is in it, and may
+         shrink below its own content. "ACCEPT € 172,50" fell outside the
+         button because of it. With `auto` each button grows from its own
+         text, so Accept gets more than Delete and nothing is clipped. */
+      /* With only one button it fills the full width without depending on
+         flex — which behaves the same in every browser. */
       .table-wrap td[data-key="actions"] .action-row > *:only-child,
       .table-wrap td[data-key="payment_action"] .action-btn:only-child,
       .table-wrap td[data-key="payment_link"] .action-btn:only-child {
@@ -1372,7 +1372,7 @@ body.kc-dialog-open {
 
 
 
-      /* De lege staat is één cel met colspan; die hoort geen kaart te zijn. */
+      /* The empty state is a single cell with a colspan; it is not a card. */
       .table-wrap td.empty {
         display: block;
         text-align: center;
@@ -1385,9 +1385,9 @@ body.kc-dialog-open {
     }
 
 
-    /* ---- UX-lijst D3 ----------------------------------------------------
-       Een kruisje om in een keer te wissen. Verschijnt pas zodra er iets staat,
-       zodat het veld leeg net zo rustig blijft als eerst.
+    /* ---- UX list D3 ----------------------------------------------------
+       A cross to clear the field in one go. Only appears once something is
+       there, so an empty field stays as calm as it was.
        -------------------------------------------------------------------- */
 
     .search-row {
@@ -1398,7 +1398,7 @@ body.kc-dialog-open {
       padding-right: 44px;
     }
 
-    .zoek-wissen {
+    .search-clear {
       position: absolute;
       right: 10px;
       top: 50%;
@@ -1421,12 +1421,12 @@ body.kc-dialog-open {
       cursor: pointer;
     }
 
-    .search-row.heeft-tekst .zoek-wissen {
+    .search-row.has-text .search-clear {
       display: inline-flex;
     }
 
-    /* Het ingebouwde kruisje van type="search" is in een donker vlak vrijwel
-       onzichtbaar; we tonen ons eigen kruisje. */
+    /* The built-in cross of type="search" is nearly invisible on a dark
+       background, so we show our own. */
     .search-input::-webkit-search-cancel-button {
       -webkit-appearance: none;
       appearance: none;
@@ -1442,11 +1442,11 @@ body.kc-dialog-open {
       align-items: center;
       justify-content: center;
       padding: 24px;
-    }    /* ---- UX-lijst A1 en A2 ---------------------------------------------
-       .modal-backdrop kon niet scrollen: een hoge kaart stak er aan de boven- en
-       onderkant uit en er was geen manier om erbij te komen. Gemeten op View
-       Sizes met veertien maten: kaart 5285 px hoog in een scherm van 812, met
-       de bovenkant op -2236.
+    }    /* ---- UX list A1 and A2 ---------------------------------------------
+       .modal-backdrop could not scroll: a tall card stuck out at the top and
+       the bottom with no way to reach it. Measured on View Sizes with
+       fourteen sizes: a card 5285 px tall in an 812 px viewport, its top at
+       -2236.
        -------------------------------------------------------------------- */
 
     .modal-backdrop {
@@ -1457,14 +1457,14 @@ body.kc-dialog-open {
     }
 
     .modal-backdrop .custom-modal {
-      /* Midden in beeld zolang het past, bovenaan zodra het niet meer past. */
+      /* Centred while it fits, aligned to the top as soon as it does not. */
       margin: auto;
       max-height: none;
     }
 
-    /* Zolang er een venster open staat mag de pagina erachter niet meescrollen. */
-    html.venster-open,
-    body.venster-open {
+    /* While a dialog is open the page behind it must not scroll along. */
+    html.modal-open,
+    body.modal-open {
       overflow: hidden;
     }
     
@@ -1833,44 +1833,46 @@ body.kc-dialog-open {
   <script>
 
 /* ==================================================================
-   NEW — vensters in plaats van de grijze vakjes van de browser.
+   NEW — in-app dialogs, replacing the browser's own grey boxes.
    ==================================================================
 
-   Verving 78 alert(), 18 confirm() en 12 prompt(). Die zien er per
-   telefoon en per browser anders uit, negeren de huisstijl volledig, en
-   bij een prompt krijg je een gewoon tekstveld voor iets waar alleen een
-   bedrag in hoort — dus geen numeriek toetsenbord en geen controle.
+   Replaced 78 alert(), 28 confirm() and 12 prompt() calls. Those look
+   different on every phone and browser, ignore the portal's styling
+   entirely, and for a prompt you get a plain text field for something
+   that can only ever be an amount — so no numeric keyboard and no
+   validation.
 
-   Drie functies, allemaal een belofte, zodat een aanroep leest als de
-   oude:
+   Three functions, all returning a promise, so a call site reads almost
+   like the one it replaced:
 
      alert(x)              ->  showAlert(x)
      if (!confirm(x))      ->  if (!(await showConfirm(x)))
      const y = prompt(x)   ->  const y = await showPrompt(x)
 
-   Eigen klassen in plaats van de vensterklassen van het portal: die
-   verschillen per portal en dan zou hetzelfde venster er op twee plekken
-   anders uitzien.
+   Own class names rather than the portal's existing modal classes: those
+   differ between the two portals, and then the same dialog would behave
+   differently depending on where you opened it. Colours do come from the
+   portal, through a handful of CSS variables.
    ================================================================== */
 
 const kcDialogState = {
   open: 0,
-  vorigeFocus: null
+  previousFocus: null
 };
 
-function kcDialogVergrendel(aan) {
-  kcDialogState.open += aan ? 1 : -1;
+function kcDialogLockScroll(on) {
+  kcDialogState.open += on ? 1 : -1;
 
   if (kcDialogState.open < 0) kcDialogState.open = 0;
 
-  const bezet = kcDialogState.open > 0;
+  const busy = kcDialogState.open > 0;
 
-  document.documentElement.classList.toggle("kc-dialog-open", bezet);
-  document.body.classList.toggle("kc-dialog-open", bezet);
+  document.documentElement.classList.toggle("kc-dialog-open", busy);
+  document.body.classList.toggle("kc-dialog-open", busy);
 }
 
-function kcDialogEscape(v) {
-  return String(v == null ? "" : v)
+function kcDialogEscapeHtml(value) {
+  return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -1879,197 +1881,194 @@ function kcDialogEscape(v) {
 }
 
 /**
- * De kern. De andere drie functies zijn er een laagje omheen.
+ * Default validation for the amount dialogs.
  *
- * soort:  "alert" | "confirm" | "prompt"
- * opties: { title, confirmLabel, cancelLabel, danger, money,
- *           placeholder, value, validate }
+ * The old prompt() accepted anything: an empty line, "abc", a negative
+ * number. That went to the server and came back as an error, or worse, as
+ * an order of zero euros. Caught here instead, next to the field, without
+ * having to start over.
+ *
+ * Comma and dot both work: on a Dutch keyboard you type a comma, and that
+ * should simply be accepted.
  */
-function kcDialog(soort, tekst, opties) {
-  const o = opties || {};
+function kcMoneyCheck(value) {
+  const text = String(value || "").replace(/\s/g, "").replace(",", ".");
 
-  return new Promise((klaar) => {
-    const laag = document.createElement("div");
-    laag.className = "kc-dialog";
-    laag.setAttribute("role", "dialog");
-    laag.setAttribute("aria-modal", "true");
+  if (!text) return "Please enter an amount.";
 
-    const heeftInvoer = soort === "prompt";
-    const heeftAnnuleer = soort !== "alert";
+  const amount = Number(text);
 
-    const titel = o.title || (
-      soort === "confirm" ? "Are you sure?" :
-      soort === "prompt" ? "" : ""
-    );
+  if (!Number.isFinite(amount)) return "That is not a valid amount.";
+  if (amount <= 0) return "The amount must be higher than 0.";
 
-    const bevestigTekst = o.confirmLabel || (
-      soort === "alert" ? "OK" :
-      soort === "confirm" ? "Confirm" : "Confirm"
-    );
+  return "";
+}
 
-    laag.innerHTML =
+/**
+ * The core. The three exported functions are a thin layer around it.
+ *
+ * kind:    "alert" | "confirm" | "prompt"
+ * options: { title, confirmLabel, cancelLabel, danger, money,
+ *            placeholder, value, validate }
+ */
+function kcDialog(kind, message, options) {
+  const opts = options || {};
+
+  return new Promise((done) => {
+    const layer = document.createElement("div");
+    layer.className = "kc-dialog";
+    layer.setAttribute("role", "dialog");
+    layer.setAttribute("aria-modal", "true");
+
+    const hasInput = kind === "prompt";
+    const hasCancel = kind !== "alert";
+
+    const title = opts.title || (kind === "confirm" ? "Are you sure?" : "");
+    const confirmLabel = opts.confirmLabel || (kind === "alert" ? "OK" : "Confirm");
+
+    layer.innerHTML =
       '<div class="kc-dialog-backdrop" data-kc-cancel></div>' +
       '<div class="kc-dialog-card">' +
-        (titel ? '<h3 class="kc-dialog-title">' + kcDialogEscape(titel) + "</h3>" : "") +
-        '<p class="kc-dialog-text">' + kcDialogEscape(tekst) + "</p>" +
-        (heeftInvoer
-          ? '<label class="kc-dialog-field' + (o.money ? " money" : "") + '">' +
-              (o.money ? '<span class="kc-dialog-prefix">&euro;</span>' : "") +
+        (title ? '<h3 class="kc-dialog-title">' + kcDialogEscapeHtml(title) + "</h3>" : "") +
+        '<p class="kc-dialog-text">' + kcDialogEscapeHtml(message) + "</p>" +
+        (hasInput
+          ? '<label class="kc-dialog-field' + (opts.money ? " money" : "") + '">' +
+              (opts.money ? '<span class="kc-dialog-prefix">&euro;</span>' : "") +
               '<input class="kc-dialog-input" type="text"' +
-              (o.money ? ' inputmode="decimal"' : "") +
-              ' placeholder="' + kcDialogEscape(o.placeholder || "") + '"' +
-              ' value="' + kcDialogEscape(o.value || "") + '" />' +
+              (opts.money ? ' inputmode="decimal"' : "") +
+              ' placeholder="' + kcDialogEscapeHtml(opts.placeholder || "") + '"' +
+              ' value="' + kcDialogEscapeHtml(opts.value || "") + '" />' +
             "</label>" +
             '<p class="kc-dialog-error" hidden></p>'
           : "") +
         '<div class="kc-dialog-actions">' +
-          (heeftAnnuleer
+          (hasCancel
             ? '<button type="button" class="kc-dialog-btn cancel" data-kc-cancel>' +
-              kcDialogEscape(o.cancelLabel || "Cancel") + "</button>"
+              kcDialogEscapeHtml(opts.cancelLabel || "Cancel") + "</button>"
             : "") +
           '<button type="button" class="kc-dialog-btn confirm' +
-          (o.danger ? " danger" : "") + '">' + kcDialogEscape(bevestigTekst) + "</button>" +
+          (opts.danger ? " danger" : "") + '">' + kcDialogEscapeHtml(confirmLabel) + "</button>" +
         "</div>" +
       "</div>";
 
-    document.body.appendChild(laag);
-    kcDialogVergrendel(true);
+    document.body.appendChild(layer);
+    kcDialogLockScroll(true);
 
-    // Zodat de focus na het sluiten terugkeert naar de knop waar je vandaan
-    // kwam, in plaats van naar de bovenkant van de pagina.
+    // So focus returns to the button you came from after closing, instead
+    // of jumping to the top of the page.
     if (kcDialogState.open === 1) {
-      kcDialogState.vorigeFocus = document.activeElement;
+      kcDialogState.previousFocus = document.activeElement;
     }
 
-    const invoer = laag.querySelector(".kc-dialog-input");
-    const fout = laag.querySelector(".kc-dialog-error");
-    const bevestigKnop = laag.querySelector(".kc-dialog-btn.confirm");
+    const input = layer.querySelector(".kc-dialog-input");
+    const errorEl = layer.querySelector(".kc-dialog-error");
+    const confirmButton = layer.querySelector(".kc-dialog-btn.confirm");
 
-    function sluit(waarde) {
-      document.removeEventListener("keydown", opToets, true);
-      laag.remove();
-      kcDialogVergrendel(false);
+    function close(result) {
+      document.removeEventListener("keydown", onKeyDown, true);
+      layer.remove();
+      kcDialogLockScroll(false);
 
-      if (kcDialogState.open === 0 && kcDialogState.vorigeFocus) {
-        try { kcDialogState.vorigeFocus.focus(); } catch (e) { /* weggehaald */ }
-        kcDialogState.vorigeFocus = null;
+      if (kcDialogState.open === 0 && kcDialogState.previousFocus) {
+        try {
+          kcDialogState.previousFocus.focus();
+        } catch (err) {
+          /* the element is gone; nothing to focus */
+        }
+
+        kcDialogState.previousFocus = null;
       }
 
-      klaar(waarde);
+      done(result);
     }
 
-    function annuleer() {
-      sluit(soort === "prompt" ? null : soort === "confirm" ? false : undefined);
+    function cancel() {
+      close(kind === "prompt" ? null : kind === "confirm" ? false : undefined);
     }
 
-    function bevestig() {
-      if (!heeftInvoer) {
-        sluit(soort === "confirm" ? true : undefined);
+    function confirm() {
+      if (!hasInput) {
+        close(kind === "confirm" ? true : undefined);
         return;
       }
 
-      const waarde = invoer.value.trim();
+      const value = input.value.trim();
 
-      // De aanroeper mag zelf bepalen wat geldig is; zonder controle laten
-      // we alles door en blijft het gedrag gelijk aan het oude prompt().
-      if (typeof o.validate === "function") {
-        const melding = o.validate(waarde);
+      // The caller decides what counts as valid; without a check anything
+      // goes through and the behaviour matches the old prompt().
+      if (typeof opts.validate === "function") {
+        const problem = opts.validate(value);
 
-        if (melding) {
-          fout.textContent = melding;
-          fout.hidden = false;
-          invoer.focus();
-          invoer.select();
+        if (problem) {
+          errorEl.textContent = problem;
+          errorEl.hidden = false;
+          input.focus();
+          input.select();
           return;
         }
       }
 
-      sluit(waarde);
+      close(value);
     }
 
-    laag.querySelectorAll("[data-kc-cancel]").forEach((el) => {
-      el.addEventListener("click", annuleer);
+    layer.querySelectorAll("[data-kc-cancel]").forEach((el) => {
+      el.addEventListener("click", cancel);
     });
 
-    bevestigKnop.addEventListener("click", bevestig);
+    confirmButton.addEventListener("click", confirm);
 
-    function opToets(gebeurtenis) {
-      // Alleen het bovenste venster reageert, anders sluiten er twee
-      // tegelijk als er eentje bovenop een andere staat.
-      if (laag !== document.querySelector(".kc-dialog:last-of-type")) return;
+    function onKeyDown(event) {
+      // Only the topmost dialog reacts, otherwise two close at once when
+      // one is opened on top of another.
+      if (layer !== document.querySelector(".kc-dialog:last-of-type")) return;
 
-      if (gebeurtenis.key === "Escape") {
-        gebeurtenis.preventDefault();
-        gebeurtenis.stopPropagation();
-        annuleer();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        cancel();
         return;
       }
 
-      if (gebeurtenis.key === "Enter") {
-        // In een tekstveld met meerdere regels hoort Enter een regel te
-        // maken, niet te bevestigen.
-        if (gebeurtenis.target && gebeurtenis.target.tagName === "TEXTAREA") return;
+      if (event.key === "Enter") {
+        // In a multi-line field Enter should add a line, not submit.
+        if (event.target && event.target.tagName === "TEXTAREA") return;
 
-        gebeurtenis.preventDefault();
-        bevestig();
+        event.preventDefault();
+        confirm();
       }
     }
 
-    document.addEventListener("keydown", opToets, true);
+    document.addEventListener("keydown", onKeyDown, true);
 
-    // Een frame wachten zodat de invoer op mobiel het toetsenbord opent.
+    // One frame later, so the input opens the keyboard on mobile.
     requestAnimationFrame(() => {
-      if (invoer) {
-        invoer.focus();
-        invoer.select();
+      if (input) {
+        input.focus();
+        input.select();
       } else {
-        bevestigKnop.focus();
+        confirmButton.focus();
       }
     });
   });
 }
 
-/**
- * Standaardcontrole voor de bedragvensters.
- *
- * Het oude prompt() nam alles aan: een lege regel, "abc", een negatief
- * getal. Dat ging dan naar de server en kwam terug als een foutmelding, of
- * erger, als een order van nul euro. Hier wordt het meteen tegengehouden,
- * naast het veld, zonder dat je opnieuw hoeft te beginnen.
- *
- * Komma en punt allebei goed: op een Nederlands toetsenbord typ je een
- * komma, en dat hoort gewoon te werken.
- */
-function kcMoneyCheck(waarde) {
-  const tekst = String(waarde || "").replace(/\s/g, "").replace(",", ".");
-
-  if (!tekst) return "Please enter an amount.";
-
-  const getal = Number(tekst);
-
-  if (!Number.isFinite(getal)) return "That is not a valid amount.";
-  if (getal <= 0) return "The amount must be higher than 0.";
-
-  return "";
+function showAlert(message, options) {
+  return kcDialog("alert", message, options);
 }
 
-function showAlert(tekst, opties) {
-  return kcDialog("alert", tekst, opties);
+function showConfirm(message, options) {
+  return kcDialog("confirm", message, options);
 }
 
-function showConfirm(tekst, opties) {
-  return kcDialog("confirm", tekst, opties);
-}
-
-function showPrompt(tekst, opties) {
-  return kcDialog("prompt", tekst, opties);
+function showPrompt(message, options) {
+  return kcDialog("prompt", message, options);
 }
 
     const merchantName = document.getElementById("merchantName");
     const logoutBtn = document.getElementById("logoutBtn");
     const searchInput = document.getElementById("searchInput");
-    // GEWIJZIGD — de Search-knop is weg; er wordt gefilterd tijdens het
-    // typen. Deze verwijzing blijft leeg en wordt nergens meer gebruikt.
+    // CHANGED — the Search button is gone; filtering happens while you
+    // type. This reference stays empty and is no longer used anywhere.
     const searchBtn = document.getElementById("searchBtn");
     const ordersTableBody = document.getElementById("ordersTableBody");
     const tableTitle = document.getElementById("tableTitle");
@@ -2110,13 +2109,13 @@ function showPrompt(tekst, opties) {
       payment_history: "Payment History"
     };
 
-    // GEWIJZIGD — was dertien willekeurige getallen; nu zeven maten
-    // per soort inhoud, in beide portals gelijk. Een datum is overal
-    // even breed, een bedrag ook, dus niets verspringt meer als je van
-    // tab wisselt.
+    // CHANGED — this was thirteen arbitrary numbers; now seven sizes by
+    // kind of content, identical in both portals. A date is equally wide
+    // everywhere, and so is an amount, so nothing shifts when you switch
+    // tabs.
     //
-    // product en actions staan hier bewust niet in: product slokt de
-    // overgebleven ruimte op en actions wordt gemeten aan zijn knoppen.
+    // product and actions are deliberately absent: product soaks up the
+    // remaining space and actions is measured against its buttons.
     const columnWidths = {
       select: 60,
       size: 75,
@@ -2151,8 +2150,18 @@ function showPrompt(tekst, opties) {
       order_status: 130,
       second_order_status: 130,
       supplier_shipping_status: 130,
-      tracking_number: 140,
-      warehouse_tracking: 140,
+      // CHANGED — these were 140. A carrier code is eighteen characters
+      // ("1Z5F71W96825872191"), roughly 150 px of text; with the padding on
+      // top that did not fit, and with table-layout: fixed the text then
+      // runs out of its cell. In Ready To Ship this is the last column, so
+      // it ran on to the edge; in a tab with another column behind it, it
+      // would have fallen across that one instead.
+      //
+      // This is the widest single piece of text in the whole portal, and a
+      // code you cannot read or retype is useless, so it gets a size of its
+      // own rather than being truncated.
+      tracking_number: 185,
+      warehouse_tracking: 185,
       preferred_courier: 140,
       packing_slip_url: 80,
       tracking_url: 80,
@@ -2495,76 +2504,76 @@ function showPrompt(tekst, opties) {
       merchantName.textContent = merchant.store_name || merchant.portal_email || "Merchant";
     }
 
-// NEW — één plek voor bedragen op knoppen. De bestaande code deed
-// `€${Number(payout)}`, wat van 172,50 een "172.5" maakt: punt in plaats van
-// komma en de laatste nul weg. Kan de waarde niet gelezen worden, dan komt er
-// niets op de knop te staan in plaats van "€NaN".
-function bedragVoorKnop(waarde) {
-  const tekst = String(waarde === null || waarde === undefined ? "" : waarde).trim();
-  if (!tekst) return "";
+// NEW — one place for amounts on buttons. The existing code did
+// `€${Number(payout)}`, which turns 172,50 into "172.5": a dot instead of a
+// comma and the trailing zero gone. If the value cannot be read, the button
+// gets no amount at all rather than "€NaN".
+function amountForButton(rawValue) {
+  const messageText = String(rawValue === null || rawValue === undefined ? "" : rawValue).trim();
+  if (!messageText) return "";
 
-  // Al opgemaakt door de API (bijvoorbeeld "€ 172,50")? Dan zo laten.
-  if (tekst.indexOf("\u20ac") >= 0) return tekst;
+  // Already formatted by the API (for example "€ 172,50")? Leave it be.
+  if (messageText.indexOf("\u20ac") >= 0) return messageText;
 
-  const getal = Number(tekst.replace(/\s/g, "").replace(",", "."));
-  if (!Number.isFinite(getal) || getal <= 0) return "";
+  const parsed = Number(messageText.replace(/\s/g, "").replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) return "";
 
-  return "\u20ac " + getal.toFixed(2).replace(".", ",");
+  return "\u20ac " + parsed.toFixed(2).replace(".", ",");
 }
 
-// NEW — een filter na het tekenen in plaats van in elk renderpad apart. De
-    // rijen staan al in de tabel, dus verbergen we wat de zoekterm niet bevat.
-    // Werkt daardoor op elk pad, ook op paden die er later bij komen.
+// NEW — one filter after rendering, instead of one per render path. The
+    // rows are already in the table, so anything the search term does not
+    // match is hidden. That covers every path, including paths added later.
     //
-    // De aantallen in de zijbalk en op de pills blijven tellen wat er werkelijk
-    // is: die komen uit de API en worden hier niet aangeraakt.
-    function zoektermVanDashboard() {
+    // The counts in the sidebar and on the pills keep counting what actually
+    // exists: those come from the API and are not touched here.
+    function dashboardSearchTerm() {
       return String(searchInput?.value || "").trim().toLowerCase();
     }
     
-    function filterZichtbareRijen() {
-      const lichaam = document.getElementById("ordersTableBody");
-      if (!lichaam) return;
+    function filterVisibleRows() {
+      const tableBody = document.getElementById("ordersTableBody");
+      if (!tableBody) return;
     
-      const rijen = Array.from(lichaam.querySelectorAll("tr"))
-        .filter((rij) => !rij.dataset.zoekMelding);
+      const rowEls = Array.from(tableBody.querySelectorAll("tr"))
+        .filter((rowEl) => !rowEl.dataset.searchNotice);
     
       if (currentView !== "offers") {
-        rijen.forEach((rij) => { rij.style.display = ""; });
+        rowEls.forEach((rowEl) => { rowEl.style.display = ""; });
         return;
       }
     
-      const term = zoektermVanDashboard();
-      let gevonden = 0;
+      const term = dashboardSearchTerm();
+      let hitCount = 0;
     
-      rijen.forEach((rij) => {
-        // De lege staat is een cel met colspan; die hoort altijd te blijven staan.
-        const isLegeStaat = rij.children.length === 1 && rij.children[0].hasAttribute("colspan");
+      rowEls.forEach((rowEl) => {
+        // The empty state is a cell with a colspan; it must always stay.
+        const isEmptyState = rowEl.children.length === 1 && rowEl.children[0].hasAttribute("colspan");
     
-        if (!term || isLegeStaat) {
-          rij.style.display = "";
-          if (!isLegeStaat) gevonden++;
+        if (!term || isEmptyState) {
+          rowEl.style.display = "";
+          if (!isEmptyState) hitCount++;
           return;
         }
     
-        const raak = rij.textContent.toLowerCase().includes(term);
-        rij.style.display = raak ? "" : "none";
-        if (raak) gevonden++;
+        const isHit = rowEl.textContent.toLowerCase().includes(term);
+        rowEl.style.display = isHit ? "" : "none";
+        if (isHit) hitCount++;
       });
     
-      // Een eigen regel als de zoekterm niets oplevert, anders staar je naar een
-      // lege tabel zonder te weten waarom.
-      const bestaande = lichaam.querySelector("[data-zoek-melding]");
+      // A row of its own when the term matches nothing, otherwise you stare
+      // at an empty table with no idea why.
+      const bestaande = tableBody.querySelector("[data-search-notice]");
       if (bestaande) bestaande.remove();
     
-      if (term && gevonden === 0 && rijen.length) {
-        const melding = document.createElement("tr");
-        melding.dataset.zoekMelding = "1";
-        melding.innerHTML =
+      if (term && hitCount === 0 && rowEls.length) {
+        const notice = document.createElement("tr");
+        notice.dataset.searchNotice = "1";
+        notice.innerHTML =
           '<td colspan="20" style="padding:28px 14px;text-align:center;opacity:.7">' +
           "No results for \u201c" + term.replace(/[<>&]/g, "") + "\u201d" +
           "</td>";
-        lichaam.appendChild(melding);
+        tableBody.appendChild(notice);
       }
     }
 
@@ -2588,7 +2597,7 @@ function bedragVoorKnop(waarde) {
           // accept/counter operate on the raw seller offer. Case B
           // (a denied counter round): accept the seller's last offer,
           // retry = a new counter.
-          const acceptLabel = `ACCEPT ${escapeHtml(bedragVoorKnop(order.sellers_offer))}`.trim();
+          const acceptLabel = `ACCEPT ${escapeHtml(amountForButton(order.sellers_offer))}`.trim();
           const counterLabel = order._kind === "fresh_denied" ? "COUNTER" : "RETRY";
           return `
             <div class="action-row">
@@ -2615,7 +2624,7 @@ function bedragVoorKnop(waarde) {
               </button>
 
               <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
-                ACCEPT ${escapeHtml(bedragVoorKnop(order.sellers_offer))}
+                ACCEPT ${escapeHtml(amountForButton(order.sellers_offer))}
               </button>
 
               <button class="action-btn red" type="button" onclick="handleDeleteOffer('${escapeHtml(order.id)}')">
@@ -2628,7 +2637,7 @@ function bedragVoorKnop(waarde) {
         return `
           <div class="action-row">
             <button class="action-btn green" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
-              ACCEPT ${escapeHtml(bedragVoorKnop(order.offer))}
+              ACCEPT ${escapeHtml(amountForButton(order.offer))}
             </button>
           
             <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
@@ -2780,17 +2789,18 @@ function bedragVoorKnop(waarde) {
       }
     
       if (key === "product") {
-        // GEWIJZIGD — SKU, Size en Brand hadden elk een eigen kolom en
-        // stonden daardoor los van de naam waar ze bij horen. Ze staan nu
-        // onder de productnaam in hetzelfde blok. Niets verdwijnt; de
-        // tabel wordt drie kolommen smaller.
-        // De SKU is het veld waar het meest op gezocht wordt, dus die
-        // krijgt de volle tekstkleur; maat en merk blijven secundair.
-        const delen = [];
-        if (order.sku) delen.push(`<span class="product-sku">${escapeHtml(order.sku)}</span>`);
-        if (order.size) delen.push(escapeHtml(`Size ${order.size}`));
-        if (order.brand) delen.push(escapeHtml(order.brand));
-        const meta = delen.join(" &middot; ");
+        // CHANGED — SKU, Size and Brand each had their own column, which
+        // put them far from the name they describe. They now sit under the
+        // product name in the same block. Nothing is lost; the table gets
+        // three columns narrower.
+        //
+        // The SKU is what people search on most, so it gets the full text
+        // colour; size and brand stay secondary.
+        const parts = [];
+        if (order.sku) parts.push(`<span class="product-sku">${escapeHtml(order.sku)}</span>`);
+        if (order.size) parts.push(escapeHtml(`Size ${order.size}`));
+        if (order.brand) parts.push(escapeHtml(order.brand));
+        const meta = parts.join(" &middot; ");
 
         return `
           <div class="product-cell">
@@ -2963,11 +2973,11 @@ function bedragVoorKnop(waarde) {
       const thead = document.querySelector("thead tr");
       thead.innerHTML = displayColumns
         .map(([key, label]) => {
-          // Zonder waarde in de tabel krijgt de kolom geen vaste breedte:
-          // dat geldt voor product (slokt de rest op) en actions (past
-          // zich aan zijn knoppen aan).
+          // Without an entry in the table a column gets no fixed width:
+          // that applies to product (which soaks up the rest) and actions
+          // (which adapts to its buttons).
           const width = columnWidths[key];
-          const maat = width ? `width:${width}px; min-width:${width}px;` : "";
+          const sizeLabel = width ? `width:${width}px; min-width:${width}px;` : "";
       
           const headerContent =
             key === "select" && currentView === "open_payments"
@@ -2975,7 +2985,7 @@ function bedragVoorKnop(waarde) {
               : escapeHtml(label);
           
           return `
-            <th data-key="${key}" style="${maat}">
+            <th data-key="${key}" style="${sizeLabel}">
               ${headerContent}
               <div class="resizer" data-key="${key}"></div>
             </th>
@@ -3000,14 +3010,14 @@ function bedragVoorKnop(waarde) {
           <tr>
             ${displayColumns.map(([key, label]) => {
               const width = columnWidths[key];
-              const maat = width ? `width:${width}px; min-width:${width}px;` : "";
+              const sizeLabel = width ? `width:${width}px; min-width:${width}px;` : "";
 
-              // NEW — additief: op een telefoon wordt elke rij een kaart
-              // en staat de kolomnaam naast de waarde. Zonder dit label
-              // weet een cel niet bij welke kolom hij hoort zodra de kop
-              // weg is.
+              // NEW — additive: on a phone every row becomes a card and
+              // the column name sits next to the value. Without this label a
+              // cell has no idea which column it belongs to once the header
+              // is gone.
               return `
-                <td data-key="${key}" data-label="${escapeHtml(label)}" style="${maat}">
+                <td data-key="${key}" data-label="${escapeHtml(label)}" style="${sizeLabel}">
                   ${renderCell(order, key)}
                 </td>
               `;
@@ -3019,10 +3029,10 @@ function bedragVoorKnop(waarde) {
       updatePaymentSelectionSummary();
       fitColumns();
 
-      // NEW — de Offers-weergave bouwt zijn eigen verzoek met alleen
-      // merchant_id, dus daar filtert de server niet mee. Op de andere
-      // weergaven doet hij dat wel en blijft dit een lege handeling.
-      filterZichtbareRijen();
+      // NEW — the Offers view builds its own request with only
+      // merchant_id, so the server does not filter there. On the other views
+      // it does, and this stays a no-op.
+      filterVisibleRows();
     }
     
     async function loadOrders(reset = true) {
@@ -3034,8 +3044,8 @@ function bedragVoorKnop(waarde) {
       tableTitle.textContent = label;
       pageTitle.textContent = label;
 
-      // NEW — op een telefoon staat de naam van de weergave in de
-      // bovenbalk, zodat je bij het scrollen blijft zien waar je bent.
+      // NEW — on a phone the name of the current view sits in the top
+      // bar, so you keep seeing where you are while scrolling.
       const balkTitel = document.getElementById("topbarTitle");
       if (balkTitel) balkTitel.textContent = label;
 
@@ -4165,36 +4175,36 @@ function bedragVoorKnop(waarde) {
       });
     });
     
-    // GEWIJZIGD — zoeken kostte een extra klik. Nu filtert het tijdens het
-    // typen. Op de meeste weergaven doet de server het werk, dus wachten we
-    // 350 ms na de laatste toets; anders sturen we een verzoek per aanslag.
-    // Op Offers filtert de server niet mee en gebeurt het meteen in de
-    // rijen die er al staan.
-    let zoekWachter = null;
+    // CHANGED — searching cost an extra click. It now filters while you
+    // type. On most views the server does the work, so we wait 350 ms after
+    // the last key; otherwise we would send a request per keystroke. On
+    // Offers the server does not filter, and it happens straight away in the
+    // rows already on screen.
+    let searchTimer = null;
 
-    function voerZoekopdrachtUit() {
-      clearTimeout(zoekWachter);
+    function runSearchNow() {
+      clearTimeout(searchTimer);
 
       if (currentView === "offers") {
-        filterZichtbareRijen();
+        filterVisibleRows();
         return;
       }
 
       loadOrders(true);
     }
 
-    function planZoekopdracht() {
-      clearTimeout(zoekWachter);
+    function scheduleSearch() {
+      clearTimeout(searchTimer);
 
       if (currentView === "offers") {
-        filterZichtbareRijen();
+        filterVisibleRows();
         return;
       }
 
-      zoekWachter = setTimeout(voerZoekopdrachtUit, 350);
+      searchTimer = setTimeout(runSearchNow, 350);
     }
 
-    searchInput.addEventListener("input", planZoekopdracht);
+    searchInput.addEventListener("input", scheduleSearch);
 
     createPaymentBtn.addEventListener("click", createPaymentLink);
 
@@ -4209,96 +4219,96 @@ function bedragVoorKnop(waarde) {
     });
     
     searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") voerZoekopdrachtUit();
+      if (event.key === "Enter") runSearchNow();
     });
     
-    // NEW — additief: de menuknop schuift de zijbalk uit en het doek
-    // erachter sluit hem weer. Kiezen van een tab sluit hem ook, anders
-    // blijft hij over de tabel heen staan.
-    // NEW — additief: vensters gedroegen zich niet. De achtergrond schoof mee
-    // tijdens het scrollen en Escape sloot niets. Beide horen bij het venster
-    // zelf, niet bij de plek die hem opent, dus staat het hier op één plek voor
-    // alle vensters van dit portal.
+    // NEW — additive: the menu button slides the sidebar out and the
+    // backdrop behind it closes it again. Picking a tab closes it too,
+    // otherwise it stays sitting on top of the table.
+    // NEW — additive: dialogs did not behave. The page behind them
+    // scrolled along, and Escape closed nothing. Both belong to the dialog
+    // itself rather than to whatever opens it, so this sits in one place for
+    // every dialog in this portal.
     (function () {
       const VENSTERS = ".modal-backdrop";
       const SLUITKNOPPEN = ".modal-close";
 
-      function openVensters() {
+      function openDialogs() {
         return Array.from(document.querySelectorAll(VENSTERS))
           .filter((v) => getComputedStyle(v).display !== "none");
       }
 
-      function bijwerken() {
-        const open = openVensters().length > 0;
-        document.documentElement.classList.toggle("venster-open", open);
-        document.body.classList.toggle("venster-open", open);
+      function syncOpenState() {
+        const open = openDialogs().length > 0;
+        document.documentElement.classList.toggle("modal-open", open);
+        document.body.classList.toggle("modal-open", open);
       }
 
-      // Alleen de vensters zelf in de gaten houden, niet de hele pagina: de
-      // tabellen wisselen voortdurend van klasse en dat hoeft hier niets te doen.
-      const waarnemer = new MutationObserver(bijwerken);
+      // Watch only the dialogs, not the whole page: the tables change
+      // classes constantly and none of that needs to trigger anything here.
+      const observer = new MutationObserver(syncOpenState);
       document.querySelectorAll(VENSTERS).forEach((v) => {
-        waarnemer.observe(v, { attributes: true, attributeFilter: ["class", "style"] });
+        observer.observe(v, { attributes: true, attributeFilter: ["class", "style"] });
       });
 
-      document.addEventListener("keydown", (gebeurtenis) => {
-        if (gebeurtenis.key !== "Escape") return;
+      document.addEventListener("keydown", (evt) => {
+        if (evt.key !== "Escape") return;
 
-        const open = openVensters();
+        const open = openDialogs();
         if (!open.length) return;
 
-        // Het bovenste venster sluiten via zijn eigen sluitknop, zodat de
-        // opruimcode die daaraan hangt gewoon loopt.
-        const bovenste = open[open.length - 1];
-        const knop = bovenste.querySelector(SLUITKNOPPEN);
+        // Close the topmost dialog through its own close button, so
+        // whatever cleanup is attached to it still runs.
+        const topDialog = open[open.length - 1];
+        const btnEl = topDialog.querySelector(SLUITKNOPPEN);
 
-        if (knop) {
-          knop.click();
+        if (btnEl) {
+          btnEl.click();
         } else {
-          bovenste.classList.add("hidden");
-          bovenste.style.display = "none";
+          topDialog.classList.add("hidden");
+          topDialog.style.display = "none";
         }
 
-        bijwerken();
+        syncOpenState();
       });
 
-      bijwerken();
+      syncOpenState();
     })();
 
-    // Typen filtert meteen; op Offers is dat het enige dat filtert.
+    // Typing filters immediately; on Offers that is the only thing that
+    // filters at all.
     searchInput?.addEventListener("input", () => {
-      if (currentView === "offers") filterZichtbareRijen();
+      if (currentView === "offers") filterVisibleRows();
     });
 
 
-    // NEW — een kruisje om het zoekveld in een keer leeg te maken. Wordt hier
-    // aangemaakt in plaats van in de HTML, zodat er geen extra bestand mee hoeft
-    // in de uitrol.
+    // NEW — a cross to clear the search field in one go. Built here
+    // rather than in the HTML, so no extra file has to ship.
     (function () {
       const veld = searchInput;
-      const rij = veld && veld.closest(".search-row");
-      if (!veld || !rij) return;
+      const rowEl = veld && veld.closest(".search-row");
+      if (!veld || !rowEl) return;
     
-      const knop = document.createElement("button");
-      knop.type = "button";
-      knop.className = "zoek-wissen";
-      knop.setAttribute("aria-label", "Clear search");
-      knop.textContent = "\u00d7";
-      rij.appendChild(knop);
+      const btnEl = document.createElement("button");
+      btnEl.type = "button";
+      btnEl.className = "search-clear";
+      btnEl.setAttribute("aria-label", "Clear search");
+      btnEl.textContent = "\u00d7";
+      rowEl.appendChild(btnEl);
     
-      function toonOfVerberg() {
-        rij.classList.toggle("heeft-tekst", !!veld.value);
+      function syncClearButton() {
+        rowEl.classList.toggle("has-text", !!veld.value);
       }
     
-      knop.addEventListener("click", () => {
+      btnEl.addEventListener("click", () => {
         veld.value = "";
-        toonOfVerberg();
-        voerZoekopdrachtUit();
+        syncClearButton();
+        runSearchNow();
         veld.focus();
       });
     
-      veld.addEventListener("input", toonOfVerberg);
-      toonOfVerberg();
+      veld.addEventListener("input", syncClearButton);
+      syncClearButton();
     })();
 
     const sidebarEl = document.getElementById("sidebar");
@@ -4327,46 +4337,47 @@ function bedragVoorKnop(waarde) {
 
     const tableWrap = document.querySelector(".table-wrap");
 
-    // NEW — additief: de actiekolom stond op een vast getal en had daardoor
-    // vaak veel lege ruimte: 210 px voor één knop van zeventig. Hij wordt nu
-    // gemeten aan de knoppen die er werkelijk in staan.
+    // NEW — additive: the action column had a fixed width and was often
+    // mostly empty: 210 px for a single seventy-pixel button. It is now
+    // measured against the buttons actually in it.
     //
-    // En de tabel krijgt een ondergrens die past bij de kolommen van deze
-    // weergave plus 240 px voor Product, zodat die nooit te smal wordt.
+    // The table also gets a minimum that matches this view's columns plus
+    // 240 px for Product, so Product never ends up too narrow.
     function fitColumns() {
       const tabel = document.querySelector(".table-wrap table");
       if (!tabel) return;
 
-      const rijen = Array.from(
+      const rowEls = Array.from(
         document.querySelectorAll('#ordersTableBody td[data-key="actions"] .action-row')
       );
 
-      if (rijen.length) {
-        // De knoppen zelf optellen, niet de rij die hen bevat: die rekt zich
-        // uit tot de cel en dan meet je je eigen uitkomst.
-        const breedste = Math.max(...rijen.map((r) => {
-          const knoppen = Array.from(r.children);
-          if (!knoppen.length) return 0;
-          const tussenruimte = parseFloat(getComputedStyle(r).gap) || 0;
-          return knoppen.reduce((som, k) => som + k.getBoundingClientRect().width, 0)
-               + tussenruimte * (knoppen.length - 1);
+      if (rowEls.length) {
+        // Measure the buttons themselves, not the row holding them: that
+        // row stretches to fill the cell, so measuring it means measuring
+        // your own result.
+        const widest = Math.max(...rowEls.map((r) => {
+          const btnEls = Array.from(r.children);
+          if (!btnEls.length) return 0;
+          const gapWidth = parseFloat(getComputedStyle(r).gap) || 0;
+          return btnEls.reduce((som, k) => som + k.getBoundingClientRect().width, 0)
+               + gapWidth * (btnEls.length - 1);
         }));
 
-        if (breedste > 0) {
-          tabel.style.setProperty("--actiebreedte", Math.ceil(breedste) + 28 + "px");
+        if (widest > 0) {
+          tabel.style.setProperty("--action-width", Math.ceil(widest) + 28 + "px");
         }
       }
 
-      const vast = Array.from(document.querySelectorAll("thead th"))
+      const fixedWidth = Array.from(document.querySelectorAll("thead th"))
         .filter((th) => th.dataset.key !== "product")
         .reduce((som, th) => som + th.getBoundingClientRect().width, 0);
 
-      tabel.style.minWidth = Math.round(vast + 275) + "px";
+      tabel.style.minWidth = Math.round(fixedWidth + 275) + "px";
     }
 
-    // NEW — additief: de slagschaduw naast het vastgezette productblok
-    // hoort alleen te verschijnen zodra er daadwerkelijk iets onder
-    // wegschuift, anders staat er een streep zonder aanleiding.
+    // NEW — additive: the shadow beside the pinned product block should
+    // only appear once something actually slides underneath it, otherwise
+    // there is a line there for no reason.
     if (tableWrap) {
       const syncStickyShadows = () => {
         tableWrap.classList.toggle("scrolled-x", tableWrap.scrollLeft > 2);
@@ -4379,14 +4390,14 @@ function bedragVoorKnop(waarde) {
       syncStickyShadows();
     }
     
-    // GEWIJZIGD — luisterde alleen naar het tabelvak. Op een telefoon is
-    // dat vak niet meer wat scrolt: de rijen zijn kaarten en de pagina
-    // scrolt. Daardoor werd er nooit bijgeladen en bleef je op twintig
-    // regels steken, ook met eenenzestig openstaande orders.
-    function dichtBijOnderkant() {
-      const vakScrolt = tableWrap.scrollHeight > tableWrap.clientHeight + 1;
+    // CHANGED — this only listened to the table box. On a phone that box
+    // is no longer what scrolls: the rows are cards and the page scrolls.
+    // Nothing was ever loaded on, so you stayed stuck at twenty rows even
+    // with sixty-one open orders.
+    function nearBottom() {
+      const boxScrolls = tableWrap.scrollHeight > tableWrap.clientHeight + 1;
 
-      if (vakScrolt) {
+      if (boxScrolls) {
         return tableWrap.scrollTop + tableWrap.clientHeight
           >= tableWrap.scrollHeight - 180;
       }
@@ -4396,7 +4407,7 @@ function bedragVoorKnop(waarde) {
     }
 
     async function laadMeerAlsNodig() {
-      if (dichtBijOnderkant() && hasMore && !isLoadingMore) {
+      if (nearBottom() && hasMore && !isLoadingMore) {
         await loadOrders(false);
       }
     }
