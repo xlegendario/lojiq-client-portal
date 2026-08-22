@@ -257,7 +257,10 @@ body.kc-dialog-open {
 
     .app {
       display: grid;
-      grid-template-columns: 260px 1fr;
+      /* CHANGED - was 260px. The longest item is "Label Requests" plus
+         its counter, around 178px, so this held 80px of air. On a half
+         screen that is most of a table column. */
+      grid-template-columns: 210px 1fr;
       min-height: 100vh;
     }
 
@@ -1384,6 +1387,66 @@ body.kc-dialog-open {
       }
     }
 
+
+    /* ---- UX list: the action column ------------------------------------
+       Three buttons side by side made this column 355 px wide. With eleven
+       columns in the Offers view that left room for three of them on a half
+       screen.
+
+       Accept becomes a block on the left with its amount on its own line,
+       Counter and Deny stack beside it. Measured: 355 -> 207 px, and the
+       amount is easier to read than it was on one line.
+
+       Accept is placed explicitly in the grid, so the order in the HTML does
+       not matter - it sits in the middle in the "countered" variant and
+       first in the other two. Everything that is not Accept flows into the
+       second column.
+
+       Rows with one or two buttons (Cancel, Track, Label) are untouched:
+       the rule only applies to a row that actually holds an accept button.
+       -------------------------------------------------------------------- */
+
+    .action-row:has(.action-accept) {
+      display: grid;
+      grid-template-columns: auto auto;
+      gap: 6px;
+      width: fit-content;
+    }
+
+    .action-row .action-accept {
+      grid-column: 1;
+      grid-row: 1 / span 2;
+
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+
+      min-width: 84px;
+      height: auto;
+      padding: 7px 12px;
+    }
+
+    .action-row .action-accept .accept-kop {
+      font-size: 10px;
+      letter-spacing: 0.07em;
+      opacity: 0.85;
+    }
+
+    .action-row .action-accept .accept-amount {
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .action-row:has(.action-accept) > :not(.action-accept) {
+      grid-column: 2;
+
+      height: 28px;
+      padding: 0 11px;
+      font-size: 10.5px;
+      letter-spacing: 0.05em;
+    }
 
     /* ---- UX list D3 ----------------------------------------------------
        A cross to clear the field in one go. Only appears once something is
@@ -2606,12 +2669,13 @@ function amountForButton(rawValue) {
           // accept/counter operate on the raw seller offer. Case B
           // (a denied counter round): accept the seller's last offer,
           // retry = a new counter.
-          const acceptLabel = `ACCEPT ${escapeHtml(amountForButton(order.sellers_offer))}`.trim();
+          const acceptAmount = escapeHtml(amountForButton(order.sellers_offer));
           const counterLabel = order._kind === "fresh_denied" ? "COUNTER" : "RETRY";
           return `
             <div class="action-row">
-              <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
-                ${acceptLabel}
+              <button class="action-btn green action-accept" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
+                <span class="accept-kop">ACCEPT</span>
+                <span class="accept-amount">${acceptAmount}</span>
               </button>
 
               <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
@@ -2632,8 +2696,9 @@ function amountForButton(rawValue) {
                 EDIT
               </button>
 
-              <button class="action-btn green" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
-                ACCEPT ${escapeHtml(amountForButton(order.sellers_offer))}
+              <button class="action-btn green action-accept" type="button" onclick="handleAcceptCurrentLowest('${escapeHtml(order.order_record_id || '')}', '${escapeHtml(order.seller_offer_record_id || '')}')">
+                <span class="accept-kop">ACCEPT</span>
+                <span class="accept-amount">${escapeHtml(amountForButton(order.sellers_offer))}</span>
               </button>
 
               <button class="action-btn red" type="button" onclick="handleDeleteOffer('${escapeHtml(order.id)}')">
@@ -2645,8 +2710,9 @@ function amountForButton(rawValue) {
 
         return `
           <div class="action-row">
-            <button class="action-btn green" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
-              ACCEPT ${escapeHtml(amountForButton(order.offer))}
+            <button class="action-btn green action-accept" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'accept')">
+              <span class="accept-kop">ACCEPT</span>
+              <span class="accept-amount">${escapeHtml(amountForButton(order.offer))}</span>
             </button>
           
             <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
