@@ -301,7 +301,7 @@ body.kc-dialog-open {
        four rows of text, and it is what forced the width. */
     .nav-main {
       border-radius: 8px;
-      min-height: 32px;
+      min-height: 36px;
       padding: 0 8px;
       display: flex;
       align-items: center;
@@ -315,10 +315,10 @@ body.kc-dialog-open {
       margin-bottom: 1px;
     }
 
+    /* Expanded, not selected - several sections can be open at once.
+       The active sub-row is what marks where you are. */
     .nav-main.open {
       color: #ffffff;
-      background: rgba(95,155,255,0.16);
-      box-shadow: inset 2px 0 0 #67A8FF;
     }
 
     .nav-label {
@@ -373,7 +373,7 @@ body.kc-dialog-open {
     .nav-sub {
       cursor: pointer;
       border-radius: 7px;
-      min-height: 27px;
+      min-height: 32px;
       padding: 0 6px;
       gap: 5px;
       color: #8FAECC;
@@ -1667,6 +1667,51 @@ body.kc-dialog-open {
       font-size: 24px;
       line-height: 1;
     }
+    /* ---- The sidebar on a phone -------------------------------------
+       On a phone the sidebar is a 280 px drawer, so none of the width
+       saving above applies there - and the compact rows that buy a table
+       column on a desktop are simply hard to hit with a thumb. A row is
+       at least 44 px again below 900 px.
+       ----------------------------------------------------------------- */
+    @media (max-width: 900px) {
+      .sidebar {
+        padding: 18px 14px;
+      }
+
+      .logo-img {
+        width: 170px;
+      }
+
+      .nav-main {
+        min-height: 46px;
+        padding: 0 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        gap: 9px;
+      }
+
+      .nav-arrow {
+        width: 12px;
+        font-size: 13px;
+      }
+
+      .nav-section {
+        margin-left: 14px;
+        padding: 2px 0 2px 8px;
+      }
+
+      .nav-sub {
+        min-height: 44px;
+        padding: 0 10px;
+        border-radius: 10px;
+        font-size: 14px;
+      }
+
+      .count-pill {
+        font-size: 13px;
+      }
+    }
+
   </style>
 </head>
 <body>
