@@ -1144,6 +1144,27 @@ body.kc-dialog-open {
         transform: translateX(0);
       }
 
+      /* CHANGED - the drawer scrolled, but once it reached its end the
+         gesture continued into the page behind it. */
+      .sidebar {
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .sidebar-backdrop {
+        overscroll-behavior: contain;
+        touch-action: none;
+      }
+
+      /* The page behind an open drawer must not move at all. */
+      body.sidebar-locked {
+        position: fixed;
+        left: 0;
+        right: 0;
+        width: 100%;
+        overflow: hidden;
+      }
+
       /* The top bar was already tight at this width; with the menu button
          added it overflowed. "Merchant Portal" appears a line lower as the
          page title anyway, so it can go here, and the store name shrinks
@@ -4490,14 +4511,50 @@ function amountForButton(rawValue) {
     const sidebarBackdrop = document.getElementById("sidebarBackdrop");
     const menuBtn = document.getElementById("menuBtn");
 
+    // CHANGED - the drawer is position: fixed, so a scroll gesture that ran
+    // past its end carried straight on into the page behind it: you dragged
+    // the sidebar and watched the background move instead.
+    //
+    // Locking the body is the only thing that reliably holds on iOS, and
+    // position: fixed loses the scroll position, so it is stored and put
+    // back by hand.
+    let sidebarScrollY = 0;
+
+    function setSidebarOpen(open) {
+      const locked = document.body.classList.contains("sidebar-locked");
+
+      if (open && !locked) {
+        sidebarScrollY = window.scrollY;
+        document.body.style.top = `-${sidebarScrollY}px`;
+        document.body.classList.add("sidebar-locked");
+      } else if (!open && locked) {
+        document.body.classList.remove("sidebar-locked");
+        document.body.style.top = "";
+        window.scrollTo(0, sidebarScrollY);
+      }
+
+      sidebarEl?.classList.toggle("open", open);
+      sidebarBackdrop?.classList.toggle("open", open);
+    }
+
+    // Turning the phone while the drawer is open takes the drawer away
+    // with the media query but would leave the page locked, which reads
+    // as a frozen screen.
+    window.addEventListener("resize", () => {
+      if (
+        document.body.classList.contains("sidebar-locked") &&
+        window.matchMedia("(min-width: 901px)").matches
+      ) {
+        setSidebarOpen(false);
+      }
+    });
+
     function closeSidebar() {
-      sidebarEl?.classList.remove("open");
-      sidebarBackdrop?.classList.remove("open");
+      setSidebarOpen(false);
     }
 
     menuBtn?.addEventListener("click", () => {
-      sidebarEl?.classList.add("open");
-      sidebarBackdrop?.classList.add("open");
+      setSidebarOpen(true);
     });
 
     sidebarBackdrop?.addEventListener("click", closeSidebar);
