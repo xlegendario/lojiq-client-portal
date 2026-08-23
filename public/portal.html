@@ -260,48 +260,73 @@ body.kc-dialog-open {
       /* CHANGED - was 260px. The longest item is "Label Requests" plus
          its counter, around 178px, so this held 80px of air. On a half
          screen that is most of a table column. */
-      grid-template-columns: 210px 1fr;
+      /* CHANGED - 210 px followed the 170 px logo, not the navigation.
+         With a smaller logo the column can follow the text. That is
+         34 px back for the table on a half screen, and it leaves the
+         longest label room to breathe. */
+      grid-template-columns: 176px 1fr;
       min-height: 100vh;
     }
 
     .sidebar {
       border-right: 1px solid var(--border);
       background: rgba(5,13,24,0.72);
-      padding: 22px 16px;
+      padding: 16px 10px;
     }
 
     .logo {
-      margin-bottom: 28px;
+      margin: 0 4px 16px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
     }
     
+    /* CHANGED - this is what set the width of the whole sidebar. */
     .logo-img {
-      width: 170px;
+      width: 146px;
       height: auto;
       display: block;
     }
 
     .sidebar-section-title {
-      color: var(--muted);
-      font-size: 12px;
+      color: #5E7B99;
+      font-size: 10px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      margin: 18px 12px 10px;
+      letter-spacing: 0.1em;
+      margin: 12px 8px 5px;
     }
 
+    /* CHANGED - a bordered card per section was a lot of chrome for
+       four rows of text, and it is what forced the width. */
     .nav-main {
-      border-radius: 14px;
-      padding: 13px 12px;
+      border-radius: 8px;
+      min-height: 32px;
+      padding: 0 8px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      font-weight: 800;
-      background: rgba(47,128,237,0.14);
-      border: 1px solid rgba(102,179,255,0.18);
-      margin-bottom: 8px;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: #B9D3EE;
+      background: none;
+      border: none;
+      margin-bottom: 1px;
+    }
+
+    .nav-main.open {
+      color: #ffffff;
+      background: rgba(95,155,255,0.16);
+      box-shadow: inset 2px 0 0 #67A8FF;
+    }
+
+    .nav-label {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .nav-main {
@@ -312,18 +337,18 @@ body.kc-dialog-open {
       display: none;
     
       flex-direction: column;
-      gap: 4px;
+      gap: 0;
     
-      margin-top: 6px;
-      margin-bottom: 10px;
-      margin-left: 6px;
+      margin-top: 2px;
+      margin-bottom: 8px;
+      margin-left: 12px;
     
-      padding: 6px;
+      padding: 1px 0 1px 6px;
     
-      border-left: 1px solid rgba(120, 170, 255, 0.12);
+      border-left: 1px solid rgba(120, 170, 255, 0.16);
     
-      background: rgba(255,255,255,0.015);
-      border-radius: 12px;
+      background: none;
+      border-radius: 0;
     }
     
     .nav-section.open {
@@ -331,7 +356,13 @@ body.kc-dialog-open {
     }
     
     .nav-arrow {
-      display: inline-block;
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 9px;
+      font-size: 10px;
+      opacity: 0.5;
       transition: transform 0.18s ease;
     }
     
@@ -341,14 +372,15 @@ body.kc-dialog-open {
 
     .nav-sub {
       cursor: pointer;
-      border-radius: 12px;
-      padding: 11px 12px;
-      color: var(--muted);
+      border-radius: 7px;
+      min-height: 27px;
+      padding: 0 6px;
+      gap: 5px;
+      color: #8FAECC;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      font-size: 14px;
-      margin-bottom: 4px;
+      font-size: 12px;
+      margin-bottom: 0;
     
       transition:
         background 0.18s ease,
@@ -359,38 +391,45 @@ body.kc-dialog-open {
 
     .nav-sub:hover,
     .nav-sub.active {
-      background: linear-gradient(
-        90deg,
-        rgba(95, 155, 255, 0.22),
-        rgba(95, 155, 255, 0.10)
-      );
-    
-      border-left: 3px solid #67A8FF;
-    
+      background: rgba(95, 155, 255, 0.18);
       color: #ffffff;
-    
-      box-shadow:
-        inset 0 0 0 1px rgba(120,170,255,0.08);
+      font-weight: 700;
+      box-shadow: none;
     }
 
     .nav-sub.active .count-pill {
-      background: rgba(255,255,255,0.18);
       color: #fff;
     }
 
+    /* CHANGED - a pill per row was 24 px of chrome around one or two
+       digits, nine times over. As plain text the number still reads
+       and the width goes back to the label. */
     .count-pill {
-      min-width: 24px;
-      height: 24px;
-      padding: 0 8px;
-      border-radius: 999px;
-      background: rgba(220,235,255,0.10);
-      color: var(--text);
+      flex: none;
+      padding: 0 2px;
+      background: none;
+      color: #7C9BBE;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.2px;
+      font-size: 11px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Zero is not news, and it was costing width in every row that had
+       nothing to report. */
+    .count-pill.zero {
+      display: none;
+    }
+
+    /* A long label used to push the count out of the row. It truncates
+       now instead, so nothing can break the layout. */
+    .nav-sub > span:first-child {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .main {
@@ -1417,6 +1456,10 @@ body.kc-dialog-open {
       grid-column: 1;
       grid-row: 1 / span 2;
 
+      /* A button does not stretch by itself, so the block came out 48 px
+         against 62 px beside it and sat crooked in the row. */
+      align-self: stretch;
+
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -1638,8 +1681,8 @@ body.kc-dialog-open {
       <div class="sidebar-section-title">Portal</div>
 
       <div class="nav-main open" data-section-toggle="orders">
-        <span>ORDERS</span>
         <span class="nav-arrow">›</span>
+        <span class="nav-label">Orders</span>
       </div>
       
       <div id="section-orders" class="nav-section open">
@@ -1685,8 +1728,8 @@ body.kc-dialog-open {
       </div>
       
       <div class="nav-main" data-section-toggle="returns">
-        <span>RETURNS</span>
         <span class="nav-arrow">›</span>
+        <span class="nav-label">Returns</span>
       </div>
       
       <div id="section-returns" class="nav-section">
@@ -1702,8 +1745,8 @@ body.kc-dialog-open {
       </div>
 
       <div id="stockxNavMain" class="nav-main" data-section-toggle="stockx" style="display:none;">
-        <span>STOCKX</span>
         <span class="nav-arrow">›</span>
+        <span class="nav-label">StockX</span>
       </div>
       
       <div id="section-stockx" class="nav-section">
@@ -1713,7 +1756,7 @@ body.kc-dialog-open {
         </div>
       
         <div class="nav-sub" data-view="stockx_active_second_bids">
-          <span>Active Second Bids</span>
+          <span>Second Bids</span>
           <span id="count-stockx_active_second_bids" class="count-pill">0</span>
         </div>
       
@@ -1731,8 +1774,8 @@ body.kc-dialog-open {
       <div class="sidebar-section-title">Finance</div>
 
       <div class="nav-main" data-section-toggle="finance">
-        <span>FINANCE</span>
         <span class="nav-arrow">›</span>
+        <span class="nav-label">Finance</span>
       </div>
       
       <div id="section-finance" class="nav-section">
@@ -3340,13 +3383,25 @@ function amountForButton(rawValue) {
       if (!response.ok) return 0;
     
       const countEl = document.getElementById(`count-${view}`);
-      if (countEl) countEl.textContent = data.count;
+      setNavCount(countEl, data.count);
     
       if (view === "open") openStat.textContent = data.count;
       if (view === "shipped") shippedStat.textContent = data.count;
       if (view === "fulfilled") fulfilledStat.textContent = data.count;
     
       return data.count;
+    }
+
+    // CHANGED - a count of zero is noise, and in a 168 px sidebar it costs
+    // the width the label needs. Both places that write a nav count go
+    // through here, so the rule cannot drift apart between them.
+    function setNavCount(el, value) {
+      if (!el) return;
+
+      const n = Number(value || 0);
+
+      el.textContent = n;
+      el.classList.toggle("zero", n === 0);
     }
 
     async function loadAllCounts() {
@@ -3363,7 +3418,7 @@ function amountForButton(rawValue) {
     
       Object.entries(counts).forEach(([view, count]) => {
         const countEl = document.getElementById(`count-${view}`);
-        if (countEl) countEl.textContent = count;
+        setNavCount(countEl, count);
       });
     
       openStat.textContent = counts.open ?? 0;
@@ -4430,7 +4485,19 @@ function amountForButton(rawValue) {
         // Measure the buttons themselves, not the row holding them: that
         // row stretches to fill the cell, so measuring it means measuring
         // your own result.
+        //
+        // CHANGED - a row with an accept block is a grid: two of its buttons
+        // sit stacked in the second column. Adding all three widths together
+        // then reports the old side-by-side width, so the column stayed wide
+        // and the buttons floated in it with space to spare.
+        //
+        // Such a row is width: fit-content, so it does not stretch and its
+        // own width is the honest answer.
         const widest = Math.max(...rowEls.map((r) => {
+          if (r.querySelector(".action-accept")) {
+            return r.getBoundingClientRect().width;
+          }
+
           const btnEls = Array.from(r.children);
           if (!btnEls.length) return 0;
           const gapWidth = parseFloat(getComputedStyle(r).gap) || 0;
