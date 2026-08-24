@@ -872,6 +872,15 @@ body.kc-dialog-open {
       color: #ff9b95;
     }
 
+    /* Processing and Allocated both used the amber pill, which made two
+       different stages look like one. This one is a purer, lighter yellow -
+       far enough from the amber to tell apart at a glance, close enough that
+       both still read as "in progress" rather than as a warning. */
+    .status.processing {
+      background: rgba(255, 214, 102, 0.13);
+      color: #ffe08a;
+    }
+
     .pill-row {
       display: flex;
       gap: 8px;
@@ -2540,16 +2549,16 @@ function showPrompt(message, options) {
         ["actions", "Actions"]
       ],
     
+      // Allocated Price, VAT and Invoice Price are deliberately absent:
+      // nothing is priced yet at this stage, so those columns would be
+      // empty on every row. A column that is always empty is worse than no
+      // column - it reads as missing data.
       processing: [
         ["product", "Product"],
         ["size", "Size"],
         ["order_number", "Order Number"],
         ["selling_price", "Selling Price"],
         ["date", "Date"],
-        ["allocated_price", "Allocated Price"],
-        ["vat", "VAT"],
-        ["invoice_price", "Invoice Price"],
-        ["vat_type", "VAT Type"],
         ["status", "Status"]
       ],
     
@@ -2824,6 +2833,10 @@ function showPrompt(message, options) {
 
     function getStatusClass(value) {
       const v = String(value || "").toLowerCase();
+
+      // Before the warning branch below, which also catches "processing" -
+      // whichever runs first wins, and this one has to.
+      if (v.includes("processing")) return "processing";
     
       if (
         v.includes("fulfilled") ||
@@ -2848,6 +2861,48 @@ function showPrompt(message, options) {
       ) return "red";
     
       return "";
+    }
+
+    // NEW - a store that puts its demand in by hand has no returns with us,
+    // no inventory on our floor, and Member WTBs carries no Issue Status, so
+    // those three tabs can only ever be empty. Hiding them beats showing
+    // three dead ends.
+    //
+    // Issues is meant to come back for these stores once there is something
+    // to put in it; it is hidden rather than removed for that reason.
+    function applyMerchantMode() {
+      const manual = merchant?.order_intake === "manual";
+
+      const doelen = [
+        document.querySelector('[data-section-toggle="returns"]'),
+        document.getElementById("section-returns"),
+        document.querySelector('.nav-sub[data-view="issues"]')
+      ];
+
+      doelen.forEach((el) => {
+        if (el) el.style.display = manual ? "none" : "";
+      });
+
+      // Landing on a tab that is no longer there would leave an empty table
+      // and no way to tell why.
+      if (manual && ["returns", "inventory", "issues"].includes(currentView)) {
+        currentView = "open";
+        localStorage.setItem("lojiq_current_view", currentView);
+      }
+    }
+
+    // The merchant is kept in localStorage from the moment of login, so a
+    // session that started before a field existed would never see it. Every
+    // order list carries the current value, and this puts it back.
+    function refreshMerchantFromResponse(data) {
+      const verse = data?.merchant?.order_intake;
+
+      if (!verse || verse === merchant.order_intake) return;
+
+      merchant.order_intake = verse;
+      localStorage.setItem("lojiq_merchant", JSON.stringify(merchant));
+
+      applyMerchantMode();
     }
 
     function requireLogin() {
@@ -3483,6 +3538,8 @@ function amountForButton(rawValue) {
           if (!response.ok) {
             throw new Error(data.details || data.error || "Failed to load orders");
           }
+
+          refreshMerchantFromResponse(data);
 
           // NEW — additive only: fresh/counter/countered items each use
           // a different field name for the same displayed concept
@@ -4904,31 +4961,7 @@ function amountForButton(rawValue) {
         stockxNavMain.style.display = "flex";
       }
 
-      // NEW - a store that puts its demand in by hand has no returns with us,
-      // no inventory on our floor, and Member WTBs carries no Issue Status,
-      // so those three tabs can only ever be empty. Hiding them beats showing
-      // three dead ends.
-      //
-      // Issues is meant to come back for these stores once there is something
-      // to put in it; it is hidden rather than removed for that reason.
-      if (merchant.order_intake === "manual") {
-        const verbergen = [
-          document.querySelector('[data-section-toggle="returns"]'),
-          document.getElementById("section-returns"),
-          document.querySelector('.nav-sub[data-view="issues"]')
-        ];
-
-        verbergen.forEach((el) => {
-          if (el) el.style.display = "none";
-        });
-
-        // Landing on a tab that is no longer there would leave an empty table
-        // and no way to tell why.
-        if (["returns", "inventory", "issues"].includes(currentView)) {
-          currentView = "open";
-          localStorage.setItem("lojiq_current_view", currentView);
-        }
-      }
+      applyMerchantMode();
     
       document.querySelectorAll(".nav-sub[data-view]").forEach((el) => {
         el.classList.remove("active");
