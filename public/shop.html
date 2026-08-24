@@ -410,7 +410,7 @@
 
   <div class="topbar-right">
     <span class="store-name" id="storeName"></span>
-    <a class="btn ghost" href="/portal.html">Back to orders</a>
+    <a class="btn ghost" href="/portal">Back to orders</a>
   </div>
 </header>
 
@@ -462,6 +462,17 @@
     }
 
     merchant = JSON.parse(raw);
+
+    // Same rule the server enforces. Only bounce when we POSITIVELY know
+    // this is an API store: a merchant stored before order_intake was part
+    // of the login response has no such field, and locking those stores out
+    // of a page they are entitled to would be worse than letting the server
+    // answer for them.
+    if (merchant.order_intake && merchant.order_intake !== "manual") {
+      window.location.href = "/portal";
+      return;
+    }
+
     document.getElementById("storeName").textContent =
       merchant.store_name || merchant.portal_email || "Merchant";
   })();
@@ -806,7 +817,7 @@
 
           <div style="display:flex; gap:8px; margin-top:16px">
             <button class="btn ghost" type="button" data-sluit style="flex:1">Keep shopping</button>
-            <a class="btn primary" href="/portal.html" style="flex:1">Go to orders</a>
+            <a class="btn primary" href="/portal" style="flex:1">Go to orders</a>
           </div>
         `;
 
