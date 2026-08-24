@@ -55,7 +55,8 @@ const {
   MOLLIE_MODE = "test",
   MOLLIE_REDIRECT_URL = "https://portal.lojiq.io/portal",
   MOLLIE_WEBHOOK_URL = "https://portal.lojiq.io/api/mollie/webhook",
-  AIRTABLE_PAYMENT_BATCHES_TABLE = "Payment Batches"
+  AIRTABLE_PAYMENT_BATCHES_TABLE = "Payment Batches",
+  AIRTABLE_MEMBER_WTBS_TABLE = "Member WTBs"
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -92,7 +93,15 @@ function normalizeMerchant(record) {
       ? record.fields["Seller ID"]
       : [],
     stockx_account_mode: asText(record.fields["StockX Account Mode"]),
-    goat_account_mode: asText(record.fields["GOAT Account Mode"])
+    goat_account_mode: asText(record.fields["GOAT Account Mode"]),
+
+    // NEW - where this store's demand comes from. Blank means API,
+    // which is every merchant that exists today, so nothing changes
+    // for them until the field is set.
+    order_intake:
+      asText(record.fields["Order Intake"]).trim().toLowerCase() === "manual"
+        ? "manual"
+        : "api"
   };
 }
 
@@ -696,6 +705,235 @@ function getPortalStatus(fields, view) {
   return fulfillment;
 }
 
+// =====================================================================
+// Manual order intake - Member WTBs as a second source
+//
+// A store with an API gets its demand into Unfulfilled Orders Log. A store
+// without one puts it there by hand, through a WTB or a Buy/Offer, and that
+// same demand lands in Member WTBs instead.
+//
+// It is the same trade either way: we source it, we make an offer, it gets
+// allocated, it ships. So the portal should not grow a second set of tabs -
+// it should read a different table and hand the front-end the same rows.
+//
+// The two tables already speak the same language. Fulfillment Status,
+// Shipping Status and Payment Status carry the same values, and where the
+// order log has "Offer To Store", Member WTBs has "Offer To Buyer". The
+// mapper below is therefore mostly a rename, not a translation.
+//
+// Member WTBs has no StockX or GOAT statuses and no Issue Status, so the
+// views that depend on those return nothing rather than erroring.
+// =====================================================================
+
+const MEMBER_WTB_VIEW_FORMULAS = {
+  open: `OR(
+    {Fulfillment Status} = 'Pending',
+    {Fulfillment Status} = 'Outsource',
+    {Fulfillment Status} = 'Confirmed'
+  )`,
+
+  // "Offer To Buyer" is the Member WTBs counterpart of "Offer To Store":
+  // the price we are asking the buyer, once the network has come back.
+  offers: `AND(
+    OR(
+      {Fulfillment Status} = 'Pending',
+      {Fulfillment Status} = 'Outsource'
+    ),
+    {Offer To Buyer} > 0
+  )`,
+
+  allocated: `OR(
+    {Fulfillment Status} = 'Allocated',
+    {Fulfillment Status} = 'Claim Processing'
+  )`,
+
+  label_requests: `{Fulfillment Status} = 'Requested Label'`,
+
+  ready_to_ship: `{Fulfillment Status} = 'Ready to Ship'`,
+
+  shipped: `AND(
+    OR(
+      {Fulfillment Status} = 'Ready to Ship',
+      {Fulfillment Status} = 'Fulfilled'
+    ),
+    {Shipping Status} = 'Shipped'
+  )`,
+
+  fulfilled: `AND(
+    OR(
+      {Fulfillment Status} = 'Ready to Ship',
+      {Fulfillment Status} = 'Fulfilled'
+    ),
+    {Shipping Status} = 'Delivered'
+  )`,
+
+  // Payment Status here plays the part Invoice Status plays in the order
+  // log. "Trusted" counts as settled: the deal proceeds unpaid on purpose.
+  open_payments: `AND(
+    OR(
+      {Fulfillment Status} = 'Requested Label',
+      {Fulfillment Status} = 'Ready to Ship',
+      {Fulfillment Status} = 'Fulfilled'
+    ),
+    OR(
+      {Payment Status} = 'Pending',
+      {Payment Status} = 'Requested',
+      {Payment Status} = 'Awaiting Payment',
+      {Payment Status} = 'Pending Payment'
+    )
+  )`,
+
+  payment_history: `OR(
+    {Payment Status} = 'Paid',
+    {Payment Status} = 'Trusted',
+    {Payment Status} = 'Expired',
+    {Payment Status} = 'Cancelled'
+  )`
+};
+
+// Views that only exist on the API side. A manual store has no StockX
+// account, no inventory with us and no issue log, so these stay empty
+// rather than throwing on a field that is not there.
+const MEMBER_WTB_EMPTY_VIEWS = new Set([
+  "issues",
+  "inventory",
+  "returns",
+  "stockx_active_bids",
+  "stockx_active_second_bids",
+  "stockx_orders",
+  "stockx_second_orders"
+]);
+
+function merchantUsesManualIntake(merchant = {}) {
+  return merchant.order_intake === "manual";
+}
+
+// The buyer on a Member WTB is a seller record, and Merchants already links
+// to one through "Seller ID". No new field needed on either side.
+function memberWtbBuyerFormula(merchant = {}) {
+  const sellerIds = merchant.seller_ids || [];
+
+  if (!sellerIds.length) return "";
+
+  return `OR(${sellerIds
+    .map((sellerId) => `FIND('${escapeFormulaValue(sellerId)}', ARRAYJOIN({Buyer Seller Record ID}))`)
+    .join(",")})`;
+}
+
+function mapMemberWtbRecord(record) {
+  const f = record.fields || {};
+
+  return {
+    id: record.id,
+
+    order_number: displayValue(f["Member WTB ID"]),
+    product: displayValue(f["Product Name"]),
+    sku: displayValue(f["SKU"]),
+    size: displayValue(f["Size"]),
+    brand: displayValue(f["Brand"]),
+    selling_price: moneyValue(f["Max Price"]),
+    date: dateValue(f["Date"]),
+
+    offer: moneyValue(f["Offer To Buyer"]),
+    offer_vat_type: displayValue(f["Lowest Offer VAT Type"]),
+    eta: "",
+
+    allocated_price: moneyValue(f["Final Buying Price"]),
+    vat: moneyValue(f["Buying VAT Amount"]),
+    invoice_price: moneyValue(f["Invoice Price"]),
+    invoice_status: displayValue(f["Payment Status"]),
+    payment_link: displayValue(f["Payment Link"]),
+    mollie_payment_id: displayValue(f["Mollie Payment ID"]),
+    paid_at: dateValue(f["Payment Confirmed At"]),
+    vat_type: displayValue(f["VAT Type"]),
+
+    fulfillment_status: displayValue(f["Fulfillment Status"]),
+    shipping_status: displayValue(f["Shipping Status"]),
+    status: displayValue(f["Fulfillment Status"]),
+
+    tracking_number: displayValue(f["Tracking Number"]),
+    tracking_url: displayValue(f["Tracking URL"]),
+
+    // Present so the front-end finds the keys it looks for; Member WTBs
+    // simply has no equivalent. Leaving them undefined would make every
+    // reader guard for it.
+    active_bid: "",
+    second_active_bid: "",
+    buying_price: "",
+    order_status: "",
+    second_buying_price: "",
+    second_extra_profit: "",
+    second_stockx_order_number: "",
+    second_order_status: "",
+    offer_date: "",
+    preferred_courier: "",
+    supplier_shipping_status: "",
+    warehouse_tracking: "",
+    issue_status: "",
+    issue_notes: ""
+  };
+}
+
+async function fetchMemberWtbOrders({ merchant, view, pageSize, offset }) {
+  const buyerFormula = memberWtbBuyerFormula(merchant);
+
+  // No linked seller record means no way to tell which WTBs are theirs.
+  // Returning nothing is right; guessing would show them someone else's.
+  if (!buyerFormula || MEMBER_WTB_EMPTY_VIEWS.has(view)) {
+    return { records: [], offset: "" };
+  }
+
+  const parts = [buyerFormula];
+  const viewFormula = MEMBER_WTB_VIEW_FORMULAS[view];
+
+  if (viewFormula) parts.push(viewFormula);
+
+  const url = new URL(
+    `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_MEMBER_WTBS_TABLE)}`
+  );
+
+  url.searchParams.set("filterByFormula", `AND(${parts.join(",")})`);
+  url.searchParams.set("sort[0][field]", "Date");
+  url.searchParams.set("sort[0][direction]", "desc");
+
+  if (pageSize) url.searchParams.set("pageSize", String(pageSize));
+  if (offset) url.searchParams.set("offset", offset);
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error?.message || "Airtable request failed");
+  }
+
+  return { records: data.records || [], offset: data.offset || "" };
+}
+
+async function countMemberWtbView({ merchant, view }) {
+  if (MEMBER_WTB_EMPTY_VIEWS.has(view)) return 0;
+
+  const buyerFormula = memberWtbBuyerFormula(merchant);
+
+  if (!buyerFormula) return 0;
+
+  const parts = [buyerFormula];
+  const viewFormula = MEMBER_WTB_VIEW_FORMULAS[view];
+
+  if (viewFormula) parts.push(viewFormula);
+
+  const records = await airtable(AIRTABLE_MEMBER_WTBS_TABLE)
+    .select({
+      fields: ["Member WTB ID"],
+      filterByFormula: `AND(${parts.join(",")})`
+    })
+    .all();
+
+  return records.length;
+}
+
 function buildOrderViewFormula(view, merchant = {}) {
   if (view === "open") {
     return `OR(
@@ -918,6 +1156,45 @@ app.get("/api/orders", async (req, res) => {
     }
 
     const merchant = await getCachedMerchant(merchantId);
+
+    // NEW - a manual store's demand lives in Member WTBs. Branching here
+    // rather than threading a source through the code below keeps the
+    // API path byte for byte what it was.
+    if (merchantUsesManualIntake(merchant)) {
+      const { records, offset: nextOffset } = await fetchMemberWtbOrders({
+        merchant,
+        view,
+        pageSize,
+        offset
+      });
+
+      let orders = records.map(mapMemberWtbRecord);
+
+      if (search) {
+        orders = orders.filter((order) =>
+          Object.values(order).join(" ").toLowerCase().includes(search)
+        );
+      }
+
+      const responseData = {
+        merchant: {
+          id: merchant.id,
+          store_name: merchant.store_name
+        },
+        view,
+        count: orders.length,
+        next_offset: nextOffset,
+        has_more: !!nextOffset,
+        orders
+      };
+
+      ordersCache.set(cacheKey, {
+        createdAt: Date.now(),
+        data: responseData
+      });
+
+      return res.json(responseData);
+    }
 
     const safeStoreName = escapeFormulaValue(merchant.store_name);
     const viewFormula = buildOrderViewFormula(view, merchant);
@@ -1160,6 +1437,11 @@ app.get("/api/orders/counts", async (req, res) => {
           return;
         }
         
+        if (merchantUsesManualIntake(merchant)) {
+          counts[view] = await countMemberWtbView({ merchant, view });
+          return;
+        }
+
         const viewFormula = buildOrderViewFormula(view, merchant);
         
         const formulaParts = [
