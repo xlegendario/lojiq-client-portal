@@ -2058,9 +2058,21 @@ async function kickzGet(path, params) {
 }
 
 async function kickzPost(path, body) {
+  // Every shop action carries a seller_record_id, and the portal challenges
+  // any request that does - a browser proves itself with its session cookie,
+  // a service with this header. Without it the answer is always 401 "Not
+  // signed in", which is what Buy and Offer got: the GET endpoints above
+  // need no proof, so only the two buttons that write were affected.
+  if (!COUNTER_OFFERS_SECRET) {
+    throw new Error("Missing COUNTER_OFFERS_SECRET");
+  }
+
   const response = await fetch(`${KICKZ_PORTAL_BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-kc-secret": COUNTER_OFFERS_SECRET
+    },
     body: JSON.stringify(body)
   });
 
