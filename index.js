@@ -1967,6 +1967,213 @@ app.get("/api/orders/offers-open", async (req, res) => {
 // No negotiation logic lives here.
 // ---------------------------------------------------------------------
 
+// =====================================================================
+// The shop - browsing Kickz Caviar stock from the Lojiq portal
+//
+// Everything about what is for sale lives on the Kickz Caviar side: the live
+// sources, which source wins for a given SKU and size, and the markup on the
+// price. These endpoints hand the question over rather than answering it
+// again here. A second copy of that logic would drift from the first, and
+// the drift would be in prices.
+//
+// One thing is deliberately different. On the Kickz Caviar page the browser
+// sends its own seller_record_id along; here the buyer is resolved on the
+// server from the logged-in merchant. A store therefore cannot place a want
+// to buy in someone else's name, however the request is edited on the way
+// out.
+// =====================================================================
+
+const kopersCache = new Map();
+const KOPER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// A merchant buys as the seller record it is linked to through "Seller ID".
+// Member WTBs points at that same record, which is what makes the orders
+// list and the shop agree about who someone is.
+async function getMerchantBuyer(merchant) {
+  const sellerIds = merchant.seller_ids || [];
+
+  if (!sellerIds.length) {
+    throw new Error("This store has no linked seller record");
+  }
+
+  const recordId = sellerIds[0];
+  const bewaard = kopersCache.get(recordId);
+
+  if (bewaard && Date.now() - bewaard.createdAt < KOPER_CACHE_TTL_MS) {
+    return bewaard.buyer;
+  }
+
+  const record = await airtable(AIRTABLE_SELLERS_TABLE).find(recordId);
+
+  const buyer = {
+    record_id: record.id,
+    seller_id: asText(record.fields["Seller ID"]),
+    trusted: record.fields["Trusted Buyer?"] === true
+  };
+
+  if (!buyer.seller_id) {
+    throw new Error("The linked seller record has no Seller ID");
+  }
+
+  kopersCache.set(recordId, { createdAt: Date.now(), buyer });
+
+  return buyer;
+}
+
+async function kickzGet(path, params) {
+  const url = new URL(`${KICKZ_PORTAL_BASE_URL}${path}`);
+
+  for (const [sleutel, waarde] of Object.entries(params || {})) {
+    if (waarde !== undefined && waarde !== null && waarde !== "") {
+      url.searchParams.set(sleutel, String(waarde));
+    }
+  }
+
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || data.details || "Request to kickz-caviar-portal failed");
+  }
+
+  return data;
+}
+
+async function kickzPost(path, body) {
+  const response = await fetch(`${KICKZ_PORTAL_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    // The out-of-stock answer is a normal outcome, not a failure: between
+    // loading the page and pressing the button someone else can have taken
+    // the last pair.
+    const fout = new Error(data.error || data.details || "Request to kickz-caviar-portal failed");
+    fout.status = response.status;
+    fout.payload = data;
+    throw fout;
+  }
+
+  return data;
+}
+
+app.get("/api/shop/products", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    // Reading the merchant is what makes this endpoint refuse a stranger; the
+    // catalogue itself is the same for everyone.
+    await getCachedMerchant(merchantId);
+
+    const data = await kickzGet("/api/buying/products", {
+      search: asText(req.query.search),
+      brand: asText(req.query.brand),
+      sort: asText(req.query.sort),
+      inventory_type: asText(req.query.inventory_type) || "all"
+    });
+
+    res.json(data);
+  } catch (err) {
+    console.error("Shop products failed:", err);
+    res.status(500).json({ error: "Failed to load products", details: err.message });
+  }
+});
+
+app.get("/api/shop/brands", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    await getCachedMerchant(merchantId);
+
+    res.json(await kickzGet("/api/brands", {}));
+  } catch (err) {
+    console.error("Shop brands failed:", err);
+    res.status(500).json({ error: "Failed to load brands", details: err.message });
+  }
+});
+
+// Buy now and Make an offer differ only in whether a price rides along, so
+// they share everything up to the last line.
+async function handleShopAction(req, res, { path, extra }) {
+  const merchantId = asText(req.body?.merchant_id);
+  const sku = asText(req.body?.sku);
+  const size = asText(req.body?.size);
+  const inventoryType = asText(req.body?.inventory_type) || "all";
+
+  if (!merchantId || !sku || !size) {
+    return res.status(400).json({ error: "Missing merchant, SKU or size" });
+  }
+
+  const merchant = await getCachedMerchant(merchantId);
+  const buyer = await getMerchantBuyer(merchant);
+
+  const data = await kickzPost(path, {
+    seller_record_id: buyer.record_id,
+    seller_id: buyer.seller_id,
+    sku,
+    size,
+    inventory_type: inventoryType,
+    ...extra
+  });
+
+  // The new want to buy has to show up in the orders list straight away,
+  // otherwise the store presses the button and nothing appears to happen.
+  countsCache.delete(`counts:${merchantId}`);
+  ordersCache.clear();
+
+  res.json(data);
+}
+
+app.post("/api/shop/buy", async (req, res) => {
+  try {
+    await handleShopAction(req, res, { path: "/api/buying/requests", extra: {} });
+  } catch (err) {
+    console.error("Shop buy failed:", err);
+
+    // Out of stock is the buyer's answer, not our error.
+    if (err.status === 409) {
+      return res.status(409).json(err.payload || { error: "Out Of Stock" });
+    }
+
+    res.status(500).json({ error: "Failed to place request", details: err.message });
+  }
+});
+
+app.post("/api/shop/offer", async (req, res) => {
+  try {
+    const offerPrice = Number(req.body?.offer_price);
+
+    if (!Number.isFinite(offerPrice) || offerPrice <= 0) {
+      return res.status(400).json({ error: "Invalid offer price" });
+    }
+
+    await handleShopAction(req, res, {
+      path: "/api/buying/offers",
+      extra: { offer_price: offerPrice }
+    });
+  } catch (err) {
+    console.error("Shop offer failed:", err);
+
+    if (err.status === 409) {
+      return res.status(409).json(err.payload || { error: "Out Of Stock" });
+    }
+
+    res.status(500).json({ error: "Failed to place offer", details: err.message });
+  }
+});
+
 async function proxyToKickzPortal(path, body) {
   if (!COUNTER_OFFERS_SECRET) {
     throw new Error("Missing COUNTER_OFFERS_SECRET");
