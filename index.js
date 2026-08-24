@@ -19,6 +19,10 @@ app.get("/portal", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "portal.html"));
 });
 
+app.get("/shop", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "shop.html"));
+});
+
 app.get("/payment-summary", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "payment-summary.html"));
 });
@@ -822,6 +826,20 @@ const MEMBER_WTB_EMPTY_VIEWS = new Set([
 
 function merchantUsesManualIntake(merchant = {}) {
   return merchant.order_intake === "manual";
+}
+
+// The shop is where a store without an API integration puts its demand in by
+// hand. A store that IS on the integration receives its orders through it, so
+// a buy or an offer placed here would be demand nobody asked for - and these
+// endpoints create it for real, by way of KC's /api/buying/requests.
+//
+// Hiding the nav link in the portal was never enforcement. The page and all
+// four endpoints behind it were reachable by URL for every logged-in store.
+function refuseShopForApiStore(merchant, res) {
+  if (merchantUsesManualIntake(merchant)) return false;
+
+  res.status(403).json({ error: "The shop is not available for this store." });
+  return true;
 }
 
 // The buyer on a Member WTB is a seller record, and Merchants already links
@@ -2071,7 +2089,9 @@ app.get("/api/shop/products", async (req, res) => {
 
     // Reading the merchant is what makes this endpoint refuse a stranger; the
     // catalogue itself is the same for everyone.
-    await getCachedMerchant(merchantId);
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (refuseShopForApiStore(merchant, res)) return;
 
     const data = await kickzGet("/api/buying/products", {
       search: asText(req.query.search),
@@ -2095,7 +2115,9 @@ app.get("/api/shop/brands", async (req, res) => {
       return res.status(400).json({ error: "Missing merchant_id" });
     }
 
-    await getCachedMerchant(merchantId);
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (refuseShopForApiStore(merchant, res)) return;
 
     res.json(await kickzGet("/api/brands", {}));
   } catch (err) {
@@ -2117,6 +2139,10 @@ async function handleShopAction(req, res, { path, extra }) {
   }
 
   const merchant = await getCachedMerchant(merchantId);
+
+  // Buy and Offer both land here, so this one line covers them both.
+  if (refuseShopForApiStore(merchant, res)) return;
+
   const buyer = await getMerchantBuyer(merchant);
 
   const data = await kickzPost(path, {
