@@ -845,7 +845,23 @@ function mapMemberWtbRecord(record) {
     payment_link: displayValue(f["Payment Link"]),
     mollie_payment_id: displayValue(f["Mollie Payment ID"]),
     paid_at: dateValue(f["Payment Confirmed At"]),
-    vat_type: displayValue(f["VAT Type"]),
+    // CHANGED - "VAT Type" here is the VAT of the offer we buy at, not what
+    // the store is invoiced. On MWTB-000388 it says VAT0 because the
+    // supplying seller sells VAT0, while the buyer is Dutch and the invoice
+    // is computed at 21% - the column contradicted the money next to it.
+    //
+    // Same rule as the API side, deliberately: margin goods cannot be sold
+    // on with VAT, everything else follows the buyer's country. One rule for
+    // both intakes matters more than a cleverer rule per intake; two rules
+    // is how they drift apart.
+    vat_type: (() => {
+      const origineel = displayValue(f["VAT Type"]);
+      const land = displayValue(f["Buyer Country"]).toLowerCase();
+
+      if (origineel === "Margin") return "Margin";
+
+      return land === "netherlands" ? "VAT21" : "VAT0";
+    })(),
 
     fulfillment_status: displayValue(f["Fulfillment Status"]),
     shipping_status: displayValue(f["Shipping Status"]),
