@@ -2873,6 +2873,17 @@ function showPrompt(message, options) {
     function applyMerchantMode() {
       const manual = merchant?.order_intake === "manual";
 
+      // The StockX section used to be decided once in init(), which meant it
+      // followed whatever was true at login and never changed after.
+      const stockxNavMain = document.getElementById("stockxNavMain");
+
+      if (stockxNavMain) {
+        stockxNavMain.style.display =
+          merchant?.stockx_account_mode === "DEDICATED_ACCOUNT" && !manual
+            ? "flex"
+            : "none";
+      }
+
       const doelen = [
         document.querySelector('[data-section-toggle="returns"]'),
         document.getElementById("section-returns"),
@@ -2891,16 +2902,33 @@ function showPrompt(message, options) {
       }
     }
 
-    // The merchant is kept in localStorage from the moment of login, so a
-    // session that started before a field existed would never see it. Every
-    // order list carries the current value, and this puts it back.
+    // The merchant is kept in localStorage from the moment of login, and
+    // nothing ever signs a store out - so without this, a change in Airtable
+    // reaches them only if they happen to log in again. Every order list
+    // carries the current snapshot; this folds it back in.
+    //
+    // Only fields the server actually sent are copied, so a response that
+    // leaves something out cannot wipe it.
     function refreshMerchantFromResponse(data) {
-      const verse = data?.merchant?.order_intake;
+      const verse = data?.merchant;
 
-      if (!verse || verse === merchant.order_intake) return;
+      if (!verse) return;
 
-      merchant.order_intake = verse;
+      let veranderd = false;
+
+      for (const [sleutel, waarde] of Object.entries(verse)) {
+        if (waarde === undefined) continue;
+        if (merchant[sleutel] === waarde) continue;
+
+        merchant[sleutel] = waarde;
+        veranderd = true;
+      }
+
+      if (!veranderd) return;
+
       localStorage.setItem("lojiq_merchant", JSON.stringify(merchant));
+      merchantName.textContent =
+        merchant.store_name || merchant.portal_email || "Merchant";
 
       applyMerchantMode();
     }
@@ -4951,15 +4979,6 @@ function amountForButton(rawValue) {
 
     async function init() {
       requireLogin();
-
-      const stockxNavMain = document.getElementById("stockxNavMain");
-
-      if (
-        merchant.stockx_account_mode === "DEDICATED_ACCOUNT" &&
-        stockxNavMain
-      ) {
-        stockxNavMain.style.display = "flex";
-      }
 
       applyMerchantMode();
     
