@@ -693,6 +693,15 @@ function getPortalStatus(fields, view) {
   const fulfillment = displayValue(fields["Fulfillment Status"]);
   const shipping = displayValue(fields["Shipping Status"]);
 
+  // NEW - the Processing tab holds four different statuses, and which one
+  // an order carries says nothing useful to a store: Confirmed, Claim
+  // Processing, StockX Processing and GOAT Processing all mean the same
+  // thing from their side - we are getting it. One word beats four that
+  // need explaining.
+  if (view === "processing") {
+    return "Deal Processing";
+  }
+
   if (view === "allocated") {
     if (fulfillment === "StockX Processing" || fulfillment === "Claim Processing") {
       return "Processing";
@@ -827,7 +836,7 @@ function memberWtbBuyerFormula(merchant = {}) {
     .join(",")})`;
 }
 
-function mapMemberWtbRecord(record) {
+function mapMemberWtbRecord(record, view) {
   const f = record.fields || {};
 
   return {
@@ -872,7 +881,10 @@ function mapMemberWtbRecord(record) {
 
     fulfillment_status: displayValue(f["Fulfillment Status"]),
     shipping_status: displayValue(f["Shipping Status"]),
-    status: displayValue(f["Fulfillment Status"]),
+
+    // Same rule as the API side, through the same function - a status the
+    // store sees should not depend on which table it came out of.
+    status: getPortalStatus(f, view),
 
     tracking_number: displayValue(f["Tracking Number"]),
     tracking_url: displayValue(f["Tracking URL"]),
@@ -1208,7 +1220,7 @@ app.get("/api/orders", async (req, res) => {
         offset
       });
 
-      let orders = records.map(mapMemberWtbRecord);
+      let orders = records.map((record) => mapMemberWtbRecord(record, view));
 
       if (search) {
         orders = orders.filter((order) =>
@@ -1219,7 +1231,12 @@ app.get("/api/orders", async (req, res) => {
       const responseData = {
         merchant: {
           id: merchant.id,
-          store_name: merchant.store_name
+          store_name: merchant.store_name,
+
+          // NEW - sent with every list, not just at login. The portal keeps
+          // its merchant in localStorage, so a session that started before
+          // this field existed would never learn about it.
+          order_intake: merchant.order_intake
         },
         view,
         count: orders.length,
@@ -1373,7 +1390,8 @@ app.get("/api/orders", async (req, res) => {
     const responseData = {
       merchant: {
         id: merchant.id,
-        store_name: merchant.store_name
+        store_name: merchant.store_name,
+        order_intake: merchant.order_intake
       },
       view,
       count: orders.length,
