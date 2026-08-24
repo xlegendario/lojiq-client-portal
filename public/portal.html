@@ -14,12 +14,12 @@
    -------------------------------------------------------------------- */
 
 :root {
-  --kc-dialog-surface: var(--panel, #0E2238);
-  --kc-dialog-border: var(--border, #163252);
-  --kc-dialog-text: var(--text, #DCEBFF);
-  --kc-dialog-muted: var(--muted, #8FAECC);
+  --kc-dialog-surface: var(--panel, #121215);
+  --kc-dialog-border: var(--border, #26262B);
+  --kc-dialog-text: var(--text, #E9E9EE);
+  --kc-dialog-muted: var(--muted, #8B8B95);
   --kc-dialog-accent: linear-gradient(180deg, var(--primary-soft, #66B3FF), var(--primary, #2F80ED));
-  --kc-dialog-accent-text: #04182E;
+  --kc-dialog-accent-text: #04121F;
   --kc-dialog-accent-ring: var(--primary, #2F80ED);
   --kc-dialog-danger: linear-gradient(180deg, #F87171, var(--red, #F04438));
 }
@@ -230,17 +230,66 @@ body.kc-dialog-open {
 }
 
     :root {
-      --bg: #07111F;
+      /* ---- The palette ------------------------------------------------
+         Black and anthracite carry the interface; the Lojiq blue is spent
+         on the things you act on - buttons, the active row, focus rings.
+
+         The neutrals sit a few points cooler than a true grey. Pure grey
+         beside a blue accent reads as unconsidered; this reads as chosen,
+         without tinting the whole page the way the old palette did.
+
+         Every colour exists twice: once as a finished value and once as
+         bare channels. A custom property cannot carry its own alpha, so
+         without the channel form every translucent surface has to spell
+         its colour out again - which is how this file ended up with 58
+         hand-written rgba() values that all had to be found by hand.
+         ------------------------------------------------------------------ */
+
+      --bg: #08080A;
+      --bg-rgb: 8, 8, 10;
+
+      --panel: #121215;
+      --panel-rgb: 18, 18, 21;
+
+      --panel-2: #17171B;
+      --panel-2-rgb: 23, 23, 27;
+
+      --border: #26262B;
+      --border-rgb: 38, 38, 43;
+
+      --text: #E9E9EE;
+      --text-rgb: 233, 233, 238;
+
+      --muted: #8B8B95;
+      --muted-rgb: 139, 139, 149;
+
+      /* Navigation text sits a step brighter than muted table text. The
+         two were the same here, and a thin dark label reads as smaller
+         than it is even at an identical pixel size. */
+      --nav-item: #A8A8AF;
+
+      /* Lojiq blue, unchanged - this is the house colour. */
       --primary: #2F80ED;
+      --primary-rgb: 47, 128, 237;
+
       --primary-soft: #66B3FF;
-      --text: #DCEBFF;
-      --muted: #8FAECC;
-      --panel: #0E2238;
-      --panel-2: #102944;
-      --border: #163252;
+      --primary-soft-rgb: 102, 179, 255;
+
+      /* The glow that makes a button read as pressable rather than
+         painted on. Kickz Caviar does the same with its yellow. */
+      --primary-glow: 0 4px 16px rgba(47, 128, 237, 0.32);
+      --primary-glow-strong: 0 6px 22px rgba(47, 128, 237, 0.42);
+
       --green: #16B364;
+      --green-rgb: 22, 179, 100;
+
       --red: #F04438;
+      --red-rgb: 240, 68, 56;
+
       --warning: #F59E0B;
+      --warning-rgb: 245, 158, 11;
+
+      color-scheme: dark;
     }
 
     * { box-sizing: border-box; }
@@ -248,9 +297,13 @@ body.kc-dialog-open {
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
-      background:
-        radial-gradient(circle at top, rgba(47,128,237,0.16), transparent 28%),
-        linear-gradient(180deg, #050D18 0%, var(--bg) 100%);
+
+      /* CHANGED - there was a blue wash across the top third of every page.
+         At 16% it is easy to miss on its own, but it sat under everything and
+         is a large part of why the whole portal read as blue rather than as a
+         dark surface with a blue accent on it. Flat, like Kickz Caviar. */
+      background: var(--bg);
+
       color: var(--text);
       min-height: 100vh;
     }
@@ -262,16 +315,17 @@ body.kc-dialog-open {
          screen that is most of a table column. */
       /* CHANGED - 210 px followed the 170 px logo, not the navigation.
          With a smaller logo the column can follow the text. That is
-         34 px back for the table on a half screen, and it leaves the
-         longest label room to breathe. */
-      grid-template-columns: 176px 1fr;
+         22 px back for the table on a half screen. It was 176 px, which fit
+         every label but only just - and "only just" reads as cramped, so
+         the last 12 px went back into breathing room. */
+      grid-template-columns: 188px 1fr;
       min-height: 100vh;
     }
 
     .sidebar {
       border-right: 1px solid var(--border);
-      background: rgba(5,13,24,0.72);
-      padding: 16px 10px;
+      background: rgba(var(--bg-rgb), 0.72);
+      padding: 16px 12px;
     }
 
     .logo {
@@ -283,13 +337,13 @@ body.kc-dialog-open {
     
     /* CHANGED - this is what set the width of the whole sidebar. */
     .logo-img {
-      width: 146px;
+      width: 158px;
       height: auto;
       display: block;
     }
 
     .sidebar-section-title {
-      color: #5E7B99;
+      color: #5F5F68;
       font-size: 10px;
       font-weight: 800;
       text-transform: uppercase;
@@ -309,7 +363,7 @@ body.kc-dialog-open {
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.02em;
-      color: #B9D3EE;
+      color: #CFCFD7;
       background: none;
       border: none;
       margin-bottom: 1px;
@@ -345,7 +399,7 @@ body.kc-dialog-open {
     
       padding: 1px 0 1px 6px;
     
-      border-left: 1px solid rgba(120, 170, 255, 0.16);
+      border-left: 1px solid rgba(var(--primary-soft-rgb), 0.16);
     
       background: none;
       border-radius: 0;
@@ -376,10 +430,11 @@ body.kc-dialog-open {
       min-height: 32px;
       padding: 0 6px;
       gap: 5px;
-      color: #8FAECC;
+      color: var(--nav-item);
       display: flex;
       align-items: center;
       font-size: 12px;
+      font-weight: 500;
       margin-bottom: 0;
     
       transition:
@@ -391,7 +446,7 @@ body.kc-dialog-open {
 
     .nav-sub:hover,
     .nav-sub.active {
-      background: rgba(95, 155, 255, 0.18);
+      background: rgba(var(--primary-soft-rgb), 0.18);
       color: #ffffff;
       font-weight: 700;
       box-shadow: none;
@@ -408,7 +463,7 @@ body.kc-dialog-open {
       flex: none;
       padding: 0 2px;
       background: none;
-      color: #7C9BBE;
+      color: #7A7A84;
       display: inline-flex;
       align-items: center;
       font-size: 11px;
@@ -443,7 +498,7 @@ body.kc-dialog-open {
       align-items: center;
       justify-content: space-between;
       padding: 0 28px;
-      background: rgba(5,13,24,0.5);
+      background: rgba(var(--bg-rgb), 0.5);
     }
 
     .topbar-title {
@@ -498,7 +553,7 @@ body.kc-dialog-open {
       width: min(680px, 100%);
       border-radius: 14px;
       border: 1px solid var(--border);
-      background: rgba(7,17,31,0.70);
+      background: rgba(var(--bg-rgb), 0.70);
       color: var(--text);
       padding: 15px;
       font-size: 15px;
@@ -525,7 +580,7 @@ body.kc-dialog-open {
     }
 
     .stat-card {
-      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      background: linear-gradient(180deg, rgba(var(--panel-2-rgb), 0.95), rgba(var(--panel-rgb), 0.95));
       border: 1px solid var(--border);
       border-radius: 18px;
       padding: 18px;
@@ -544,7 +599,7 @@ body.kc-dialog-open {
     }
 
     .table-card {
-      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      background: linear-gradient(180deg, rgba(var(--panel-2-rgb), 0.95), rgba(var(--panel-rgb), 0.95));
       border: 1px solid var(--border);
       border-radius: 18px;
       overflow: hidden;
@@ -582,7 +637,7 @@ body.kc-dialog-open {
       height: 32px;
       border-radius: 9px;
       border: 1px solid var(--border);
-      background: rgba(7,17,31,0.55);
+      background: rgba(var(--bg-rgb), 0.55);
       color: var(--text);
       font-size: 18px;
       font-weight: 900;
@@ -627,8 +682,8 @@ body.kc-dialog-open {
 
     th, td {
       padding: 15px 14px;
-      border-bottom: 1px solid rgba(22,50,82,0.75);
-      border-right: 1px solid rgba(143,174,204,0.10);
+      border-bottom: 1px solid rgba(var(--border-rgb), 0.75);
+      border-right: 1px solid rgba(var(--muted-rgb), 0.10);
       text-align: left;
       vertical-align: middle;
       font-size: 14px;
@@ -660,7 +715,7 @@ body.kc-dialog-open {
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      background: rgba(7,17,31,0.35);
+      background: rgba(var(--bg-rgb), 0.35);
     }
 
     tr:last-child td {
@@ -695,7 +750,7 @@ body.kc-dialog-open {
       margin-top: 4px;
       font-size: 13px;
       font-weight: 700;
-      color: #A9C8E6;
+      color: #C2C2CB;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -716,9 +771,9 @@ body.kc-dialog-open {
       position: sticky;
       left: 0;
       z-index: 3;
-      background: #0A1A2C;
+      background: var(--panel);
       text-align: left;
-      box-shadow: 1px 0 0 rgba(143,174,204,0.16);
+      box-shadow: 1px 0 0 rgba(var(--muted-rgb), 0.16);
     }
 
     th[data-key="select"],
@@ -726,7 +781,7 @@ body.kc-dialog-open {
       position: sticky;
       left: 0;
       z-index: 3;
-      background: #0A1A2C;
+      background: var(--panel);
     }
 
     th[data-key="select"] + th[data-key="product"],
@@ -746,15 +801,15 @@ body.kc-dialog-open {
       position: sticky;
       right: 0;
       z-index: 3;
-      background: #0A1A2C;
-      box-shadow: -1px 0 0 rgba(143,174,204,0.16);
+      background: var(--panel);
+      box-shadow: -1px 0 0 rgba(var(--muted-rgb), 0.16);
     }
 
     thead th {
       position: sticky;
       top: 0;
       z-index: 4;
-      background: #0B1C30;
+      background: var(--panel-2);
     }
 
     thead th[data-key="product"],
@@ -763,13 +818,13 @@ body.kc-dialog-open {
     thead th[data-key="payment_action"],
     thead th[data-key="payment_link"] {
       z-index: 5;
-      background: #0B1C30;
+      background: var(--panel-2);
     }
 
     /* The shadow only appears once something actually slides underneath. */
     .table-wrap.scrolled-x th[data-key="product"],
     .table-wrap.scrolled-x td[data-key="product"] {
-      box-shadow: 10px 0 14px -10px rgba(0,0,0,0.75), 1px 0 0 rgba(143,174,204,0.16);
+      box-shadow: 10px 0 14px -10px rgba(0,0,0,0.75), 1px 0 0 rgba(var(--muted-rgb), 0.16);
     }
 
     .table-wrap:not(.at-end) th[data-key="actions"],
@@ -778,7 +833,7 @@ body.kc-dialog-open {
     .table-wrap:not(.at-end) td[data-key="payment_action"],
     .table-wrap:not(.at-end) th[data-key="payment_link"],
     .table-wrap:not(.at-end) td[data-key="payment_link"] {
-      box-shadow: -10px 0 14px -10px rgba(0,0,0,0.75), -1px 0 0 rgba(143,174,204,0.16);
+      box-shadow: -10px 0 14px -10px rgba(0,0,0,0.75), -1px 0 0 rgba(var(--muted-rgb), 0.16);
     }
 
     .muted {
@@ -797,23 +852,23 @@ body.kc-dialog-open {
       padding: 6px 10px;
       font-size: 12px;
       font-weight: 900;
-      background: rgba(143,174,204,0.14);
+      background: rgba(var(--muted-rgb), 0.14);
       color: var(--text);
       line-height: 1.15;
     }
 
     .status.green {
-      background: rgba(22,179,100,0.15);
+      background: rgba(var(--green-rgb), 0.15);
       color: #83e6ad;
     }
 
     .status.warning {
-      background: rgba(245,158,11,0.15);
+      background: rgba(var(--warning-rgb), 0.15);
       color: #fbc76f;
     }
 
     .status.red {
-      background: rgba(240,68,56,0.15);
+      background: rgba(var(--red-rgb), 0.15);
       color: #ff9b95;
     }
 
@@ -835,9 +890,9 @@ body.kc-dialog-open {
       gap: 6px;
       padding: 6px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(143,174,204,0.25);
-      background: rgba(143,174,204,0.08);
-      color: rgba(230,236,244,0.65);
+      border: 1px solid rgba(var(--muted-rgb), 0.25);
+      background: rgba(var(--muted-rgb), 0.08);
+      color: rgba(var(--text-rgb), 0.65);
       font-size: 12px;
       font-weight: 900;
       font-family: inherit;
@@ -846,15 +901,15 @@ body.kc-dialog-open {
     }
 
     .pill-btn:hover {
-      background: rgba(143,174,204,0.16);
+      background: rgba(var(--muted-rgb), 0.16);
       color: var(--text);
     }
 
     .pill-btn.active {
       border-color: var(--primary);
-      background: rgba(47,128,237,0.24);
-      color: #CFE4FF;
-      box-shadow: 0 0 0 1px rgba(47,128,237,0.25);
+      background: rgba(var(--primary-rgb), 0.24);
+      color: #DCDCE3;
+      box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.25);
     }
 
     .pill-btn .pill-count {
@@ -898,11 +953,11 @@ body.kc-dialog-open {
     }
     
     .action-btn.green {
-      background: #16B364;
+      background: var(--green);
     }
     
     .action-btn.red {
-      background: #F04438;
+      background: var(--red);
     }
     
     .action-btn.blue {
@@ -910,8 +965,114 @@ body.kc-dialog-open {
     }
 
     .action-btn.yellow {
-      background: #FFC533;
-      color: #07111F;
+      background: var(--warning);
+      color: var(--bg);
+    }
+
+    /* ---- The glow ------------------------------------------------------
+       On a near-black ground a flat coloured rectangle reads as painted on.
+       A glow in the button's own hue lifts it off the surface and makes it
+       read as the thing you press - the same trick Kickz Caviar uses with
+       its yellow.
+
+       Each button glows in its own colour rather than all of them in blue,
+       so the accept/deny pair stays readable at a glance without anyone
+       having to read the label.
+       -------------------------------------------------------------------- */
+
+    .action-btn {
+      transition:
+        box-shadow 0.18s ease,
+        transform 0.12s ease,
+        filter 0.18s ease;
+    }
+
+    /* The two other primary buttons - the general .button and the dialog's
+       submit - carry the same blue and get the same lift, so a primary
+       action looks the same wherever it turns up. */
+    .button,
+    .modal-submit {
+      box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.32);
+      transition: box-shadow 0.18s ease, transform 0.12s ease, filter 0.18s ease;
+    }
+
+    .button:hover,
+    .modal-submit:hover {
+      box-shadow: 0 6px 22px rgba(var(--primary-rgb), 0.44);
+      filter: brightness(1.06);
+      transform: translateY(-1px);
+    }
+
+    .button:active,
+    .modal-submit:active {
+      transform: translateY(0);
+      filter: brightness(0.97);
+    }
+
+    .button:disabled,
+    .modal-submit:disabled {
+      box-shadow: none;
+      transform: none;
+      filter: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .button,
+      .modal-submit {
+        transition: none;
+      }
+
+      .button:hover,
+      .modal-submit:hover,
+      .button:active,
+      .modal-submit:active {
+        transform: none;
+      }
+    }
+
+    .action-btn.blue  { box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.32); }
+    .action-btn.green { box-shadow: 0 4px 16px rgba(var(--green-rgb), 0.26); }
+    .action-btn.red   { box-shadow: 0 4px 16px rgba(var(--red-rgb), 0.26); }
+
+    .action-btn.blue:hover  { box-shadow: 0 6px 22px rgba(var(--primary-rgb), 0.44); }
+    .action-btn.green:hover { box-shadow: 0 6px 22px rgba(var(--green-rgb), 0.36); }
+    .action-btn.red:hover   { box-shadow: 0 6px 22px rgba(var(--red-rgb), 0.36); }
+
+    .action-btn.blue:hover,
+    .action-btn.green:hover,
+    .action-btn.red:hover {
+      filter: brightness(1.06);
+      transform: translateY(-1px);
+    }
+
+    .action-btn.blue:active,
+    .action-btn.green:active,
+    .action-btn.red:active {
+      transform: translateY(0);
+      filter: brightness(0.97);
+    }
+
+    /* A disabled button must not look pressable. */
+    .action-btn.disabled,
+    .action-btn:disabled {
+      box-shadow: none;
+      transform: none;
+      filter: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .action-btn {
+        transition: none;
+      }
+
+      .action-btn.blue:hover,
+      .action-btn.green:hover,
+      .action-btn.red:hover,
+      .action-btn.blue:active,
+      .action-btn.green:active,
+      .action-btn.red:active {
+        transform: none;
+      }
     }
 
     /* The packing-slip icon stays square. */
@@ -938,9 +1099,9 @@ body.kc-dialog-open {
       gap: 14px;
       margin-bottom: 20px;
       padding: 16px 18px;
-      border: 1px solid rgba(102,179,255,0.18);
+      border: 1px solid rgba(var(--primary-soft-rgb), 0.18);
       border-radius: 18px;
-      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      background: linear-gradient(180deg, rgba(var(--panel-2-rgb), 0.95), rgba(var(--panel-rgb), 0.95));
     }
     
     .payment-bar.active {
@@ -985,9 +1146,9 @@ body.kc-dialog-open {
       justify-content: space-between;
       gap: 18px;
       padding: 16px 18px;
-      border: 1px solid rgba(102,179,255,0.18);
+      border: 1px solid rgba(var(--primary-soft-rgb), 0.18);
       border-radius: 18px;
-      background: linear-gradient(180deg, rgba(16,41,68,0.95), rgba(14,34,56,0.95));
+      background: linear-gradient(180deg, rgba(var(--panel-2-rgb), 0.95), rgba(var(--panel-rgb), 0.95));
     }
     
     .pending-batch-info {
@@ -1052,8 +1213,8 @@ body.kc-dialog-open {
     .orders-modal-item {
       padding: 11px 13px;
       border-radius: 12px;
-      background: rgba(7,17,31,0.55);
-      border: 1px solid rgba(102,179,255,0.12);
+      background: rgba(var(--bg-rgb), 0.55);
+      border: 1px solid rgba(var(--primary-soft-rgb), 0.12);
       font-weight: 900;
       color: #fff;
     }
@@ -1110,7 +1271,7 @@ body.kc-dialog-open {
       position: fixed;
       inset: 0;
       z-index: 999;
-      background: rgba(3,9,17,0.66);
+      background: rgba(var(--bg-rgb), 0.66);
       backdrop-filter: blur(4px);
     }
 
@@ -1137,7 +1298,7 @@ body.kc-dialog-open {
         overflow-y: auto;
         transform: translateX(-105%);
         transition: transform 0.22s ease;
-        background: #071322;
+        background: var(--panel);
       }
 
       .sidebar.open {
@@ -1192,7 +1353,7 @@ body.kc-dialog-open {
         height: auto;
         min-height: 0;
         padding: 8px 12px;
-        background: #061120;
+        background: var(--bg);
       }
 
       .menu-btn {
@@ -1315,7 +1476,7 @@ body.kc-dialog-open {
         padding: 14px;
         border: 1px solid var(--border);
         border-radius: 14px;
-        background: rgba(10,26,44,0.6);
+        background: rgba(var(--panel-rgb), 0.6);
       }
 
       /* The fixed widths are set as an inline style on the cell itself, hence
@@ -1331,7 +1492,7 @@ body.kc-dialog-open {
         gap: 14px;
         padding: 7px 0;
         border: none;
-        border-bottom: 1px solid rgba(143,174,204,0.10);
+        border-bottom: 1px solid rgba(var(--muted-rgb), 0.10);
         background: none !important;
         box-shadow: none !important;
         text-align: right;
@@ -1541,7 +1702,7 @@ body.kc-dialog-open {
       border: none;
       border-radius: 999px;
 
-      background: rgba(143,174,204,0.18);
+      background: rgba(var(--muted-rgb), 0.18);
       color: var(--text);
       font-size: 17px;
       line-height: 1;
@@ -1598,8 +1759,8 @@ body.kc-dialog-open {
     .custom-modal {
       position: relative;
       width: min(560px, calc(100vw - 32px));
-      background: linear-gradient(180deg, rgba(16,41,68,0.98), rgba(7,17,31,0.98));
-      border: 1px solid rgba(102,179,255,0.22);
+      background: linear-gradient(180deg, rgba(var(--panel-2-rgb), 0.98), rgba(var(--bg-rgb), 0.98));
+      border: 1px solid rgba(var(--primary-soft-rgb), 0.22);
       border-radius: 22px;
       padding: 34px;
       box-shadow: 0 28px 80px rgba(0,0,0,0.55);
@@ -1622,8 +1783,8 @@ body.kc-dialog-open {
     .modal-current-offer {
       margin-bottom: 22px;
       color: var(--text);
-      background: rgba(47,128,237,0.10);
-      border: 1px solid rgba(102,179,255,0.18);
+      background: rgba(var(--primary-rgb), 0.10);
+      border: 1px solid rgba(var(--primary-soft-rgb), 0.18);
       border-radius: 14px;
       padding: 14px 16px;
       font-weight: 800;
@@ -1643,7 +1804,7 @@ body.kc-dialog-open {
       width: 100%;
       border-radius: 14px;
       border: 1px solid var(--border);
-      background: rgba(7,17,31,0.82);
+      background: rgba(var(--bg-rgb), 0.82);
       color: var(--text);
       padding: 16px;
       font-size: 17px;
@@ -1654,7 +1815,7 @@ body.kc-dialog-open {
     
     .modal-input:focus {
       border-color: var(--primary-soft);
-      box-shadow: 0 0 0 3px rgba(47,128,237,0.18);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18);
     }
     
     .modal-submit {
@@ -3759,10 +3920,15 @@ function amountForButton(rawValue) {
               <head>
                 <title>Opening payment...</title>
                 <style>
+                  /* CHANGED - this page opens in a new window, which has none
+                     of the portal's custom properties, so var(--bg) and friends
+                     resolved to nothing and it rendered as black text on white.
+                     Literal values, and scoped to this page's own element so
+                     the rule cannot leak. */
                   body {
                     margin: 0;
-                    background: #07111F;
-                    color: #DCEBFF;
+                    background: #08080A;
+                    color: #E9E9EE;
                     font-family: Arial, sans-serif;
                     display: flex;
                     height: 100vh;
@@ -3770,12 +3936,12 @@ function amountForButton(rawValue) {
                     justify-content: center;
                     text-align: center;
                   }
-                  div { font-weight: 900; }
-                  span { color: #66B3FF; }
+                  .wait { font-weight: 900; }
+                  .wait span { color: #66B3FF; }
                 </style>
               </head>
               <body>
-                <div>
+                <div class="wait">
                   Creating payment link<br>
                   <span>Please wait...</span>
                 </div>
