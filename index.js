@@ -1233,9 +1233,14 @@ app.get("/api/orders", async (req, res) => {
           id: merchant.id,
           store_name: merchant.store_name,
 
-          // NEW - sent with every list, not just at login. The portal keeps
-          // its merchant in localStorage, so a session that started before
-          // this field existed would never learn about it.
+          // NEW - the whole snapshot, sent with every list rather than only
+          // at login. The portal keeps its merchant in localStorage and
+          // nothing ever logs a store out, so without this a change in
+          // Airtable would not reach a store until they happened to sign in
+          // again - which for some of them is never.
+          portal_email: merchant.portal_email,
+          stockx_account_mode: merchant.stockx_account_mode,
+          goat_account_mode: merchant.goat_account_mode,
           order_intake: merchant.order_intake
         },
         view,
@@ -1391,6 +1396,9 @@ app.get("/api/orders", async (req, res) => {
       merchant: {
         id: merchant.id,
         store_name: merchant.store_name,
+        portal_email: merchant.portal_email,
+        stockx_account_mode: merchant.stockx_account_mode,
+        goat_account_mode: merchant.goat_account_mode,
         order_intake: merchant.order_intake
       },
       view,
