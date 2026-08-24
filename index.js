@@ -144,7 +144,10 @@ app.post("/api/login", async (req, res) => {
         id: merchant.id,
         store_name: merchant.store_name,
         portal_email: merchant.portal_email,
-        stockx_account_mode: merchant.stockx_account_mode
+        stockx_account_mode: merchant.stockx_account_mode,
+
+        // NEW - the sidebar hides what a manual store has no data for.
+        order_intake: merchant.order_intake
       }
     });
   } catch (err) {
@@ -728,8 +731,15 @@ function getPortalStatus(fields, view) {
 const MEMBER_WTB_VIEW_FORMULAS = {
   open: `OR(
     {Fulfillment Status} = 'Pending',
-    {Fulfillment Status} = 'Outsource',
-    {Fulfillment Status} = 'Confirmed'
+    {Fulfillment Status} = 'Outsource'
+  )`,
+
+  // Member WTBs has no StockX or GOAT statuses, so this side of the
+  // Processing tab is smaller - the tab is a list of statuses and each
+  // source contributes the ones it has.
+  processing: `OR(
+    {Fulfillment Status} = 'Confirmed',
+    {Fulfillment Status} = 'Claim Processing'
   )`,
 
   // "Offer To Buyer" is the Member WTBs counterpart of "Offer To Store":
@@ -742,10 +752,7 @@ const MEMBER_WTB_VIEW_FORMULAS = {
     {Offer To Buyer} > 0
   )`,
 
-  allocated: `OR(
-    {Fulfillment Status} = 'Allocated',
-    {Fulfillment Status} = 'Claim Processing'
-  )`,
+  allocated: `{Fulfillment Status} = 'Allocated'`,
 
   label_requests: `{Fulfillment Status} = 'Requested Label'`,
 
@@ -951,12 +958,39 @@ async function countMemberWtbView({ merchant, view }) {
 }
 
 function buildOrderViewFormula(view, merchant = {}) {
+  // CHANGED - "Confirmed" moved to the new Processing view. It sat here
+  // because there was no tab between Open Orders and Allocated, not
+  // because an accepted deal is still an open order.
   if (view === "open") {
     return `OR(
       {Fulfillment Status} = 'Pending',
-      {Fulfillment Status} = 'Outsource',
-      {Fulfillment Status} = 'Confirmed'
+      {Fulfillment Status} = 'Outsource'
     )`;
+  }
+
+  // NEW - everything between "we agreed the deal" and "a unit is ours".
+  // getPortalStatus already labelled these statuses "Processing" inside
+  // the Allocated tab, so the name is not new to the interface - it now
+  // has a tab of its own instead of hiding inside another one.
+  if (view === "processing") {
+    const statuses = [
+      "Confirmed",
+      "Claim Processing"
+    ];
+
+    // Same condition these carried in Allocated: a store with its own
+    // dedicated account follows those orders in the StockX section.
+    if (merchant.stockx_account_mode !== "DEDICATED_ACCOUNT") {
+      statuses.push("StockX Processing");
+    }
+
+    if (merchant.goat_account_mode !== "DEDICATED_ACCOUNT") {
+      statuses.push("GOAT Processing");
+    }
+
+    return `OR(${statuses
+      .map((status) => `{Fulfillment Status} = '${status}'`)
+      .join(",")})`;
   }
 
   if (view === "offers") {
@@ -973,24 +1007,14 @@ function buildOrderViewFormula(view, merchant = {}) {
     )`;
   }
 
+  // CHANGED - the three Processing statuses moved to their own view.
+  // What is left is what the name says: a unit is assigned to this
+  // order.
   if (view === "allocated") {
-    const statuses = [
-      "Allocated",
-      "Awaiting Label",
-      "Claim Processing"
-    ];
-  
-    if (merchant.stockx_account_mode !== "DEDICATED_ACCOUNT") {
-      statuses.push("StockX Processing");
-    }
-  
-    if (merchant.goat_account_mode !== "DEDICATED_ACCOUNT") {
-      statuses.push("GOAT Processing");
-    }
-  
-    return `OR(${statuses
-      .map((status) => `{Fulfillment Status} = '${status}'`)
-      .join(",")})`;
+    return `OR(
+      {Fulfillment Status} = 'Allocated',
+      {Fulfillment Status} = 'Awaiting Label'
+    )`;
   }
 
   if (view === "label_requests") {
@@ -1394,6 +1418,7 @@ app.get("/api/orders/counts", async (req, res) => {
     const views = [
       "open",
       "offers",
+      "processing",
       "allocated",
       "label_requests",
       "open_payments",
