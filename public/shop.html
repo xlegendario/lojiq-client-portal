@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lojiq Portal - Shop</title>
+<link rel="icon" href="/logo.png">
+<style>
+  /* The palette is the portal's, value for value. A second page that drifts
+     a shade off reads as a different product. */
+  :root {
+    --bg: #08080A;
+    --bg-rgb: 8, 8, 10;
+
+    --panel: #121215;
+    --panel-rgb: 18, 18, 21;
+
+    --panel-2: #17171B;
+    --panel-2-rgb: 23, 23, 27;
+
+    --border: #26262B;
+    --border-rgb: 38, 38, 43;
+
+    --text: #E9E9EE;
+    --text-rgb: 233, 233, 238;
+
+    --muted: #8B8B95;
+    --muted-rgb: 139, 139, 149;
+
+    --nav-item: #A8A8AF;
+
+    --primary: #2F80ED;
+    --primary-rgb: 47, 128, 237;
+
+    --primary-soft: #66B3FF;
+    --primary-soft-rgb: 102, 179, 255;
+
+    --green: #16B364;
+    --green-rgb: 22, 179, 100;
+
+    --red: #F04438;
+    --red-rgb: 240, 68, 56;
+
+    --warning: #F59E0B;
+    --warning-rgb: 245, 158, 11;
+
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* ---- top bar ------------------------------------------------------ */
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(var(--bg-rgb), 0.72);
+
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .logo-img { width: 122px; height: auto; display: block; }
+
+  .topbar-title { font-size: 17px; font-weight: 900; letter-spacing: -0.2px; }
+
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: none;
+  }
+
+  .store-name { font-size: 13px; font-weight: 800; color: var(--muted); }
+
+  .btn {
+    cursor: pointer;
+    border: none;
+    border-radius: 10px;
+    padding: 9px 15px;
+    font-size: 12.5px;
+    font-weight: 900;
+    color: #fff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+
+    transition: box-shadow 0.18s ease, transform 0.12s ease, filter 0.18s ease;
+  }
+
+  .btn.primary {
+    background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+    box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.32);
+  }
+
+  .btn.green {
+    background: var(--green);
+    box-shadow: 0 4px 16px rgba(var(--green-rgb), 0.26);
+  }
+
+  .btn.ghost {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .btn.primary:hover { box-shadow: 0 6px 22px rgba(var(--primary-rgb), 0.44); }
+  .btn.green:hover { box-shadow: 0 6px 22px rgba(var(--green-rgb), 0.36); }
+
+  .btn.primary:hover, .btn.green:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* ---- toolbar ------------------------------------------------------ */
+
+  .page { padding: 20px 22px 40px; }
+
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .search {
+    flex: 1 1 260px;
+    min-width: 0;
+    height: 42px;
+    padding: 0 14px;
+
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+
+    font-size: 14px;
+    font-weight: 700;
+    outline: none;
+  }
+
+  .search:focus,
+  select:focus {
+    border-color: var(--primary-soft);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18);
+  }
+
+  select {
+    height: 42px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 800;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .segment { display: flex; gap: 6px; }
+
+  .segment button {
+    height: 42px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .segment button.active {
+    border-color: var(--primary);
+    background: rgba(var(--primary-rgb), 0.18);
+    color: #fff;
+  }
+
+  .count-line { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+
+  /* ---- product grid -------------------------------------------------- */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 14px;
+  }
+
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel);
+    overflow: hidden;
+    cursor: pointer;
+    text-align: left;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+
+    display: flex;
+    flex-direction: column;
+
+    transition: border-color 0.18s ease, transform 0.12s ease;
+  }
+
+  .card:hover { border-color: rgba(var(--primary-soft-rgb), 0.45); transform: translateY(-2px); }
+
+  .card-image {
+    aspect-ratio: 4 / 3;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .card-image img { width: 100%; height: 100%; object-fit: contain; }
+
+  .card-body { padding: 12px 13px 14px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+
+  .card-name {
+    font-size: 13px;
+    font-weight: 900;
+    line-height: 1.28;
+
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .card-meta { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+
+  .card-foot {
+    margin-top: auto;
+    padding-top: 9px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .card-price { font-size: 15px; font-weight: 900; }
+  .card-from { font-size: 10px; color: var(--muted); font-weight: 800;
+               text-transform: uppercase; letter-spacing: 0.06em; }
+  .card-sizes { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+
+  .state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  /* ---- modal --------------------------------------------------------- */
+
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.72);
+
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 22px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .backdrop.open { display: flex; }
+
+  .modal {
+    width: 100%;
+    max-width: 560px;
+    margin: auto;
+
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--panel);
+    padding: 20px;
+  }
+
+  .modal-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
+
+  .modal-thumb {
+    width: 76px; height: 76px; flex: none;
+    border-radius: 12px; background: #fff; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .modal-thumb img { width: 100%; height: 100%; object-fit: contain; }
+
+  .modal-title { font-size: 15px; font-weight: 900; line-height: 1.3; }
+  .modal-sub { font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: 4px; }
+
+  .size-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    padding: 11px 0;
+    border-bottom: 1px solid rgba(var(--muted-rgb), 0.14);
+  }
+
+  .size-row:last-child { border-bottom: none; }
+
+  .size-name { width: 66px; flex: none; font-size: 14px; font-weight: 900; }
+
+  .size-meta { flex: 1; min-width: 0; font-size: 11.5px; color: var(--muted); font-weight: 700; }
+
+  .size-price { font-size: 14px; font-weight: 900; margin-right: 4px; white-space: nowrap; }
+
+  .size-actions { display: flex; gap: 6px; flex: none; }
+
+  .size-actions .btn { padding: 8px 12px; font-size: 11.5px; border-radius: 9px; }
+
+  .modal-close {
+    margin-top: 18px;
+    width: 100%;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .field-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 14px 0 6px;
+  }
+
+  .field {
+    width: 100%;
+    height: 46px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 800;
+    outline: none;
+  }
+
+  .note {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 12px 0 0;
+  }
+
+  .error { color: #ff9b95; font-size: 12.5px; font-weight: 800; margin-top: 12px; min-height: 1em; }
+  .ok { color: #83e6ad; font-size: 12.5px; font-weight: 800; margin-top: 12px; }
+
+  @media (max-width: 768px) {
+    .page { padding: 14px 12px 34px; }
+    .topbar { padding: 12px 14px; }
+    .logo-img { width: 96px; }
+    .topbar-title { display: none; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .size-row { flex-wrap: wrap; }
+    .size-meta { order: 3; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <img src="/logo.png" alt="Lojiq" class="logo-img">
+    <div class="topbar-title">Shop</div>
+  </div>
+
+  <div class="topbar-right">
+    <span class="store-name" id="storeName"></span>
+    <a class="btn ghost" href="/portal.html">Back to orders</a>
+  </div>
+</header>
+
+<main class="page">
+  <div class="toolbar">
+    <input id="search" class="search" type="text" placeholder="Search SKU or product..." autocomplete="off" spellcheck="false">
+
+    <select id="brand"><option value="">All brands</option></select>
+
+    <select id="sort">
+      <option value="price_low">Price: low to high</option>
+      <option value="price_high">Price: high to low</option>
+      <option value="az">Name: A-Z</option>
+      <option value="za">Name: Z-A</option>
+    </select>
+
+    <div class="segment" id="inventoryType">
+      <button type="button" data-type="all" class="active">All stock</button>
+      <button type="button" data-type="b2b">B2B only</button>
+      <button type="button" data-type="private">Margin only</button>
+    </div>
+  </div>
+
+  <div class="count-line" id="countLine"></div>
+
+  <div class="grid" id="grid"></div>
+  <div class="state" id="state" hidden></div>
+</main>
+
+<div class="backdrop" id="productBackdrop">
+  <div class="modal" id="productModal"></div>
+</div>
+
+<div class="backdrop" id="actionBackdrop">
+  <div class="modal" id="actionModal"></div>
+</div>
+
+<script>
+  // ---- session ------------------------------------------------------
+
+  let merchant = null;
+
+  (function requireLogin() {
+    const raw = localStorage.getItem("lojiq_merchant");
+
+    if (!raw) {
+      window.location.href = "/";
+      return;
+    }
+
+    merchant = JSON.parse(raw);
+    document.getElementById("storeName").textContent =
+      merchant.store_name || merchant.portal_email || "Merchant";
+  })();
+
+  // ---- state --------------------------------------------------------
+
+  const grid = document.getElementById("grid");
+  const state = document.getElementById("state");
+  const countLine = document.getElementById("countLine");
+  const searchInput = document.getElementById("search");
+  const brandSelect = document.getElementById("brand");
+  const sortSelect = document.getElementById("sort");
+
+  let producten = [];
+  let inventoryType = "all";
+  let laadVolgnummer = 0;
+
+  function escapeHtml(value) {
+    return String(value === null || value === undefined ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // Whole amounts stay whole; decimals show only when the number really has
+  // them. Same rule as the portal, so a price reads the same in both.
+  function geld(value) {
+    const n = Number(value);
+
+    if (!Number.isFinite(n)) return "";
+
+    const heel = Math.abs(n - Math.round(n)) < 0.005;
+
+    return new Intl.NumberFormat("nl-NL", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: heel ? 0 : 2,
+      maximumFractionDigits: heel ? 0 : 2
+    }).format(n);
+  }
+
+  // A size in the product list carries the lowest offer across its sources:
+  // lowest_price, not price. The per-source fields sit one level deeper, in
+  // maat.sources - reading those here would show a price nobody is asking.
+  function maatPrijs(maat) {
+    return maat.lowest_price ?? maat.display_price ?? maat.price;
+  }
+
+  function maatVat(maat) {
+    return maat.lowest_vat_type || maat.vat_type || "";
+  }
+
+  function toonStaat(tekst) {
+    grid.innerHTML = "";
+    state.hidden = false;
+    state.textContent = tekst;
+  }
+
+  // ---- loading ------------------------------------------------------
+
+  async function laadProducten() {
+    const volgnummer = ++laadVolgnummer;
+
+    toonStaat("Searching stock...");
+    countLine.textContent = "";
+
+    const params = new URLSearchParams({
+      merchant_id: merchant.id,
+      inventory_type: inventoryType,
+      sort: sortSelect.value
+    });
+
+    if (searchInput.value.trim()) params.set("search", searchInput.value.trim());
+    if (brandSelect.value) params.set("brand", brandSelect.value);
+
+    try {
+      const response = await fetch("/api/shop/products?" + params.toString());
+      const data = await response.json();
+
+      // A slow answer to an old keystroke must not overwrite a newer one.
+      if (volgnummer !== laadVolgnummer) return;
+
+      if (!response.ok) {
+        toonStaat(data.error || "Could not load stock");
+        return;
+      }
+
+      producten = Array.isArray(data.products) ? data.products : [];
+      render();
+    } catch (err) {
+      if (volgnummer !== laadVolgnummer) return;
+      toonStaat("Could not load stock");
+    }
+  }
+
+  async function laadMerken() {
+    try {
+      const response = await fetch(
+        "/api/shop/brands?merchant_id=" + encodeURIComponent(merchant.id)
+      );
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      const merken = Array.isArray(data.brands) ? data.brands : [];
+
+      merken.filter(Boolean).sort().forEach((merk) => {
+        const optie = document.createElement("option");
+        optie.value = merk;
+        optie.textContent = merk;
+        brandSelect.appendChild(optie);
+      });
+    } catch (err) {
+      // A missing brand list is not worth an error on screen; the filter
+      // simply stays on "All brands".
+    }
+  }
+
+  // ---- rendering ----------------------------------------------------
+
+  function render() {
+    if (!producten.length) {
+      toonStaat("No stock matches this search");
+      return;
+    }
+
+    state.hidden = true;
+    countLine.textContent =
+      producten.length + (producten.length === 1 ? " product" : " products");
+
+    grid.innerHTML = producten.map((product, index) => `
+      <button class="card" type="button" data-index="${index}">
+        <div class="card-image">
+          ${product.image_url
+            ? `<img src="${escapeHtml(product.image_url)}" alt="" loading="lazy">`
+            : ""}
+        </div>
+
+        <div class="card-body">
+          <div class="card-name">${escapeHtml(product.product_name || product.sku)}</div>
+          <div class="card-meta">${escapeHtml(product.sku)}${
+            product.brand ? " &middot; " + escapeHtml(product.brand) : ""
+          }</div>
+
+          <div class="card-foot">
+            <div>
+              <div class="card-from">From</div>
+              <div class="card-price">${geld(product.from_price)}</div>
+            </div>
+            <div class="card-sizes">${Number(product.size_count || 0)} sizes</div>
+          </div>
+        </div>
+      </button>
+    `).join("");
+  }
+
+  grid.addEventListener("click", (event) => {
+    const kaart = event.target.closest(".card");
+    if (!kaart) return;
+
+    toonProduct(producten[Number(kaart.dataset.index)]);
+  });
+
+  // ---- product modal -------------------------------------------------
+
+  const productBackdrop = document.getElementById("productBackdrop");
+  const productModal = document.getElementById("productModal");
+
+  let gekozenProduct = null;
+
+  function toonProduct(product) {
+    if (!product) return;
+
+    gekozenProduct = product;
+
+    const maten = Array.isArray(product.sizes) ? product.sizes : [];
+
+    productModal.innerHTML = `
+      <div class="modal-head">
+        <div class="modal-thumb">
+          ${product.image_url
+            ? `<img src="${escapeHtml(product.image_url)}" alt="">`
+            : ""}
+        </div>
+
+        <div>
+          <div class="modal-title">${escapeHtml(product.product_name || product.sku)}</div>
+          <div class="modal-sub">
+            ${escapeHtml(product.sku)}${product.brand ? " &middot; " + escapeHtml(product.brand) : ""}
+          </div>
+        </div>
+      </div>
+
+      ${maten.map((maat, index) => `
+        <div class="size-row">
+          <div class="size-name">${escapeHtml(maat.size)}</div>
+
+          <div class="size-meta">
+            ${escapeHtml(maatVat(maat))}${
+              maat.fastest_delivery_time
+                ? " &middot; " + escapeHtml(maat.fastest_delivery_time)
+                : ""
+            }${
+              Number(maat.available_qty) > 0
+                ? " &middot; " + Number(maat.available_qty) + " available"
+                : ""
+            }
+          </div>
+
+          <div class="size-price">${geld(maatPrijs(maat))}</div>
+
+          <div class="size-actions">
+            <button class="btn green" type="button" data-actie="buy" data-maat="${index}">Buy</button>
+            <button class="btn primary" type="button" data-actie="offer" data-maat="${index}">Offer</button>
+          </div>
+        </div>
+      `).join("")}
+
+      <button class="modal-close" type="button" data-sluit>Close</button>
+    `;
+
+    productBackdrop.classList.add("open");
+  }
+
+  productBackdrop.addEventListener("click", (event) => {
+    if (event.target === productBackdrop || event.target.hasAttribute("sluit") ||
+        event.target.closest("[data-sluit]")) {
+      productBackdrop.classList.remove("open");
+      return;
+    }
+
+    const knop = event.target.closest("[data-actie]");
+    if (!knop) return;
+
+    const maat = gekozenProduct.sizes[Number(knop.dataset.maat)];
+    toonActie(knop.dataset.actie, maat);
+  });
+
+  // ---- buy / offer ---------------------------------------------------
+
+  const actionBackdrop = document.getElementById("actionBackdrop");
+  const actionModal = document.getElementById("actionModal");
+
+  function toonActie(actie, maat) {
+    const koop = actie === "buy";
+    const prijs = Number(maatPrijs(maat)) || 0;
+
+    actionModal.innerHTML = `
+      <div class="modal-title">${koop ? "Buy now" : "Make an offer"}</div>
+
+      <div class="modal-sub" style="margin-bottom:14px">
+        ${escapeHtml(gekozenProduct.product_name || gekozenProduct.sku)}
+        &middot; size ${escapeHtml(maat.size)}
+      </div>
+
+      ${koop ? `
+        <div class="size-row" style="border-bottom:none">
+          <div class="size-meta">Buy now price</div>
+          <div class="size-price">${geld(prijs)}</div>
+        </div>
+
+        <p class="note">
+          This places a want to buy at the asking price. We source it and it
+          appears in your orders straight away.
+        </p>
+      ` : `
+        <label class="field-label" for="offerPrice">Your offer</label>
+        <input id="offerPrice" class="field" type="text" inputmode="decimal"
+               value="${prijs ? Math.max(1, Math.round(prijs * 0.9)) : ""}">
+
+        <p class="note">
+          Asking price is ${geld(prijs)}. Your offer goes out to the network;
+          if someone accepts it you will see it under Offers.
+        </p>
+      `}
+
+      <div class="error" id="actionError"></div>
+
+      <div style="display:flex; gap:8px; margin-top:14px">
+        <button class="btn ghost" type="button" data-sluit style="flex:1">Cancel</button>
+        <button class="btn ${koop ? "green" : "primary"}" type="button" id="confirmAction" style="flex:1">
+          ${koop ? "Place order" : "Send offer"}
+        </button>
+      </div>
+    `;
+
+    actionBackdrop.classList.add("open");
+
+    document.getElementById("confirmAction").addEventListener("click", async (event) => {
+      const knop = event.currentTarget;
+      const fout = document.getElementById("actionError");
+
+      fout.textContent = "";
+
+      const lichaam = {
+        merchant_id: merchant.id,
+        sku: gekozenProduct.sku,
+        size: maat.size,
+        inventory_type: inventoryType
+      };
+
+      if (!koop) {
+        const bedrag = Number(String(document.getElementById("offerPrice").value).replace(",", "."));
+
+        if (!Number.isFinite(bedrag) || bedrag <= 0) {
+          fout.textContent = "Enter a valid amount";
+          return;
+        }
+
+        lichaam.offer_price = bedrag;
+      }
+
+      knop.disabled = true;
+      knop.textContent = koop ? "Placing..." : "Sending...";
+
+      try {
+        const response = await fetch(koop ? "/api/shop/buy" : "/api/shop/offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(lichaam)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          fout.textContent = data.error || "Something went wrong";
+          knop.disabled = false;
+          knop.textContent = koop ? "Place order" : "Send offer";
+          return;
+        }
+
+        actionModal.innerHTML = `
+          <div class="modal-title">${koop ? "Order placed" : "Offer sent"}</div>
+
+          <p class="note">
+            ${escapeHtml(gekozenProduct.product_name || gekozenProduct.sku)}
+            &middot; size ${escapeHtml(maat.size)}
+          </p>
+
+          <div class="ok">You will find it under Orders.</div>
+
+          <div style="display:flex; gap:8px; margin-top:16px">
+            <button class="btn ghost" type="button" data-sluit style="flex:1">Keep shopping</button>
+            <a class="btn primary" href="/portal.html" style="flex:1">Go to orders</a>
+          </div>
+        `;
+
+        productBackdrop.classList.remove("open");
+      } catch (err) {
+        fout.textContent = "Something went wrong";
+        knop.disabled = false;
+        knop.textContent = koop ? "Place order" : "Send offer";
+      }
+    });
+  }
+
+  actionBackdrop.addEventListener("click", (event) => {
+    if (event.target === actionBackdrop || event.target.closest("[data-sluit]")) {
+      actionBackdrop.classList.remove("open");
+    }
+  });
+
+  // ---- filters -------------------------------------------------------
+
+  let tikTimer = null;
+
+  searchInput.addEventListener("input", () => {
+    clearTimeout(tikTimer);
+    tikTimer = setTimeout(laadProducten, 300);
+  });
+
+  brandSelect.addEventListener("change", laadProducten);
+  sortSelect.addEventListener("change", laadProducten);
+
+  document.getElementById("inventoryType").addEventListener("click", (event) => {
+    const knop = event.target.closest("[data-type]");
+    if (!knop || knop.dataset.type === inventoryType) return;
+
+    inventoryType = knop.dataset.type;
+
+    document.querySelectorAll("#inventoryType button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.type === inventoryType);
+    });
+
+    laadProducten();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    actionBackdrop.classList.remove("open");
+    productBackdrop.classList.remove("open");
+  });
+
+  laadMerken();
+  laadProducten();
+</script>
+
+</body>
+</html>

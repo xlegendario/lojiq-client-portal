@@ -375,6 +375,18 @@ body.kc-dialog-open {
       color: #ffffff;
     }
 
+    /* The shop is a link, not a section that opens - the arrow points the
+       way out rather than down. */
+    a.nav-main.nav-shop {
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    a.nav-main.nav-shop:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
     .nav-label {
       flex: 1 1 auto;
       min-width: 0;
@@ -1922,6 +1934,11 @@ body.kc-dialog-open {
 
       <div class="sidebar-section-title">Portal</div>
 
+      <a class="nav-main nav-shop" id="shopLink" href="/shop.html" style="display:none;">
+        <span class="nav-arrow">&#8250;</span>
+        <span class="nav-label">Shop</span>
+      </a>
+
       <div class="nav-main open" data-section-toggle="orders">
         <span class="nav-arrow">›</span>
         <span class="nav-label">Orders</span>
@@ -2893,6 +2910,14 @@ function showPrompt(message, options) {
       doelen.forEach((el) => {
         if (el) el.style.display = manual ? "none" : "";
       });
+
+      // The shop is where a manual store puts its demand in. An API store
+      // gets its orders through the integration and has no use for it.
+      const shopLink = document.getElementById("shopLink");
+
+      if (shopLink) {
+        shopLink.style.display = manual ? "flex" : "none";
+      }
 
       // Landing on a tab that is no longer there would leave an empty table
       // and no way to tell why.
