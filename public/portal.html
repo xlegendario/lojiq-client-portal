@@ -1470,13 +1470,16 @@ body.kc-dialog-open {
         display: block;
       }
 
+      /* CHANGED - card and page sat 1.04 apart in contrast, which is not a
+         difference: the card was the background with a hairline around it,
+         so a scrolling list read as one surface. */
       .table-wrap tbody tr {
         display: block;
         margin-bottom: 12px;
         padding: 14px;
-        border: 1px solid var(--border);
+        border: 1px solid #3A3A42;
         border-radius: 14px;
-        background: rgba(var(--panel-rgb), 0.6);
+        background: #202027;
       }
 
       /* The fixed widths are set as an inline style on the cell itself, hence
@@ -1492,7 +1495,8 @@ body.kc-dialog-open {
         gap: 14px;
         padding: 7px 0;
         border: none;
-        border-bottom: 1px solid rgba(var(--muted-rgb), 0.10);
+        /* CHANGED - the divider has to keep up with the lighter card. */
+        border-bottom: 1px solid rgba(var(--muted-rgb), 0.18);
         background: none !important;
         box-shadow: none !important;
         text-align: right;
@@ -1508,7 +1512,9 @@ body.kc-dialog-open {
       .table-wrap td::before {
         content: attr(data-label);
         flex: 0 0 auto;
-        color: var(--muted);
+        /* CHANGED - a step brighter, or the label loses against the
+           lighter card. */
+        color: #A6A6B0;
         font-size: 11px;
         font-weight: 900;
         letter-spacing: 0.05em;
@@ -1921,6 +1927,11 @@ body.kc-dialog-open {
         <div class="nav-sub" data-view="offers">
           <span>Offers</span>
           <span id="count-offers" class="count-pill">0</span>
+        </div>
+      
+        <div class="nav-sub" data-view="processing">
+          <span>Processing</span>
+          <span id="count-processing" class="count-pill">0</span>
         </div>
       
         <div class="nav-sub" data-view="allocated">
@@ -2426,6 +2437,7 @@ function showPrompt(message, options) {
     const viewLabels = {
       open: "Open Orders",
       offers: "Offers",
+      processing: "Processing",
       allocated: "Allocated",
       label_requests: "Label Requests",
       ready_to_ship: "Ready To Ship",
@@ -2526,6 +2538,19 @@ function showPrompt(message, options) {
         ["offer_vat_type", "VAT Type"],
         ["eta", "ETA"],
         ["actions", "Actions"]
+      ],
+    
+      processing: [
+        ["product", "Product"],
+        ["size", "Size"],
+        ["order_number", "Order Number"],
+        ["selling_price", "Selling Price"],
+        ["date", "Date"],
+        ["allocated_price", "Allocated Price"],
+        ["vat", "VAT"],
+        ["invoice_price", "Invoice Price"],
+        ["vat_type", "VAT Type"],
+        ["status", "Status"]
       ],
     
       allocated: [
@@ -4877,6 +4902,32 @@ function amountForButton(rawValue) {
         stockxNavMain
       ) {
         stockxNavMain.style.display = "flex";
+      }
+
+      // NEW - a store that puts its demand in by hand has no returns with us,
+      // no inventory on our floor, and Member WTBs carries no Issue Status,
+      // so those three tabs can only ever be empty. Hiding them beats showing
+      // three dead ends.
+      //
+      // Issues is meant to come back for these stores once there is something
+      // to put in it; it is hidden rather than removed for that reason.
+      if (merchant.order_intake === "manual") {
+        const verbergen = [
+          document.querySelector('[data-section-toggle="returns"]'),
+          document.getElementById("section-returns"),
+          document.querySelector('.nav-sub[data-view="issues"]')
+        ];
+
+        verbergen.forEach((el) => {
+          if (el) el.style.display = "none";
+        });
+
+        // Landing on a tab that is no longer there would leave an empty table
+        // and no way to tell why.
+        if (["returns", "inventory", "issues"].includes(currentView)) {
+          currentView = "open";
+          localStorage.setItem("lojiq_current_view", currentView);
+        }
       }
     
       document.querySelectorAll(".nav-sub[data-view]").forEach((el) => {
