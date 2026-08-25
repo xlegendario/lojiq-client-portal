@@ -2024,6 +2024,10 @@ async function getMerchantBuyer(merchant) {
   const record = await airtable(AIRTABLE_SELLERS_TABLE).find(recordId);
 
   const rawVatRate = Number(record.fields["Sellers VAT Rate"]);
+  const country = asText(record.fields["Country"]);
+  const hasVatId = !!asText(record.fields["VAT ID"]);
+
+  const dutch = ["netherlands", "nederland", "nl"].includes(country.trim().toLowerCase());
 
   const buyer = {
     record_id: record.id,
@@ -2033,7 +2037,15 @@ async function getMerchantBuyer(merchant) {
     // The store's own VAT rate, so the shop can price a pair the way it
     // costs in THEIR country. Null when absent, which leaves the portal on
     // the Dutch 21% it used for everyone before.
-    vat_rate: Number.isFinite(rawVatRate) && rawVatRate > 0 ? rawVatRate : null
+    vat_rate: Number.isFinite(rawVatRate) && rawVatRate > 0 ? rawVatRate : null,
+
+    country,
+
+    // Mirrors memberWtbIsReverseCharge in the portal: a VAT number and a
+    // country outside the Netherlands means we invoice without VAT. The
+    // shop needs to know so it can tell a store what it will actually be
+    // billed before it commits to an amount.
+    reverse_charge: hasVatId && !dutch
   };
 
   if (!buyer.seller_id) {
@@ -2199,6 +2211,83 @@ app.post("/api/shop/buy", async (req, res) => {
     }
 
     res.status(500).json({ error: "Failed to place request", details: err.message });
+  }
+});
+
+// The VAT profile of the store that is looking, so the shop can tell them
+// what an amount they type actually means before they commit to it. No
+// prices here - just which scale they are working in.
+app.get("/api/shop/buyer", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (refuseShopForApiStore(merchant, res)) return;
+
+    const buyer = await getMerchantBuyer(merchant);
+
+    res.json({
+      vat_rate: buyer.vat_rate,
+      country: buyer.country,
+      reverse_charge: buyer.reverse_charge
+    });
+  } catch (err) {
+    console.error("Shop buyer context failed:", err);
+    res.status(500).json({ error: "Failed to load buyer details", details: err.message });
+  }
+});
+
+// A store that cannot find what it needs says so here, instead of leaving.
+// This is the other half of a manual store's intake: Buy and Offer answer
+// what we already hold, this one records demand we do not.
+app.post("/api/shop/wtb", async (req, res) => {
+  try {
+    const merchantId = asText(req.body?.merchant_id);
+    const sku = asText(req.body?.sku);
+    const size = asText(req.body?.size);
+    const maxPrice = Number(req.body?.max_price);
+    const inventoryType = asText(req.body?.inventory_type) || "all";
+
+    if (!merchantId || !sku || !size) {
+      return res.status(400).json({ error: "Missing merchant, SKU or size" });
+    }
+
+    if (!Number.isFinite(maxPrice) || maxPrice <= 0) {
+      return res.status(400).json({ error: "Enter a maximum price above 0" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (refuseShopForApiStore(merchant, res)) return;
+
+    const buyer = await getMerchantBuyer(merchant);
+
+    const data = await kickzPost("/api/member-wtb/open", {
+      seller_record_id: buyer.record_id,
+      seller_id: buyer.seller_id,
+      sku,
+      size,
+      max_price: maxPrice,
+      inventory_type: inventoryType,
+      created_from: "Lojiq Portal"
+    });
+
+    // The new want to buy has to show up in the orders list straight away,
+    // same reason as the Buy and Offer buttons.
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json(data);
+  } catch (err) {
+    console.error("Shop want-to-buy failed:", err);
+    res.status(err.status || 500).json(
+      err.payload || { error: "Failed to place want to buy", details: err.message }
+    );
   }
 });
 
