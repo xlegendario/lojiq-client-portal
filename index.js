@@ -2214,6 +2214,27 @@ app.post("/api/shop/buy", async (req, res) => {
   }
 });
 
+// A size, tidied but not narrowed.
+//
+// Sneaker scales are not the whole catalogue: apparel runs S / M / L / XL
+// and a cap can be L/XL. A first version of this allowed digits only and
+// would have refused a want-to-buy for a size M tee - 97 stock lines carry
+// a letter size today, so that was not an edge case.
+//
+// A comma becomes a dot because 35,5 and 35.5 are the same size written
+// two ways, and a shop should not have to guess which one we want.
+function normalizeWtbSize(value) {
+  return asText(value)
+    .trim()
+    .replace(/,/g, ".")
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function isValidWtbSize(size) {
+  return /^[A-Z0-9./ -]+$/.test(size) && /[A-Z0-9]/.test(size);
+}
+
 // The VAT profile of the store that is looking, so the shop can tell them
 // what an amount they type actually means before they commit to it. No
 // prices here - just which scale they are working in.
@@ -2254,7 +2275,7 @@ app.post("/api/shop/wtb", async (req, res) => {
     // "37 1/3" are the same size, and a stray space either end is a typo,
     // not a different shoe.
     const sku = asText(req.body?.sku).trim().toUpperCase();
-    const size = asText(req.body?.size).trim().replace(/\s+/g, " ");
+    const size = normalizeWtbSize(req.body?.size);
     const maxPrice = Number(req.body?.max_price);
 
     if (!merchantId) {
@@ -2267,11 +2288,9 @@ app.post("/api/shop/wtb", async (req, res) => {
       });
     }
 
-    // Digits, a dot, a slash and single spaces - enough for 42, 42.5 and
-    // 37 1/3, and nothing else. At least one digit, so " / " is not a size.
-    if (!/^[0-9./ ]+$/.test(size) || !/[0-9]/.test(size)) {
+    if (!isValidWtbSize(size)) {
       return res.status(400).json({
-        error: "A size can only contain numbers, a dot or a slash. For example 42, 42.5 or 37 1/3."
+        error: "A size can only contain letters, numbers, a dot, a slash or a hyphen."
       });
     }
 
