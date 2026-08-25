@@ -2248,17 +2248,35 @@ app.get("/api/shop/buyer", async (req, res) => {
 app.post("/api/shop/wtb", async (req, res) => {
   try {
     const merchantId = asText(req.body?.merchant_id);
-    const sku = asText(req.body?.sku);
-    const size = asText(req.body?.size);
-    const maxPrice = Number(req.body?.max_price);
     const inventoryType = asText(req.body?.inventory_type) || "all";
 
-    if (!merchantId || !sku || !size) {
-      return res.status(400).json({ error: "Missing merchant, SKU or size" });
+    // Trimmed and squeezed before anything is judged: "37  1/3 " and
+    // "37 1/3" are the same size, and a stray space either end is a typo,
+    // not a different shoe.
+    const sku = asText(req.body?.sku).trim().toUpperCase();
+    const size = asText(req.body?.size).trim().replace(/\s+/g, " ");
+    const maxPrice = Number(req.body?.max_price);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant" });
     }
 
-    if (!Number.isFinite(maxPrice) || maxPrice <= 0) {
-      return res.status(400).json({ error: "Enter a maximum price above 0" });
+    if (!/^[A-Z0-9-]+$/.test(sku)) {
+      return res.status(400).json({
+        error: "A SKU can only contain letters, numbers and hyphens."
+      });
+    }
+
+    // Digits, a dot, a slash and single spaces - enough for 42, 42.5 and
+    // 37 1/3, and nothing else. At least one digit, so " / " is not a size.
+    if (!/^[0-9./ ]+$/.test(size) || !/[0-9]/.test(size)) {
+      return res.status(400).json({
+        error: "A size can only contain numbers, a dot or a slash. For example 42, 42.5 or 37 1/3."
+      });
+    }
+
+    if (!Number.isInteger(maxPrice) || maxPrice <= 0) {
+      return res.status(400).json({ error: "Enter a whole number above 0." });
     }
 
     const merchant = await getCachedMerchant(merchantId);
