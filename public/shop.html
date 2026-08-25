@@ -667,9 +667,15 @@
     return size.lowest_price ?? size.display_price ?? size.price;
   }
 
-  function sizeVat(size) {
-    return size.lowest_vat_type || size.vat_type || "";
-  }
+  // The VAT type of a size is deliberately NOT shown, matching the Kickz
+  // Caviar buying page.
+  //
+  // It describes the current lowest source, not what ends up filling the
+  // deal: an offer on All inventory goes to every matching source and a
+  // Margin seller can take it, leaving the row's "VAT21" a promise nobody
+  // made. And since prices are now restated into the buying store's own
+  // scale, the source's VAT type is no longer needed to read the number -
+  // which is the only thing it was ever there for.
 
   function showState(text) {
     grid.innerHTML = "";
@@ -876,9 +882,14 @@
           <div class="size-name">${escapeHtml(size.size)}</div>
 
           <div class="size-meta">
-            ${escapeHtml(sizeVat(size))}${
+            ${
               size.fastest_delivery_time
-                ? " &middot; " + escapeHtml(size.fastest_delivery_time)
+                ? escapeHtml(size.fastest_delivery_time)
+                : ""
+            }${
+              (size.sources || []).length
+                ? " &middot; " + (size.sources || []).length +
+                  ((size.sources || []).length === 1 ? " source" : " sources")
                 : ""
             }${
               Number(size.available_qty) > 0
