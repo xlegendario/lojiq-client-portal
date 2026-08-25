@@ -2023,10 +2023,17 @@ async function getMerchantBuyer(merchant) {
 
   const record = await airtable(AIRTABLE_SELLERS_TABLE).find(recordId);
 
+  const rawVatRate = Number(record.fields["Sellers VAT Rate"]);
+
   const buyer = {
     record_id: record.id,
     seller_id: asText(record.fields["Seller ID"]),
-    trusted: record.fields["Trusted Buyer?"] === true
+    trusted: record.fields["Trusted Buyer?"] === true,
+
+    // The store's own VAT rate, so the shop can price a pair the way it
+    // costs in THEIR country. Null when absent, which leaves the portal on
+    // the Dutch 21% it used for everyone before.
+    vat_rate: Number.isFinite(rawVatRate) && rawVatRate > 0 ? rawVatRate : null
   };
 
   if (!buyer.seller_id) {
@@ -2105,11 +2112,17 @@ app.get("/api/shop/products", async (req, res) => {
 
     if (refuseShopForApiStore(merchant, res)) return;
 
+    // A store must see the price it will actually pay, VAT and all. Read
+    // from their own buyer record; a store without a linked seller keeps
+    // the generic catalogue rather than an error, exactly as before.
+    const buyer = await getMerchantBuyer(merchant).catch(() => null);
+
     const data = await kickzGet("/api/buying/products", {
       search: asText(req.query.search),
       brand: asText(req.query.brand),
       sort: asText(req.query.sort),
-      inventory_type: asText(req.query.inventory_type) || "all"
+      inventory_type: asText(req.query.inventory_type) || "all",
+      buyer_vat_rate: buyer?.vat_rate ?? ""
     });
 
     res.json(data);
