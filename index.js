@@ -2001,7 +2001,7 @@ app.get("/api/orders/offers-open", async (req, res) => {
 // out.
 // =====================================================================
 
-const kopersCache = new Map();
+const buyerCache = new Map();
 const KOPER_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // A merchant buys as the seller record it is linked to through "Seller ID".
@@ -2015,10 +2015,10 @@ async function getMerchantBuyer(merchant) {
   }
 
   const recordId = sellerIds[0];
-  const bewaard = kopersCache.get(recordId);
+  const cached = buyerCache.get(recordId);
 
-  if (bewaard && Date.now() - bewaard.createdAt < KOPER_CACHE_TTL_MS) {
-    return bewaard.buyer;
+  if (cached && Date.now() - cached.createdAt < KOPER_CACHE_TTL_MS) {
+    return cached.buyer;
   }
 
   const record = await airtable(AIRTABLE_SELLERS_TABLE).find(recordId);
@@ -2040,7 +2040,7 @@ async function getMerchantBuyer(merchant) {
     throw new Error("The linked seller record has no Seller ID");
   }
 
-  kopersCache.set(recordId, { createdAt: Date.now(), buyer });
+  buyerCache.set(recordId, { createdAt: Date.now(), buyer });
 
   return buyer;
 }
@@ -2048,9 +2048,9 @@ async function getMerchantBuyer(merchant) {
 async function kickzGet(path, params) {
   const url = new URL(`${KICKZ_PORTAL_BASE_URL}${path}`);
 
-  for (const [sleutel, waarde] of Object.entries(params || {})) {
-    if (waarde !== undefined && waarde !== null && waarde !== "") {
-      url.searchParams.set(sleutel, String(waarde));
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
     }
   }
 
@@ -2089,10 +2089,10 @@ async function kickzPost(path, body) {
     // The out-of-stock answer is a normal outcome, not a failure: between
     // loading the page and pressing the button someone else can have taken
     // the last pair.
-    const fout = new Error(data.error || data.details || "Request to kickz-caviar-portal failed");
-    fout.status = response.status;
-    fout.payload = data;
-    throw fout;
+    const failure = new Error(data.error || data.details || "Request to kickz-caviar-portal failed");
+    failure.status = response.status;
+    failure.payload = data;
+    throw failure;
   }
 
   return data;
