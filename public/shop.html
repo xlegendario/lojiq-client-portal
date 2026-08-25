@@ -432,6 +432,8 @@
       <button type="button" data-type="b2b">B2B only</button>
       <button type="button" data-type="private">Margin only</button>
     </div>
+
+    <button type="button" class="btn ghost" id="wtbOpen">Request a pair</button>
   </div>
 
   <div class="count-line" id="countLine"></div>
@@ -526,10 +528,10 @@
     return size.lowest_vat_type || size.vat_type || "";
   }
 
-  function showState(tekst) {
+  function showState(text) {
     grid.innerHTML = "";
     state.hidden = false;
-    state.textContent = tekst;
+    state.textContent = text;
   }
 
   // ---- loading ------------------------------------------------------
@@ -847,6 +849,177 @@
 
   brandSelect.addEventListener("change", loadProducts);
   sortSelect.addEventListener("change", loadProducts);
+
+  // ---- want to buy ---------------------------------------------------
+
+  // The VAT profile of this store, so an amount they type can be read back
+  // to them in both scales. Falls back to Dutch rates if it cannot be
+  // fetched - the wording then still makes sense for most stores, and the
+  // server decides the real number either way.
+  let buyerContext = { vat_rate: 0.21, reverse_charge: false, country: "" };
+
+  fetch("/api/shop/buyer?merchant_id=" + encodeURIComponent(merchant.id))
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => { if (data) buyerContext = data; })
+    .catch(() => {});
+
+  // Which scale the store's number is read in - and nothing else.
+  //
+  // Deliberately carries no amounts: the same sentence then covers a single
+  // request and a CSV of two hundred, where restating one figure is
+  // impossible anyway. What a store can get wrong here is the scale, not
+  // the arithmetic.
+  function vatExplanation() {
+    // Not "maximum": a seller can counter above this and the store can
+    // still accept, so calling it a ceiling would be a promise we do not
+    // keep. It is the price they are putting up, nothing more.
+    if (inventoryType === "b2b") {
+      return "Your price is read as <b>excl. VAT</b>.";
+    }
+
+    const base = "Your price is read as <b>incl. VAT</b>.";
+
+    return buyerContext.reverse_charge
+      ? base + " If we fill it from VAT stock you'll be invoiced excl. VAT (reverse charge)."
+      : base;
+  }
+
+  document.getElementById("wtbOpen").addEventListener("click", () => showWtbForm());
+
+  function showWtbForm(values) {
+    const filled = values || {};
+
+    actionModal.innerHTML = `
+      <div class="modal-title">Request a pair</div>
+
+      <div class="modal-sub" style="margin-bottom:14px">
+        Not in stock? Tell us what you need and we will look for it.
+      </div>
+
+      <label class="field-label" for="wtbSku">SKU</label>
+      <input id="wtbSku" class="field" type="text" placeholder="Example: DV1748-601"
+             value="${escapeHtml(filled.sku || "")}">
+
+      <label class="field-label" for="wtbSize" style="margin-top:10px">Size</label>
+      <input id="wtbSize" class="field" type="text" placeholder="Example: 42"
+             value="${escapeHtml(filled.size || "")}">
+
+      <label class="field-label" for="wtbPrice" style="margin-top:10px">Your price</label>
+      <input id="wtbPrice" class="field" type="text" inputmode="decimal" placeholder="Example: 120"
+             value="${escapeHtml(filled.price || "")}">
+
+      <p class="note" id="wtbNote"></p>
+
+      <div class="error" id="actionError"></div>
+
+      <div style="display:flex; gap:8px; margin-top:14px">
+        <button class="btn ghost" type="button" data-close style="flex:1">Cancel</button>
+        <button class="btn primary" type="button" id="wtbNext" style="flex:1">Continue</button>
+      </div>
+    `;
+
+    actionBackdrop.classList.add("open");
+
+    const priceInput = document.getElementById("wtbPrice");
+
+    // Shown before anything is typed, not after: which scale you are in is
+    // something you want to know while filling the field in.
+    document.getElementById("wtbNote").innerHTML = vatExplanation();
+
+    document.getElementById("wtbNext").addEventListener("click", () => {
+      const sku = document.getElementById("wtbSku").value.trim();
+      const size = document.getElementById("wtbSize").value.trim();
+      const amount = Number(String(priceInput.value).replace(",", "."));
+      const failure = document.getElementById("actionError");
+
+      if (!sku || !size) {
+        failure.textContent = "Fill in both a SKU and a size.";
+        return;
+      }
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        failure.textContent = "Enter a maximum price above 0.";
+        return;
+      }
+
+      confirmWtb({ sku, size, price: String(priceInput.value), amount });
+    });
+  }
+
+  // A deliberate second step. The amount means something different on B2B
+  // only than on All stock, and different again for a store we invoice
+  // without VAT - so it gets said out loud before anything is created.
+  function confirmWtb(request) {
+    actionModal.innerHTML = `
+      <div class="modal-title">Is this right?</div>
+
+      <div class="modal-sub" style="margin-bottom:14px">
+        ${escapeHtml(request.sku)} &middot; size ${escapeHtml(request.size)}
+      </div>
+
+      <p class="note">${vatExplanation()}</p>
+
+      <div class="error" id="actionError"></div>
+
+      <div style="display:flex; gap:8px; margin-top:14px">
+        <button class="btn ghost" type="button" id="wtbBack" style="flex:1">Back</button>
+        <button class="btn primary" type="button" id="wtbConfirm" style="flex:1">Post request</button>
+      </div>
+    `;
+
+    document.getElementById("wtbBack").addEventListener("click", () => showWtbForm(request));
+
+    document.getElementById("wtbConfirm").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const failure = document.getElementById("actionError");
+
+      failure.textContent = "";
+      button.disabled = true;
+      button.textContent = "Posting...";
+
+      try {
+        const response = await fetch("/api/shop/wtb", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            merchant_id: merchant.id,
+            sku: request.sku,
+            size: request.size,
+            max_price: request.amount,
+            inventory_type: inventoryType
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.details || data.error || "Failed to post request");
+        }
+
+        actionModal.innerHTML = `
+          <div class="modal-title">Request posted</div>
+
+          <div class="modal-sub" style="margin-bottom:14px">
+            ${escapeHtml(request.sku)} &middot; size ${escapeHtml(request.size)}
+          </div>
+
+          <p class="note">
+            We are looking for it now. You will find it under Orders, and
+            any offer that comes in appears there too.
+          </p>
+
+          <div style="display:flex; gap:8px; margin-top:14px">
+            <a class="btn primary" href="/portal" style="flex:1">Go to orders</a>
+            <button class="btn ghost" type="button" data-close style="flex:1">Close</button>
+          </div>
+        `;
+      } catch (err) {
+        failure.textContent = err.message;
+        button.disabled = false;
+        button.textContent = "Post request";
+      }
+    });
+  }
 
   document.getElementById("inventoryType").addEventListener("click", (event) => {
     const button = event.target.closest("[data-type]");
