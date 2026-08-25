@@ -205,6 +205,40 @@
 
   .count-line { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
 
+  /* ---- action summary ------------------------------------------------- */
+
+  /* Label left, value right, one line each - the same shape the Kickz
+     Caviar buying page uses, so a store that knows one portal reads the
+     other without relearning it. */
+  .action-summary {
+    margin: 4px 0 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .action-summary > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .action-summary span {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .action-summary strong {
+    font-size: 13.5px;
+    font-weight: 900;
+    text-align: right;
+    min-width: 0;
+  }
+
   /* ---- hero + post a want to buy -------------------------------------- */
 
   .hero {
@@ -891,32 +925,50 @@
     const isBuy = action === "buy";
     const price = Number(sizePrice(size)) || 0;
 
+    // A summary before the field, the way the Kickz Caviar buying page does
+    // it. What a store needs before typing an amount is which pair, which
+    // scale, and how many sellers can answer - and the scale belongs in the
+    // field itself rather than in a footnote nobody reads.
+    const sources = (size.sources || []).length;
+    const scale = inventoryType === "b2b" ? "excl. VAT" : "incl. VAT";
+
+    const typeLabel = inventoryType === "b2b"
+      ? "B2B only"
+      : inventoryType === "private"
+        ? "Margin only"
+        : "All inventory";
+
     actionModal.innerHTML = `
       <div class="modal-title">${isBuy ? "Buy now" : "Make an offer"}</div>
 
-      <div class="modal-sub" style="margin-bottom:14px">
-        ${escapeHtml(selectedProduct.product_name || selectedProduct.sku)}
-        &middot; size ${escapeHtml(size.size)}
+      <div class="action-summary">
+        <div><span>Product</span><strong>${escapeHtml(selectedProduct.product_name || "-")}</strong></div>
+        <div><span>SKU</span><strong>${escapeHtml(selectedProduct.sku || "-")}</strong></div>
+        <div><span>Size</span><strong>${escapeHtml(size.size || "-")}</strong></div>
+        <div>
+          <span>${isBuy ? "Buy now price" : "Current lowest price"}</span>
+          <strong>${money(price)} ${scale}</strong>
+        </div>
+        <div><span>Buying type</span><strong>${typeLabel}</strong></div>
+        <div><span>Available sources</span><strong>${sources || "-"}</strong></div>
       </div>
 
       ${isBuy ? `
-        <div class="size-row" style="border-bottom:none">
-          <div class="size-meta">Buy now price</div>
-          <div class="size-price">${money(price)}</div>
-        </div>
-
         <p class="note">
-          This places a want to buy at the asking price. We source it and it
-          appears in your orders straight away.
+          The seller confirms availability before this is final. It appears
+          in your orders straight away.
         </p>
       ` : `
         <label class="field-label" for="offerPrice">Your offer</label>
-        <input id="offerPrice" class="field" type="text" inputmode="decimal"
+        <input id="offerPrice" class="field" type="text" inputmode="numeric"
+               placeholder="Enter your price (${scale})"
                value="${price ? Math.max(1, Math.round(price * 0.9)) : ""}">
 
         <p class="note">
-          Asking price is ${money(price)}. Your offer goes out to the network;
-          if someone accepts it you will see it under Offers.
+          ${sources > 1 ? "Your offer goes to all matching sources." : "Your offer goes to the matching source."}
+          ${inventoryType === "all"
+            ? "If it matches a B2B seller the invoice amount is recalculated as a VAT0 price."
+            : ""}
         </p>
       `}
 
