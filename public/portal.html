@@ -1939,58 +1939,112 @@ body.kc-dialog-open {
         <span class="nav-label">Shop</span>
       </a>
 
-      <div class="nav-main open" data-section-toggle="orders">
+      <div class="nav-main open" data-section-toggle="orders" id="navStoreOrders">
         <span class="nav-arrow">›</span>
-        <span class="nav-label">Orders</span>
+        <span class="nav-label">Store Orders</span>
       </div>
       
       <div id="section-orders" class="nav-section open">
-        <div class="nav-sub active" data-view="open">
+        <div class="nav-sub active" data-view="open" data-source="orders">
           <span>Open Orders</span>
-          <span id="count-open" class="count-pill">0</span>
+          <span id="count-orders-open" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="offers">
+        <div class="nav-sub" data-view="offers" data-source="orders">
           <span>Offers</span>
-          <span id="count-offers" class="count-pill">0</span>
+          <span id="count-orders-offers" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="processing">
+        <div class="nav-sub" data-view="processing" data-source="orders">
           <span>Processing</span>
-          <span id="count-processing" class="count-pill">0</span>
+          <span id="count-orders-processing" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="allocated">
+        <div class="nav-sub" data-view="allocated" data-source="orders">
           <span>Allocated</span>
-          <span id="count-allocated" class="count-pill">0</span>
+          <span id="count-orders-allocated" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="label_requests">
+        <div class="nav-sub" data-view="label_requests" data-source="orders">
           <span>Label Requests</span>
-          <span id="count-label_requests" class="count-pill">0</span>
+          <span id="count-orders-label_requests" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="ready_to_ship">
+        <div class="nav-sub" data-view="ready_to_ship" data-source="orders">
           <span>Ready To Ship</span>
-          <span id="count-ready_to_ship" class="count-pill">0</span>
+          <span id="count-orders-ready_to_ship" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="shipped">
+        <div class="nav-sub" data-view="shipped" data-source="orders">
           <span>Shipped</span>
-          <span id="count-shipped" class="count-pill">0</span>
+          <span id="count-orders-shipped" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="fulfilled">
+        <div class="nav-sub" data-view="fulfilled" data-source="orders">
           <span>Fulfilled</span>
-          <span id="count-fulfilled" class="count-pill">0</span>
+          <span id="count-orders-fulfilled" class="count-pill">0</span>
         </div>
       
-        <div class="nav-sub" data-view="issues">
+        <div class="nav-sub" data-view="issues" data-source="orders">
           <span>Issues</span>
-          <span id="count-issues" class="count-pill">0</span>
+          <span id="count-orders-issues" class="count-pill">0</span>
         </div>
       </div>
       
+
+      <!-- Manual Orders: the same pipeline for demand a store brings in by
+           hand. Its own section rather than extra columns in one table -
+           that table already scrolls sideways, and a "Selling Price" header
+           cannot honestly cover a maximum price too. No Issues tab: Member
+           WTBs have no status behind it. -->
+      <div class="nav-main" data-section-toggle="manual" id="navManualOrders" style="display:none">
+        <span class="nav-arrow">›</span>
+        <span class="nav-label">Manual Orders</span>
+      </div>
+
+      <div id="section-manual" class="nav-section" style="display:none">
+        <div class="nav-sub" data-view="open" data-source="requests">
+          <span>Open Orders</span>
+          <span id="count-requests-open" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="offers" data-source="requests">
+          <span>Offers</span>
+          <span id="count-requests-offers" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="processing" data-source="requests">
+          <span>Processing</span>
+          <span id="count-requests-processing" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="allocated" data-source="requests">
+          <span>Allocated</span>
+          <span id="count-requests-allocated" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="label_requests" data-source="requests">
+          <span>Label Requests</span>
+          <span id="count-requests-label_requests" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="ready_to_ship" data-source="requests">
+          <span>Ready To Ship</span>
+          <span id="count-requests-ready_to_ship" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="shipped" data-source="requests">
+          <span>Shipped</span>
+          <span id="count-requests-shipped" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="fulfilled" data-source="requests">
+          <span>Fulfilled</span>
+          <span id="count-requests-fulfilled" class="count-pill">0</span>
+        </div>
+
+      </div>
+
       <div class="nav-main" data-section-toggle="returns">
         <span class="nav-arrow">›</span>
         <span class="nav-label">Returns</span>
@@ -2766,6 +2820,13 @@ function showPrompt(message, options) {
     };
 
     let currentView = localStorage.getItem("lojiq_current_view") || "open";
+
+    // Which of the two pipelines is on screen. Store Orders come in through
+    // the integration; Manual Orders are the want-to-buys a shop posts by
+    // hand. Same eight views either side, different data and one different
+    // column heading - which is exactly why they are two sections rather
+    // than one list with an extra column.
+    let currentSource = localStorage.getItem("lojiq_current_source") || "orders";
     let activeOfferPillFilter = "open"; // NEW — additive only: Open vs Countered pill within the offers view
     let merchant = null;
     let nextOffset = "";
@@ -2887,8 +2948,51 @@ function showPrompt(message, options) {
     //
     // Issues is meant to come back for these stores once there is something
     // to put in it; it is hidden rather than removed for that reason.
+    // Two questions instead of one, because a store can have both. "manual"
+    // below still means "manual only" - the shape of the portal for a store
+    // that has no integration at all.
+    function merchantHasStoreOrders() {
+      return merchant?.order_intake === "api" || merchant?.order_intake === "both";
+    }
+
+    function merchantHasManualOrders() {
+      return merchant?.order_intake === "manual" || merchant?.order_intake === "both";
+    }
+
     function applyMerchantMode() {
       const manual = merchant?.order_intake === "manual";
+
+      // Each pipeline gets its own section. A store with only one never
+      // sees the other, so nothing changes for the merchants that exist
+      // today; a store with both sees where its work sits without one
+      // table having to mean two things.
+      const sections = [
+        ["navStoreOrders", "section-orders", merchantHasStoreOrders()],
+        ["navManualOrders", "section-manual", merchantHasManualOrders()]
+      ];
+
+      sections.forEach(([headId, bodyId, visible]) => {
+        const head = document.getElementById(headId);
+        const body = document.getElementById(bodyId);
+
+        // Hidden with an inline style; shown by handing control back to the
+        // stylesheet, where .nav-section stays collapsed until it carries
+        // .open. Setting "block" here would defeat the accordion.
+        if (head) head.style.display = visible ? "flex" : "none";
+        if (body) body.style.display = visible ? "" : "none";
+      });
+
+      // Landing in a section this store does not have would show an empty
+      // table with no way to tell why.
+      if (currentSource === "requests" && !merchantHasManualOrders()) {
+        currentSource = "orders";
+      }
+
+      if (currentSource === "orders" && !merchantHasStoreOrders()) {
+        currentSource = "requests";
+      }
+
+      localStorage.setItem("lojiq_current_source", currentSource);
 
       // The StockX section used to be decided once in init(), which meant it
       // followed whatever was true at login and never changed after.
@@ -2925,6 +3029,38 @@ function showPrompt(message, options) {
         currentView = "open";
         localStorage.setItem("lojiq_current_view", currentView);
       }
+
+      // Manual Orders has no Issues tab: Member WTBs carry no status behind
+      // it, so the view would always be empty.
+      if (currentSource === "requests" && currentView === "issues") {
+        currentView = "open";
+        localStorage.setItem("lojiq_current_view", currentView);
+      }
+
+      // The highlight has to land on the tab in the section we are actually
+      // in - both sections have an "open", so the view alone is ambiguous.
+      document.querySelectorAll(".nav-sub[data-view]").forEach((el) => {
+        el.classList.remove("active");
+      });
+
+      const activeTab =
+        document.querySelector(
+          `.nav-sub[data-view="${currentView}"][data-source="${currentSource}"]`
+        ) ||
+        document.querySelector(`.nav-sub[data-view="${currentView}"]:not([data-source])`);
+
+      if (activeTab) activeTab.classList.add("active");
+
+      // And the section holding that tab is expanded, so a store never
+      // lands on a sidebar where its own pipeline is folded shut.
+      const activeSectionId = currentSource === "requests" ? "section-manual" : "section-orders";
+      const activeSection = document.getElementById(activeSectionId);
+      const activeHead = document.getElementById(
+        currentSource === "requests" ? "navManualOrders" : "navStoreOrders"
+      );
+
+      if (activeSection) activeSection.classList.add("open");
+      if (activeHead) activeHead.classList.add("open");
     }
 
     // The merchant is kept in localStorage from the moment of login, and
@@ -3443,10 +3579,21 @@ function amountForButton(rawValue) {
       // Denied), matching dashboard.js's own per-pill naming exactly —
       // makes clear it's the seller's PREVIOUS position, still
       // acceptable via the Accept button, not a fresh untouched offer.
-      const displayColumns =
+      const withOfferLabel =
         currentView === "offers" && activeOfferPillFilter !== "open"
           ? columns.map(([key, label]) => key === "offer" ? [key, "Seller's Last Offer"] : [key, label])
           : columns;
+
+      // On a manual request that column is what the store is willing to
+      // PAY, not what it sells for. Same field, opposite meaning - and a
+      // heading that says "Selling Price" over a maximum is the kind of
+      // small lie nobody questions until it costs someone money.
+      const displayColumns =
+        currentSource === "requests"
+          ? withOfferLabel.map(([key, label]) =>
+              key === "selling_price" ? [key, "Max Price"] : [key, label]
+            )
+          : withOfferLabel;
     
       const thead = document.querySelector("thead tr");
       thead.innerHTML = displayColumns
@@ -3552,6 +3699,7 @@ function amountForButton(rawValue) {
       const params = new URLSearchParams({
         merchant_id: merchant.id,
         view: currentView,
+        source: currentSource,
         search: searchInput.value || "",
         page_size: "20",
         refresh: ordersCacheBuster
@@ -3707,6 +3855,7 @@ function amountForButton(rawValue) {
       const params = new URLSearchParams({
         merchant_id: merchant.id,
         view: currentView,
+        source: currentSource,
         search: searchInput.value || "",
         page_size: "20",
         offset: offsetToPreload,
@@ -3736,7 +3885,8 @@ function amountForButton(rawValue) {
     async function loadCountForView(view) {
       const params = new URLSearchParams({
         merchant_id: merchant.id,
-        view
+        view,
+        source: currentSource
       });
     
       const response = await fetch(`/api/orders/count?${params.toString()}`);
@@ -3766,30 +3916,49 @@ function amountForButton(rawValue) {
       el.classList.toggle("zero", n === 0);
     }
 
-    async function loadAllCounts() {
+    // Counts are per section now, so both sidebars carry their own numbers
+    // and a store with two pipelines sees at a glance where the work is.
+    // The cards at the top follow whichever section is open.
+    async function loadCountsForSource(source) {
       const params = new URLSearchParams({
-        merchant_id: merchant.id
+        merchant_id: merchant.id,
+        source
       });
-    
+
       const response = await fetch(`/api/orders/counts?${params.toString()}`);
       const data = await response.json();
-    
-      if (!response.ok) return;
-    
+
+      if (!response.ok) return null;
+
       const counts = data.counts || {};
-    
+
       Object.entries(counts).forEach(([view, count]) => {
-        const countEl = document.getElementById(`count-${view}`);
-        setNavCount(countEl, count);
+        // Views that belong to neither section - Returns, Inventory,
+        // StockX, Finance - keep the plain id they always had.
+        setNavCount(document.getElementById(`count-${source}-${view}`), count);
+        setNavCount(document.getElementById(`count-${view}`), count);
       });
-    
-      openStat.textContent = counts.open ?? 0;
-      shippedStat.textContent = counts.shipped ?? 0;
-      fulfilledStat.textContent = counts.fulfilled ?? 0;
-      const activeCount = counts[currentView] ?? currentOrders.length;
+
+      return counts;
+    }
+
+    async function loadAllCounts() {
+      const sources = [];
+
+      if (merchantHasStoreOrders()) sources.push("orders");
+      if (merchantHasManualOrders()) sources.push("requests");
+
+      if (!sources.length) sources.push("orders");
+
+      const results = await Promise.all(sources.map(loadCountsForSource));
+      const active = results[sources.indexOf(currentSource)] || results[0] || {};
+
+      shippedStat.textContent = active.shipped ?? 0;
+      fulfilledStat.textContent = active.fulfilled ?? 0;
+
       if (currentView !== "open_payments") {
         openStatLabel.textContent = "Open Orders";
-        openStat.textContent = counts.open ?? 0;
+        openStat.textContent = active.open ?? 0;
       }
     }
 
@@ -4666,7 +4835,10 @@ function amountForButton(rawValue) {
     
         item.classList.add("active");
         currentView = item.dataset.view;
+        currentSource = item.dataset.source || "orders";
+
         localStorage.setItem("lojiq_current_view", currentView);
+        localStorage.setItem("lojiq_current_source", currentSource);
         
         await loadOrders(true);
       });
