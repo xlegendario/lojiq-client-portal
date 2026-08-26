@@ -765,12 +765,20 @@ const MEMBER_WTB_VIEW_FORMULAS = {
 
   // "Offer To Buyer" is the Member WTBs counterpart of "Offer To Store":
   // the price we are asking the buyer, once the network has come back.
+  //
+  // CHANGED - "Current Lowest Offer" counts too. The Offers tab lists a
+  // want-to-buy the moment a seller has offered on it; "Offer To Buyer" is
+  // only filled in once the offer has actually been sent out, so counting
+  // on that alone put a 0 over a table with rows in it.
   offers: `AND(
     OR(
       {Fulfillment Status} = 'Pending',
       {Fulfillment Status} = 'Outsource'
     ),
-    {Offer To Buyer} > 0
+    OR(
+      {Offer To Buyer} > 0,
+      {Current Lowest Offer} > 0
+    )
   )`,
 
   allocated: `{Fulfillment Status} = 'Allocated'`,
@@ -2029,6 +2037,323 @@ app.get("/api/orders/offers-open", async (req, res) => {
     console.error("Failed to load open offers:", err);
     res.status(500).json({
       error: "Failed to load open offers",
+      details: err.message
+    });
+  }
+});
+
+// ---------------------------------------------------------------------
+// The same three pills for the Manual Orders section.
+//
+// Store Orders reads the Unfulfilled Orders Log through KC's
+// /api/dashboard/store-* endpoints above. Manual Orders is the same
+// negotiation on a different table - and KC already exposes that side as
+// /api/dashboard/buying-*, because the buyer on a Member WTB is a seller
+// record, which is exactly what merchant.seller_ids holds.
+//
+// So these are the same thin proxies pointed at the buying half, with the
+// handful of field names that differ renamed into the shape the orders
+// table already reads. Nothing on the store path is touched.
+//
+// Before this, the Offers tab ignored the section you were standing in and
+// always asked the store endpoints: a manual store saw an empty table
+// under a sidebar badge that said there was an offer waiting, and a store
+// with both sections saw its store offers listed under Manual as well.
+// ---------------------------------------------------------------------
+
+// The order log names things after a store order and Member WTBs after a
+// want-to-buy. Two names for one column, so they are renamed once, here,
+// rather than in every reader.
+function mapMemberOfferItem(item, roundType) {
+  return {
+    ...item,
+
+    // A denied round that never had a counter comes back tagged
+    // "fresh_denied" by KC and the table keys its buttons off that, so the
+    // tag is left alone and only the round type is filled in.
+    round_type: item.round_type || roundType,
+
+    order_record_id: item.member_wtb_record_id || "",
+    order_number: item.order_id || "",
+    selling_price: item.max_price ?? "-",
+
+    // Member WTBs has no equivalent of either. Present so the columns read
+    // "-" instead of "undefined".
+    offer_date: "",
+    eta: ""
+  };
+}
+
+// A merchant can have more than one seller record, and the buying
+// endpoints answer for one at a time. Asking for each and joining the
+// answers keeps that an implementation detail of this function.
+async function fetchBuyingItems(merchant, path, extraParams = {}) {
+  const sellerIds = merchant.seller_ids || [];
+
+  if (!sellerIds.length) return [];
+
+  const pages = await Promise.all(
+    sellerIds.map(async (sellerRecordId) => {
+      const params = new URLSearchParams({
+        seller_record_id: sellerRecordId,
+        ...extraParams
+      });
+
+      const response = await fetch(
+        `${KICKZ_PORTAL_BASE_URL}${path}?${params.toString()}`,
+        { headers: { "x-kc-secret": COUNTER_OFFERS_SECRET } }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.details || "Failed to load offers");
+      }
+
+      return data.items || [];
+    })
+  );
+
+  return pages.flat();
+}
+
+app.get("/api/orders/member-offers-open", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    // Same two halves as the store side: offers nobody has answered yet,
+    // and rounds where the seller has just moved and it is our turn.
+    const [fresh, countered] = await Promise.all([
+      fetchBuyingItems(merchant, "/api/dashboard/buying-offers"),
+      fetchBuyingItems(merchant, "/api/dashboard/buying-counter-offers", { filter: "open" })
+    ]);
+
+    const items = [
+      ...fresh.map((item) => mapMemberOfferItem(item, "fresh")),
+      ...countered.map((item) => mapMemberOfferItem(item, "counter"))
+    ];
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Failed to load open member offers:", err);
+    res.status(500).json({
+      error: "Failed to load open offers",
+      details: err.message
+    });
+  }
+});
+
+app.get("/api/orders/member-offers-countered", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    const items = (
+      await fetchBuyingItems(merchant, "/api/dashboard/buying-counter-offers", {
+        filter: "countered"
+      })
+    ).map((item) => mapMemberOfferItem(item, "countered"));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Failed to load countered member offers:", err);
+    res.status(500).json({
+      error: "Failed to load countered offers",
+      details: err.message
+    });
+  }
+});
+
+app.get("/api/orders/member-offers-denied", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    const items = (
+      await fetchBuyingItems(merchant, "/api/dashboard/buying-counter-offers", {
+        filter: "denied"
+      })
+    ).map((item) => mapMemberOfferItem(item, "denied"));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Failed to load denied member offers:", err);
+    res.status(500).json({
+      error: "Failed to load denied offers",
+      details: err.message
+    });
+  }
+});
+
+// Which KC endpoint each button on a Member WTB offer belongs to, and what
+// it needs sent with it. One table rather than nine near-identical proxies:
+// they differ only in the path and which ids travel along.
+const MEMBER_OFFER_ACTIONS = {
+  accept: (ids) => ({
+    path: "/api/dashboard/buying/accept-offer",
+    body: {
+      member_wtb_record_id: ids.memberWtbRecordId,
+      ...(ids.counterOfferRecordId ? { counter_offer_record_id: ids.counterOfferRecordId } : {}),
+      ...(ids.sellerOfferRecordId ? { seller_offer_record_id: ids.sellerOfferRecordId } : {}),
+      // The amount on the button is the negotiated one, not the seller's
+      // original ask, so it travels with the accept. A never-countered
+      // offer has nothing to override and sends neither.
+      ...(Number.isFinite(ids.overridePrice)
+        ? { override_price: ids.overridePrice, override_vat_type: ids.overrideVatType }
+        : {})
+    }
+  }),
+
+  deny_fresh: (ids) => ({
+    path: `/api/dashboard/buying-offers/${encodeURIComponent(ids.memberWtbRecordId)}/deny`,
+    body: { seller_offer_record_id: ids.sellerOfferRecordId }
+  }),
+
+  deny_round: (ids) => ({
+    path: `/api/dashboard/buying-counter-offers/${encodeURIComponent(ids.counterOfferRecordId)}/buyer-deny`,
+    body: {}
+  }),
+
+  counter_fresh: (ids) => ({
+    path: "/api/dashboard/buying-counter-offers/create-from-fresh",
+    body: {
+      member_wtb_record_id: ids.memberWtbRecordId,
+      seller_offer_record_id: ids.sellerOfferRecordId,
+      price: ids.price
+    }
+  }),
+
+  counter_round: (ids) => ({
+    path: `/api/dashboard/buying-counter-offers/${encodeURIComponent(ids.counterOfferRecordId)}/buyer-counter`,
+    body: { price: ids.price }
+  }),
+
+  edit_round: (ids) => ({
+    path: `/api/dashboard/buying-counter-offers/${encodeURIComponent(ids.counterOfferRecordId)}/buyer-edit`,
+    body: { price: ids.price }
+  }),
+
+  retry_round: (ids) => ({
+    path: `/api/dashboard/buying-counter-offers/${encodeURIComponent(ids.counterOfferRecordId)}/retry-counter`,
+    body: { price: ids.price }
+  }),
+
+  cancel_round: (ids) => ({
+    path: `/api/dashboard/buying-counter-offers/${encodeURIComponent(ids.counterOfferRecordId)}/buyer-cancel`,
+    body: {}
+  }),
+
+  delete_denied: (ids) => ({
+    path: `/api/dashboard/buying-offers/${encodeURIComponent(ids.sellerOfferRecordId)}/buyer-delete-denied`,
+    body: {}
+  })
+};
+
+// Which of this merchant's seller records is the buyer on this WTB, or ""
+// if none of them is.
+//
+// Every buying endpoint but one checks this itself; buying/accept-offer
+// does not, and that is the one that creates the deal. So it is checked
+// here for all of them - a store may only act on its own demand, and the
+// answer doubles as the seller_record_id the KC side wants.
+async function resolveMemberWtbBuyer(memberWtbRecordId, merchant) {
+  const sellerIds = merchant.seller_ids || [];
+
+  if (!memberWtbRecordId || !sellerIds.length) return "";
+
+  const record = await airtable(AIRTABLE_MEMBER_WTBS_TABLE)
+    .find(memberWtbRecordId)
+    .catch(() => null);
+
+  if (!record) return "";
+
+  const raw = record.fields?.["Buyer Seller Record ID"];
+  const buyerIds = (Array.isArray(raw) ? raw : [raw]).map((value) => asText(value));
+
+  return sellerIds.find((sellerId) => buyerIds.includes(sellerId)) || "";
+}
+
+app.post("/api/orders/member-offers/action", async (req, res) => {
+  try {
+    const merchantId = asText(req.body?.merchant_id);
+    const action = asText(req.body?.action);
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant_id" });
+    }
+
+    const buildRequest = MEMBER_OFFER_ACTIONS[action];
+
+    if (!buildRequest) {
+      return res.status(400).json({ error: "Invalid action" });
+    }
+
+    if (!COUNTER_OFFERS_SECRET) {
+      return res.status(500).json({ error: "Missing COUNTER_OFFERS_SECRET" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+    const memberWtbRecordId = asText(req.body?.member_wtb_record_id);
+    const sellerRecordId = await resolveMemberWtbBuyer(memberWtbRecordId, merchant);
+
+    if (!sellerRecordId) {
+      return res.status(403).json({ error: "Not allowed for this merchant" });
+    }
+
+    const price = Number(req.body?.price);
+    const overridePrice = Number(req.body?.override_price);
+
+    const { path, body } = buildRequest({
+      memberWtbRecordId,
+      counterOfferRecordId: asText(req.body?.counter_offer_record_id),
+      sellerOfferRecordId: asText(req.body?.seller_offer_record_id),
+      price: Number.isFinite(price) ? price : undefined,
+      overridePrice: Number.isFinite(overridePrice) && overridePrice > 0 ? overridePrice : undefined,
+      overrideVatType: asText(req.body?.override_vat_type)
+    });
+
+    const response = await fetch(`${KICKZ_PORTAL_BASE_URL}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-kc-secret": COUNTER_OFFERS_SECRET
+      },
+      body: JSON.stringify({ ...body, seller_record_id: sellerRecordId })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      // Passed through rather than flattened to a 500: the buying side
+      // answers 409 with a sentence worth reading ("This offer is no
+      // longer available.") and the table shows whatever comes back.
+      return res.status(response.status).json(data);
+    }
+
+    clearCountsForMerchant(merchantId);
+    ordersCache.clear();
+
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    console.error("Member offer action failed:", err);
+    res.status(500).json({
+      error: "Failed to process offer",
       details: err.message
     });
   }
