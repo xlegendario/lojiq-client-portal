@@ -375,18 +375,6 @@ body.kc-dialog-open {
       color: #ffffff;
     }
 
-    /* The shop is a link, not a section that opens - the arrow points the
-       way out rather than down. */
-    a.nav-main.nav-shop {
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    a.nav-main.nav-shop:hover {
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.05);
-    }
-
     .nav-label {
       flex: 1 1 auto;
       min-width: 0;
@@ -534,6 +522,34 @@ body.kc-dialog-open {
       border-radius: 10px;
       padding: 9px 12px;
       font-weight: 800;
+    }
+
+    /* Filled where Logout is outlined: going shopping is the thing you
+       came here to do, signing out is not. */
+    .shop-btn {
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-weight: 900;
+      font-size: 14px;
+      color: #ffffff;
+      text-decoration: none;
+      white-space: nowrap;
+      background: linear-gradient(135deg, var(--primary), var(--primary-soft));
+      box-shadow: var(--primary-glow);
+      transition: box-shadow 0.15s ease, transform 0.15s ease;
+    }
+
+    .shop-btn:hover {
+      box-shadow: var(--primary-glow-strong);
+      transform: translateY(-1px);
+    }
+
+    .shop-btn:active {
+      transform: none;
     }
 
     .content {
@@ -1359,15 +1375,21 @@ body.kc-dialog-open {
          box, counters — scrolls away as normal, so as little as possible
          stays fixed on screen while reading.
 
-         Three columns whose outer two are equally wide, so the title sits
-         truly in the middle rather than just beside it. */
+         Three columns: the menu and the buttons take what they need, the
+         title gets what is left.
+
+         CHANGED - the outer two used to be 1fr each, to centre the title on
+         the bar rather than in the space between. That worked while the
+         right side held one button; with Shop next to Logout it no longer
+         fit, and since a fr track can be squeezed below its content the
+         buttons ran over the title instead of the bar getting wider. */
       .topbar {
         position: sticky;
         top: 0;
         z-index: 900;
 
         display: grid;
-        grid-template-columns: 1fr auto 1fr;
+        grid-template-columns: auto minmax(0, 1fr) auto;
         align-items: center;
         gap: 10px;
 
@@ -1389,12 +1411,23 @@ body.kc-dialog-open {
       .topbar-title {
         display: block;
         grid-column: 2;
-        justify-self: center;
+
+        /* CHANGED - justify-self: center sizes the box to its text, so it
+           simply stuck out of its column and ran under the buttons instead
+           of clipping. Filling the column and centring the text inside it
+           lets min-width and the ellipsis below actually apply. */
+        justify-self: stretch;
+        text-align: center;
         font-size: 17px;
         letter-spacing: -0.2px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+
+        /* Without this the middle column refuses to shrink below its text,
+           and the two buttons on the right run over the title on a narrow
+           phone. Zero here lets the ellipsis above actually do its work. */
+        min-width: 0;
       }
 
       .merchant-box {
@@ -1404,9 +1437,15 @@ body.kc-dialog-open {
         justify-self: end;
       }
 
-      /* The store name is already in the menu; the bar only needs Logout. */
+      /* The store name is already in the menu; the bar only needs the two
+         buttons. */
       .merchant-box span {
         display: none;
+      }
+
+      .shop-btn {
+        padding: 8px 11px;
+        font-size: 13px;
       }
 
       .content {
@@ -1934,11 +1973,6 @@ body.kc-dialog-open {
 
       <div class="sidebar-section-title">Portal</div>
 
-      <a class="nav-main nav-shop" id="shopLink" href="/shop" style="display:none;">
-        <span class="nav-arrow">&#8250;</span>
-        <span class="nav-label">Shop</span>
-      </a>
-
       <div class="nav-main open" data-section-toggle="orders" id="navStoreOrders">
         <span class="nav-arrow">›</span>
         <span class="nav-label">Store Orders</span>
@@ -2122,6 +2156,11 @@ body.kc-dialog-open {
         <div id="topbarTitle" class="topbar-title">Merchant Portal</div>
         <div class="merchant-box">
           <span id="merchantName">Loading...</span>
+          <!-- The shop is a destination, not a view of the orders table, so
+               it sits with the store name and Logout rather than among the
+               tabs. Kept to the right of the name: name first, then the two
+               things you can do. -->
+          <a class="shop-btn" id="shopLink" href="/shop" style="display:none;">Shop</a>
           <button id="logoutBtn" class="logout-btn">Logout</button>
         </div>
       </div>
@@ -3031,7 +3070,7 @@ function showPrompt(message, options) {
       const shopLink = document.getElementById("shopLink");
 
       if (shopLink) {
-        shopLink.style.display = merchantHasManualOrders() ? "flex" : "none";
+        shopLink.style.display = merchantHasManualOrders() ? "inline-flex" : "none";
       }
 
       // Landing on a tab that is no longer there would leave an empty table
@@ -3737,8 +3776,8 @@ function amountForButton(rawValue) {
 
       // NEW — on a phone the name of the current view sits in the top
       // bar, so you keep seeing where you are while scrolling.
-      const balkTitel = document.getElementById("topbarTitle");
-      if (balkTitel) balkTitel.textContent = label;
+      const topbarTitle = document.getElementById("topbarTitle");
+      if (topbarTitle) topbarTitle.textContent = label;
 
       if (currentView !== "open_payments") {
         openStatLabel.textContent = "Open Orders";
