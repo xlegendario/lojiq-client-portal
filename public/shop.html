@@ -1135,6 +1135,108 @@
 
   document.getElementById("wtbOpen").addEventListener("click", () => showWtbForm());
 
+  // ---- want to buy: bulk ----------------------------------------------
+
+  // Parsed in the browser and posted row by row, exactly as the Kickz
+  // Caviar buying page does it. Nothing new on the server: every row goes
+  // through the same /api/shop/wtb the single form uses, so the rules and
+  // the wording can never drift between the two.
+  function splitCsvLine(line, delimiter) {
+    const out = [];
+    let current = "";
+    let quoted = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+
+      if (char === '"' && quoted && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+        continue;
+      }
+
+      if (char === '"') {
+        quoted = !quoted;
+        continue;
+      }
+
+      if (char === delimiter && !quoted) {
+        out.push(current.trim());
+        current = "";
+        continue;
+      }
+
+      current += char;
+    }
+
+    out.push(current.trim());
+    return out;
+  }
+
+  function parseWtbCsv(text) {
+    const lines = String(text || "")
+      .replace(/\r/g, "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      throw new Error("The file needs a header row and at least one request.");
+    }
+
+    // Excel in some locales writes semicolons. Taking whichever separator
+    // appears more often in the header beats telling a shop its file is
+    // broken when it is only continental.
+    const delimiter = (lines[0].match(/;/g) || []).length >
+                      (lines[0].match(/,/g) || []).length ? ";" : ",";
+
+    const headers = splitCsvLine(lines[0], delimiter)
+      .map((h) => String(h || "").replace(/^﻿/, "").trim().toLowerCase());
+
+    const missing = ["sku", "size", "max price"].filter((c) => !headers.includes(c));
+
+    if (missing.length) {
+      throw new Error(`Missing columns: ${missing.join(", ")}. Use the template below.`);
+    }
+
+    const at = (name) => headers.indexOf(name);
+
+    const rows = lines.slice(1).map((line, index) => {
+      const values = splitCsvLine(line, delimiter);
+
+      return {
+        row_number: index + 2,
+        sku: String(values[at("sku")] || "").trim().toUpperCase(),
+        size: String(values[at("size")] || "")
+          .trim()
+          .replace(/,/g, ".")
+          .replace(/\s+/g, " ")
+          .toUpperCase(),
+        max_price: Number(String(values[at("max price")] || "").replace(/[^\d]/g, ""))
+      };
+    });
+
+    // Same three rules as the single form, so a file is judged the way a
+    // typed request is. The server checks them again regardless.
+    const problems = [];
+
+    rows.forEach((row) => {
+      if (!/^[A-Z0-9-]+$/.test(row.sku)) {
+        problems.push(`Row ${row.row_number}: a SKU can only contain letters, numbers and hyphens`);
+      }
+
+      if (!/^[A-Z0-9./ -]+$/.test(row.size) || !/[A-Z0-9]/.test(row.size)) {
+        problems.push(`Row ${row.row_number}: "${row.size}" is not a valid size`);
+      }
+
+      if (!Number.isInteger(row.max_price) || row.max_price <= 0) {
+        problems.push(`Row ${row.row_number}: price must be a whole number above 0`);
+      }
+    });
+
+    return { rows, problems };
+  }
+
   function showWtbForm(values) {
     const filled = values || {};
 
@@ -1143,6 +1245,11 @@
 
       <div class="modal-sub" style="margin-bottom:14px">
         Choose how you want to post your WTB.
+      </div>
+
+      <div class="segment" style="margin-bottom:16px">
+        <button type="button" class="active" data-wtb-mode="single" style="flex:1">One request</button>
+        <button type="button" data-wtb-mode="csv" style="flex:1">Upload CSV</button>
       </div>
 
       <label class="field-label" for="wtbSku">SKU</label>
@@ -1250,6 +1357,186 @@
       }
 
       confirmWtb({ sku, size, price: String(priceInput.value), amount, type: typeSelect.value });
+    });
+
+    actionModal.querySelector('[data-wtb-mode="csv"]')
+      .addEventListener("click", () => showWtbCsvForm(typeSelect.value));
+  }
+
+  function showWtbCsvForm(chosenType) {
+    let parsed = null;
+
+    actionModal.innerHTML = `
+      <div class="modal-title">Post Want To Buys</div>
+
+      <div class="modal-sub" style="margin-bottom:14px">
+        Choose how you want to post your WTB.
+      </div>
+
+      <div class="segment" style="margin-bottom:16px">
+        <button type="button" data-wtb-mode="single" style="flex:1">One request</button>
+        <button type="button" class="active" data-wtb-mode="csv" style="flex:1">Upload CSV</button>
+      </div>
+
+      <label class="field-label" for="wtbCsvType">Buying type</label>
+      <select id="wtbCsvType" class="field">
+        <option value="all">All inventory</option>
+        <option value="b2b">B2B only</option>
+        <option value="private">Margin only</option>
+      </select>
+
+      <p class="note" id="wtbCsvNote"></p>
+
+      <label class="field-label" for="wtbCsvFile" style="margin-top:10px">CSV file</label>
+      <input id="wtbCsvFile" class="field" type="file" accept=".csv,text/csv">
+
+      <p class="note">
+        Columns: <b>SKU</b>, <b>Size</b>, <b>Max Price</b>.
+        <a href="/templates/member-wtb-template.csv" download>Download the template</a>.
+      </p>
+
+      <div class="error" id="actionError"></div>
+
+      <div style="display:flex; gap:8px; margin-top:14px">
+        <button class="btn ghost" type="button" data-close style="flex:1">Cancel</button>
+        <button class="btn primary" type="button" id="wtbCsvSend" style="flex:1" disabled>Upload</button>
+      </div>
+    `;
+
+    actionBackdrop.classList.add("open");
+
+    const typeSelect = document.getElementById("wtbCsvType");
+    const note = document.getElementById("wtbCsvNote");
+    const fileInput = document.getElementById("wtbCsvFile");
+    const sendButton = document.getElementById("wtbCsvSend");
+    const failure = document.getElementById("actionError");
+
+    typeSelect.value = chosenType || inventoryType;
+
+    // The same sentence as the single form, with no amount in it - which is
+    // exactly why it works here, where there are two hundred amounts.
+    note.innerHTML = vatExplanation(typeSelect.value);
+
+    typeSelect.addEventListener("change", () => {
+      note.innerHTML = vatExplanation(typeSelect.value);
+    });
+
+    actionModal.querySelector('[data-wtb-mode="single"]')
+      .addEventListener("click", () => showWtbForm({ type: typeSelect.value }));
+
+    fileInput.addEventListener("change", async () => {
+      failure.textContent = "";
+      parsed = null;
+      sendButton.disabled = true;
+      sendButton.textContent = "Upload";
+
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+
+      try {
+        parsed = parseWtbCsv(await file.text());
+      } catch (err) {
+        failure.textContent = err.message;
+        return;
+      }
+
+      // Every problem at once. Fixing one, re-uploading and meeting the
+      // next is what this replaces.
+      if (parsed.problems.length) {
+        const shown = parsed.problems.slice(0, 12);
+        const rest = parsed.problems.length - shown.length;
+
+        failure.innerHTML =
+          `<b>${parsed.problems.length} problem${parsed.problems.length === 1 ? "" : "s"} in this file:</b><br>` +
+          shown.map(escapeHtml).join("<br>") +
+          (rest > 0 ? `<br>...and ${rest} more` : "");
+
+        parsed = null;
+        return;
+      }
+
+      sendButton.disabled = false;
+      sendButton.textContent = `Upload ${parsed.rows.length} request${parsed.rows.length === 1 ? "" : "s"}`;
+    });
+
+    sendButton.addEventListener("click", async () => {
+      if (!parsed) return;
+
+      sendButton.disabled = true;
+      failure.textContent = "";
+
+      // Rows go one at a time, so closing the tab halfway leaves the file
+      // half posted with nothing on screen to say where it stopped - and
+      // re-uploading then duplicates whatever already went through, since
+      // nothing dedupes want-to-buys. Cheaper to make leaving hard than to
+      // clean that up afterwards.
+      const warnOnLeave = (event) => {
+        event.preventDefault();
+        event.returnValue = "";
+      };
+
+      window.addEventListener("beforeunload", warnOnLeave);
+
+      const cancelButton = actionModal.querySelector("[data-close]");
+      if (cancelButton) cancelButton.disabled = true;
+
+      const failed = [];
+      let done = 0;
+
+      for (const row of parsed.rows) {
+        sendButton.textContent = `Posting ${done + 1} of ${parsed.rows.length}...`;
+
+        try {
+          const response = await fetch("/api/shop/wtb", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              merchant_id: merchant.id,
+              sku: row.sku,
+              size: row.size,
+              max_price: row.max_price,
+              inventory_type: typeSelect.value
+            })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.details || data.error || "Failed");
+          }
+        } catch (err) {
+          // One bad row must not take the other 199 with it.
+          failed.push(`Row ${row.row_number}: ${err.message}`);
+        }
+
+        done += 1;
+      }
+
+      window.removeEventListener("beforeunload", warnOnLeave);
+
+      const posted = parsed.rows.length - failed.length;
+
+      actionModal.innerHTML = `
+        <div class="modal-title">${posted} request${posted === 1 ? "" : "s"} posted</div>
+
+        <p class="note">
+          We are looking for them now. You will find them under Orders, and
+          any offer that comes in appears there too.
+        </p>
+
+        ${failed.length ? `
+          <div class="error" style="margin-top:10px">
+            <b>${failed.length} row${failed.length === 1 ? "" : "s"} could not be posted:</b><br>
+            ${failed.slice(0, 12).map(escapeHtml).join("<br>")}
+            ${failed.length > 12 ? `<br>...and ${failed.length - 12} more` : ""}
+          </div>
+        ` : ""}
+
+        <div style="display:flex; gap:8px; margin-top:14px">
+          <a class="btn primary" href="/portal" style="flex:1">Go to orders</a>
+          <button class="btn ghost" type="button" data-close style="flex:1">Close</button>
+        </div>
+      `;
     });
   }
 
