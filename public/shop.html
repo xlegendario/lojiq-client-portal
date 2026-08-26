@@ -1463,80 +1463,54 @@
       if (!parsed) return;
 
       sendButton.disabled = true;
+      sendButton.textContent = "Sending...";
       failure.textContent = "";
 
-      // Rows go one at a time, so closing the tab halfway leaves the file
-      // half posted with nothing on screen to say where it stopped - and
-      // re-uploading then duplicates whatever already went through, since
-      // nothing dedupes want-to-buys. Cheaper to make leaving hard than to
-      // clean that up afterwards.
-      const warnOnLeave = (event) => {
-        event.preventDefault();
-        event.returnValue = "";
-      };
+      // The whole file goes over in one request and a background worker
+      // posts the rows. Nothing to wait for, so the shop can close the tab
+      // the moment this returns - and an interrupted import resumes instead
+      // of leaving half a file behind with no record of where it stopped.
+      try {
+        const response = await fetch("/api/shop/wtb-csv", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            merchant_id: merchant.id,
+            inventory_type: typeSelect.value,
+            rows: parsed.rows
+          })
+        });
 
-      window.addEventListener("beforeunload", warnOnLeave);
+        const data = await response.json();
 
-      const cancelButton = actionModal.querySelector("[data-close]");
-      if (cancelButton) cancelButton.disabled = true;
-
-      const failed = [];
-      let done = 0;
-
-      for (const row of parsed.rows) {
-        sendButton.textContent = `Posting ${done + 1} of ${parsed.rows.length}...`;
-
-        try {
-          const response = await fetch("/api/shop/wtb", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              merchant_id: merchant.id,
-              sku: row.sku,
-              size: row.size,
-              max_price: row.max_price,
-              inventory_type: typeSelect.value
-            })
-          });
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            throw new Error(data.details || data.error || "Failed");
-          }
-        } catch (err) {
-          // One bad row must not take the other 199 with it.
-          failed.push(`Row ${row.row_number}: ${err.message}`);
+        if (!response.ok) {
+          throw new Error(data.details || data.error || "Upload failed");
         }
 
-        done += 1;
-      }
+        actionModal.innerHTML = `
+          <div class="modal-title">${data.count} request${data.count === 1 ? "" : "s"} received</div>
 
-      window.removeEventListener("beforeunload", warnOnLeave);
+          <p class="note">
+            We are posting them now — you can close this window. They appear
+            under Orders as they go out, and any offer that comes in appears
+            there too.
+          </p>
 
-      const posted = parsed.rows.length - failed.length;
-
-      actionModal.innerHTML = `
-        <div class="modal-title">${posted} request${posted === 1 ? "" : "s"} posted</div>
-
-        <p class="note">
-          We are looking for them now. You will find them under Orders, and
-          any offer that comes in appears there too.
-        </p>
-
-        ${failed.length ? `
-          <div class="error" style="margin-top:10px">
-            <b>${failed.length} row${failed.length === 1 ? "" : "s"} could not be posted:</b><br>
-            ${failed.slice(0, 12).map(escapeHtml).join("<br>")}
-            ${failed.length > 12 ? `<br>...and ${failed.length - 12} more` : ""}
+          <div style="display:flex; gap:8px; margin-top:14px">
+            <a class="btn primary" href="/portal" style="flex:1">Go to orders</a>
+            <button class="btn ghost" type="button" data-close style="flex:1">Close</button>
           </div>
-        ` : ""}
+        `;
+      } catch (err) {
+        // The server answers with every bad row at once, one per line.
+        failure.innerHTML = String(err.message)
+          .split(/\n/)
+          .map(escapeHtml)
+          .join("<br>");
 
-        <div style="display:flex; gap:8px; margin-top:14px">
-          <a class="btn primary" href="/portal" style="flex:1">Go to orders</a>
-          <button class="btn ghost" type="button" data-close style="flex:1">Close</button>
-        </div>
-      `;
+        sendButton.disabled = false;
+        sendButton.textContent = `Upload ${parsed.rows.length} request${parsed.rows.length === 1 ? "" : "s"}`;
+      }
     });
   }
 
