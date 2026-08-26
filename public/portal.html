@@ -2891,6 +2891,12 @@ function showPrompt(message, options) {
     // hand. Same eight views either side, different data and one different
     // column heading - which is exactly why they are two sections rather
     // than one list with an extra column.
+    // Finance belongs to neither section: an amount owed is an amount owed,
+    // whichever table the order came from. These two views therefore ask for
+    // both at once, so a store can settle store orders and want-to-buys in
+    // one payment instead of one link per table.
+    const FINANCE_VIEWS = ["open_payments", "payment_history"];
+
     let currentSource = localStorage.getItem("lojiq_current_source") || "orders";
     let activeOfferPillFilter = "open"; // NEW — additive only: Open vs Countered pill within the offers view
     let merchant = null;
@@ -3872,7 +3878,7 @@ function amountForButton(rawValue) {
       const params = new URLSearchParams({
         merchant_id: merchant.id,
         view: currentView,
-        source: currentSource,
+        source: FINANCE_VIEWS.includes(currentView) ? "all" : currentSource,
         search: searchInput.value || "",
         page_size: "20",
         refresh: ordersCacheBuster
@@ -4026,7 +4032,7 @@ function amountForButton(rawValue) {
       const params = new URLSearchParams({
         merchant_id: merchant.id,
         view: currentView,
-        source: currentSource,
+        source: FINANCE_VIEWS.includes(currentView) ? "all" : currentSource,
         search: searchInput.value || "",
         page_size: "20",
         offset: offsetToPreload,
@@ -4104,12 +4110,13 @@ function amountForButton(rawValue) {
       const counts = data.counts || {};
 
       Object.entries(counts).forEach(([view, count]) => {
-        // Views that belong to neither section - Returns, Inventory,
-        // StockX, Finance - keep the plain id they always had.
         setNavCount(document.getElementById(`count-${source}-${view}`), count);
-        setNavCount(document.getElementById(`count-${view}`), count);
       });
 
+      // FIXED - this also wrote the section-less badges (Returns, Inventory,
+      // StockX, Finance), which a store with both sections loads twice. The
+      // two runs then overwrote each other and whichever finished last won.
+      // loadAllCounts writes those once, from both answers together.
       return counts;
     }
 
@@ -4122,6 +4129,26 @@ function amountForButton(rawValue) {
       if (!sources.length) sources.push("orders");
 
       const results = await Promise.all(sources.map(loadCountsForSource));
+
+      // The badges outside both sections, written once. Finance is summed
+      // because its list really does show both kinds now; Returns, Inventory
+      // and StockX exist only once, and both runs report the same number for
+      // them, so adding them up would double it.
+      const sectionlessViews = new Set(
+        results.flatMap((counts) => Object.keys(counts || {}))
+      );
+
+      sectionlessViews.forEach((view) => {
+        const numbers = results.map((counts) => Number(counts?.[view]) || 0);
+
+        setNavCount(
+          document.getElementById(`count-${view}`),
+          FINANCE_VIEWS.includes(view)
+            ? numbers.reduce((sum, n) => sum + n, 0)
+            : Math.max(...numbers)
+        );
+      });
+
       const active = results[sources.indexOf(currentSource)] || results[0] || {};
 
       shippedStat.textContent = active.shipped ?? 0;
