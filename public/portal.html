@@ -694,9 +694,9 @@ body.kc-dialog-open {
       table-layout: fixed;
     }
 
-    /* Product is the only column without a fixed width and therefore soaks
-       up whatever is left. It is also the column that deserves the room:
-       that is where text is being cut off today. */
+    /* Product carries a width like every other column now (set inline from
+       columnWidths, which beats this rule). This stays as the fallback for
+       a render that has not run yet, so the column is never zero-width. */
     th[data-key="product"],
     td[data-key="product"] {
       width: auto;
@@ -2588,6 +2588,16 @@ function showPrompt(message, options) {
     // product and actions are deliberately absent: product soaks up the
     // remaining space and actions is measured against its buttons.
     const columnWidths = {
+      // CHANGED - product used to be left out on purpose, so it took every
+      // pixel the other columns did not claim. In a view with six columns
+      // on a wide screen that is most of the table: the name sat on one
+      // line with a hand's width of empty cell after it while Size and Date
+      // were squeezed against the right edge.
+      //
+      // With a width of its own the leftover room is shared out across all
+      // the columns in proportion, which is what a table with few columns
+      // should look like. It is still by far the widest, because it is.
+      product: 300,
       select: 60,
       size: 75,
       vat_type: 85,
@@ -5375,11 +5385,15 @@ function amountForButton(rawValue) {
         }
       }
 
+      // Product is measured from its declared width rather than the width
+      // it happens to have on screen: that one is already stretched, and
+      // feeding it back in would mean the table could never shrink again.
       const fixedWidth = Array.from(document.querySelectorAll("thead th"))
         .filter((th) => th.dataset.key !== "product")
         .reduce((som, th) => som + th.getBoundingClientRect().width, 0);
 
-      tabel.style.minWidth = Math.round(fixedWidth + 275) + "px";
+      tabel.style.minWidth =
+        Math.round(fixedWidth + (columnWidths.product || 300)) + "px";
     }
 
     // NEW — additive: the shadow beside the pinned product block should
