@@ -1483,7 +1483,7 @@ body.kc-dialog-open {
     td[data-key="actions"],
     td[data-key="payment_action"],
     td[data-key="payment_link"] {
-      text-align: right;
+      text-align: left;
     }
     
     td[data-key="status"] .status,
@@ -1504,7 +1504,8 @@ body.kc-dialog-open {
        heading, and from the Offers rows, whose grid layout was already
        left-aligned. One side for all of them; left, like every other
        column. */
-    td[data-key="actions"] .action-row {
+    td[data-key="actions"] .action-row,
+    td[data-key="payment_action"] .action-row {
       justify-content: flex-start;
     }
 
@@ -1625,6 +1626,7 @@ body.kc-dialog-open {
          that is a bar at the bottom which doubles as the divider between
          cards, and with two or three they share the space evenly. */
       .table-wrap td[data-key="actions"] .action-row,
+      .table-wrap td[data-key="payment_action"] .action-row,
       .table-wrap td[data-key="payment_action"],
       .table-wrap td[data-key="payment_link"] {
         display: flex;
@@ -1645,12 +1647,14 @@ body.kc-dialog-open {
       /* With only one button it fills the full width without depending on
          flex — which behaves the same in every browser. */
       .table-wrap td[data-key="actions"] .action-row > *:only-child,
+      .table-wrap td[data-key="payment_action"] .action-row > *:only-child,
       .table-wrap td[data-key="payment_action"] .action-btn:only-child,
       .table-wrap td[data-key="payment_link"] .action-btn:only-child {
         width: 100%;
       }
 
       .table-wrap td[data-key="actions"] .action-btn,
+      .table-wrap td[data-key="payment_action"] .action-row .action-btn,
       .table-wrap td[data-key="payment_action"] .action-btn,
       .table-wrap td[data-key="payment_link"] .action-btn {
         flex: 1 1 auto;
@@ -2650,7 +2654,7 @@ function showPrompt(message, options) {
       qc_notes: 80,
       issue_notes: 80,
       payment_link: 80,
-      payment_action: 80,
+      payment_action: 160,
     };
 
     const columnsByView = {
@@ -2733,8 +2737,7 @@ function showPrompt(message, options) {
         ["invoice_price", "Invoice Price"],
         ["status", "Status"],
         ["shipping_status", "Shipping Status"],
-        ["tracking_url", "Tracking"],
-        ["payment_action", "Action"]
+        ["payment_action", "Actions"]
       ],
 
       payment_history: [
@@ -3451,12 +3454,28 @@ function amountForButton(rawValue) {
         `;
       }
 
+      // CHANGED - Tracking used to be a column of its own beside this one,
+      // which cost a whole column for a single button and pushed the pinned
+      // action column off the edge of the table. TRACK is a button, so it
+      // belongs with the buttons.
       if (key === "payment_action") {
-        const selectable = isPaymentSelectable(order);
-      
-        return selectable
-          ? `<button class="action-btn green" type="button" onclick="paySingleOrder('${escapeHtml(order.id)}')">PAY</button>`
-          : "—";
+        const buttons = [];
+
+        if (order.tracking_url) {
+          buttons.push(
+            `<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank">TRACK</a>`
+          );
+        }
+
+        if (isPaymentSelectable(order)) {
+          buttons.push(
+            `<button class="action-btn green" type="button" onclick="paySingleOrder('${escapeHtml(order.id)}')">PAY</button>`
+          );
+        }
+
+        if (!buttons.length) return "&mdash;";
+
+        return `<div class="action-row">${buttons.join("")}</div>`;
       }
 
       if (key === "tracking_url") {
