@@ -102,10 +102,18 @@ function normalizeMerchant(record) {
     // NEW - where this store's demand comes from. Blank means API,
     // which is every merchant that exists today, so nothing changes
     // for them until the field is set.
-    order_intake:
-      asText(record.fields["Order Intake"]).trim().toLowerCase() === "manual"
-        ? "manual"
-        : "api"
+    // NEW - "both" joins "api" and "manual": a store on the integration can
+    // still have orders that never touch it, and posting those by hand is
+    // the whole point of the manual side. Blank stays "api", which is every
+    // merchant that existed before this field.
+    order_intake: (() => {
+      const raw = asText(record.fields["Order Intake"]).trim().toLowerCase();
+
+      if (raw === "manual") return "manual";
+      if (raw === "both") return "both";
+
+      return "api";
+    })()
   };
 }
 
@@ -824,8 +832,19 @@ const MEMBER_WTB_EMPTY_VIEWS = new Set([
   "stockx_second_orders"
 ]);
 
-function merchantUsesManualIntake(merchant = {}) {
-  return merchant.order_intake === "manual";
+// Which of the two order sources a store has, asked separately because a
+// store can have both.
+//
+// This used to be one either/or, which decided what /api/orders returned.
+// That works right up to the moment a merchant has both kinds, and then one
+// list has to mean two things - so the source moved into the request and
+// these only decide what a store is offered.
+function merchantHasManualOrders(merchant = {}) {
+  return merchant.order_intake === "manual" || merchant.order_intake === "both";
+}
+
+function merchantHasStoreOrders(merchant = {}) {
+  return merchant.order_intake === "api" || merchant.order_intake === "both";
 }
 
 // The shop is where a store without an API integration puts its demand in by
@@ -836,7 +855,7 @@ function merchantUsesManualIntake(merchant = {}) {
 // Hiding the nav link in the portal was never enforcement. The page and all
 // four endpoints behind it were reachable by URL for every logged-in store.
 function refuseShopForApiStore(merchant, res) {
-  if (merchantUsesManualIntake(merchant)) return false;
+  if (merchantHasManualOrders(merchant)) return false;
 
   res.status(403).json({ error: "The shop is not available for this store." });
   return true;
@@ -1176,6 +1195,17 @@ const ORDER_FIELDS = [
 
 const merchantCache = new Map();
 const countsCache = new Map();
+
+// One merchant now has a counts entry per section, so clearing "the" entry
+// is no longer a single delete. Everything that changes something goes
+// through here instead of guessing the key.
+function clearCountsForMerchant(merchantId) {
+  const prefix = `counts:${merchantId}`;
+
+  for (const key of countsCache.keys()) {
+    if (key === prefix || key.startsWith(`${prefix}:`)) countsCache.delete(key);
+  }
+}
 const ordersCache = new Map();
 
 const CACHE_TTL_MS = 60 * 1000;
@@ -1227,10 +1257,23 @@ app.get("/api/orders", async (req, res) => {
 
     const merchant = await getCachedMerchant(merchantId);
 
-    // NEW - a manual store's demand lives in Member WTBs. Branching here
-    // rather than threading a source through the code below keeps the
-    // API path byte for byte what it was.
-    if (merchantUsesManualIntake(merchant)) {
+    // CHANGED - the caller says which of the two lists it wants.
+    //
+    // This used to read the merchant: manual intake meant Member WTBs, and
+    // everything else meant store orders. A store with both then had one
+    // list that had to mean two things - and one price column that had to
+    // be a selling price and a maximum at the same time. The portal now
+    // shows them as two sections and asks for one at a time.
+    //
+    // Defaults to whichever the store actually has, so a caller that sends
+    // nothing keeps the old behaviour exactly.
+    const requestedSource = asText(req.query.source).toLowerCase();
+
+    const wantsRequests = requestedSource
+      ? requestedSource === "requests"
+      : merchantHasManualOrders(merchant) && !merchantHasStoreOrders(merchant);
+
+    if (wantsRequests) {
       const { records, offset: nextOffset } = await fetchMemberWtbOrders({
         merchant,
         view,
@@ -1449,7 +1492,11 @@ app.get("/api/orders/counts", async (req, res) => {
       return res.status(400).json({ error: "Missing merchant_id" });
     }
 
-    const cacheKey = `counts:${merchantId}`;
+    // Counts belong to one section, so the key carries it too - otherwise a
+    // store with both sections sees the first one's numbers on the second.
+    const requestedSource = asText(req.query.source).toLowerCase();
+
+    const cacheKey = `counts:${merchantId}:${requestedSource || "default"}`;
     const cached = countsCache.get(cacheKey);
 
     if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) {
@@ -1458,6 +1505,10 @@ app.get("/api/orders/counts", async (req, res) => {
 
     const merchant = await getCachedMerchant(merchantId);
     const safeStoreName = escapeFormulaValue(merchant.store_name);
+
+    const wantsRequests = requestedSource
+      ? requestedSource === "requests"
+      : merchantHasManualOrders(merchant) && !merchantHasStoreOrders(merchant);
 
     const views = [
       "open",
@@ -1522,7 +1573,7 @@ app.get("/api/orders/counts", async (req, res) => {
           return;
         }
         
-        if (merchantUsesManualIntake(merchant)) {
+        if (wantsRequests) {
           counts[view] = await countMemberWtbView({ merchant, view });
           return;
         }
@@ -1707,7 +1758,7 @@ app.post("/api/orders/:recordId/cancel", async (req, res) => {
       "Fulfillment Status": "Store Fulfilled"
     });
 
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json({
@@ -1751,7 +1802,7 @@ app.post("/api/orders/:recordId/remove-second-bid", async (req, res) => {
       "Remove Second Bid?": true
     });
 
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json({
@@ -1814,7 +1865,7 @@ app.post("/api/orders/:recordId/offer", async (req, res) => {
       });
     }
 
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json({
@@ -2193,7 +2244,7 @@ async function handleShopAction(req, res, { path, extra }) {
 
   // The new want to buy has to show up in the orders list straight away,
   // otherwise the store presses the button and nothing appears to happen.
-  countsCache.delete(`counts:${merchantId}`);
+  clearCountsForMerchant(merchantId);
   ordersCache.clear();
 
   res.json(data);
@@ -2297,7 +2348,7 @@ app.post("/api/shop/wtb-csv", async (req, res) => {
       rows
     });
 
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json(data);
@@ -2362,7 +2413,7 @@ app.post("/api/shop/wtb", async (req, res) => {
 
     // The new want to buy has to show up in the orders list straight away,
     // same reason as the Buy and Offer buttons.
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json(data);
@@ -2710,7 +2761,7 @@ app.post("/api/orders/:recordId/counter-offer", async (req, res) => {
     }
 
     ordersCache.clear();
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
 
     res.json({
       ok: true,
@@ -2879,7 +2930,7 @@ app.post("/api/orders/:recordId/issue", async (req, res) => {
       "Issue Notes": issueNotes
     });
 
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json({ ok: true });
@@ -2909,7 +2960,7 @@ app.post("/api/orders/:recordId/solve-issue", async (req, res) => {
       "Issue Status": "Solved"
     });
 
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
     res.json({ ok: true });
@@ -3194,7 +3245,7 @@ app.post("/api/payments/create-link", async (req, res) => {
     );
 
     ordersCache.clear();
-    countsCache.delete(`counts:${merchantId}`);
+    clearCountsForMerchant(merchantId);
 
     res.json({
       ok: true,
