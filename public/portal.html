@@ -1497,8 +1497,15 @@ body.kc-dialog-open {
       margin: 0 auto;
     }
     
+    /* CHANGED - the buttons were pushed to the far right of their column
+       while the ACTIONS header above them sat on the left, and the column
+       is sized to the widest button set in the table. On a wide screen a
+       row with a single CANCEL therefore ended up an inch away from its own
+       heading, and from the Offers rows, whose grid layout was already
+       left-aligned. One side for all of them; left, like every other
+       column. */
     td[data-key="actions"] .action-row {
-      justify-content: flex-end;
+      justify-content: flex-start;
     }
 
 
