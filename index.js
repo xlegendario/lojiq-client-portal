@@ -2077,9 +2077,13 @@ function mapMemberOfferItem(item, roundType) {
     order_number: item.order_id || "",
     selling_price: item.max_price ?? "-",
 
-    // Member WTBs has no equivalent of either. Present so the columns read
+    // The store side reads this from the order's "Offer Sent At"; on this
+    // side it comes off the Seller Offer behind the round. A round that is
+    // already under way sends nothing, exactly as the store side does.
+    offer_date: item.offer_date || "",
+
+    // Member WTBs has no delivery estimate. Present so the column reads
     // "-" instead of "undefined".
-    offer_date: "",
     eta: ""
   };
 }
