@@ -3491,7 +3491,7 @@ const PAYMENT_SOURCES = {
   orders: {
     table: AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE,
     statusField: "Invoice Status",
-    amountField: "Invoice Price (VAT Included)",
+    amountFields: ["Invoice Price (VAT Included)"],
     batchLinkField: "Linked Orders",
     numberField: "Shopify Order Number"
   },
@@ -3499,7 +3499,12 @@ const PAYMENT_SOURCES = {
   requests: {
     table: AIRTABLE_MEMBER_WTBS_TABLE,
     statusField: "Payment Status",
-    amountField: "Invoice Price",
+    // Two, in this order, because KC's own checkout reads them the same
+    // way. Invoice Price is a formula and was filled on all eight payable
+    // want-to-buys in the base, so the second is insurance rather than a
+    // regular case - but a batch that silently totals zero is worse than
+    // one that reads a field further down the list.
+    amountFields: ["Invoice Price", "Final Buying Price"],
     batchLinkField: "Linked Member WTBs",
     numberField: "Member WTB ID"
   }
@@ -3630,7 +3635,13 @@ app.post("/api/payments/create-link", async (req, res) => {
     }
 
     const total = selected.reduce((sum, item) => {
-      return sum + eurNumber(item.record.fields[PAYMENT_SOURCES[item.source].amountField]);
+      const fields = item.record.fields || {};
+
+      const amount = PAYMENT_SOURCES[item.source].amountFields
+        .map((field) => eurNumber(fields[field]))
+        .find((value) => value > 0) || 0;
+
+      return sum + amount;
     }, 0);
 
     if (total <= 0) {
