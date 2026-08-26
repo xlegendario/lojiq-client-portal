@@ -2626,6 +2626,7 @@ function showPrompt(message, options) {
       sku: 110,
       second_stockx_order_number: 140,
       status: 130,
+      shipping_status: 130,
       issue_status: 130,
       invoice_status: 130,
       order_status: 130,
@@ -2719,6 +2720,10 @@ function showPrompt(message, options) {
         ["actions", "Actions"]
             ],
 
+      // NEW - Shipping Status next to Status. A store that only pays once
+      // it has the goods could not tell from this tab whether anything had
+      // arrived: Status shows the fulfillment side, where "Fulfilled" only
+      // means it left us. Both statuses now sit side by side.
       open_payments: [
         ["select", "Select"],
         ["product", "Product"],
@@ -2727,6 +2732,7 @@ function showPrompt(message, options) {
         ["date", "Date"],
         ["invoice_price", "Invoice Price"],
         ["status", "Status"],
+        ["shipping_status", "Shipping Status"],
         ["tracking_url", "Tracking"],
         ["payment_action", "Action"]
       ],
@@ -2963,6 +2969,22 @@ function showPrompt(message, options) {
           selectable.length > 0 &&
           selectable.every(o => selectedPaymentOrderIds.has(o.id));
       }
+    }
+
+    // Shipping status has its own scale, because the question it answers is
+    // a different one. In getStatusClass "Shipped" and "Delivered" are both
+    // green - both are good news for fulfillment. On the payment tab only
+    // one of the two is: a store that pays on delivery needs to see at a
+    // glance which rows have actually arrived, so green means delivered and
+    // nothing else does.
+    function getShippingStatusClass(value) {
+      const v = String(value || "").toLowerCase();
+
+      if (v.includes("delivered")) return "green";
+      if (v.includes("shipped")) return "processing";
+      if (v.includes("lost") || v.includes("cancel")) return "red";
+
+      return "";
     }
 
     function getStatusClass(value) {
@@ -3459,6 +3481,16 @@ function amountForButton(rawValue) {
         `;
       }
     
+      if (key === "shipping_status") {
+        const status = order.shipping_status || "—";
+
+        return `
+          <span class="status ${getShippingStatusClass(order.shipping_status)}">
+            ${escapeHtml(status)}
+          </span>
+        `;
+      }
+
       if (key === "status" || key === "issue_status") {
         const status = order[key] || "—";
       
