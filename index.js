@@ -1237,9 +1237,14 @@ app.get("/api/orders", async (req, res) => {
     const pageSize = Math.min(Number(req.query.page_size || 20), 50);
     const offset = asText(req.query.offset);
 
+    // FIXED - the source belongs in the key. Without it the two sections
+    // share one cache entry: whichever list is asked for first is the one
+    // the other gets back, which showed as a count of 1 above an empty
+    // table. The counts cache had the same hole and was fixed with it.
     const cacheKey = [
       merchantId,
       view,
+      asText(req.query.source).toLowerCase(),
       search,
       pageSize,
       offset
