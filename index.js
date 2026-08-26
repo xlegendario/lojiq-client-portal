@@ -2263,6 +2263,52 @@ app.get("/api/shop/buyer", async (req, res) => {
   }
 });
 
+// A whole file of want-to-buys, queued rather than posted one at a time.
+//
+// The rows go to the portal in a single request and a background worker
+// posts them. A store can close the tab: the import carries on, resumes
+// where it stopped if anything interrupts it, and cannot half-finish
+// silently - which is what row-by-row posting from the browser did.
+app.post("/api/shop/wtb-csv", async (req, res) => {
+  try {
+    const merchantId = asText(req.body?.merchant_id);
+    const inventoryType = asText(req.body?.inventory_type) || "all";
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    if (!merchantId) {
+      return res.status(400).json({ error: "Missing merchant" });
+    }
+
+    if (!rows.length) {
+      return res.status(400).json({ error: "No rows provided" });
+    }
+
+    const merchant = await getCachedMerchant(merchantId);
+
+    if (refuseShopForApiStore(merchant, res)) return;
+
+    const buyer = await getMerchantBuyer(merchant);
+
+    const data = await kickzPost("/api/member-wtb/csv-import", {
+      seller_record_id: buyer.record_id,
+      seller_id: buyer.seller_id,
+      inventory_type: inventoryType,
+      created_from: "Lojiq Portal CSV",
+      rows
+    });
+
+    countsCache.delete(`counts:${merchantId}`);
+    ordersCache.clear();
+
+    res.json(data);
+  } catch (err) {
+    console.error("Shop want-to-buy import failed:", err);
+    res.status(err.status || 500).json(
+      err.payload || { error: "Failed to queue import", details: err.message }
+    );
+  }
+});
+
 // A store that cannot find what it needs says so here, instead of leaving.
 // This is the other half of a manual store's intake: Buy and Offer answer
 // what we already hold, this one records demand we do not.
