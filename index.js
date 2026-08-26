@@ -1282,7 +1282,11 @@ app.get("/api/orders", async (req, res) => {
     // nothing keeps the old behaviour exactly.
     const requestedSource = asText(req.query.source).toLowerCase();
 
-    const wantsRequests = requestedSource
+    // "all" asks for both lists at once. Money is money: on the Finance
+    // views a store should see everything it owes in one place, or it
+    // cannot put several of them into one payment. It falls through to the
+    // store path below, which appends the manual rows once it has its own.
+    const wantsRequests = requestedSource && requestedSource !== "all"
       ? requestedSource === "requests"
       : merchantHasManualOrders(merchant) && !merchantHasStoreOrders(merchant);
 
@@ -1459,6 +1463,27 @@ app.get("/api/orders", async (req, res) => {
         issue_notes: displayValue(f["Issue Notes"])
       };
     }));
+
+    // The manual half of a "both" store, appended to the store orders it
+    // already has. Only on the first page: the offset below belongs to the
+    // order log, so repeating these on page two would list them twice.
+    //
+    // Fetched whole rather than paged. These are the money views, where a
+    // list runs to tens of rows, not thousands - and a payment can only
+    // bundle what is on the screen anyway.
+    if (requestedSource === "all" && !offset && merchantHasManualOrders(merchant)) {
+      const { records: manualRecords } = await fetchMemberWtbOrders({
+        merchant,
+        view,
+        pageSize: 100,
+        offset: ""
+      });
+
+      orders = [
+        ...orders,
+        ...manualRecords.map((record) => mapMemberWtbRecord(record, view))
+      ];
+    }
 
     if (search) {
       orders = orders.filter((order) =>
@@ -3449,6 +3474,113 @@ app.post("/api/reset-password", async (req, res) => {
   }
 });
 
+// =====================================================================
+// Paying for two kinds of order in one go
+//
+// A store's demand reaches us two ways - through its integration, into the
+// Unfulfilled Orders Log, or by hand, into Member WTBs - but the money side
+// is the same either way: an amount is owed, one Mollie payment settles it,
+// and several of them can share that payment.
+//
+// The two tables carry that idea under different names. Writing the
+// differences down once, here, is deliberate: every drift bug this portal
+// has had came from the same decision living in two places.
+// =====================================================================
+
+const PAYMENT_SOURCES = {
+  orders: {
+    table: AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE,
+    statusField: "Invoice Status",
+    amountField: "Invoice Price (VAT Included)",
+    batchLinkField: "Linked Orders",
+    numberField: "Shopify Order Number"
+  },
+
+  requests: {
+    table: AIRTABLE_MEMBER_WTBS_TABLE,
+    statusField: "Payment Status",
+    amountField: "Invoice Price",
+    batchLinkField: "Linked Member WTBs",
+    numberField: "Member WTB ID"
+  }
+};
+
+// From Requested Label onward there is something to pay for: a unit is ours
+// and on its way. The same three statuses on both sides.
+const PAYABLE_FULFILLMENT_STATUSES = new Set([
+  "Requested Label",
+  "Ready to Ship",
+  "Fulfilled"
+]);
+
+// A status that means "not yours to start a payment on", with the sentence
+// the store gets to read. Keyed by status so both tables share the wording.
+const UNPAYABLE_STATUS_REASONS = {
+  "Paid": "One of the selected orders is already paid",
+  "Awaiting Payment": "One of the selected orders already has a payment link",
+  "Pending Payment": "One of the selected orders already has a payment link",
+  "Expired": "One of the selected orders cannot be paid from the portal",
+  "Cancelled": "One of the selected orders cannot be paid from the portal"
+};
+
+function merchantOwnsPaymentRecord(source, fields, merchant) {
+  if (source === "orders") {
+    return displayValue(fields["Store Name"]) === merchant.store_name;
+  }
+
+  const sellerIds = merchant.seller_ids || [];
+  const raw = fields["Buyer Seller Record ID"];
+  const buyerIds = (Array.isArray(raw) ? raw : [raw]).map((value) => asText(value));
+
+  return sellerIds.some((sellerId) => buyerIds.includes(sellerId));
+}
+
+// Which of the two tables a record id lives in.
+//
+// The browser sends plain record ids and this asks the tables rather than
+// taking the browser's word for it - a page that could name its own table
+// could point a payment at someone else's record.
+async function resolvePaymentRecord(recordId, merchant) {
+  for (const source of Object.keys(PAYMENT_SOURCES)) {
+    const record = await airtable(PAYMENT_SOURCES[source].table)
+      .find(recordId)
+      .catch(() => null);
+
+    if (!record) continue;
+
+    return {
+      source,
+      record,
+      owned: merchantOwnsPaymentRecord(source, record.fields || {}, merchant)
+    };
+  }
+
+  return null;
+}
+
+// What a batch is paying for, as {id, source} pairs. The batch already kept
+// the two apart in its own fields, so nothing has to be guessed back.
+function batchPaymentTargets(batchFields = {}) {
+  return Object.entries(PAYMENT_SOURCES).flatMap(([source, spec]) => {
+    const linked = batchFields[spec.batchLinkField];
+
+    return (Array.isArray(linked) ? linked : []).map((id) => ({ id, source }));
+  });
+}
+
+// One status change, written to whichever field that table calls it. Every
+// step of the payment goes through here.
+async function setPaymentStatus(targets, status, extraFields = {}) {
+  await Promise.all(
+    targets.map(({ id, source }) =>
+      airtable(PAYMENT_SOURCES[source].table).update(id, {
+        [PAYMENT_SOURCES[source].statusField]: status,
+        ...extraFields
+      })
+    )
+  );
+}
+
 app.post("/api/payments/create-link", async (req, res) => {
   try {
     const merchantId = asText(req.body.merchant_id);
@@ -3466,74 +3598,85 @@ app.post("/api/payments/create-link", async (req, res) => {
 
     const merchant = await getCachedMerchant(merchantId);
 
-    const orders = await Promise.all(
-      orderIds.map((orderId) =>
-        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(orderId)
-      )
+    const selected = await Promise.all(
+      orderIds.map((orderId) => resolvePaymentRecord(orderId, merchant))
     );
 
-    for (const order of orders) {
-      const orderStoreName = displayValue(order.fields["Store Name"]);
-      const fulfillmentStatus = displayValue(order.fields["Fulfillment Status"]);
-      const invoiceStatus = displayValue(order.fields["Invoice Status"]);
+    for (const item of selected) {
+      if (!item) {
+        return res.status(404).json({
+          error: "One of the selected orders no longer exists"
+        });
+      }
 
-      if (orderStoreName !== merchant.store_name) {
+      if (!item.owned) {
         return res.status(403).json({ error: "Not allowed for this merchant" });
       }
 
-      const payableStatuses = new Set([
-        "Requested Label",
-        "Ready to Ship",
-        "Fulfilled"
-      ]);
-      
-      if (!payableStatuses.has(fulfillmentStatus)) {
+      const fields = item.record.fields || {};
+      const spec = PAYMENT_SOURCES[item.source];
+
+      if (!PAYABLE_FULFILLMENT_STATUSES.has(displayValue(fields["Fulfillment Status"]))) {
         return res.status(400).json({
           error: "Only orders from Requested Label onward can be paid"
         });
       }
 
-      if (invoiceStatus === "Paid") {
-        return res.status(400).json({
-          error: "One of the selected orders is already paid"
-        });
-      }
+      const reason = UNPAYABLE_STATUS_REASONS[displayValue(fields[spec.statusField])];
 
-      if (invoiceStatus === "Awaiting Payment") {
-        return res.status(400).json({
-          error: "One of the selected orders already has a payment link"
-        });
-      }
-
-      if (invoiceStatus === "Expired" || invoiceStatus === "Cancelled") {
-        return res.status(400).json({
-          error: "One of the selected orders cannot be paid from the portal"
-        });
+      if (reason) {
+        return res.status(400).json({ error: reason });
       }
     }
 
-    const total = orders.reduce((sum, order) => {
-      return sum + eurNumber(order.fields["Invoice Price (VAT Included)"]);
+    const total = selected.reduce((sum, item) => {
+      return sum + eurNumber(item.record.fields[PAYMENT_SOURCES[item.source].amountField]);
     }, 0);
 
     if (total <= 0) {
       return res.status(400).json({ error: "Total amount is invalid" });
     }
 
-    const orderNumbers = orders
-      .map((order) => displayValue(order.fields["Shopify Order Number"]))
+    const orderNumbers = selected
+      .map((item) => displayValue(item.record.fields[PAYMENT_SOURCES[item.source].numberField]))
       .filter(Boolean);
+
+    const targets = selected.map((item) => ({
+      id: item.record.id,
+      source: item.source
+    }));
 
     const batchId = `PB-${Date.now()}`;
 
-    const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create({
+    const batchFields = {
       "Store": [merchantId],
-      "Linked Orders": orderIds,
       "Order Numbers": orderNumbers.join(", "),
       "Amount": total,
       "Payment Status": "Pending",
       "Payment Provider": "Mollie"
-    });
+    };
+
+    // Each table has its own link field on the batch, so a payment that
+    // covers both kinds stays readable from either side.
+    for (const [source, spec] of Object.entries(PAYMENT_SOURCES)) {
+      const ids = targets.filter((t) => t.source === source).map((t) => t.id);
+
+      if (ids.length) batchFields[spec.batchLinkField] = ids;
+    }
+
+    // A want-to-buy is bought by the store's seller record, and the batch
+    // keeps that alongside the store so KC's side can read it too.
+    const buyerIds = [
+      ...new Set(
+        selected
+          .filter((item) => item.source === "requests")
+          .flatMap((item) => item.record.fields["Buyer Seller ID"] || [])
+      )
+    ];
+
+    if (buyerIds.length) batchFields["Buyer"] = buyerIds;
+
+    const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create(batchFields);
 
     const payment = await mollieRequest("/payments", {
       method: "POST",
@@ -3567,16 +3710,11 @@ app.post("/api/payments/create-link", async (req, res) => {
       "Mollie Payment ID": payment.id
     });
 
-    await Promise.all(
-      orderIds.map((orderId) =>
-        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-          "Invoice Status": "Awaiting Payment",
-          "Payment Link": paymentUrl,
-          "Mollie Payment ID": payment.id,
-          "Payment Batches": [batch.id]
-        })
-      )
-    );
+    await setPaymentStatus(targets, "Awaiting Payment", {
+      "Payment Link": paymentUrl,
+      "Mollie Payment ID": payment.id,
+      "Payment Batches": [batch.id]
+    });
 
     ordersCache.clear();
     clearCountsForMerchant(merchantId);
@@ -3662,19 +3800,11 @@ app.post("/api/payment-batches/:batchId/mark-pending", async (req, res) => {
       });
     }
 
-    const linkedOrders = Array.isArray(f["Linked Orders"]) ? f["Linked Orders"] : [];
-
     const updatedBatch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
       "Payment Status": "Pending Payment"
     });
 
-    await Promise.all(
-      linkedOrders.map((orderId) =>
-        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-          "Invoice Status": "Pending Payment"
-        })
-      )
-    );
+    await setPaymentStatus(batchPaymentTargets(f), "Pending Payment");
 
     ordersCache.clear();
     countsCache.clear();
@@ -3745,19 +3875,11 @@ app.post("/api/payment-batches/:batchId/cancel", async (req, res) => {
       });
     }
 
-    const linkedOrders = Array.isArray(f["Linked Orders"]) ? f["Linked Orders"] : [];
-
     await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
       "Payment Status": "Cancelled"
     });
 
-    await Promise.all(
-      linkedOrders.map((orderId) =>
-        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-          "Invoice Status": "Pending"
-        })
-      )
-    );
+    await setPaymentStatus(batchPaymentTargets(f), "Pending");
 
     ordersCache.clear();
     countsCache.clear();
@@ -3788,10 +3910,31 @@ app.post("/api/mollie/webhook", async (req, res) => {
 
     const metadata = payment.metadata || {};
     const batchRecordId = asText(metadata.batch_record_id);
-    const orderIds = Array.isArray(metadata.order_ids) ? metadata.order_ids : [];
 
-    if (!batchRecordId || !orderIds.length) {
+    if (!batchRecordId) {
       console.error("Mollie webhook missing metadata:", paymentId, metadata);
+      return res.status(200).send("ok");
+    }
+
+    // CHANGED - what a payment covers is read from the batch rather than
+    // from the metadata, because the batch keeps the two kinds of order
+    // apart in its own link fields and the metadata never could.
+    //
+    // The fallback is for payments that were already in flight when this
+    // changed: those carry only order ids, and all of them were orders.
+    const batchRecord = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+      .find(batchRecordId)
+      .catch(() => null);
+
+    const targets = batchRecord
+      ? batchPaymentTargets(batchRecord.fields || {})
+      : (Array.isArray(metadata.order_ids) ? metadata.order_ids : []).map((id) => ({
+          id,
+          source: "orders"
+        }));
+
+    if (!targets.length) {
+      console.error("Mollie webhook found nothing to settle:", paymentId, batchRecordId);
       return res.status(200).send("ok");
     }
 
@@ -3801,14 +3944,9 @@ app.post("/api/mollie/webhook", async (req, res) => {
         "Mollie Payment ID": payment.id
       });
     
-      await Promise.all(
-        orderIds.map((orderId) =>
-          airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-            "Invoice Status": "Pending Payment",
-            "Mollie Payment ID": payment.id
-          })
-        )
-      );
+      await setPaymentStatus(targets, "Pending Payment", {
+        "Mollie Payment ID": payment.id
+      });
     
       ordersCache.clear();
       countsCache.clear();
@@ -3828,15 +3966,10 @@ app.post("/api/mollie/webhook", async (req, res) => {
       "Mollie Payment ID": payment.id
     });
     
-    await Promise.all(
-      orderIds.map((orderId) =>
-        airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).update(orderId, {
-          "Invoice Status": "Paid",
-          "Paid At": paidAt,
-          "Mollie Payment ID": payment.id
-        })
-      )
-    );
+    await setPaymentStatus(targets, "Paid", {
+      "Paid At": paidAt,
+      "Mollie Payment ID": payment.id
+    });
 
     ordersCache.clear();
     countsCache.clear();
