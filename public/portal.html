@@ -2951,6 +2951,12 @@ function showPrompt(message, options) {
     // Two questions instead of one, because a store can have both. "manual"
     // below still means "manual only" - the shape of the portal for a store
     // that has no integration at all.
+    // Which list a tab outside both sections should read. A store with
+    // both keeps the store orders it always had.
+    function defaultSourceForMerchant() {
+      return merchantHasStoreOrders() ? "orders" : "requests";
+    }
+
     function merchantHasStoreOrders() {
       return merchant?.order_intake === "api" || merchant?.order_intake === "both";
     }
@@ -3005,22 +3011,27 @@ function showPrompt(message, options) {
             : "none";
       }
 
-      const doelen = [
+      const hiddenForManual = [
         document.querySelector('[data-section-toggle="returns"]'),
         document.getElementById("section-returns"),
         document.querySelector('.nav-sub[data-view="issues"]')
       ];
 
-      doelen.forEach((el) => {
+      hiddenForManual.forEach((el) => {
         if (el) el.style.display = manual ? "none" : "";
       });
 
-      // The shop is where a manual store puts its demand in. An API store
+      // The shop is where a store puts its demand in by hand. An API store
       // gets its orders through the integration and has no use for it.
+      //
+      // FIXED - this asked for manual-only intake while the server behind
+      // the shop (refuseShopForApiStore) lets any store with a manual side
+      // in. A store on "both" was refused the link to a page it is allowed
+      // to use; the two now ask the same question.
       const shopLink = document.getElementById("shopLink");
 
       if (shopLink) {
-        shopLink.style.display = manual ? "flex" : "none";
+        shopLink.style.display = merchantHasManualOrders() ? "flex" : "none";
       }
 
       // Landing on a tab that is no longer there would leave an empty table
@@ -3494,12 +3505,67 @@ function amountForButton(rawValue) {
       denied: "/api/orders/offers-denied"
     };
 
+    // The same three pills for Manual Orders. Store Orders negotiates on
+    // the order log, Manual Orders on Member WTBs, and the two live behind
+    // different endpoints - so the tab has to ask the section it is
+    // standing in. Until this existed, Offers always asked the store side,
+    // which is why a manual store saw an empty table under a badge that
+    // said an offer was waiting.
+    const MEMBER_OFFER_PILL_ENDPOINTS = {
+      open: "/api/orders/member-offers-open",
+      countered: "/api/orders/member-offers-countered",
+      denied: "/api/orders/member-offers-denied"
+    };
+
+    function offerPillEndpoints() {
+      return currentSource === "requests"
+        ? MEMBER_OFFER_PILL_ENDPOINTS
+        : OFFER_PILL_ENDPOINTS;
+    }
+
+    // A Member WTB offer answers to its own endpoints. Everything the KC
+    // side needs to identify a round is on the row already; which of the
+    // ids is set depends on whether this is a fresh offer or a round in
+    // progress, so it is worked out once here.
+    function memberOfferIds(order) {
+      const isFresh = order.round_type === "fresh" || order._kind === "fresh_denied";
+      const payout = Number(order.sellers_offer_payout);
+
+      return {
+        member_wtb_record_id: order.member_wtb_record_id || order.order_record_id || "",
+        counter_offer_record_id: isFresh ? "" : (order.id || ""),
+        seller_offer_record_id: order.seller_offer_record_id || "",
+        // The amount on the button is the negotiated one. A never-countered
+        // offer has nothing to override.
+        override_price: Number.isFinite(payout) ? payout : "",
+        override_vat_type: order.vat_type || order.offer_vat_type || ""
+      };
+    }
+
+    async function postMemberOfferAction(payload) {
+      const response = await fetch("/api/orders/member-offers/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchant_id: merchant.id, ...payload })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.details || "Failed to process offer");
+      }
+
+      return data;
+    }
+
     let offerPillCountsToken = 0;
 
     async function refreshOfferPillCounts() {
       const token = ++offerPillCountsToken;
 
-      const others = Object.keys(OFFER_PILL_ENDPOINTS).filter(
+      const endpoints = offerPillEndpoints();
+
+      const others = Object.keys(endpoints).filter(
         (key) => key !== activeOfferPillFilter
       );
 
@@ -3507,7 +3573,7 @@ function amountForButton(rawValue) {
         others.map(async (key) => {
           try {
             const res = await fetch(
-              `${OFFER_PILL_ENDPOINTS[key]}?${new URLSearchParams({ merchant_id: merchant.id })}`
+              `${endpoints[key]}?${new URLSearchParams({ merchant_id: merchant.id })}`
             );
 
             if (!res.ok) return;
@@ -3723,9 +3789,7 @@ function amountForButton(rawValue) {
               : currentView === "inventory"
                 ? "/api/inventory"
                 : currentView === "offers"
-                  ? (activeOfferPillFilter === "countered" ? "/api/orders/offers-countered"
-                     : activeOfferPillFilter === "denied" ? "/api/orders/offers-denied"
-                     : "/api/orders/offers-open")
+                  ? (offerPillEndpoints()[activeOfferPillFilter] || offerPillEndpoints().open)
                   : "/api/orders";
 
           const requestParams =
@@ -4389,6 +4453,33 @@ function amountForButton(rawValue) {
       const confirmed = await showConfirm("Accept the current lowest offer?");
       if (!confirmed) return;
 
+      // The buttons carry the order and the seller offer, not the row, so
+      // the row is found back here - a Member WTB round needs its own id
+      // and the negotiated amount along with it.
+      const memberOrder =
+        currentSource === "requests"
+          ? currentOrders.find(
+              (o) =>
+                o.order_record_id === orderRecordId &&
+                o.seller_offer_record_id === sellerOfferRecordId
+            )
+          : null;
+
+      if (memberOrder) {
+        try {
+          await postMemberOfferAction({ action: "accept", ...memberOfferIds(memberOrder) });
+
+          await loadOrders(true);
+          loadAllCounts().catch((err) => {
+            console.error("Failed to refresh counts", err);
+          });
+        } catch (err) {
+          showAlert(err.message);
+        }
+
+        return;
+      }
+
       try {
         const response = await fetch(`/api/orders/${orderRecordId}/accept-fresh`, {
           method: "POST",
@@ -4421,8 +4512,35 @@ function amountForButton(rawValue) {
 
       const label = action === "accept" ? "accept" : "deny";
       const confirmed = await showConfirm(`Are you sure you want to ${label} this offer?`);
-    
+
       if (!confirmed) return;
+    
+      if (currentSource === "requests") {
+        try {
+          await postMemberOfferAction({
+            action:
+              action === "accept"
+                ? "accept"
+                : (order.round_type === "fresh" ? "deny_fresh" : "deny_round"),
+            ...memberOfferIds(order)
+          });
+
+          currentOrders = currentOrders.filter((o) => o.id !== recordId);
+          renderOrders(currentOrders);
+          renderPillRow(currentOrders.length);
+
+          tableCount.textContent = `${currentOrders.length} Orders`;
+          currentViewStat.textContent = currentOrders.length;
+
+          loadAllCounts().catch((err) => {
+            console.error("Failed to refresh counts", err);
+          });
+        } catch (err) {
+          showAlert(err.message);
+        }
+
+        return;
+      }
     
       try {
         // NEW — additive only: a "fresh" (never-countered) offer has no
@@ -4518,6 +4636,25 @@ function amountForButton(rawValue) {
       const confirmed = await showConfirm("Remove this denied offer from your portal?");
       if (!confirmed) return;
 
+      if (currentSource === "requests") {
+        const order = currentOrders.find(
+          (o) => (o.seller_offer_record_id || o.id) === sellerOfferId
+        );
+
+        try {
+          if (!order) throw new Error("Could not find this offer - please refresh and try again.");
+
+          await postMemberOfferAction({ action: "delete_denied", ...memberOfferIds(order) });
+
+          await loadOrders(true);
+          loadAllCounts().catch((err) => console.error("Failed to refresh counts", err));
+        } catch (err) {
+          showAlert(err.message);
+        }
+
+        return;
+      }
+
       try {
         const response = await fetch(`/api/orders/fresh-denied/${sellerOfferId}/hide`, {
           method: "POST",
@@ -4541,6 +4678,31 @@ function amountForButton(rawValue) {
     async function handleDeleteOffer(recordId) {
       const confirmed = await showConfirm("Are you sure you want to withdraw this counter offer?");
       if (!confirmed) return;
+
+      if (currentSource === "requests") {
+        const order = currentOrders.find((o) => o.id === recordId);
+
+        try {
+          if (!order) throw new Error("Could not find this offer - please refresh and try again.");
+
+          await postMemberOfferAction({ action: "cancel_round", ...memberOfferIds(order) });
+
+          currentOrders = currentOrders.filter((o) => o.id !== recordId);
+          renderOrders(currentOrders);
+          renderPillRow(currentOrders.length);
+
+          tableCount.textContent = `${currentOrders.length} Orders`;
+          currentViewStat.textContent = currentOrders.length;
+
+          loadAllCounts().catch((err) => {
+            console.error("Failed to refresh counts", err);
+          });
+        } catch (err) {
+          showAlert(err.message);
+        }
+
+        return;
+      }
 
       try {
         const response = await fetch(`/api/orders/counter-offers/${recordId}/cancel`, {
@@ -4591,6 +4753,37 @@ function amountForButton(rawValue) {
       // (already has an open round) goes through the counter-offers
       // counter endpoint. An "edit" (on a Countered item) goes through
       // the counter-offers edit endpoint instead.
+      // A Member WTB round is edited through its own endpoint, and there
+      // is no round-one broadcast on that side - one buyer, one round.
+      if (pendingCounterMode === "edit" && currentSource === "requests") {
+        const order = currentOrders.find((o) => o.id === pendingCounterOrderId);
+
+        try {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Submitting...";
+
+          if (!order) throw new Error("Could not find this offer - please refresh and try again.");
+
+          await postMemberOfferAction({
+            action: "edit_round",
+            price,
+            ...memberOfferIds(order)
+          });
+
+          closeCounterModal();
+          showAlert("Offer updated.");
+
+          await loadOrders(true);
+        } catch (err) {
+          showAlert(err.message);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+        }
+
+        return;
+      }
+
       if (pendingCounterMode === "edit") {
         try {
           submitBtn.disabled = true;
@@ -4641,6 +4834,52 @@ function amountForButton(rawValue) {
       const isFresh = order.round_type === "fresh";
       const isDenied = order.round_type === "denied";
       const isFreshDenied = order._kind === "fresh_denied";
+
+      // Same four cases as below, on the buying side of KC: a denial with
+      // no round behind it starts a new one from the seller's offer, a
+      // denied round is retried against the seller's last position, a
+      // fresh offer gets its first round, and anything else is a reply in
+      // a round already running.
+      if (currentSource === "requests") {
+        try {
+          submitBtn.disabled = true;
+          submitBtn.textContent = "Submitting...";
+
+          await postMemberOfferAction({
+            action:
+              isDenied && isFreshDenied
+                ? "counter_fresh"
+                : isDenied
+                  ? "retry_round"
+                  : isFresh
+                    ? "counter_fresh"
+                    : "counter_round",
+            price,
+            ...memberOfferIds(order)
+          });
+
+          const submittedOrderId = pendingCounterOrderId;
+
+          closeCounterModal();
+          showAlert("Counter offer submitted.");
+
+          currentOrders = currentOrders.filter((o) => o.id !== submittedOrderId);
+          renderOrders(currentOrders);
+          renderPillRow(currentOrders.length);
+
+          tableCount.textContent = `${currentOrders.length} Orders`;
+          currentViewStat.textContent = currentOrders.length;
+
+          loadAllCounts();
+        } catch (err) {
+          showAlert(err.message);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+        }
+
+        return;
+      }
 
       // Denied pill retry routing:
       //  - case A (fresh_denied): store denied a fresh seller offer →
@@ -4835,7 +5074,12 @@ function amountForButton(rawValue) {
     
         item.classList.add("active");
         currentView = item.dataset.view;
-        currentSource = item.dataset.source || "orders";
+        // FIXED - Returns, Inventory, StockX and Finance belong to neither
+        // section and carry no source, and defaulting them to "orders"
+        // asked the order log for a store that only has manual intake -
+        // their Finance was empty from the moment the two sections split.
+        // A sourceless tab now keeps a source the store actually has.
+        currentSource = item.dataset.source || defaultSourceForMerchant();
 
         localStorage.setItem("lojiq_current_view", currentView);
         localStorage.setItem("lojiq_current_source", currentSource);
