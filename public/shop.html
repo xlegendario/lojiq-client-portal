@@ -661,8 +661,26 @@
   }
 
   // A size in the product list carries the lowest offer across its sources:
-  // lowest_price, not price. The per-source fields sit one level deeper, in
-  // size.sources - reading those here would show a price nobody is asking.
+  // lowest_price, not price. The per-source fields sit one level deeper -
+  // reading those here would show a price nobody is asking.
+
+  // How many sources answer for this size.
+  //
+  // CHANGED - this read size.sources.length. That array was 72% of the
+  // whole feed, 2.19 MB of 3.06, and this count was the only thing anyone
+  // ever did with it. KC now sends the number instead of the array.
+  //
+  // The fallback keeps both shapes working, so the two services can be
+  // deployed in either order without a gap where the count reads zero.
+  //
+  // Note this is NOT size.source_count, which is also in the feed and
+  // counts groups rather than entries; the two differ on some sizes. This
+  // keeps showing exactly the number that was shown before.
+  function sourceCount(size) {
+    if (Number.isFinite(size.source_entry_count)) return size.source_entry_count;
+
+    return (size.sources || []).length;
+  }
   function sizePrice(size) {
     return size.lowest_price ?? size.display_price ?? size.price;
   }
@@ -887,9 +905,9 @@
                 ? escapeHtml(size.fastest_delivery_time)
                 : ""
             }${
-              (size.sources || []).length
-                ? " &middot; " + (size.sources || []).length +
-                  ((size.sources || []).length === 1 ? " source" : " sources")
+              sourceCount(size)
+                ? " &middot; " + sourceCount(size) +
+                  (sourceCount(size) === 1 ? " source" : " sources")
                 : ""
             }${
               Number(size.available_qty) > 0
@@ -940,7 +958,7 @@
     // it. What a store needs before typing an amount is which pair, which
     // scale, and how many sellers can answer - and the scale belongs in the
     // field itself rather than in a footnote nobody reads.
-    const sources = (size.sources || []).length;
+    const sources = sourceCount(size);
     const scale = inventoryType === "b2b" ? "excl. VAT" : "incl. VAT";
 
     const typeLabel = inventoryType === "b2b"
