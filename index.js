@@ -2412,7 +2412,7 @@ app.post("/api/orders/member-offers/action", async (req, res) => {
 // =====================================================================
 
 const buyerCache = new Map();
-const KOPER_CACHE_TTL_MS = 5 * 60 * 1000;
+const BUYER_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // A merchant buys as the seller record it is linked to through "Seller ID".
 // Member WTBs points at that same record, which is what makes the orders
@@ -2427,7 +2427,7 @@ async function getMerchantBuyer(merchant) {
   const recordId = sellerIds[0];
   const cached = buyerCache.get(recordId);
 
-  if (cached && Date.now() - cached.createdAt < KOPER_CACHE_TTL_MS) {
+  if (cached && Date.now() - cached.createdAt < BUYER_CACHE_TTL_MS) {
     return cached.buyer;
   }
 
@@ -3360,7 +3360,7 @@ app.post("/api/forgot-password", async (req, res) => {
       })
       .firstPage();
 
-    // Altijd ok teruggeven, zodat niemand emails kan raden.
+    // Always answer ok, so nobody can use this to guess email addresses.
     if (!records.length) {
       return res.json({ ok: true });
     }
