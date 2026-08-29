@@ -2732,7 +2732,22 @@ app.post("/api/shop/wtb", async (req, res) => {
     // not a different shoe.
     const sku = asText(req.body?.sku).trim().toUpperCase();
     const size = normalizeWtbSize(req.body?.size);
-    const maxPrice = Number(req.body?.max_price);
+    // CHANGED - a ceiling is optional here too.
+    //
+    // Kickz Caviar accepts an open want-to-buy without a maximum: every
+    // offer then reaches the store, which negotiates it down itself. This
+    // route had its own copy of the old rule, so leaving it would have given
+    // members the choice and stores not.
+    //
+    // Blank and zero stay different things. A missing figure is a decision;
+    // a 0 or an unreadable value is a typo and is still refused.
+    const rawMaxPrice = req.body?.max_price;
+    const hasMaxPrice =
+      rawMaxPrice !== null &&
+      rawMaxPrice !== undefined &&
+      String(rawMaxPrice).trim() !== "";
+
+    const maxPrice = hasMaxPrice ? Number(rawMaxPrice) : null;
 
     if (!merchantId) {
       return res.status(400).json({ error: "Missing merchant" });
@@ -2750,8 +2765,10 @@ app.post("/api/shop/wtb", async (req, res) => {
       });
     }
 
-    if (!Number.isInteger(maxPrice) || maxPrice <= 0) {
-      return res.status(400).json({ error: "Enter a whole number above 0." });
+    if (hasMaxPrice && (!Number.isInteger(maxPrice) || maxPrice <= 0)) {
+      return res.status(400).json({
+        error: "A max price must be a whole number above 0, or left empty."
+      });
     }
 
     const merchant = await getCachedMerchant(merchantId);
