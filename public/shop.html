@@ -1230,7 +1230,12 @@
           .replace(/,/g, ".")
           .replace(/\s+/g, " ")
           .toUpperCase(),
-        max_price: Number(String(values[at("max price")] || "").replace(/[^\d]/g, ""))
+        // Blank stays blank: Number("") is 0, which would read an empty
+        // cell as a ceiling of zero and refuse the file.
+        max_price: (() => {
+          const text = String(values[at("max price")] ?? "").trim();
+          return text === "" ? null : Number(text.replace(/[^\d]/g, ""));
+        })()
       };
     });
 
@@ -1247,8 +1252,8 @@
         problems.push(`Row ${row.row_number}: "${row.size}" is not a valid size`);
       }
 
-      if (!Number.isInteger(row.max_price) || row.max_price <= 0) {
-        problems.push(`Row ${row.row_number}: price must be a whole number above 0`);
+      if (row.max_price !== null && (!Number.isInteger(row.max_price) || row.max_price <= 0)) {
+        problems.push(`Row ${row.row_number}: price must be a whole number above 0, or left empty`);
       }
     });
 
@@ -1278,8 +1283,8 @@
       <input id="wtbSize" class="field" type="text" placeholder="Example: 42"
              value="${escapeHtml(filled.size || "")}">
 
-      <label class="field-label" for="wtbPrice" style="margin-top:10px">Your price</label>
-      <input id="wtbPrice" class="field" type="text" inputmode="numeric" placeholder="Example: 120"
+      <label class="field-label" for="wtbPrice" style="margin-top:10px">Your price <span style="opacity:.55;font-weight:600;text-transform:none">optional</span></label>
+      <input id="wtbPrice" class="field" type="text" inputmode="numeric" placeholder="Leave empty for no ceiling"
              value="${escapeHtml(filled.price || "")}">
 
       <label class="field-label" for="wtbType" style="margin-top:10px">Buying type</label>
@@ -1356,7 +1361,10 @@
     document.getElementById("wtbNext").addEventListener("click", () => {
       const sku = skuInput.value.trim().toUpperCase();
       const size = sizeInput.value.trim().replace(/,/g, ".").replace(/\s+/g, " ").toUpperCase();
-      const amount = Number(priceInput.value);
+      // A ceiling is optional. Empty means every offer reaches you and you
+      // negotiate it down; a typed value still has to be usable.
+      const rawAmount = priceInput.value.trim();
+      const amount = rawAmount === "" ? null : Number(rawAmount);
       const failure = document.getElementById("actionError");
 
       if (!sku || !size) {
@@ -1369,8 +1377,8 @@
         return;
       }
 
-      if (!Number.isInteger(amount) || amount <= 0) {
-        failure.textContent = "Enter a whole number above 0.";
+      if (amount !== null && (!Number.isInteger(amount) || amount <= 0)) {
+        failure.textContent = "A price must be a whole number above 0, or left empty.";
         return;
       }
 
@@ -1409,7 +1417,7 @@
       <input id="wtbCsvFile" class="field" type="file" accept=".csv,text/csv">
 
       <p class="note">
-        Columns: <b>SKU</b>, <b>Size</b>, <b>Max Price</b>.
+        Columns: <b>SKU</b>, <b>Size</b>, <b>Max Price</b>. Leave Max Price empty on any row you do not want a ceiling on.
         <a href="/templates/member-wtb-template.csv" download>Download the template</a>.
       </p>
 
@@ -1539,7 +1547,11 @@
     actionModal.innerHTML = `
       <div class="modal-title">Is this right?</div>
 
-      <p class="note" style="margin-top:14px">${vatExplanation(request.type)}</p>
+      <p class="note" style="margin-top:14px">${
+        request.amount === null
+          ? "You did not set a price, so there is no ceiling on this request. Every offer reaches you and you decide what to accept or counter."
+          : vatExplanation(request.type)
+      }</p>
 
       <div class="error" id="actionError"></div>
 
