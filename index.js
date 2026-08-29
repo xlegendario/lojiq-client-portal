@@ -3584,6 +3584,70 @@ async function setPaymentStatus(targets, status, extraFields = {}) {
       })
     )
   );
+
+  if (status === "Paid") await tellKickzMemberWtbsArePaid(targets);
+}
+
+/*
+ * NEW - the seller on the other end had no way of knowing this happened.
+ *
+ * A Member WTB sold to a Lojiq store never gets a Mollie link: the store
+ * settles several open amounts here in one payment. But the seller's
+ * "Request Label" step hangs off Kickz Caviar's Mollie webhook, and that
+ * webhook never fires for a payment that was never a Mollie payment.
+ *
+ * The row was marked Paid above and the seller kept staring at "Waiting for
+ * buyer to make the payment", with nothing in either system able to move
+ * him along. Found on MWTB-000402, 29-08-2026.
+ *
+ * Only Member WTBs need this. A store order's fulfilment does not depend on
+ * a Kickz-side webhook, so "orders" targets are skipped.
+ *
+ * Non-blocking on purpose: the payment has succeeded by the time we get
+ * here. Failing to notify must never turn a completed payment into an
+ * error - it has to be loud in the log and nothing more.
+ */
+async function tellKickzMemberWtbsArePaid(targets) {
+  const memberWtbIds = targets
+    .filter((target) => target.source === "requests")
+    .map((target) => target.id);
+
+  if (!memberWtbIds.length) return;
+
+  if (!KICKZ_PORTAL_BASE_URL || !COUNTER_OFFERS_SECRET) {
+    console.error(
+      "Cannot tell Kickz Caviar about paid Member WTBs: missing base url or secret",
+      memberWtbIds
+    );
+    return;
+  }
+
+  await Promise.all(
+    memberWtbIds.map(async (id) => {
+      try {
+        const response = await fetch(`${KICKZ_PORTAL_BASE_URL}/api/internal/member-wtb-paid`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-kc-secret": COUNTER_OFFERS_SECRET
+          },
+          body: JSON.stringify({ member_wtb_record_id: id })
+        });
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+        }
+
+        console.log(`Kickz Caviar notified of paid Member WTB ${id}`);
+      } catch (err) {
+        console.error(
+          `Member WTB ${id} is paid but Kickz Caviar was not told - the seller will not get his label step:`,
+          err.message
+        );
+      }
+    })
+  );
 }
 
 app.post("/api/payments/create-link", async (req, res) => {
