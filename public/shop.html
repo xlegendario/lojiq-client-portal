@@ -1217,7 +1217,17 @@
       throw new Error(`Missing columns: ${missing.join(", ")}. Use the template below.`);
     }
 
-    const at = (name) => headers.indexOf(name);
+    // Falls back to a prefix so "Max Price (optional)" still resolves.
+    // An unmatched header would read as a missing column, and a missing
+    // price column now means "no ceiling" - so every price in the file
+    // would be dropped without anyone being told.
+    const at = (name) => {
+      const exact = headers.indexOf(name);
+
+      if (exact !== -1) return exact;
+
+      return headers.findIndex((header) => header.startsWith(name));
+    };
 
     const rows = lines.slice(1).map((line, index) => {
       const values = splitCsvLine(line, delimiter);
@@ -1417,7 +1427,7 @@
       <input id="wtbCsvFile" class="field" type="file" accept=".csv,text/csv">
 
       <p class="note">
-        Columns: <b>SKU</b>, <b>Size</b>, <b>Max Price</b>. Leave Max Price empty on any row you do not want a ceiling on.
+        Columns: <b>SKU</b>, <b>Size</b>, <b>Max Price (optional)</b>. Leave the price empty on any row you do not want a ceiling on.
         <a href="/templates/member-wtb-template.csv" download>Download the template</a>.
       </p>
 
