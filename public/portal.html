@@ -3272,8 +3272,8 @@ function amountForButton(rawValue) {
     
       // A row of its own when the term matches nothing, otherwise you stare
       // at an empty table with no idea why.
-      const bestaande = tableBody.querySelector("[data-search-notice]");
-      if (bestaande) bestaande.remove();
+      const existing = tableBody.querySelector("[data-search-notice]");
+      if (existing) existing.remove();
     
       if (term && hitCount === 0 && rowEls.length) {
         const notice = document.createElement("tr");
@@ -5277,11 +5277,11 @@ function amountForButton(rawValue) {
     // itself rather than to whatever opens it, so this sits in one place for
     // every dialog in this portal.
     (function () {
-      const VENSTERS = ".modal-backdrop";
-      const SLUITKNOPPEN = ".modal-close";
+      const DIALOGS = ".modal-backdrop";
+      const CLOSE_BUTTONS = ".modal-close";
 
       function openDialogs() {
-        return Array.from(document.querySelectorAll(VENSTERS))
+        return Array.from(document.querySelectorAll(DIALOGS))
           .filter((v) => getComputedStyle(v).display !== "none");
       }
 
@@ -5294,7 +5294,7 @@ function amountForButton(rawValue) {
       // Watch only the dialogs, not the whole page: the tables change
       // classes constantly and none of that needs to trigger anything here.
       const observer = new MutationObserver(syncOpenState);
-      document.querySelectorAll(VENSTERS).forEach((v) => {
+      document.querySelectorAll(DIALOGS).forEach((v) => {
         observer.observe(v, { attributes: true, attributeFilter: ["class", "style"] });
       });
 
@@ -5307,7 +5307,7 @@ function amountForButton(rawValue) {
         // Close the topmost dialog through its own close button, so
         // whatever cleanup is attached to it still runs.
         const topDialog = open[open.length - 1];
-        const btnEl = topDialog.querySelector(SLUITKNOPPEN);
+        const btnEl = topDialog.querySelector(CLOSE_BUTTONS);
 
         if (btnEl) {
           btnEl.click();
@@ -5332,9 +5332,9 @@ function amountForButton(rawValue) {
     // NEW — a cross to clear the search field in one go. Built here
     // rather than in the HTML, so no extra file has to ship.
     (function () {
-      const veld = searchInput;
-      const rowEl = veld && veld.closest(".search-row");
-      if (!veld || !rowEl) return;
+      const field = searchInput;
+      const rowEl = field && field.closest(".search-row");
+      if (!field || !rowEl) return;
     
       const btnEl = document.createElement("button");
       btnEl.type = "button";
@@ -5344,17 +5344,17 @@ function amountForButton(rawValue) {
       rowEl.appendChild(btnEl);
     
       function syncClearButton() {
-        rowEl.classList.toggle("has-text", !!veld.value);
+        rowEl.classList.toggle("has-text", !!field.value);
       }
     
       btnEl.addEventListener("click", () => {
-        veld.value = "";
+        field.value = "";
         syncClearButton();
         runSearchNow();
-        veld.focus();
+        field.focus();
       });
     
-      veld.addEventListener("input", syncClearButton);
+      field.addEventListener("input", syncClearButton);
       syncClearButton();
     })();
 
@@ -5427,8 +5427,8 @@ function amountForButton(rawValue) {
     // The table also gets a minimum that matches this view's columns plus
     // 240 px for Product, so Product never ends up too narrow.
     function fitColumns() {
-      const tabel = document.querySelector(".table-wrap table");
-      if (!tabel) return;
+      const table = document.querySelector(".table-wrap table");
+      if (!table) return;
 
       const rowEls = Array.from(
         document.querySelectorAll('#ordersTableBody td[data-key="actions"] .action-row')
@@ -5459,7 +5459,7 @@ function amountForButton(rawValue) {
         }));
 
         if (widest > 0) {
-          tabel.style.setProperty("--action-width", Math.ceil(widest) + 28 + "px");
+          table.style.setProperty("--action-width", Math.ceil(widest) + 28 + "px");
         }
       }
 
@@ -5470,7 +5470,7 @@ function amountForButton(rawValue) {
         .filter((th) => th.dataset.key !== "product")
         .reduce((som, th) => som + th.getBoundingClientRect().width, 0);
 
-      tabel.style.minWidth =
+      table.style.minWidth =
         Math.round(fixedWidth + (columnWidths.product || 300)) + "px";
     }
 
@@ -5505,14 +5505,14 @@ function amountForButton(rawValue) {
       return window.innerHeight + window.scrollY >= doc.scrollHeight - 220;
     }
 
-    async function laadMeerAlsNodig() {
+    async function loadMoreIfNeeded() {
       if (nearBottom() && hasMore && !isLoadingMore) {
         await loadOrders(false);
       }
     }
 
-    tableWrap.addEventListener("scroll", laadMeerAlsNodig, { passive: true });
-    window.addEventListener("scroll", laadMeerAlsNodig, { passive: true });
+    tableWrap.addEventListener("scroll", loadMoreIfNeeded, { passive: true });
+    window.addEventListener("scroll", loadMoreIfNeeded, { passive: true });
     
     logoutBtn.addEventListener("click", () => {
       localStorage.removeItem("lojiq_merchant");
