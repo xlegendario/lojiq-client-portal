@@ -1128,9 +1128,12 @@
     // above is what decides it. With it, "that is not what I meant" has an
     // obvious next move.
     //
-    // Not "maximum" either: a seller can counter above this and the store
-    // can still accept, so calling it a ceiling would be a promise we do
-    // not keep. It is the price they are putting up, nothing more.
+    // CHANGED - the field is called Max Price again, here and in Kickz
+    // Caviar. It was "your price" because a seller can counter above the
+    // figure and the store can still accept, so "maximum" promises a ceiling
+    // we do not hold to. That is true, but "your price" reads as a bid
+    // someone can say yes to - and a seller never sees this number at all.
+    // One field, one name, both portals.
     const label = type === "b2b"
       ? "B2B only"
       : type === "private"
@@ -1138,10 +1141,10 @@
         : "All inventory";
 
     if (type === "b2b") {
-      return `With buying type <b>${label}</b>, your price is read as <b>excl. VAT</b>.`;
+      return `With buying type <b>${label}</b>, your max price is read as <b>excl. VAT</b>.`;
     }
 
-    const base = `With buying type <b>${label}</b>, your price is read as <b>incl. VAT</b>.`;
+    const base = `With buying type <b>${label}</b>, your max price is read as <b>incl. VAT</b>.`;
 
     // Only All inventory can be filled from VAT stock. Margin only cannot:
     // margin-scheme goods are never reverse charged, so promising a VAT-free
@@ -1293,7 +1296,7 @@
       <input id="wtbSize" class="field" type="text" placeholder="Example: 42"
              value="${escapeHtml(filled.size || "")}">
 
-      <label class="field-label" for="wtbPrice" style="margin-top:10px">Your price <span style="opacity:.55;font-weight:600;text-transform:none">optional</span></label>
+      <label class="field-label" for="wtbPrice" style="margin-top:10px">Max Price <span style="opacity:.55;font-weight:600;text-transform:none">optional</span></label>
       <input id="wtbPrice" class="field" type="text" inputmode="numeric" placeholder="Leave empty for no ceiling"
              value="${escapeHtml(filled.price || "")}">
 
