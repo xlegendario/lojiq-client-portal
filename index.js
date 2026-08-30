@@ -23,6 +23,13 @@ app.get("/shop", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "shop.html"));
 });
 
+// The guide gates itself on the merchant in localStorage, the same way
+// portal.html does, and hides the sections that do not apply to their
+// Order Intake.
+app.get("/guide", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "guide.html"));
+});
+
 app.get("/payment-summary", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "payment-summary.html"));
 });
