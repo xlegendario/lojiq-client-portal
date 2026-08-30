@@ -150,6 +150,47 @@
   a { color:var(--accent-2); }
 
   .foot { margin-top:40px; color:var(--muted); font-size:14px; text-align:center; }
+
+  /* Click a screenshot to read it.
+
+     A dashboard shot is a whole screen scaled into an 800px column, which
+     makes the very thing it is meant to show unreadable. Clicking opens it
+     over the page at full size; Escape, the cross, or a click beside it
+     puts it away again.
+
+     Only above 768px. On a phone the image is already as wide as the screen
+     gets, so there is nothing to gain and a full-screen overlay would only
+     be something else to dismiss. */
+  @media (min-width: 769px) {
+    figure.shot img { cursor: zoom-in; }
+  }
+
+  .lightbox {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    padding: 32px;
+    background: rgba(0, 0, 0, .88);
+  }
+
+  .lightbox[hidden] { display: none; }
+
+  .lightbox img {
+    max-width: 96vw; max-height: 92vh;
+    width: auto; height: auto;
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    cursor: zoom-out;
+  }
+
+  .lightbox-close {
+    position: absolute; top: 18px; right: 22px;
+    width: 40px; height: 40px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; cursor: pointer;
+    color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 999px;
+  }
+
+  .lightbox-close:hover { opacity: .85; }
 </style>
 </head>
 
@@ -647,6 +688,63 @@
       var frame = figure.querySelector(".shot-frame");
 
       if (frame) frame.replaceWith(picture);
+    });
+  })();
+
+  /* Click-to-zoom. Bound once on the page rather than per image, so a
+     screenshot that only appears later - the loader above swaps them in
+     when the files exist - is covered without rebinding anything. */
+  (function () {
+    var box = null;
+    var shown = null;
+
+    function close() {
+      if (box) box.hidden = true;
+      document.body.style.overflow = "";
+    }
+
+    function open(src, alt) {
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "lightbox";
+        box.hidden = true;
+
+        shown = document.createElement("img");
+
+        var cross = document.createElement("button");
+        cross.className = "lightbox-close";
+        cross.type = "button";
+        cross.setAttribute("aria-label", "Close");
+        cross.textContent = "\u00d7";
+
+        box.appendChild(shown);
+        box.appendChild(cross);
+        document.body.appendChild(box);
+
+        // Anywhere but the image itself closes it, which is what people try
+        // first.
+        box.addEventListener("click", close);
+      }
+
+      shown.src = src;
+      shown.alt = alt || "";
+      box.hidden = false;
+
+      // Otherwise the page scrolls behind the overlay under the cursor.
+      document.body.style.overflow = "hidden";
+    }
+
+    document.addEventListener("click", function (event) {
+      if (window.innerWidth < 769) return;
+
+      var img = event.target.closest("figure.shot img");
+      if (!img) return;
+
+      open(img.currentSrc || img.src, img.alt);
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") close();
     });
   })();
 </script>
