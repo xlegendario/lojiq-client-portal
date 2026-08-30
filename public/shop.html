@@ -514,9 +514,19 @@
 
   @media (max-width: 768px) {
     .page { padding: 14px 12px 34px; }
-    .topbar { padding: 12px 14px; }
+    .topbar { padding: 12px 14px; gap: 10px; }
     .logo-img { width: 96px; }
     .topbar-title { display: none; }
+
+    /* The store already knows which store it is. On a phone the name ran
+       straight through the logo and pushed the two buttons off the edge,
+       which costs a lot more than it says. */
+    .store-name { display: none; }
+
+    /* Without this the right-hand group refuses to give way and the bar
+       overflows instead of tightening up. */
+    .topbar-right { flex: 0 1 auto; min-width: 0; }
+    .topbar-left { overflow: hidden; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
     .size-row { flex-wrap: wrap; }
     .size-meta { order: 3; width: 100%; }
