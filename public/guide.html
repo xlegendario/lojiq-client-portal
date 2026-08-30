@@ -191,7 +191,7 @@
   </section>
 
   <!-- =============================================================== -->
-  <section class="chapter" data-intake="manual both">
+  <section class="chapter">
     <h2><span class="num">02</span>The shop</h2>
 
     <p>
@@ -243,7 +243,7 @@
   </section>
 
   <!-- =============================================================== -->
-  <section class="chapter" data-intake="manual both">
+  <section class="chapter">
     <h2><span class="num">03</span>Manual Orders</h2>
 
     <p>
@@ -298,7 +298,7 @@
   </section>
 
   <!-- =============================================================== -->
-  <section class="chapter" data-intake="api both">
+  <section class="chapter">
     <h2><span class="num">04</span>Store Orders</h2>
 
     <p>
@@ -344,12 +344,12 @@
   </section>
 
   <!-- =============================================================== -->
-  <section class="chapter" data-intake="stockx">
+  <section class="chapter">
     <h2><span class="num">06</span>StockX</h2>
 
     <p>
       Your dedicated StockX account, as far as it touches your orders here.
-      This section only appears for stores that have one.
+      Only relevant if your store has a dedicated StockX account.
     </p>
   </section>
 
@@ -452,22 +452,16 @@
     var hasStoreOrders = intake === "api" || intake === "both";
     var hasManualOrders = intake === "manual" || intake === "both";
 
-    var hasStockx =
-      merchant.stockx_account_mode === "DEDICATED_ACCOUNT" && intake !== "manual";
+    /* Everyone reads the whole guide.
 
-    document.querySelectorAll("[data-intake]").forEach(function (node) {
-      var wants = node.getAttribute("data-intake").split(/\s+/);
+       This used to drop the sections a store cannot open. Correct, and it
+       still left the wrong impression: a manual store reading only about
+       its own three tabs never learns that the rest exists. Seeing what a
+       store on the integration gets is a reason to ask about it, not a
+       distraction - and the chapters say plainly enough which is which.
 
-      var show =
-        (wants.indexOf("stockx") !== -1 && hasStockx) ||
-        (wants.indexOf("api") !== -1 && hasStoreOrders) ||
-        (wants.indexOf("manual") !== -1 && hasManualOrders) ||
-        (wants.indexOf("both") !== -1 && intake === "both");
-
-      if (!show) node.remove();
-    });
-
-    /* Renumber after removing, so a store never reads 01, 02, 05. */
+       The line under the title still names their own setup, so nobody has
+       to guess which half applies to them. */
     var n = 1;
 
     document.querySelectorAll("section.chapter h2 .num").forEach(function (node) {
