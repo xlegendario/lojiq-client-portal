@@ -46,6 +46,10 @@
     background:linear-gradient(90deg, var(--accent), var(--accent-2), transparent);
   }
 
+  /* Same size the portal and the shop give it, so the three read as one
+     product rather than three pages that happen to share a colour. */
+  .masthead-logo { width:122px; height:auto; display:block; margin-bottom:4px; }
+
   .eyebrow {
     font-family:var(--mono); font-size:11px; letter-spacing:.2em;
     text-transform:uppercase; color:var(--accent-2);
@@ -153,12 +157,15 @@
 <div class="wrap">
 
   <header class="masthead">
-    <span class="eyebrow">Lojiq &middot; Client portal</span>
+    <img src="/logo.png" alt="Lojiq" class="masthead-logo">
+    <!-- The name is in the logo now, so the eyebrow only has to say which
+         part of Lojiq this is. -->
+    <span class="eyebrow">Client portal</span>
     <h1>How the portal works</h1>
     <p class="lede">
       Everything you can do from your account, in the order you will meet it.
-      Sections that do not apply to your store are left out, so what you see
-      below is your portal and nothing else.
+      Not every section applies to every store &mdash; the line below says how
+      yours is set up, and the chapters say plainly enough which is which.
     </p>
     <p class="muted" id="intakeLine"></p>
   </header>
