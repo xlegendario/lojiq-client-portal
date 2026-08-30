@@ -888,7 +888,17 @@ function memberWtbBuyerFormula(merchant = {}) {
     .join(",")})`;
 }
 
-function mapMemberWtbRecord(record, view) {
+/*
+ * A want-to-buy is always supplied by a seller, and a seller is always quoted
+ * the same window - so unlike a store order, where the bot works this out from
+ * whichever source is filling it, there is nothing to derive here.
+ *
+ * Spelled exactly as the order log spells it, spaces around the dash included,
+ * so the two read as one column and not as two conventions.
+ */
+const MEMBER_WTB_ETA = "24 - 72 hours";
+
+function mapMemberWtbRecord(record, view, offerDates = new Map()) {
   const f = record.fields || {};
 
   return {
@@ -904,7 +914,7 @@ function mapMemberWtbRecord(record, view) {
 
     offer: moneyValue(f["Offer To Buyer"]),
     offer_vat_type: displayValue(f["Lowest Offer VAT Type"]),
-    eta: "",
+    eta: MEMBER_WTB_ETA,
 
     allocated_price: moneyValue(f["Final Buying Price"]),
     vat: moneyValue(f["Buying VAT Amount"]),
@@ -952,13 +962,80 @@ function mapMemberWtbRecord(record, view) {
     second_extra_profit: "",
     second_stockx_order_number: "",
     second_order_status: "",
-    offer_date: "",
+    // CHANGED - was blank because a want-to-buy has no "Offer Sent At" of
+    // its own. It does have an offer, and that offer has a date.
+    offer_date: dateValue(offerDates.get(record.id)),
     preferred_courier: "",
     supplier_shipping_status: "",
     warehouse_tracking: "",
     issue_status: "",
     issue_notes: ""
   };
+}
+
+/*
+ * When the offer on each want-to-buy came in.
+ *
+ * A store order carries "Offer Sent At" on the order itself. A want-to-buy
+ * does not, but the seller offer it points at has an "Offer Date" - so the
+ * column can be filled after all, it just needs one hop.
+ *
+ * One query for the whole page rather than one per row: a page is at most a
+ * few dozen records, and a request each would make the tab visibly slower
+ * for a column nobody waits on.
+ */
+async function fetchMemberWtbOfferDates(records) {
+  const offerIds = [
+    ...new Set(
+      (records || [])
+        .map((record) => (record.fields?.["Current Lowest Seller Offer"] || [])[0])
+        .filter(Boolean)
+    )
+  ];
+
+  if (!offerIds.length) return new Map();
+
+  const url = new URL(
+    `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent("Seller Offers")}`
+  );
+
+  url.searchParams.set(
+    "filterByFormula",
+    `OR(${offerIds.map((id) => `RECORD_ID() = '${id}'`).join(",")})`
+  );
+
+  url.searchParams.append("fields[]", "Offer Date");
+  url.searchParams.set("pageSize", "100");
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+  });
+
+  if (!response.ok) {
+    // Non-fatal: the column falls back to a dash, which is what it showed
+    // before this existed. A failing lookup must not empty the whole tab.
+    console.error("Could not read offer dates for the want-to-buys:", response.status);
+
+    return new Map();
+  }
+
+  const data = await response.json();
+
+  const dateByOffer = new Map(
+    (data.records || []).map((offer) => [offer.id, offer.fields?.["Offer Date"]])
+  );
+
+  const byWtb = new Map();
+
+  for (const record of records || []) {
+    const offerId = (record.fields?.["Current Lowest Seller Offer"] || [])[0];
+    if (!offerId) continue;
+
+    const when = dateByOffer.get(offerId);
+    if (when) byWtb.set(record.id, when);
+  }
+
+  return byWtb;
 }
 
 async function fetchMemberWtbOrders({ merchant, view, pageSize, offset }) {
@@ -1305,7 +1382,11 @@ app.get("/api/orders", async (req, res) => {
         offset
       });
 
-      let orders = records.map((record) => mapMemberWtbRecord(record, view));
+      const offerDates = await fetchMemberWtbOfferDates(records);
+
+      let orders = records.map((record) =>
+        mapMemberWtbRecord(record, view, offerDates)
+      );
 
       if (search) {
         orders = orders.filter((order) =>
@@ -1486,9 +1567,11 @@ app.get("/api/orders", async (req, res) => {
         offset: ""
       });
 
+      const manualOfferDates = await fetchMemberWtbOfferDates(manualRecords);
+
       orders = [
         ...orders,
-        ...manualRecords.map((record) => mapMemberWtbRecord(record, view))
+        ...manualRecords.map((record) => mapMemberWtbRecord(record, view, manualOfferDates))
       ];
     }
 
