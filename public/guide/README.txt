@@ -31,14 +31,18 @@ shot-03   Manual Orders
     Caption on the page: "Where an offer waits for your answer."
 
 shot-04   Store Orders
-    Store Orders with the Issues tab visible in the sidebar.
-    Caption on the page: "Orders that come to you, rather than from you."
+    Store Orders with the Offers tab open and one row carrying Accept / Counter / Deny.
+    Caption on the page: "Same answer, on an order you did not place."
 
-shot-05   Returns
+shot-05   Store Orders
+    Store Orders with the Issues tab open, and the tab visible in the sidebar with its count.
+    Caption on the page: "The one tab that only exists on this side."
+
+shot-06   Returns
     The Returns section with one return open.
     Caption on the page: "Returns, from registration to closed."
 
-shot-06   Finance
+shot-07   Finance
     Open Payments with a few rows selected and the pay button in frame.
     Caption on the page: "Several open amounts, one payment."
 
@@ -46,6 +50,9 @@ shot-06   Finance
 NOTE
 
 shot-04 and shot-05 can only be taken while logged in as a store on 'api' or
-'both'. A manual-only store has no Store Orders section and no Returns
-section in its portal - the guide shows both to everyone, but the screens
-themselves still have to come from a store that has them.
+'both', and shot-06 needs one too. A manual-only store has no Store Orders
+section and no Returns section in its portal - the guide shows them to
+everyone, but the screens still have to come from a store that has them.
+
+SCREENSHOT-SNIPPETS.txt in this folder has an inspect() line per shot, so you
+can grab the exact node instead of cropping by hand.
