@@ -514,18 +514,42 @@ body.kc-dialog-open {
       font-weight: 800;
     }
 
-    .guide-btn {
+    .sidebar-guide-link {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+
+      margin: 14px 12px 18px;
+      padding: 11px 13px;
+
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+
+      color: var(--nav-item);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 800;
+
+      transition: 0.18s ease;
+    }
+
+    .sidebar-guide-link:hover {
+      color: var(--text);
+      border-color: var(--primary);
+    }
+
+    /* The circle keeps the label lined up with the section titles above it
+       instead of starting a few pixels further left. */
+    .sidebar-guide-link span[aria-hidden] {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
       border: 1px solid var(--border);
-      background: transparent;
-      color: var(--text);
-      border-radius: 10px;
-      padding: 9px 12px;
-      font-weight: 800;
-      font-size: 14px;
-      text-decoration: none;
-      white-space: nowrap;
+      border-radius: 999px;
+      font-size: 11px;
     }
 
     .logout-btn {
@@ -1457,11 +1481,12 @@ body.kc-dialog-open {
         display: none;
       }
 
-      /* Three of them now that the guide has a link here, so they all have to
-         give way the same amount - one that keeps its full size pushes the
-         other two off the edge. */
+      /* The icon says it on its own, and the word cost 45px the page title
+         needed - "Open Orders" was being cut to "Op..." to make room for a
+         label nobody reads. */
+      .menu-btn-label { display: none; }
+
       .shop-btn,
-      .guide-btn,
       .logout-btn {
         padding: 8px 11px;
         font-size: 13px;
@@ -2171,6 +2196,16 @@ body.kc-dialog-open {
           <span id="count-payment_history" class="count-pill">0</span>
         </div>
       </div>
+
+      <!-- Bottom of the menu rather than the bar at the top.
+
+           Three buttons up there left no room for the page title on a phone,
+           and the guide is the one of the three you press least. Down here it
+           is still one tap away and nothing else has to give way for it. -->
+      <a class="sidebar-guide-link" href="/guide">
+        <span aria-hidden="true">?</span>
+        <span>Guide</span>
+      </a>
     </aside>
 
     <main class="main">
@@ -2180,7 +2215,7 @@ body.kc-dialog-open {
             <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor"
               stroke-width="2.4" stroke-linecap="round" />
           </svg>
-          Menu
+          <span class="menu-btn-label">Menu</span>
         </button>
 
         <div id="topbarTitle" class="topbar-title">Merchant Portal</div>
@@ -2191,9 +2226,6 @@ body.kc-dialog-open {
                tabs. Kept to the right of the name: name first, then the two
                things you can do. -->
           <a class="shop-btn" id="shopLink" href="/shop" style="display:none;">Shop</a>
-          <!-- Quiet on purpose: the guide is there when you need it, not
-               something to press past on the way to your orders. -->
-          <a class="guide-btn" href="/guide">Guide</a>
           <button id="logoutBtn" class="logout-btn">Logout</button>
         </div>
       </div>
