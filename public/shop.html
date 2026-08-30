@@ -618,12 +618,22 @@
 
     merchant = JSON.parse(raw);
 
-    // Same rule the server enforces. Only bounce when we POSITIVELY know
-    // this is an API store: a merchant stored before order_intake was part
-    // of the login response has no such field, and locking those stores out
-    // of a page they are entitled to would be worse than letting the server
-    // answer for them.
-    if (merchant.order_intake && merchant.order_intake !== "manual") {
+    // Same rule the server enforces - merchantHasManualOrders, which is
+    // "manual" OR "both".
+    //
+    // FIXED - this tested for "manual" alone, so a store on "both" was sent
+    // straight back to the portal a second after arriving. The shop is exactly
+    // the half of "both" that it is entitled to, and the comment here already
+    // claimed to mirror the server while it did not.
+    //
+    // Only bounce when we POSITIVELY know this is an API store: a merchant
+    // stored before order_intake was part of the login response has no such
+    // field, and locking those out of a page they may be entitled to is worse
+    // than letting the server answer for them.
+    const mayUseShop =
+      merchant.order_intake === "manual" || merchant.order_intake === "both";
+
+    if (merchant.order_intake && !mayUseShop) {
       window.location.href = "/portal";
       return;
     }
