@@ -2271,14 +2271,20 @@ function mapMemberOfferItem(item, roundType) {
     order_number: item.order_id || "",
     selling_price: item.max_price ?? "-",
 
-    // The store side reads this from the order's "Offer Sent At"; on this
-    // side it comes off the Seller Offer behind the round. A round that is
-    // already under way sends nothing, exactly as the store side does.
-    offer_date: item.offer_date || "",
+    // The store side reads this from the order's "Offer Sent At"; a fresh
+    // offer here carries the date of the seller offer behind it.
+    //
+    // CHANGED - a round already under way sends none, and the column then sat
+    // empty on exactly the rows a store looks at most. What it wants to know
+    // is when the offer now on the table arrived, and for a counter round
+    // that is the round's own date. Fresh offers keep their own date, so this
+    // only fills in what was blank.
+    offer_date: item.offer_date || item.date || "",
 
-    // Member WTBs has no delivery estimate. Present so the column reads
-    // "-" instead of "undefined".
-    eta: ""
+    // CHANGED - was blank. A want-to-buy is always supplied by a seller and a
+    // seller is always quoted the same window, so unlike a store order there
+    // is nothing to derive from the source.
+    eta: MEMBER_WTB_ETA
   };
 }
 
