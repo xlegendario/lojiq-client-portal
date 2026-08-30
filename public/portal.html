@@ -1451,13 +1451,18 @@ body.kc-dialog-open {
         justify-self: end;
       }
 
-      /* The store name is already in the menu; the bar only needs the two
+      /* The store name is already in the menu; the bar only needs the
          buttons. */
       .merchant-box span {
         display: none;
       }
 
-      .shop-btn {
+      /* Three of them now that the guide has a link here, so they all have to
+         give way the same amount - one that keeps its full size pushes the
+         other two off the edge. */
+      .shop-btn,
+      .guide-btn,
+      .logout-btn {
         padding: 8px 11px;
         font-size: 13px;
       }
