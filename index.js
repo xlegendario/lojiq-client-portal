@@ -916,12 +916,12 @@ function mapMemberWtbRecord(record, view) {
     // both intakes matters more than a cleverer rule per intake; two rules
     // is how they drift apart.
     vat_type: (() => {
-      const origineel = displayValue(f["VAT Type"]);
-      const land = displayValue(f["Buyer Country"]).toLowerCase();
+      const offerVatType = displayValue(f["VAT Type"]);
+      const buyerCountry = displayValue(f["Buyer Country"]).toLowerCase();
 
-      if (origineel === "Margin") return "Margin";
+      if (offerVatType === "Margin") return "Margin";
 
-      return land === "netherlands" ? "VAT21" : "VAT0";
+      return buyerCountry === "netherlands" ? "VAT21" : "VAT0";
     })(),
 
     fulfillment_status: displayValue(f["Fulfillment Status"]),
@@ -1750,6 +1750,64 @@ app.get("/api/returns", async (req, res) => {
   }
 });
 
+/*
+ * Cancelling a want-to-buy, which Open Orders lists next to store orders.
+ *
+ * Kept apart from the order-log branch on purpose: the two live in
+ * different tables, are owned through different fields, and end in a
+ * different status. A want-to-buy that never found stock is cancelled, not
+ * "Store Fulfilled".
+ */
+async function cancelMemberWtbForMerchant({ res, merchant, record }) {
+  const f = record.fields || {};
+
+  // Same ownership rule the listing uses: the buyer on a want-to-buy is a
+  // seller record, and Merchants links to it through "Seller ID".
+  const rawBuyer = f["Buyer Seller Record ID"];
+
+  const buyerRecordIds = Array.isArray(rawBuyer)
+    ? rawBuyer.join(",")
+    : String(rawBuyer || "");
+
+  const ownedByMerchant = (merchant.seller_ids || []).some(
+    (sellerId) => sellerId && buyerRecordIds.includes(sellerId)
+  );
+
+  if (!ownedByMerchant) {
+    return res.status(403).json({ error: "Not allowed for this merchant" });
+  }
+
+  const currentStatus = displayValue(f["Fulfillment Status"]);
+
+  // Once a seller is committed the store cannot walk away on its own.
+  const lockedStatuses = new Set([
+    "Confirmed",
+    "Allocated",
+    "Awaiting Label",
+    "Requested Label",
+    "Ready To Ship",
+    "Ready to Ship",
+    "Fulfilled"
+  ]);
+
+  if (lockedStatuses.has(currentStatus)) {
+    return res.status(409).json({
+      error: "This order can no longer be cancelled",
+      current_status: currentStatus
+    });
+  }
+
+  await airtable(AIRTABLE_MEMBER_WTBS_TABLE).update(record.id, {
+    "Fulfillment Status": "Cancelled"
+  });
+
+  return res.json({
+    ok: true,
+    record_id: record.id,
+    fulfillment_status: "Cancelled"
+  });
+}
+
 app.post("/api/orders/:recordId/cancel", async (req, res) => {
   try {
     const recordId = asText(req.params.recordId);
@@ -1764,6 +1822,27 @@ app.post("/api/orders/:recordId/cancel", async (req, res) => {
     }
 
     const merchant = await getCachedMerchant(merchantId);
+
+    // NEW - Open Orders shows want-to-buys alongside store orders, but this
+    // route only ever knew the order log.
+    //
+    // Airtable resolves a record id base-wide, so .find() on the wrong table
+    // quietly returned the want-to-buy anyway - with the wrong shape. It has
+    // no "Store Name", so the check below refused a store its own want-to-buy
+    // with "Not allowed for this merchant". Seen on MWTB-000409.
+    const memberWtb = await airtable(AIRTABLE_MEMBER_WTBS_TABLE)
+      .find(recordId)
+      .catch(() => null);
+
+    // Identified by a field only that table has, rather than by trusting
+    // which table the lookup was aimed at.
+    if (memberWtb && displayValue(memberWtb.fields?.["Member WTB ID"])) {
+      clearCountsForMerchant(merchantId);
+      ordersCache.clear();
+
+      return cancelMemberWtbForMerchant({ res, merchant, record: memberWtb });
+    }
+
     const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId);
 
     const orderStoreName = displayValue(order.fields["Store Name"]);
