@@ -255,7 +255,7 @@
       <table>
         <thead><tr><th>Tab</th><th>What it means</th></tr></thead>
         <tbody>
-          <tr><td><strong>Open</strong></td><td>Your want-to-buys that are still live. No offer yet, or an offer you have not answered.</td></tr>
+          <tr><td><strong>Open Orders</strong></td><td>Your want-to-buys that are still live. No offer yet, or an offer you have not answered.</td></tr>
           <tr><td><strong>Offers</strong></td><td>An offer is waiting for you. Accept it, counter it, or deny it.</td></tr>
           <tr><td><strong>Processing</strong></td><td>The deal is agreed and we are getting the pair. Nothing is expected from you here.</td></tr>
           <tr><td><strong>Allocated</strong></td><td>The unit exists and the deal is fully processed. Waiting for the supplier to request the shipping label.</td></tr>
@@ -302,23 +302,65 @@
     <h2><span class="num">04</span>Store Orders</h2>
 
     <p>
-      These arrive on their own. When a customer orders from your webshop and
-      you cannot supply it yourself, it lands here and we source it for you.
-      The stages read the same as Manual Orders, with one extra tab.
+      These arrive on their own. A customer orders from your webshop, you
+      cannot supply it yourself, and it lands here for us to source. You did
+      not ask for it and the clock is already running &mdash; that is the only
+      real difference with the section above.
     </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tab</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Open Orders</strong></td><td>Orders waiting on a price. No offer yet, or an offer you have not answered.</td></tr>
+          <tr><td><strong>Offers</strong></td><td>An offer is waiting for you. Accept it, counter it, or deny it.</td></tr>
+          <tr><td><strong>Processing</strong></td><td>The deal is agreed and we are getting the pair. Nothing is expected from you here.</td></tr>
+          <tr><td><strong>Allocated</strong></td><td>The unit exists and the deal is fully processed. Waiting for the supplier to request the shipping label.</td></tr>
+          <tr><td><strong>Label Requests</strong></td><td>The label has been requested. Upload it here and the pair can move.</td></tr>
+          <tr><td><strong>Ready To Ship</strong></td><td>Packed and waiting for pickup.</td></tr>
+          <tr><td><strong>Shipped</strong></td><td>On its way, with tracking.</td></tr>
+          <tr><td><strong>Fulfilled</strong></td><td>Delivered. Nothing left to do.</td></tr>
+          <tr><td><strong>Issues</strong></td><td>Something needs a decision from you. This tab does not exist on the manual side.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="task">
+      <h3>Answering an offer</h3>
+      <p>
+        Exactly as it works for a want-to-buy: the offer reaches you in the
+        <strong>Offers</strong> tab and in your offer-requests channel at the
+        same time, and answering it in one place updates the other.
+      </p>
+      <ul>
+        <li><strong>Accept</strong> &mdash; the price is agreed and the deal starts.</li>
+        <li><strong>Counter</strong> &mdash; name your own number. It goes back to the seller, who can accept, counter again, or walk away.</li>
+        <li><strong>Deny</strong> &mdash; you pass. The order stays open and the next seller can still offer.</li>
+      </ul>
+      <p class="muted">
+        The difference is what sits behind it: here a customer is already
+        waiting, so an order left unanswered costs you more than a want-to-buy
+        does.
+      </p>
+    </div>
+
+    <figure class="shot" data-shot="04">
+      <div class="shot-frame"><span><b>Screenshot 4</b>Store Orders with the Offers tab open and one row carrying Accept / Counter / Deny.<br><br>desktop: <span style="color:var(--accent-2)">shot-04.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-04-mobile.png</span></span></div>
+      <figcaption>Same answer, on an order you did not place.</figcaption>
+    </figure>
 
     <div class="task">
       <h3>Issues</h3>
       <p>
         Anything that needs a decision from you &mdash; a pair that could not
         be sourced, a delivery that went wrong, a return that will not close.
-        If this tab has a number on it, something is genuinely waiting.
+        If this tab carries a number, something is genuinely waiting.
       </p>
     </div>
 
-    <figure class="shot" data-shot="04">
-      <div class="shot-frame"><span><b>Screenshot 4</b>Store Orders with the Issues tab visible in the sidebar.<br><br>desktop: <span style="color:var(--accent-2)">shot-04.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-04-mobile.png</span></span></div>
-      <figcaption>Orders that come to you, rather than from you.</figcaption>
+    <figure class="shot" data-shot="05">
+      <div class="shot-frame"><span><b>Screenshot 5</b>Store Orders with the Issues tab open, and the tab visible in the sidebar with its count.<br><br>desktop: <span style="color:var(--accent-2)">shot-05.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-05-mobile.png</span></span></div>
+      <figcaption>The one tab that only exists on this side.</figcaption>
     </figure>
   </section>
 
@@ -337,8 +379,8 @@
       two-day return into a two-week one.
     </div>
 
-    <figure class="shot" data-shot="05">
-      <div class="shot-frame"><span><b>Screenshot 5</b>The Returns section with one return open.<br><br>desktop: <span style="color:var(--accent-2)">shot-05.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-05-mobile.png</span></span></div>
+    <figure class="shot" data-shot="06">
+      <div class="shot-frame"><span><b>Screenshot 6</b>The Returns section with one return open.<br><br>desktop: <span style="color:var(--accent-2)">shot-06.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-06-mobile.png</span></span></div>
       <figcaption>Returns, from registration to closed.</figcaption>
     </figure>
   </section>
@@ -367,8 +409,8 @@
       </p>
     </div>
 
-    <figure class="shot" data-shot="06">
-      <div class="shot-frame"><span><b>Screenshot 6</b>Open Payments with a few rows selected and the pay button in frame.<br><br>desktop: <span style="color:var(--accent-2)">shot-06.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-06-mobile.png</span></span></div>
+    <figure class="shot" data-shot="07">
+      <div class="shot-frame"><span><b>Screenshot 7</b>Open Payments with a few rows selected and the pay button in frame.<br><br>desktop: <span style="color:var(--accent-2)">shot-07.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-07-mobile.png</span></span></div>
       <figcaption>Several open amounts, one payment.</figcaption>
     </figure>
   </section>
