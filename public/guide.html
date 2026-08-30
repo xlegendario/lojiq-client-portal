@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guide &middot; Lojiq</title>
+
+<style>
+  /* Same structure as the Kickz Caviar guide, in Lojiq's palette. The token
+     names are kept identical so a fix to one page can be read straight
+     across to the other; only the values differ. */
+  :root {
+    --bg:#08080A; --panel:#121215; --panel-2:#17171B; --panel-3:#1B1B20;
+    --line:#26262B; --line-soft:#1D1D22; --line-strong:#32323A;
+    --text:#E9E9EE; --dim:#C2C2CB; --muted:#8B8B95;
+    --accent:#2F80ED; --accent-2:#66B3FF; --accent-soft:rgba(47,128,237,.16);
+    --green:#16B364; --red:#F04438; --warning:#F59E0B; --blurple:#5865F2;
+    --r-lg:24px; --r-md:16px; --r-sm:14px;
+    --shadow:0 10px 30px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.03);
+    --sans:Arial, Helvetica, sans-serif;
+    --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing:border-box; }
+
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:16px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* Hidden until the merchant is known, so nobody sees a section flash past
+     that does not apply to them. */
+  body[data-ready="no"] .wrap { visibility:hidden; }
+
+  .wrap { max-width:800px; margin:0 auto; padding:54px 20px 90px; }
+
+  header.masthead {
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--r-lg); box-shadow:var(--shadow);
+    padding:34px 30px 32px; display:flex; flex-direction:column; gap:14px;
+    position:relative; overflow:hidden;
+  }
+  header.masthead::before {
+    content:""; position:absolute; inset:0 0 auto 0; height:2px;
+    background:linear-gradient(90deg, var(--accent), var(--accent-2), transparent);
+  }
+
+  .eyebrow {
+    font-family:var(--mono); font-size:11px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--accent-2);
+  }
+
+  h1 {
+    font-size:clamp(30px,6vw,44px); font-weight:700; line-height:1.06;
+    letter-spacing:-.025em; margin:0; text-wrap:balance;
+  }
+
+  .lede { margin:0; color:var(--dim); font-size:17px; max-width:62ch; }
+
+  h2 {
+    font-size:clamp(22px,4vw,28px); font-weight:700; letter-spacing:-.02em;
+    line-height:1.2; margin:0; text-wrap:balance;
+  }
+  h2 .num {
+    font-family:var(--mono); font-size:13px; font-weight:400;
+    color:var(--accent); letter-spacing:.14em; display:block; margin-bottom:6px;
+  }
+
+  h3 {
+    font-size:18px; font-weight:700; letter-spacing:-.01em;
+    margin:0 0 10px; text-wrap:balance;
+  }
+
+  section.chapter {
+    margin-top:40px; background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--r-lg); box-shadow:var(--shadow); padding:30px;
+    display:flex; flex-direction:column; gap:22px;
+  }
+
+  p { margin:0 0 14px; }
+  p:last-child { margin-bottom:0; }
+
+  .task {
+    background:var(--panel-2); border:1px solid var(--line-soft);
+    border-radius:var(--r-md); padding:22px;
+  }
+
+  .note {
+    border-left:3px solid var(--accent); background:var(--accent-soft);
+    border-radius:0 var(--r-sm) var(--r-sm) 0; padding:16px 18px;
+    color:var(--dim); font-size:15px;
+  }
+  .note strong { color:var(--text); }
+
+  .warn {
+    border-left:3px solid var(--warning); background:rgba(245,158,11,.12);
+    border-radius:0 var(--r-sm) var(--r-sm) 0; padding:16px 18px;
+    color:var(--dim); font-size:15px;
+  }
+  .warn strong { color:var(--text); }
+
+  ul, ol { margin:0 0 14px; padding-left:22px; }
+  li { margin:0 0 8px; }
+  li:last-child { margin-bottom:0; }
+
+  code {
+    font-family:var(--mono); font-size:13.5px; background:var(--panel-3);
+    border:1px solid var(--line-soft); border-radius:6px; padding:1px 6px;
+  }
+
+  .muted { color:var(--muted); font-size:15px; }
+
+  .pill {
+    display:inline-block; font-family:var(--mono); font-size:11px;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--accent-2);
+    border:1px solid var(--line-strong); border-radius:999px;
+    padding:3px 10px; background:var(--panel-3);
+  }
+
+  figure.shot { margin:0; display:flex; flex-direction:column; gap:10px; }
+  figure.shot img, figure.shot picture { width:100%; height:auto; display:block;
+    border:1px solid var(--line); border-radius:var(--r-md); }
+
+  .shot-frame {
+    border:1px dashed var(--line-strong); border-radius:var(--r-md);
+    background:var(--panel-3); min-height:150px; padding:22px;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+  }
+  .shot-frame span {
+    font-family:var(--mono); font-size:12.5px; color:var(--muted);
+    max-width:48ch; line-height:1.7;
+  }
+  .shot-frame b {
+    display:block; color:var(--dim); font-size:12.5px;
+    letter-spacing:.06em; text-transform:uppercase; margin-bottom:8px;
+  }
+  figcaption { color:var(--muted); font-size:14px; }
+
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line-soft); }
+  th { color:var(--muted); font-family:var(--mono); font-size:11px;
+       letter-spacing:.1em; text-transform:uppercase; font-weight:400; }
+  .table-wrap { overflow-x:auto; }
+
+  a { color:var(--accent-2); }
+
+  .foot { margin-top:40px; color:var(--muted); font-size:14px; text-align:center; }
+</style>
+</head>
+
+<body data-ready="no">
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="eyebrow">Lojiq &middot; Seller portal</span>
+    <h1>How the portal works</h1>
+    <p class="lede">
+      Everything you can do from your account, in the order you will meet it.
+      Sections that do not apply to your store are left out, so what you see
+      below is your portal and nothing else.
+    </p>
+    <p class="muted" id="intakeLine"></p>
+  </header>
+
+  <!-- =============================================================== -->
+  <section class="chapter">
+    <h2><span class="num">01</span>Signing in</h2>
+
+    <div class="task">
+      <h3>Your account</h3>
+      <p>
+        We set your account up for you, so there is nothing to register. Sign
+        in with the e-mail address and password you were given and you are in.
+      </p>
+      <p>
+        Want a password of your own? Use <strong>Forgot password?</strong> on
+        the login screen and you will get a reset link by e-mail. You can do
+        that whenever you like, not only when you have lost it.
+      </p>
+      <p class="muted">
+        One account per store. Everyone at your store works from the same
+        login, so what one of you accepts, the others see.
+      </p>
+    </div>
+
+    <figure class="shot" data-shot="01">
+      <div class="shot-frame"><span><b>Screenshot 1</b>The login screen, with the Forgot password? button in frame.<br><br>desktop: <span style="color:var(--accent-2)">shot-01.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-01-mobile.png</span></span></div>
+      <figcaption>Where you start.</figcaption>
+    </figure>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter" data-intake="manual both">
+    <h2><span class="num">02</span>The shop</h2>
+
+    <p>
+      The shop is where you buy. Search a model, pick a size, and you see one
+      price per pair &mdash; what it costs you, all in. No bidding, no waiting.
+    </p>
+
+    <div class="task">
+      <h3>Buying a pair</h3>
+      <p>
+        Find the pair, choose the size, and press <strong>Buy</strong>. That
+        settles it at the price on screen. The order appears under
+        <strong>Manual Orders</strong> straight away and we take it from there.
+      </p>
+    </div>
+
+    <div class="task">
+      <h3>Making an offer instead</h3>
+      <p>
+        Not happy with the price? Press <strong>Offer</strong> and name yours.
+        We take it to our sellers, and you get an answer back in your
+        offer-requests channel on Discord.
+      </p>
+    </div>
+
+    <div class="task">
+      <h3>Asking for something we do not have</h3>
+      <p>
+        If a pair is not in the shop, place a <strong>Want To Buy</strong>. You
+        give the model, the size, and the most you are willing to pay. That
+        maximum is a ceiling, not a promise &mdash; you still decide when an
+        offer comes back.
+      </p>
+      <p class="muted">
+        A Max Price is optional. Leave it empty and you simply see whatever
+        comes in, with no limit set in advance.
+      </p>
+    </div>
+
+    <div class="note">
+      <strong>Prices are shown in whole euros.</strong> What the shop quotes is
+      what you are invoiced &mdash; no cents appearing later, and no fee on top.
+    </div>
+
+    <figure class="shot" data-shot="02">
+      <div class="shot-frame"><span><b>Screenshot 2</b>The shop with a product open, size list and the Buy / Offer buttons in frame.<br><br>desktop: <span style="color:var(--accent-2)">shot-02.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-02-mobile.png</span></span></div>
+      <figcaption>One price per size, all in.</figcaption>
+    </figure>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter" data-intake="manual both">
+    <h2><span class="num">03</span>Manual Orders</h2>
+
+    <p>
+      Everything you bought or asked for yourself lives here, and each tab is a
+      stage. A deal moves down the list from top to bottom.
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tab</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Open</strong></td><td>Your want-to-buys that are still live. No offer yet, or an offer you have not answered.</td></tr>
+          <tr><td><strong>Offers</strong></td><td>An offer is waiting for you. Accept it, counter it, or deny it.</td></tr>
+          <tr><td><strong>Processing</strong></td><td>You accepted. We are getting the pair from the seller.</td></tr>
+          <tr><td><strong>Allocated</strong></td><td>The pair is confirmed and yours. Payment is arranged from Finance.</td></tr>
+          <tr><td><strong>Label Requests</strong></td><td>We need a shipping label from you before it can move.</td></tr>
+          <tr><td><strong>Ready To Ship</strong></td><td>Packed and waiting for pickup.</td></tr>
+          <tr><td><strong>Shipped</strong></td><td>On its way, with tracking.</td></tr>
+          <tr><td><strong>Fulfilled</strong></td><td>Delivered. Nothing left to do.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="task">
+      <h3>Answering an offer</h3>
+      <p>
+        An offer reaches you in two places at once: in the
+        <strong>Offers</strong> tab here, and as a message in your
+        offer-requests channel on Discord. They are the same offer &mdash;
+        answer it wherever suits you and the other updates itself.
+      </p>
+      <ul>
+        <li><strong>Accept</strong> &mdash; the price is agreed and the deal starts.</li>
+        <li><strong>Counter</strong> &mdash; name your own number. It goes back to the seller, who can accept, counter again, or walk away.</li>
+        <li><strong>Deny</strong> &mdash; you pass. Your want-to-buy stays live and the next seller can still offer.</li>
+      </ul>
+      <p class="muted">
+        Denying does not close anything. It only tells that one seller no.
+      </p>
+    </div>
+
+    <div class="warn">
+      <strong>An offer expires when a better one arrives.</strong> If a second
+      seller comes in lower, the older message greys out and the new one takes
+      its place. Always answer the live one.
+    </div>
+
+    <figure class="shot" data-shot="03">
+      <div class="shot-frame"><span><b>Screenshot 3</b>Manual Orders with the Offers tab open and one row carrying Accept / Counter / Deny.<br><br>desktop: <span style="color:var(--accent-2)">shot-03.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-03-mobile.png</span></span></div>
+      <figcaption>Where an offer waits for your answer.</figcaption>
+    </figure>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter" data-intake="api both">
+    <h2><span class="num">04</span>Store Orders</h2>
+
+    <p>
+      These arrive on their own. When a customer orders from your webshop and
+      you cannot supply it yourself, it lands here and we source it for you.
+      The stages read the same as Manual Orders, with one extra tab.
+    </p>
+
+    <div class="task">
+      <h3>Issues</h3>
+      <p>
+        Anything that needs a decision from you &mdash; a pair that could not
+        be sourced, a delivery that went wrong, a return that will not close.
+        If this tab has a number on it, something is genuinely waiting.
+      </p>
+    </div>
+
+    <figure class="shot" data-shot="04">
+      <div class="shot-frame"><span><b>Screenshot 4</b>Store Orders with the Issues tab visible in the sidebar.<br><br>desktop: <span style="color:var(--accent-2)">shot-04.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-04-mobile.png</span></span></div>
+      <figcaption>Orders that come to you, rather than from you.</figcaption>
+    </figure>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter">
+    <h2><span class="num">05</span>Returns</h2>
+
+    <p>
+      A return starts here and stays here until it is closed. Register it, send
+      the pair back, and follow it through the same way you follow an order.
+    </p>
+
+    <div class="note">
+      <strong>Register before you ship.</strong> A pair arriving without a
+      registered return cannot be matched to anything, which is what turns a
+      two-day return into a two-week one.
+    </div>
+
+    <figure class="shot" data-shot="05">
+      <div class="shot-frame"><span><b>Screenshot 5</b>The Returns section with one return open.<br><br>desktop: <span style="color:var(--accent-2)">shot-05.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-05-mobile.png</span></span></div>
+      <figcaption>Returns, from registration to closed.</figcaption>
+    </figure>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter" data-intake="stockx">
+    <h2><span class="num">06</span>StockX</h2>
+
+    <p>
+      Your dedicated StockX account, as far as it touches your orders here.
+      This section only appears for stores that have one.
+    </p>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter">
+    <h2><span class="num">07</span>Finance</h2>
+
+    <p>
+      Everything you owe sits under <strong>Open Payments</strong>. You are not
+      billed per pair &mdash; you select what you want to settle and pay it in
+      one go.
+    </p>
+
+    <div class="task">
+      <h3>Paying</h3>
+      <p>
+        Tick the rows you want to pay, press the pay button, and you get one
+        payment link for the lot. Once it clears, those rows move on by
+        themselves.
+      </p>
+      <p class="muted">
+        Only rows that are actually payable can be selected. A pair still being
+        sourced is not billed yet.
+      </p>
+    </div>
+
+    <figure class="shot" data-shot="06">
+      <div class="shot-frame"><span><b>Screenshot 6</b>Open Payments with a few rows selected and the pay button in frame.<br><br>desktop: <span style="color:var(--accent-2)">shot-06.png</span> &nbsp;&middot;&nbsp; phone: <span style="color:var(--accent-2)">shot-06-mobile.png</span></span></div>
+      <figcaption>Several open amounts, one payment.</figcaption>
+    </figure>
+  </section>
+
+  <!-- =============================================================== -->
+  <section class="chapter">
+    <h2><span class="num">08</span>Discord</h2>
+
+    <p>
+      Your store has its own channels in our Discord. The portal is where you
+      look things up; Discord is where we reach you.
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Channel</th><th>What arrives there</th></tr></thead>
+        <tbody>
+          <tr><td><strong>offer-requests</strong></td><td>Offers on your want-to-buys, counters back from sellers, and the message when a seller withdraws.</td></tr>
+          <tr><td><strong>labels</strong></td><td>Requests for a shipping label, with the link to upload it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <strong>The buttons in Discord do the real thing.</strong> Accepting an
+      offer there is the same as accepting it in the portal &mdash; there is no
+      second confirmation to find afterwards.
+    </div>
+  </section>
+
+  <p class="foot">Something not covered here? Ask us in your own channel &mdash; that is what it is for.</p>
+
+</div>
+
+<script>
+  /* Two jobs: keep the page behind a login, and show only the sections that
+     apply to this store.
+
+     The intake test is deliberately the same pair of conditions the portal
+     itself uses (merchantHasStoreOrders / merchantHasManualOrders). A guide
+     that describes a tab the store does not have is worse than no guide, and
+     that is exactly what happens when the two drift apart. */
+  (function () {
+    var raw = null;
+
+    try {
+      raw = localStorage.getItem("lojiq_merchant");
+    } catch (e) {
+      raw = null;
+    }
+
+    if (!raw) {
+      window.location.href = "/";
+      return;
+    }
+
+    var merchant = null;
+
+    try {
+      merchant = JSON.parse(raw);
+    } catch (e) {
+      merchant = null;
+    }
+
+    if (!merchant) {
+      window.location.href = "/";
+      return;
+    }
+
+    var intake = String(merchant.order_intake || "api").toLowerCase();
+
+    var hasStoreOrders = intake === "api" || intake === "both";
+    var hasManualOrders = intake === "manual" || intake === "both";
+
+    var hasStockx =
+      merchant.stockx_account_mode === "DEDICATED_ACCOUNT" && intake !== "manual";
+
+    document.querySelectorAll("[data-intake]").forEach(function (node) {
+      var wants = node.getAttribute("data-intake").split(/\s+/);
+
+      var show =
+        (wants.indexOf("stockx") !== -1 && hasStockx) ||
+        (wants.indexOf("api") !== -1 && hasStoreOrders) ||
+        (wants.indexOf("manual") !== -1 && hasManualOrders) ||
+        (wants.indexOf("both") !== -1 && intake === "both");
+
+      if (!show) node.remove();
+    });
+
+    /* Renumber after removing, so a store never reads 01, 02, 05. */
+    var n = 1;
+
+    document.querySelectorAll("section.chapter h2 .num").forEach(function (node) {
+      node.textContent = String(n).padStart(2, "0");
+      n += 1;
+    });
+
+    var line = document.getElementById("intakeLine");
+
+    if (line) {
+      line.textContent =
+        merchant.store_name
+          ? merchant.store_name + " · " + (hasManualOrders && hasStoreOrders
+              ? "store orders and manual orders"
+              : hasManualOrders ? "manual orders" : "store orders")
+          : "";
+    }
+
+    document.body.setAttribute("data-ready", "yes");
+  })();
+
+  /* A slot turns into the real screenshot as soon as the file exists, so the
+     page is readable while they are still being made. */
+  (function () {
+    function loads(url) {
+      return new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () { resolve(true); };
+        img.onerror = function () { resolve(false); };
+        img.src = url;
+      });
+    }
+
+    document.querySelectorAll("figure.shot[data-shot]").forEach(async function (figure) {
+      var nr = figure.dataset.shot;
+      var desktop = "/guide/shot-" + nr + ".png";
+      var phone = "/guide/shot-" + nr + "-mobile.png";
+
+      if (!(await loads(desktop))) return;
+
+      var alt = figure.querySelector("figcaption");
+      var picture = document.createElement("picture");
+
+      if (await loads(phone)) {
+        var source = document.createElement("source");
+        source.media = "(max-width: 620px)";
+        source.srcset = phone;
+        picture.appendChild(source);
+      }
+
+      var img = document.createElement("img");
+      img.src = desktop;
+      img.alt = alt ? alt.textContent.trim() : "";
+      img.loading = "lazy";
+      picture.appendChild(img);
+
+      var frame = figure.querySelector(".shot-frame");
+
+      if (frame) frame.replaceWith(picture);
+    });
+  })();
+</script>
+</body>
+</html>
