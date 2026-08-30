@@ -514,6 +514,20 @@ body.kc-dialog-open {
       font-weight: 800;
     }
 
+    .guide-btn {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-weight: 800;
+      font-size: 14px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
     .logout-btn {
       cursor: pointer;
       border: 1px solid var(--border);
@@ -2172,6 +2186,9 @@ body.kc-dialog-open {
                tabs. Kept to the right of the name: name first, then the two
                things you can do. -->
           <a class="shop-btn" id="shopLink" href="/shop" style="display:none;">Shop</a>
+          <!-- Quiet on purpose: the guide is there when you need it, not
+               something to press past on the way to your orders. -->
+          <a class="guide-btn" href="/guide">Guide</a>
           <button id="logoutBtn" class="logout-btn">Logout</button>
         </div>
       </div>
