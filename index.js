@@ -3732,16 +3732,43 @@ function merchantOwnsPaymentRecord(source, fields, merchant) {
   return sellerIds.some((sellerId) => buyerIds.includes(sellerId));
 }
 
+/*
+ * Whether this id is really a row in that table.
+ *
+ * .find() cannot answer it: an Airtable record id resolves across the whole
+ * base, so asking Unfulfilled Orders Log for a Member WTB id hands the want-
+ * to-buy straight back. A select scoped to the table only ever returns rows
+ * that are actually in it.
+ */
+async function findRecordInTable(table, recordId) {
+  const records = await airtable(table)
+    .select({
+      filterByFormula: `RECORD_ID() = '${escapeFormulaValue(recordId)}'`,
+      maxRecords: 1
+    })
+    .firstPage()
+    .catch(() => []);
+
+  return records[0] || null;
+}
+
 // Which of the two tables a record id lives in.
 //
 // The browser sends plain record ids and this asks the tables rather than
 // taking the browser's word for it - a page that could name its own table
 // could point a payment at someone else's record.
+//
+// FIXED - it asked with .find(), which always answered yes. Every want-to-
+// buy therefore came back as the first source in the list, an order, and
+// was then checked for ownership against "Store Name" - a field it does not
+// have. So paying a Member WTB from the portal returned "Not allowed for
+// this merchant" while the waiting window sat there saying nothing.
 async function resolvePaymentRecord(recordId, merchant) {
   for (const source of Object.keys(PAYMENT_SOURCES)) {
-    const record = await airtable(PAYMENT_SOURCES[source].table)
-      .find(recordId)
-      .catch(() => null);
+    const record = await findRecordInTable(
+      PAYMENT_SOURCES[source].table,
+      recordId
+    );
 
     if (!record) continue;
 
