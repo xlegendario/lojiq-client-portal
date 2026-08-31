@@ -926,7 +926,11 @@ function mapMemberWtbRecord(record, view, offerDates = new Map()) {
     invoice_status: displayValue(f["Payment Status"]),
     payment_link: displayValue(f["Payment Link"]),
     mollie_payment_id: displayValue(f["Mollie Payment ID"]),
-    paid_at: dateValue(f["Payment Confirmed At"]),
+    // FIXED - this read "Payment Confirmed At" while everything that marks a
+    // want-to-buy paid writes "Paid At" - the webhook, the trusted-buyer path,
+    // the store-order side. So Payment History showed a dash where the date
+    // should be. The old field is kept as a fallback for anything paid before.
+    paid_at: dateValue(f["Paid At"] || f["Payment Confirmed At"]),
     // CHANGED - "VAT Type" here is the VAT of the offer we buy at, not what
     // the store is invoiced. On MWTB-000388 it says VAT0 because the
     // supplying seller sells VAT0, while the buyer is Dutch and the invoice
@@ -2733,7 +2737,12 @@ app.get("/api/shop/products", async (req, res) => {
       brand: asText(req.query.brand),
       sort: asText(req.query.sort),
       inventory_type: asText(req.query.inventory_type) || "all",
-      buyer_vat_rate: buyer?.vat_rate ?? ""
+      buyer_vat_rate: buyer?.vat_rate ?? "",
+
+      // NEW - who is looking, so the shop can quote this store the mark-up
+      // from its own merchant record instead of the flat one. Kickz Caviar
+      // resolves it there rather than trusting a number from here.
+      seller_record_id: buyer?.record_id ?? ""
     });
 
     res.json(data);
@@ -3834,9 +3843,13 @@ async function settlePaidBatch({
 }) {
   const paidAt = isoNow();
 
+  // Cleared rather than left alone when a link settled this: any id still
+  // sitting there is from an earlier attempt that expired, and a record
+  // reading "Paid" beside a failed transaction id sends you to the wrong
+  // payment when you go looking. MWTB-000402 ended up exactly like that.
   const extra = molliePaymentId
     ? { "Mollie Payment ID": molliePaymentId }
-    : {};
+    : { "Mollie Payment ID": "" };
 
   await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
     "Payment Status": "Paid",
