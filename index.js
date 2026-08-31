@@ -66,6 +66,11 @@ const {
   MOLLIE_MODE = "test",
   MOLLIE_REDIRECT_URL = "https://portal.lojiq.io/portal",
   MOLLIE_WEBHOOK_URL = "https://portal.lojiq.io/api/mollie/webhook",
+
+  // How long a payment link stays usable, in hours. Left unset, Mollie
+  // decides - which is what every link so far has had. See
+  // molliePaymentExpiresAt below before changing it.
+  MOLLIE_PAYMENT_EXPIRY_HOURS,
   AIRTABLE_PAYMENT_BATCHES_TABLE = "Payment Batches",
   AIRTABLE_MEMBER_WTBS_TABLE = "Member WTBs"
 } = process.env;
@@ -206,6 +211,29 @@ function eurNumber(value) {
 
 function mollieAmount(value) {
   return eurNumber(value).toFixed(2);
+}
+
+/*
+ * When a payment link should stop working, or nothing at all.
+ *
+ * Nothing was ever sent, so Mollie applied its own default. On
+ * PB-1788182203017 that turned out to be under 72 minutes: created 15:16,
+ * expired before 16:29. Short enough that a link sent in the morning is
+ * dead by the time a store gets round to paying it.
+ *
+ * How long Mollie ALLOWS depends on the payment method, and asking for
+ * more than a method supports can take that method off the checkout - or
+ * be refused outright, which would leave nobody able to pay. That is worse
+ * than a link that expires early, so this stays off until a value is set,
+ * and the value lives in the environment rather than in here: a window
+ * that turns out to be too long can be walked back without a deploy.
+ */
+function molliePaymentExpiresAt() {
+  const hours = Number(MOLLIE_PAYMENT_EXPIRY_HOURS);
+
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
 async function mollieRequest(pathname, options = {}) {
@@ -812,6 +840,8 @@ const MEMBER_WTB_VIEW_FORMULAS = {
 
   // Payment Status here plays the part Invoice Status plays in the order
   // log. "Trusted" counts as settled: the deal proceeds unpaid on purpose.
+  // See the note on the order side: expired, cancelled and failed all
+  // still owe money, so they belong on the screen with the Pay button.
   open_payments: `AND(
     OR(
       {Fulfillment Status} = 'Requested Label',
@@ -822,15 +852,16 @@ const MEMBER_WTB_VIEW_FORMULAS = {
       {Payment Status} = 'Pending',
       {Payment Status} = 'Requested',
       {Payment Status} = 'Awaiting Payment',
-      {Payment Status} = 'Pending Payment'
+      {Payment Status} = 'Pending Payment',
+      {Payment Status} = 'Expired',
+      {Payment Status} = 'Cancelled',
+      {Payment Status} = 'Failed'
     )
   )`,
 
   payment_history: `OR(
     {Payment Status} = 'Paid',
-    {Payment Status} = 'Trusted',
-    {Payment Status} = 'Expired',
-    {Payment Status} = 'Cancelled'
+    {Payment Status} = 'Trusted'
   )`
 };
 
@@ -1163,6 +1194,15 @@ function buildOrderViewFormula(view, merchant = {}) {
   }
 
   if (view === "open_payments") {
+      /*
+        CHANGED - a payment that expired, was cancelled or failed still
+        has to be made, so it belongs here rather than in history.
+
+        It used to sit only under Payment History, where nothing can be
+        done with it. A link that ran out therefore took the order off
+        the one screen with a Pay button on it, and the buyer had no way
+        left to pay at all.
+      */
     return `AND(
       OR(
         {Fulfillment Status} = 'Requested Label',
@@ -1172,17 +1212,18 @@ function buildOrderViewFormula(view, merchant = {}) {
       OR(
         {Invoice Status} = 'Pending',
         {Invoice Status} = 'Awaiting Payment',
-        {Invoice Status} = 'Pending Payment'
+        {Invoice Status} = 'Pending Payment',
+        {Invoice Status} = 'Expired',
+        {Invoice Status} = 'Cancelled',
+        {Invoice Status} = 'Failed'
       )
     )`;
   }
   
   if (view === "payment_history") {
-    return `OR(
-      {Invoice Status} = 'Paid',
-      {Invoice Status} = 'Expired',
-      {Invoice Status} = 'Cancelled'
-    )`;
+    // Only what is settled. An expired or cancelled payment moved to
+    // Open Payments, where it can still be acted on.
+    return `{Invoice Status} = 'Paid'`;
   }
 
   if (view === "ready_to_ship") {
@@ -3712,12 +3753,20 @@ const PAYABLE_FULFILLMENT_STATUSES = new Set([
 
 // A status that means "not yours to start a payment on", with the sentence
 // the store gets to read. Keyed by status so both tables share the wording.
+// CHANGED - "Expired" and "Cancelled" no longer block a new attempt.
+//
+// Both describe what happened to one Mollie payment, not to the order. A
+// link that ran out is exactly the case where a store needs a fresh one,
+// and blocking it left the buyer unable to pay at all - with no way back
+// from the portal. "Failed" was already absent from this list, so a failed
+// payment could be retried while an expired one could not.
+//
+// A genuinely cancelled ORDER is still refused, one check above: its
+// Fulfillment Status is not one of the payable ones.
 const UNPAYABLE_STATUS_REASONS = {
   "Paid": "One of the selected orders is already paid",
   "Awaiting Payment": "One of the selected orders already has a payment link",
-  "Pending Payment": "One of the selected orders already has a payment link",
-  "Expired": "One of the selected orders cannot be paid from the portal",
-  "Cancelled": "One of the selected orders cannot be paid from the portal"
+  "Pending Payment": "One of the selected orders already has a payment link"
 };
 
 function merchantOwnsPaymentRecord(source, fields, merchant) {
@@ -3972,6 +4021,12 @@ app.post("/api/payments/create-link", async (req, res) => {
 
     const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create(batchFields);
 
+    const expiresAt = molliePaymentExpiresAt();
+
+    if (expiresAt) {
+      console.log(`Payment batch ${batchId}: asking Mollie to expire at ${expiresAt}`);
+    }
+
     const payment = await mollieRequest("/payments", {
       method: "POST",
       body: JSON.stringify({
@@ -3988,7 +4043,11 @@ app.post("/api/payments/create-link", async (req, res) => {
           merchant_id: merchantId,
           order_ids: orderIds,
           order_numbers: orderNumbers
-        }
+        },
+
+        // Omitted entirely when no window is configured, so Mollie keeps
+        // deciding exactly as it does today.
+        ...(expiresAt ? { expiresAt } : {})
       })
     });
 
