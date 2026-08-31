@@ -636,13 +636,16 @@
 </div>
 
 <script>
-  /* Two jobs: keep the page behind a login, and show only the sections that
-     apply to this store.
+  /* CHANGED - the guide is public.
 
-     The intake test is deliberately the same pair of conditions the portal
-     itself uses (merchantHasStoreOrders / merchantHasManualOrders). A guide
-     that describes a tab the store does not have is worse than no guide, and
-     that is exactly what happens when the two drift apart. */
+     It used to send anyone without a login back to the front page. That made
+     sense while it was only a manual for existing stores; it is now also what
+     we hand a store that asks how Lojiq actually works, and a walkthrough you
+     have to sign in to read is no use for that.
+
+     Nothing here reaches the portal, so there is nothing to protect: the page
+     is text and screenshots. A merchant in storage only personalises the line
+     under the title, and without one that line simply says what the page is. */
   (function () {
     var raw = null;
 
@@ -652,25 +655,17 @@
       raw = null;
     }
 
-    if (!raw) {
-      window.location.href = "/";
-      return;
-    }
-
     var merchant = null;
 
-    try {
-      merchant = JSON.parse(raw);
-    } catch (e) {
-      merchant = null;
+    if (raw) {
+      try {
+        merchant = JSON.parse(raw);
+      } catch (e) {
+        merchant = null;
+      }
     }
 
-    if (!merchant) {
-      window.location.href = "/";
-      return;
-    }
-
-    var intake = String(merchant.order_intake || "api").toLowerCase();
+    var intake = String((merchant && merchant.order_intake) || "api").toLowerCase();
 
     var hasStoreOrders = intake === "api" || intake === "both";
     var hasManualOrders = intake === "manual" || intake === "both";
@@ -695,12 +690,14 @@
     var line = document.getElementById("intakeLine");
 
     if (line) {
+      // Signed in, the line names their own setup so nobody has to guess
+      // which half applies to them. Read cold, it says what the page is.
       line.textContent =
-        merchant.store_name
+        merchant && merchant.store_name
           ? merchant.store_name + " · " + (hasManualOrders && hasStoreOrders
               ? "store orders and manual orders"
               : hasManualOrders ? "manual orders" : "store orders")
-          : "";
+          : "A full walkthrough of the Lojiq client portal";
     }
 
     document.body.setAttribute("data-ready", "yes");
