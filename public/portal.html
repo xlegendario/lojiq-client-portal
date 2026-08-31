@@ -3418,8 +3418,15 @@ function amountForButton(rawValue) {
       }
     
       if (currentView === "label_requests") {
+        // A manual order is a Member WTB and lives in another table than a
+        // store order, so the page is told which kind it is rather than
+        // left to guess from an id - every Airtable id starts with "rec".
+        // Store orders keep exactly the link they had.
+        const labelRequestType =
+          currentSource === "requests" ? "&type=member_wtb" : "";
+      
         const labelRequestUrl =
-          `https://lojiq-wms.onrender.com/label-request.html?record_id=${encodeURIComponent(order.id)}`;
+          `https://lojiq-wms.onrender.com/label-request.html?record_id=${encodeURIComponent(order.id)}${labelRequestType}`;
       
         return `
           <div class="action-row">
@@ -4540,6 +4547,20 @@ function amountForButton(rawValue) {
         await loadAllCounts();
         await loadOpenPaymentBatches();
       } catch (err) {
+        // CHANGED - the waiting window was opened and then never told
+        // anything. On a failure it kept saying "Creating payment link"
+        // for good, while the only explanation sat in an alert in the tab
+        // behind it - so a refusal was indistinguishable from a hang.
+        if (paymentWindow && !paymentWindow.closed) {
+          const message = escapeHtml(err.message || "Something went wrong");
+
+          paymentWindow.document.body.innerHTML =
+            '<div class="wait">Payment link not created<br>' +
+            '<span style="color:#F87171">' + message + '</span><br>' +
+            '<span style="font-weight:400;color:#8B8B95">' +
+            'You can close this tab.</span></div>';
+        }
+
         showAlert(err.message);
       } finally {
         createPaymentBtn.disabled = false;
