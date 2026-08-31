@@ -3797,6 +3797,62 @@ async function findRecordInTable(table, recordId) {
  * the one the store already sees on its bank statement, which is why it is
  * the readable "PAYB-000123" rather than a record id.
  */
+/*
+ * The batch a payment link belongs to.
+ *
+ * Mollie calls the webhook with the LINK id, not the payment id - measured,
+ * after every call came in as "pl_..." and the handler asked /payments for
+ * it. We store that id when the link is made, so this is a direct lookup.
+ */
+async function findPaymentBatchByLinkId(linkId) {
+  const clean = asText(linkId);
+
+  if (!clean) return null;
+
+  const records = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+    .select({
+      filterByFormula: `{Mollie Payment Link ID} = '${escapeFormulaValue(clean)}'`,
+      maxRecords: 1
+    })
+    .firstPage()
+    .catch(() => []);
+
+  return records[0] || null;
+}
+
+/*
+ * Everything that happens once money has arrived, from either webhook.
+ *
+ * A payment link knows it was paid but not by which payment - there is no
+ * such field on it - so the Mollie payment id is optional here. The batch
+ * and the orders are settled either way; that is what the store sees.
+ */
+async function settlePaidBatch({
+  batchRecordId,
+  targets,
+  molliePaymentId
+}) {
+  const paidAt = isoNow();
+
+  const extra = molliePaymentId
+    ? { "Mollie Payment ID": molliePaymentId }
+    : {};
+
+  await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
+    "Payment Status": "Paid",
+    "Paid At": paidAt,
+    ...extra
+  });
+
+  await setPaymentStatus(targets, "Paid", {
+    "Paid At": paidAt,
+    ...extra
+  });
+
+  ordersCache.clear();
+  countsCache.clear();
+}
+
 async function findPaymentBatchByDescription(description) {
   const match = asText(description).match(/PAYB-\d+/);
 
@@ -4268,6 +4324,54 @@ app.post("/api/mollie/webhook", async (req, res) => {
       return res.status(400).send("Missing payment id");
     }
 
+    /*
+      A payment link reports under its own id.
+
+      Mollie calls this url for both kinds and the payload is a snapshot
+      of whichever entity changed, so "pl_..." arrives here just as much
+      as "tr_...". Asking /payments for a link id fails - it did, in a
+      loop, because a 500 tells Mollie to try again.
+
+      A link carries no status, only paidAt. Anything else it might
+      report - a customer who started and walked away - needs no action:
+      the link stays open and they can come back to it.
+    */
+    if (paymentId.startsWith("pl_")) {
+      const link = await mollieRequest(
+        `/payment-links/${encodeURIComponent(paymentId)}`
+      );
+
+      const linkBatch = await findPaymentBatchByLinkId(paymentId);
+
+      if (!linkBatch) {
+        console.error("Mollie payment link webhook: no batch for", paymentId);
+        return res.status(200).send("ok");
+      }
+
+      if (!link?.paidAt) {
+        console.log(`Payment link ${paymentId} changed but is not paid yet`);
+        return res.status(200).send("ok");
+      }
+
+      const linkTargets = batchPaymentTargets(linkBatch.fields || {});
+
+      if (!linkTargets.length) {
+        console.error("Mollie payment link webhook found nothing to settle:", paymentId);
+        return res.status(200).send("ok");
+      }
+
+      await settlePaidBatch({
+        batchRecordId: linkBatch.id,
+        targets: linkTargets
+      });
+
+      console.log(
+        `Payment link ${paymentId} paid: settled ${linkTargets.length} record(s)`
+      );
+
+      return res.status(200).send("ok");
+    }
+
     const payment = await mollieRequest(`/payments/${encodeURIComponent(paymentId)}`);
 
     const metadata = payment.metadata || {};
@@ -4380,21 +4484,11 @@ app.post("/api/mollie/webhook", async (req, res) => {
       return res.status(200).send("ok");
     }
     
-    const paidAt = isoNow();
-    
-    await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
-      "Payment Status": "Paid",
-      "Paid At": paidAt,
-      "Mollie Payment ID": payment.id
+    await settlePaidBatch({
+      batchRecordId,
+      targets,
+      molliePaymentId: payment.id
     });
-    
-    await setPaymentStatus(targets, "Paid", {
-      "Paid At": paidAt,
-      "Mollie Payment ID": payment.id
-    });
-
-    ordersCache.clear();
-    countsCache.clear();
 
     res.status(200).send("ok");
   } catch (err) {
