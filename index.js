@@ -67,10 +67,6 @@ const {
   MOLLIE_REDIRECT_URL = "https://portal.lojiq.io/portal",
   MOLLIE_WEBHOOK_URL = "https://portal.lojiq.io/api/mollie/webhook",
 
-  // How long a payment link stays usable, in hours. Left unset, Mollie
-  // decides - which is what every link so far has had. See
-  // molliePaymentExpiresAt below before changing it.
-  MOLLIE_PAYMENT_EXPIRY_HOURS,
   AIRTABLE_PAYMENT_BATCHES_TABLE = "Payment Batches",
   AIRTABLE_MEMBER_WTBS_TABLE = "Member WTBs"
 } = process.env;
@@ -211,29 +207,6 @@ function eurNumber(value) {
 
 function mollieAmount(value) {
   return eurNumber(value).toFixed(2);
-}
-
-/*
- * When a payment link should stop working, or nothing at all.
- *
- * Nothing was ever sent, so Mollie applied its own default. On
- * PB-1788182203017 that turned out to be under 72 minutes: created 15:16,
- * expired before 16:29. Short enough that a link sent in the morning is
- * dead by the time a store gets round to paying it.
- *
- * How long Mollie ALLOWS depends on the payment method, and asking for
- * more than a method supports can take that method off the checkout - or
- * be refused outright, which would leave nobody able to pay. That is worse
- * than a link that expires early, so this stays off until a value is set,
- * and the value lives in the environment rather than in here: a window
- * that turns out to be too long can be walked back without a deploy.
- */
-function molliePaymentExpiresAt() {
-  const hours = Number(MOLLIE_PAYMENT_EXPIRY_HOURS);
-
-  if (!Number.isFinite(hours) || hours <= 0) return null;
-
-  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
 async function mollieRequest(pathname, options = {}) {
@@ -3812,6 +3785,34 @@ async function findRecordInTable(table, recordId) {
 // was then checked for ownership against "Store Name" - a field it does not
 // have. So paying a Member WTB from the portal returned "Not allowed for
 // this merchant" while the waiting window sat there saying nothing.
+/*
+ * The batch a payment belongs to, when the payment cannot say so itself.
+ *
+ * A payment link accepts no metadata, and a payment created from one
+ * carries no reference back to the link. What it does carry is the
+ * description, verbatim - measured, not assumed: a link described as
+ * "Lojiq TEST-001" produced a payment described as "Lojiq TEST-001".
+ *
+ * So the batch id goes in the description and comes back out here. It is
+ * the one the store already sees on its bank statement, which is why it is
+ * the readable "PAYB-000123" rather than a record id.
+ */
+async function findPaymentBatchByDescription(description) {
+  const match = asText(description).match(/PAYB-\d+/);
+
+  if (!match) return null;
+
+  const records = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+    .select({
+      filterByFormula: `{Batch ID} = '${escapeFormulaValue(match[0])}'`,
+      maxRecords: 1
+    })
+    .firstPage()
+    .catch(() => []);
+
+  return records[0] || null;
+}
+
 async function resolvePaymentRecord(recordId, merchant) {
   for (const source of Object.keys(PAYMENT_SOURCES)) {
     const record = await findRecordInTable(
@@ -3989,7 +3990,6 @@ app.post("/api/payments/create-link", async (req, res) => {
       source: item.source
     }));
 
-    const batchId = `PB-${Date.now()}`;
 
     const batchFields = {
       "Store": [merchantId],
@@ -4021,51 +4021,60 @@ app.post("/api/payments/create-link", async (req, res) => {
 
     const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create(batchFields);
 
-    const expiresAt = molliePaymentExpiresAt();
+    /*
+      CHANGED - a payment link, not a payment.
 
-    if (expiresAt) {
-      console.log(`Payment batch ${batchId}: asking Mollie to expire at ${expiresAt}`);
+      A payment starts counting down the moment it is created, and until
+      the customer picks a method it is short: two of these died inside 72
+      minutes. A store that came back later, exactly as the Continue button
+      invites it to, found a dead page.
+
+      A payment link does not expire unless told to, and the real payment -
+      with its own clock - is created when the customer actually starts. It
+      accepts no metadata, hence the batch id in the description; see
+      findPaymentBatchByDescription.
+    */
+    const batchLabel =
+      asText(batch.fields?.["Batch ID"]) ||
+      asText(
+        (await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+          .find(batch.id)
+          .catch(() => null))?.fields?.["Batch ID"]
+      );
+
+    if (!batchLabel) {
+      throw new Error("The payment batch has no Batch ID to identify it by");
     }
 
-    const payment = await mollieRequest("/payments", {
+    const paymentLink = await mollieRequest("/payment-links", {
       method: "POST",
       body: JSON.stringify({
         amount: {
           currency: "EUR",
           value: mollieAmount(total)
         },
-        description: `Lojiq ${batchId}`,
+        description: `Lojiq ${batchLabel}`,
         redirectUrl: `${MOLLIE_REDIRECT_URL}?batch=${encodeURIComponent(batch.id)}`,
-        webhookUrl: MOLLIE_WEBHOOK_URL,
-        metadata: {
-          batch_record_id: batch.id,
-          batch_id: batchId,
-          merchant_id: merchantId,
-          order_ids: orderIds,
-          order_numbers: orderNumbers
-        },
-
-        // Omitted entirely when no window is configured, so Mollie keeps
-        // deciding exactly as it does today.
-        ...(expiresAt ? { expiresAt } : {})
+        webhookUrl: MOLLIE_WEBHOOK_URL
       })
     });
 
-    const paymentUrl = payment?._links?.checkout?.href || "";
+    const paymentUrl = paymentLink?._links?.paymentLink?.href || "";
 
     if (!paymentUrl) {
-      throw new Error("Mollie did not return a checkout URL");
+      throw new Error("Mollie did not return a payment link URL");
     }
 
+    // "Mollie Payment ID" stays empty until a real payment exists; the
+    // webhook fills it in then.
     await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batch.id, {
       "Payment Status": "Awaiting Payment",
       "Payment Link": paymentUrl,
-      "Mollie Payment ID": payment.id
+      "Mollie Payment Link ID": paymentLink.id
     });
 
     await setPaymentStatus(targets, "Awaiting Payment", {
       "Payment Link": paymentUrl,
-      "Mollie Payment ID": payment.id,
       "Payment Batches": [batch.id]
     });
 
@@ -4075,8 +4084,8 @@ app.post("/api/payments/create-link", async (req, res) => {
     res.json({
       ok: true,
       payment_url: paymentUrl,
-      mollie_payment_id: payment.id,
-      batch_id: batchId,
+      mollie_payment_link_id: paymentLink.id,
+      batch_id: batchLabel,
       batch_record_id: batch.id,
       total
     });
@@ -4262,10 +4271,26 @@ app.post("/api/mollie/webhook", async (req, res) => {
     const payment = await mollieRequest(`/payments/${encodeURIComponent(paymentId)}`);
 
     const metadata = payment.metadata || {};
-    const batchRecordId = asText(metadata.batch_record_id);
+
+    // Metadata first: payments created before the switch to payment links
+    // still carry it, and they have to keep working. Everything new comes
+    // in through the description.
+    let batchRecordId = asText(metadata.batch_record_id);
 
     if (!batchRecordId) {
-      console.error("Mollie webhook missing metadata:", paymentId, metadata);
+      const fromDescription = await findPaymentBatchByDescription(payment.description);
+
+      batchRecordId = fromDescription ? fromDescription.id : "";
+    }
+
+    if (!batchRecordId) {
+      console.error(
+        "Mollie webhook could not place this payment:",
+        paymentId,
+        payment.description,
+        metadata
+      );
+
       return res.status(200).send("ok");
     }
 
