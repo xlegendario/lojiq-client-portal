@@ -4307,6 +4307,50 @@ app.post("/api/mollie/webhook", async (req, res) => {
       return res.status(200).send("ok");
     }
     
+    /*
+      CHANGED - only "pending" and "paid" were ever written back.
+
+      Everything else fell through this return and changed nothing, so a
+      payment that expired, was cancelled or failed left every order it
+      covered sitting on "Pending Payment" - the status that means a link
+      is still out there. The portal then refused a new one, correctly, and
+      the buyer had no way to pay at all. MWTB-000402 sat like that: the
+      Mollie payment expired within 72 minutes, the record never heard.
+
+      The link is cleared with it. Keeping a dead url around only invites
+      someone to open it.
+    */
+    const TERMINAL_MOLLIE_STATUSES = {
+      expired: "Expired",
+      canceled: "Cancelled",
+      cancelled: "Cancelled",
+      failed: "Failed"
+    };
+
+    const terminalStatus = TERMINAL_MOLLIE_STATUSES[payment.status];
+
+    if (terminalStatus) {
+      await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
+        "Payment Status": terminalStatus,
+        "Mollie Payment ID": payment.id
+      });
+
+      await setPaymentStatus(targets, terminalStatus, {
+        "Mollie Payment ID": payment.id,
+        "Payment Link": ""
+      });
+
+      ordersCache.clear();
+      countsCache.clear();
+
+      console.log(
+        `Mollie ${payment.id} came back ${payment.status}: ` +
+          `${targets.length} record(s) set to ${terminalStatus}`
+      );
+
+      return res.status(200).send("ok");
+    }
+
     if (payment.status !== "paid") {
       return res.status(200).send("ok");
     }
