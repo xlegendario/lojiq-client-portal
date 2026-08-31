@@ -4546,7 +4546,15 @@ function amountForButton(rawValue) {
         const data = await response.json();
     
         if (!response.ok) {
-          throw new Error(data.error || data.details || "Failed to create payment link");
+          // CHANGED - "error" is the generic sentence the endpoint always
+          // sends; what actually went wrong is in "details". Preferring the
+          // first meant every failure read "Failed to create payment link"
+          // and said nothing more.
+          const parts = [data.error, data.details]
+            .filter(Boolean)
+            .filter((part, index, all) => all.indexOf(part) === index);
+
+          throw new Error(parts.join(" — ") || "Failed to create payment link");
         }
     
         if (paymentWindow) {
