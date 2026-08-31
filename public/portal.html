@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <link rel="icon" type="image/png" href="/brain.png">
   <meta charset="UTF-8" />
   <title>Lojiq Portal - Orders</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -2802,7 +2803,11 @@ function showPrompt(message, options) {
         ["invoice_price", "Invoice Price"],
         ["invoice_status", "Invoice Status"],
         ["paid_at", "Paid At"],
-        ["payment_link", "Payment Link"]
+        // CHANGED - was a Payment Link column with a PAY button on rows that
+        // are already settled. "payment_action" only offers PAY when the row
+        // can still be paid, so here it comes down to TRACK - useful for a
+        // store that paid before delivery and wants to follow the parcel.
+        ["payment_action", "Actions"]
       ],
     
       ready_to_ship: [
