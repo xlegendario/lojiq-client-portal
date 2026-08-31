@@ -2991,10 +2991,25 @@ function showPrompt(message, options) {
       }).format(value || 0);
     }
     
+    // CHANGED - this listed what MAY be paid, and so silently refused every
+    // status nobody thought of: Requested, Expired, Cancelled, Failed. A row
+    // could sit in Open Payments with no checkbox and no button, which is how
+    // MWTB-000402 became unpayable after its link ran out.
+    //
+    // Now it lists what may NOT, and mirrors UNPAYABLE_STATUS_REASONS on the
+    // server. Anything else is an amount still owed, so it can be paid.
+    // "Trusted" is here too: we do not charge those at all.
+    const UNPAYABLE_STATUSES = new Set([
+      "Paid",
+      "Trusted",
+      "Awaiting Payment",
+      "Pending Payment"
+    ]);
+
     function isPaymentSelectable(order) {
       const status = String(order.invoice_status || "").trim();
-    
-      return !status || status === "Pending";
+
+      return !UNPAYABLE_STATUSES.has(status);
     }
     
     function updatePaymentSelectionSummary() {
