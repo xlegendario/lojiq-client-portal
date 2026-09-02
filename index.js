@@ -38,6 +38,13 @@ app.get("/reset-password", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "reset-password.html"));
 });
 
+// Internal: onboarding a new store. The page lives here so it sits on the
+// portal domain, but the work happens in the Discord updates service - that is
+// where the bot token is, and it should stay in one place.
+app.get("/store-signup", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "store-signup.html"));
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -58,6 +65,7 @@ const {
   APP_PUBLIC_BASE_URL = "https://lojiq-client-portal.onrender.com",
   RESET_EMAIL_FROM,
   KICKZ_PORTAL_BASE_URL = "https://kickzcaviar.com",
+  DISCORD_UPDATES_BASE_URL = "https://airtable-discord-updates.onrender.com",
   COUNTER_OFFERS_SECRET,
   MOLLIE_API_KEY,
   MOLLIE_REPORTING_TOKEN,
@@ -173,6 +181,41 @@ app.post("/api/login", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Login failed", details: err.message });
+  }
+});
+
+/*
+ * Onboarding a store: forwarded, not performed.
+ *
+ * Creating the role, the category and its channels needs the Lojiq bot token,
+ * and that token lives in the Discord updates service. Copying it here to save
+ * a hop would mean two services able to hand out roles in the server, which is
+ * one more than anyone can keep track of.
+ *
+ * Forwarded server-side rather than posted from the browser, so the page stays
+ * on this origin: no CORS to configure, and the password never travels to a
+ * second domain from the client.
+ */
+app.post("/api/store-signup", async (req, res) => {
+  try {
+    const response = await fetch(`${DISCORD_UPDATES_BASE_URL}/api/store-signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body || {})
+    });
+
+    const data = await response.json().catch(() => ({
+      error: "The Discord service returned something that is not JSON"
+    }));
+
+    return res.status(response.status).json(data);
+  } catch (err) {
+    console.error("Store signup forward failed:", err);
+
+    return res.status(502).json({
+      error: "Could not reach the Discord service",
+      details: err.message
+    });
   }
 });
 
