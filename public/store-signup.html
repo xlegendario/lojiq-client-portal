@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lojiq &middot; New Store</title>
+<style>
+  /* Straight from lojiq-client-portal, so this page belongs to the portal
+     rather than merely resembling it. */
+  :root {
+    --bg: #08080A;
+    --surface: #121215;
+    --surface-2: #18181C;
+    --line: #26262B;
+    --ink: #E9E9EE;
+    --muted: #8B8B95;
+    --primary: #2F80ED;
+    --primary-soft: #66B3FF;
+    --primary-glow: 0 4px 16px rgba(47, 128, 237, 0.32);
+    --ok: #16B364;
+    --err: #F04438;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 40px 20px 80px;
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 22px;
+    font-size: 0.74rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .brand .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, var(--primary-soft), var(--primary));
+    box-shadow: var(--primary-glow);
+  }
+
+  h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 32px; font-size: 0.95rem; max-width: 62ch; }
+
+  fieldset {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 20px 22px 24px;
+    margin: 0 0 20px;
+  }
+
+  legend {
+    padding: 0 8px;
+    font-size: 0.72rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .full { grid-column: 1 / -1; }
+
+  label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 5px; }
+  label .req { color: var(--primary-soft); }
+
+  input, select {
+    width: 100%;
+    padding: 9px 11px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.92rem;
+  }
+
+  input:focus, select:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: -1px;
+    border-color: transparent;
+  }
+
+  .hint { font-size: 0.78rem; color: var(--muted); margin-top: 6px; }
+
+  button {
+    background: linear-gradient(180deg, var(--primary-soft), var(--primary));
+    color: #04121F;
+    border: 0;
+    border-radius: 8px;
+    padding: 12px 26px;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+    box-shadow: var(--primary-glow);
+  }
+
+  button:hover:not(:disabled) { filter: brightness(1.06); }
+  button:disabled { opacity: 0.5; cursor: progress; box-shadow: none; }
+
+  #out {
+    margin-top: 22px;
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 0.9rem;
+    display: none;
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  #out.ok { border-color: var(--ok); }
+  #out.err { border-color: var(--err); }
+  #out h3 { margin: 0 0 8px; font-size: 0.95rem; }
+  #out.ok h3 { color: var(--ok); }
+  #out.err h3 { color: var(--err); }
+  #out code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+  #out ul { margin: 8px 0 0; padding-left: 18px; }
+  #out li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand"><span class="dot"></span> Lojiq</div>
+
+  <h1>New store</h1>
+  <p class="sub">
+    Creates the seller and merchant records, then the Discord role, category and
+    all eight channels. The category and role are named after the store, which
+    is how the triggers find its channels later &mdash; so get the name right the
+    first time.
+  </p>
+
+  <form id="form">
+
+    <fieldset>
+      <legend>Store</legend>
+      <div class="grid">
+        <div class="full">
+          <label>Store Name <span class="req">*</span></label>
+          <input name="store_name" required autocomplete="off">
+          <div class="hint">Becomes the category and role name in capitals. Cannot be renamed afterwards without breaking the channel lookup.</div>
+        </div>
+        <div>
+          <label>Order Intake</label>
+          <select name="order_intake">
+            <option value="Manual" selected>Manual</option>
+            <option value="Both">Both</option>
+            <option value="API">API</option>
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Contact</legend>
+      <div class="grid">
+        <div>
+          <label>Full Name <span class="req">*</span></label>
+          <input name="full_name" required autocomplete="off">
+        </div>
+        <div>
+          <label>Company Name</label>
+          <input name="company_name" autocomplete="off">
+          <div class="hint">Defaults to Full Name.</div>
+        </div>
+        <div>
+          <label>Email <span class="req">*</span></label>
+          <input name="email" type="email" required autocomplete="off">
+        </div>
+        <div>
+          <label>Discord username</label>
+          <input name="discord_username" autocomplete="off" placeholder="simon.1011">
+        </div>
+        <div class="full">
+          <label>Discord ID <span class="req">*</span></label>
+          <input name="discord_id" required autocomplete="off" inputmode="numeric" placeholder="573509881714442241">
+          <div class="hint">The numeric ID. The role is assigned straight away if they are already in the server.</div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Address and VAT</legend>
+      <div class="grid">
+        <div class="full">
+          <label>Address</label>
+          <input name="address" autocomplete="off">
+        </div>
+        <div>
+          <label>Zipcode</label>
+          <input name="zipcode" autocomplete="off">
+        </div>
+        <div>
+          <label>City</label>
+          <input name="city" autocomplete="off">
+        </div>
+        <div>
+          <label>Country</label>
+          <input name="country" autocomplete="off" placeholder="Germany">
+          <div class="hint">Leave this empty and their VAT rate lands on 0.</div>
+        </div>
+        <div>
+          <label>Country Code</label>
+          <input name="country_code" autocomplete="off" maxlength="2" placeholder="DE">
+        </div>
+        <div class="full">
+          <label>VAT ID</label>
+          <input name="vat_id" autocomplete="off" placeholder="DE229165300">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Portal login</legend>
+      <div class="grid">
+        <div>
+          <label>Portal Email</label>
+          <input name="portal_email" type="email" autocomplete="off">
+          <div class="hint">Defaults to the contact email.</div>
+        </div>
+        <div>
+          <label>Portal Password <span class="req">*</span></label>
+          <input name="portal_password" required autocomplete="off">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Margin &mdash; optional</legend>
+      <div class="grid">
+        <div>
+          <label>Offer Method</label>
+          <select name="offer_method">
+            <option value="">None &mdash; flat mark-up</option>
+            <option value="Percentage">Percentage</option>
+            <option value="Firm Range">Firm Range</option>
+          </select>
+        </div>
+        <div>
+          <label>Offer Percentage</label>
+          <input name="offer_percentage" inputmode="decimal" placeholder="5">
+          <div class="hint">In whole percent.</div>
+        </div>
+        <div>
+          <label>Offer Margin &euro;</label>
+          <input name="offer_margin" inputmode="decimal" placeholder="20">
+          <div class="hint">For Firm Range.</div>
+        </div>
+        <div>
+          <label>Margin Cap &euro;</label>
+          <input name="margin_cap" inputmode="decimal" placeholder="20">
+        </div>
+        <div class="full hint">
+          Leave all of it empty and the store gets the standard flat mark-up.
+          A percentage never earns less than &euro;10, and the cap is the ceiling.
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Confirm</legend>
+      <div class="grid">
+        <div class="full">
+          <label>Password <span class="req">*</span></label>
+          <input name="secret" type="password" required autocomplete="off">
+        </div>
+      </div>
+    </fieldset>
+
+    <button type="submit" id="btn">Create store</button>
+  </form>
+
+  <div id="out"></div>
+
+</div>
+
+<script>
+  const form = document.getElementById("form");
+  const out = document.getElementById("out");
+  const btn = document.getElementById("btn");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    btn.disabled = true;
+    btn.textContent = "Creating…";
+    out.style.display = "none";
+    out.className = "";
+
+    const payload = Object.fromEntries(new FormData(form).entries());
+
+    try {
+      const res = await fetch("/api/store-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        out.className = "err";
+        let html = "<h3>Failed</h3><p>" + (data.error || "Unknown error") + "</p>";
+
+        const made = data.created || {};
+        const bits = [];
+
+        if (made.role) bits.push("role " + made.role.name);
+        if (made.category) bits.push("category " + made.category.name);
+        if (made.channels && made.channels.length) bits.push(made.channels.length + " channels");
+        if (made.seller) bits.push("seller record");
+        if (made.merchant) bits.push("merchant record");
+
+        if (bits.length) {
+          html += "<p>Already created, clean these up by hand: " + bits.join(", ") + ".</p>";
+        }
+
+        out.innerHTML = html;
+      } else {
+        out.className = "ok";
+        out.innerHTML =
+          "<h3>" + data.store_name + " is ready</h3>" +
+          "<ul>" +
+          "<li>Seller <code>" + (data.seller_id || data.seller_record_id) + "</code></li>" +
+          "<li>Client <code>" + (data.client_id || data.merchant_record_id) + "</code></li>" +
+          "<li>Role and category <code>" + data.role.name + "</code></li>" +
+          "<li>" + data.channels.length + " channels created</li>" +
+          "<li>Role " + (data.role_assigned
+            ? "assigned"
+            : "<strong>not</strong> assigned &mdash; they are not in the server yet") + "</li>" +
+          "</ul>";
+
+        form.reset();
+      }
+    } catch (err) {
+      out.className = "err";
+      out.innerHTML = "<h3>Failed</h3><p>" + err.message + "</p>";
+    }
+
+    out.style.display = "block";
+    btn.disabled = false;
+    btn.textContent = "Create store";
+  });
+</script>
+</body>
+</html>
