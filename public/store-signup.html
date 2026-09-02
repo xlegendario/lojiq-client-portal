@@ -56,6 +56,13 @@
 
   h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.01em; }
   .sub { color: var(--muted); margin: 0 0 32px; font-size: 0.95rem; max-width: 62ch; }
+  .sub code, #out code {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
 
   fieldset {
     border: 1px solid var(--line);
@@ -142,9 +149,10 @@
   <h1>New store</h1>
   <p class="sub">
     Creates the seller and merchant records, then the Discord role, category and
-    all eight channels. The category and role are named after the store, which
-    is how the triggers find its channels later &mdash; so get the name right the
-    first time.
+    channels. The category and role are named after the store, which is how the
+    triggers find its channels later &mdash; so get the name right the first
+    time. A manual store skips <code>new-orders</code>, since it has no orders
+    arriving through the integration to announce.
   </p>
 
   <form id="form">
@@ -362,17 +370,11 @@
         out.className = "err";
         let html = "<h3>Failed</h3><p>" + (data.error || "Unknown error") + "</p>";
 
-        const made = data.created || {};
-        const bits = [];
-
-        if (made.role) bits.push("role " + made.role.name);
-        if (made.category) bits.push("category " + made.category.name);
-        if (made.channels && made.channels.length) bits.push(made.channels.length + " channels");
-        if (made.seller) bits.push("seller record");
-        if (made.merchant) bits.push("merchant record");
-
-        if (bits.length) {
-          html += "<p>Already created, clean these up by hand: " + bits.join(", ") + ".</p>";
+        if (data.rolled_back) {
+          html += "<p>Everything that had been created was removed again, so nothing is left half-built. Fix the cause and try the same store name again.</p>";
+        } else if (data.left_behind && data.left_behind.length) {
+          html += "<p>Rolled back, except for these &mdash; remove them by hand before retrying:</p><ul><li>" +
+            data.left_behind.join("</li><li>") + "</li></ul>";
         }
 
         out.innerHTML = html;
