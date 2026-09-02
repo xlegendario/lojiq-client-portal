@@ -212,13 +212,36 @@
           <input name="city" autocomplete="off">
         </div>
         <div>
-          <label>Country</label>
-          <input name="country" autocomplete="off" placeholder="Germany">
-          <div class="hint">Leave this empty and their VAT rate lands on 0.</div>
+          <label>Country <span class="req">*</span></label>
+          <select name="country" id="country" required>
+            <option value="">Pick one…</option>
+            <option value="Austria">Austria</option>
+            <option value="Belgium">Belgium</option>
+            <option value="Bulgaria">Bulgaria</option>
+            <option value="Czech Republic">Czech Republic</option>
+            <option value="Denmark">Denmark</option>
+            <option value="France">France</option>
+            <option value="Germany">Germany</option>
+            <option value="Greece">Greece</option>
+            <option value="Hungary">Hungary</option>
+            <option value="Italy">Italy</option>
+            <option value="Latvia">Latvia</option>
+            <option value="Luxembourg">Luxembourg</option>
+            <option value="Netherlands">Netherlands</option>
+            <option value="Poland">Poland</option>
+            <option value="Portugal">Portugal</option>
+            <option value="Romania">Romania</option>
+            <option value="Slovakia">Slovakia</option>
+            <option value="Slovenia">Slovenia</option>
+            <option value="Spain">Spain</option>
+            <option value="Sweden">Sweden</option>
+          </select>
+          <div class="hint">Sets their VAT rate. A country that is not listed has to be added in Airtable first.</div>
         </div>
         <div>
           <label>Country Code</label>
-          <input name="country_code" autocomplete="off" maxlength="2" placeholder="DE">
+          <input name="country_code" id="country_code" autocomplete="off" maxlength="2" readonly>
+          <div class="hint">Filled in from the country.</div>
         </div>
         <div class="full">
           <label>VAT ID</label>
@@ -295,6 +318,26 @@
   const form = document.getElementById("form");
   const out = document.getElementById("out");
   const btn = document.getElementById("btn");
+
+  // Every code that already appears against these countries in the Sellers
+  // table. Derived, not invented: a country and a code that disagree is the
+  // kind of thing nothing complains about until an invoice is wrong.
+  const COUNTRY_CODES = {
+    Austria: "AT", Belgium: "BE", Bulgaria: "BG", "Czech Republic": "CZ",
+    Denmark: "DK", France: "FR", Germany: "DE", Greece: "GR",
+    Hungary: "HU", Italy: "IT", Latvia: "LV", Luxembourg: "LU",
+    Netherlands: "NL", Poland: "PL", Portugal: "PT", Romania: "RO",
+    Slovakia: "SK", Slovenia: "SI", Spain: "ES", Sweden: "SE"
+  };
+
+  // Found by name rather than id: that is what the form submits under, so the
+  // pair cannot drift apart, and it survives anything that rewrites ids.
+  const countrySelect = form.elements.country;
+  const countryCode = form.elements.country_code;
+
+  countrySelect.addEventListener("change", () => {
+    countryCode.value = COUNTRY_CODES[countrySelect.value] || "";
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
