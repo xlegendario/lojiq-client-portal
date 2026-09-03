@@ -1406,8 +1406,21 @@
         return;
       }
 
-      if (!/[A-Z0-9]/.test(size)) {
-        failure.textContent = "Enter a size. For example 42, 42.5, 37 1/3 or M.";
+      /*
+        Mirrors isUsableConsignmentSize in kickz-caviar-portal/index.js, which
+        refuses these too. Here only to answer before a round trip; if that
+        function changes, change this and the copy in
+        kickz-caviar-portal/public/app.js.
+      */
+      const singleSize =
+        /^\d{1,2}(\.5)?$/.test(size) ||
+        /^\d{1,2} [12]\/3$/.test(size) ||
+        /^(XXXS|XXS|XS|S|M|L|XL|XXL|XXXL)$/.test(size) ||
+        /^(S\/M|M\/L|L\/XL)$/.test(size);
+
+      if (!singleSize) {
+        failure.textContent =
+          "Enter one size, like 42, 42.5, 37 1/3 or M. Post a separate want-to-buy for each size you need.";
         return;
       }
 
