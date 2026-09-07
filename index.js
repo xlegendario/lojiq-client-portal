@@ -945,7 +945,7 @@ function memberWtbBuyerFormula(merchant = {}) {
  */
 const MEMBER_WTB_ETA = "24 - 72 hours";
 
-function mapMemberWtbRecord(record, view, offerDates = new Map()) {
+function mapMemberWtbRecord(record, view, offerDates = new Map(), couriers = new Map()) {
   const f = record.fields || {};
 
   return {
@@ -1016,7 +1016,10 @@ function mapMemberWtbRecord(record, view, offerDates = new Map()) {
     // CHANGED - was blank because a want-to-buy has no "Offer Sent At" of
     // its own. It does have an offer, and that offer has a date.
     offer_date: dateValue(offerDates.get(record.id)),
-    preferred_courier: "",
+    // CHANGED - was hardcoded empty, on the reading that a want-to-buy has no
+    // equivalent. It has one, only a step further away: the consignor sits on
+    // the unit filling it rather than on the row. See fetchMemberWtbCouriers.
+    preferred_courier: couriers.get(record.id) || "",
     supplier_shipping_status: "",
     warehouse_tracking: "",
     issue_status: "",
@@ -1084,6 +1087,128 @@ async function fetchMemberWtbOfferDates(records) {
 
     const when = dateByOffer.get(offerId);
     if (when) byWtb.set(record.id, when);
+  }
+
+  return byWtb;
+}
+
+/*
+ * Which courier each want-to-buy needs a label for.
+ *
+ * A store order carries the supplying seller on the order itself, which is
+ * what getPreferredCourierFromOrderFields reads. A want-to-buy does not: the
+ * consignor arrives with the unit that fills it, so the chain runs one step
+ * longer - want-to-buy, unit, seller, country, routing table.
+ *
+ * Because that chain was missing, the Preferred Courier column was blank on
+ * every want-to-buy in Label Requests while the same column was filled for
+ * store orders beside it. A store then has to guess which carrier to buy a
+ * label from, and a label for the wrong one is a pair nobody collects.
+ *
+ * Read in bulk rather than per row: three round trips for the whole page
+ * instead of three per line. Non-fatal throughout - a lookup that fails
+ * leaves the dash the column showed before, and never empties the tab.
+ */
+async function fetchMemberWtbCouriers(records, view) {
+  const empty = new Map();
+
+  // The only view with the column, and the only one worth the reads.
+  if (view !== "label_requests") return empty;
+
+  const unitIds = [
+    ...new Set(
+      (records || [])
+        .map((record) => (record.fields?.["Linked Inventory Unit"] || [])[0])
+        .filter(Boolean)
+    )
+  ];
+
+  if (!unitIds.length) return empty;
+
+  const readByIds = async (table, ids, fields) => {
+    const url = new URL(
+      `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(table)}`
+    );
+
+    url.searchParams.set(
+      "filterByFormula",
+      `OR(${ids.map((id) => `RECORD_ID() = '${id}'`).join(",")})`
+    );
+
+    for (const field of fields) url.searchParams.append("fields[]", field);
+    url.searchParams.set("pageSize", "100");
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+    });
+
+    if (!response.ok) {
+      console.error(`Could not read ${table} for the courier column:`, response.status);
+      return [];
+    }
+
+    return (await response.json()).records || [];
+  };
+
+  const units = await readByIds(AIRTABLE_INVENTORY_TABLE, unitIds, ["Seller ID"]);
+
+  const sellerByUnit = new Map(
+    units.map((unit) => [unit.id, (unit.fields?.["Seller ID"] || [])[0]])
+  );
+
+  const sellerIds = [...new Set([...sellerByUnit.values()].filter(Boolean))];
+
+  if (!sellerIds.length) return empty;
+
+  const sellers = await readByIds(AIRTABLE_SELLERS_TABLE, sellerIds, [
+    "Seller ID",
+    "Country Code"
+  ]);
+
+  // The four that ship out of our own warehouse route as Dutch whatever
+  // their record says - the same list the store-order side keeps.
+  const forcedNlSellerIds = ["SE-00455", "SE-00781", "SE-00309", "SE-00537"];
+
+  const countryBySeller = new Map(
+    sellers.map((seller) => [
+      seller.id,
+      forcedNlSellerIds.includes(asText(seller.fields?.["Seller ID"]))
+        ? "NL"
+        : asText(seller.fields?.["Country Code"])
+    ])
+  );
+
+  const countryCodes = [...new Set([...countryBySeller.values()].filter(Boolean))];
+
+  if (!countryCodes.length) return empty;
+
+  const routingRecords = await airtable(AIRTABLE_LABEL_REQUEST_ROUTING_TABLE)
+    .select({
+      fields: ["Country Code", "Preferred Courier"],
+      filterByFormula: `OR(${countryCodes
+        .map((code) => `TRIM({Country Code} & '') = '${escapeFormulaValue(code)}'`)
+        .join(",")})`
+    })
+    .all()
+    .catch((err) => {
+      console.error("Could not read the label request routing:", err.message);
+      return [];
+    });
+
+  const courierByCountry = new Map(
+    routingRecords.map((row) => [
+      asText(row.fields["Country Code"]).trim(),
+      asText(row.fields["Preferred Courier"])
+    ])
+  );
+
+  const byWtb = new Map();
+
+  for (const record of records || []) {
+    const unitId = (record.fields?.["Linked Inventory Unit"] || [])[0];
+    const courier = courierByCountry.get(countryBySeller.get(sellerByUnit.get(unitId)));
+
+    if (courier) byWtb.set(record.id, courier);
   }
 
   return byWtb;
@@ -1444,9 +1569,10 @@ app.get("/api/orders", async (req, res) => {
       });
 
       const offerDates = await fetchMemberWtbOfferDates(records);
+      const couriers = await fetchMemberWtbCouriers(records, view);
 
       let orders = records.map((record) =>
-        mapMemberWtbRecord(record, view, offerDates)
+        mapMemberWtbRecord(record, view, offerDates, couriers)
       );
 
       if (search) {
@@ -1629,10 +1755,13 @@ app.get("/api/orders", async (req, res) => {
       });
 
       const manualOfferDates = await fetchMemberWtbOfferDates(manualRecords);
+      const manualCouriers = await fetchMemberWtbCouriers(manualRecords, view);
 
       orders = [
         ...orders,
-        ...manualRecords.map((record) => mapMemberWtbRecord(record, view, manualOfferDates))
+        ...manualRecords.map((record) =>
+          mapMemberWtbRecord(record, view, manualOfferDates, manualCouriers)
+        )
       ];
     }
 
