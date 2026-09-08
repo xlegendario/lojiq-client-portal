@@ -3102,7 +3102,19 @@ app.get("/api/shop/buyer", async (req, res) => {
  * Kickz Caviar side.
  */
 function consignmentMoney(value) {
-  const amount = Number(value);
+  /*
+    FIXED - the Payout column was empty on every consignment status tab.
+
+    Kickz Caviar hands these amounts over already written out, "€ 121", and
+    this read them with Number(), which answers NaN for anything with a euro
+    sign in it. So a filled column over there arrived blank over here.
+
+    Stripping first also handles the comma: 107,50 as a decimal separator is
+    not a number to JavaScript either.
+  */
+  const amount = Number(
+    String(value ?? "").replace(/[^0-9.,-]/g, "").replace(",", ".")
+  );
 
   if (!Number.isFinite(amount) || amount <= 0) return "";
 
@@ -3543,11 +3555,9 @@ app.get("/api/consignment/offers", async (req, res) => {
       route answers with - original_offer, counter_payout, current_lowest -
       and the em-dashes on screen were me reading them off the buying side.
     */
-    // A second copy of the same rule is how these tabs drifted apart in the
-    // first place. This one only strips whatever formatting the dashboard
-    // already applied before handing the number over.
-    const money = (value) =>
-      consignmentMoney(String(value ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
+    // consignmentMoney strips the formatting itself now, so there is nothing
+    // left for this to do but name what it is.
+    const money = consignmentMoney;
 
     const asDate = (value) => {
       if (!value) return "";
