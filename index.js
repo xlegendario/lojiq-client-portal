@@ -3089,12 +3089,28 @@ app.get("/api/shop/buyer", async (req, res) => {
  * Caviar's dashboard writes these with the sign attached; matching it here
  * keeps the two screens identical without teaching this table a new rule.
  */
+/*
+ * An amount the way the rest of the portal writes it.
+ *
+ * CHANGED - this was toFixed(2) with a dot, so every consignment tab read
+ * "€ 115.00" while the tab beside it read "€ 160". Prices are entered as
+ * whole numbers, so most of them are whole and should read clean; a real
+ * decimal, like a VAT conversion landing on 107,50, still has to stay
+ * visible exactly as it was computed.
+ *
+ * Same rule as amountForButton in the browser and moneySmartValue on the
+ * Kickz Caviar side.
+ */
 function consignmentMoney(value) {
   const amount = Number(value);
 
-  return Number.isFinite(amount) && amount > 0
-    ? `€ ${amount.toFixed(2)}`
-    : "";
+  if (!Number.isFinite(amount) || amount <= 0) return "";
+
+  const isWhole = Math.abs(amount - Math.round(amount)) < 0.005;
+
+  return isWhole
+    ? `€ ${Math.round(amount)}`
+    : `€ ${amount.toFixed(2).replace(".", ",")}`;
 }
 
 async function consignorFor(req, res) {
@@ -3527,11 +3543,11 @@ app.get("/api/consignment/offers", async (req, res) => {
       route answers with - original_offer, counter_payout, current_lowest -
       and the em-dashes on screen were me reading them off the buying side.
     */
-    const money = (value) => {
-      const amount = Number(String(value ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
-
-      return Number.isFinite(amount) && amount > 0 ? `€ ${amount.toFixed(2)}` : "";
-    };
+    // A second copy of the same rule is how these tabs drifted apart in the
+    // first place. This one only strips whatever formatting the dashboard
+    // already applied before handing the number over.
+    const money = (value) =>
+      consignmentMoney(String(value ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
 
     const asDate = (value) => {
       if (!value) return "";
