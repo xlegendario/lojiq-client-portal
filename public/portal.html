@@ -814,6 +814,12 @@ body.kc-dialog-open {
       .stock-row { grid-template-columns: 1fr 1fr; }
     }
 
+    /* Nobody uploads a stock file from a phone, and on that width the two
+       buttons crowd the count out of the header. Adding a pair stays. */
+    @media (max-width: 768px) {
+      #stockCsvBtn { display: none !important; }
+    }
+
 
     .table-wrap {
       overflow: auto;
@@ -2817,16 +2823,39 @@ function stockModal(id, open) {
   if (el) el.classList.toggle("open", !!open);
 }
 
-// The radio is what counts; the outline just has to follow it.
+/*
+ * The cards are the control; the radio inside them only records the answer.
+ *
+ * CHANGED - this listened for "change" alone and left the clicking to the
+ * label wrapping the radio. Replace Stock could not be picked: the label
+ * carries a description in its own span, and a click landing on that child
+ * never reached the input, so nothing changed and nothing looked different.
+ *
+ * Handling the click on the card settles it wherever it lands, and the radio
+ * is still what gets read when the form is submitted.
+ */
 function stockCardChoice(containerId) {
   const box = document.getElementById(containerId);
   if (!box) return;
 
-  box.addEventListener("change", () => {
+  const paint = () => {
     box.querySelectorAll(".stock-card-choice").forEach((card) => {
       card.classList.toggle("on", !!card.querySelector("input")?.checked);
     });
+  };
+
+  box.addEventListener("click", (event) => {
+    const card = event.target.closest(".stock-card-choice");
+    if (!card) return;
+
+    const input = card.querySelector("input");
+    if (!input) return;
+
+    input.checked = true;
+    paint();
   });
+
+  box.addEventListener("change", paint);
 }
 
 function stockRowHtml() {
