@@ -2331,6 +2331,11 @@ body.kc-dialog-open {
           <div class="table-head">
             <div id="tableTitle" class="table-title">Open Orders</div>
             <div class="table-actions">
+              <!-- Only on the Inventory tab; loadOrders shows and hides it. -->
+              <button id="stockAddBtn" class="refresh-btn" type="button" style="display:none;" title="Add a pair">+ Pair</button>
+              <button id="stockCsvBtn" class="refresh-btn" type="button" style="display:none;" title="Import a CSV">CSV</button>
+              <input id="stockCsvFile" type="file" accept=".csv,text/csv" style="display:none;">
+
               <div id="tableCount" class="table-count">0 Orders</div>
               <button id="refreshBtn" class="refresh-btn" type="button" title="Refresh current view">↻</button>
             </div>
@@ -2698,6 +2703,211 @@ async function consignmentAct(offerId, action, extra) {
  * question, and it keys on the seller offer rather than the offer row - the
  * same two names the Kickz Caviar dashboard uses for the same two buttons.
  */
+/* ---- putting stock in ------------------------------------------------ */
+
+/*
+ * One pair, asked for the way the Kickz Caviar dashboard asks for it: style
+ * code, size, VAT type, price and how many. Five short questions rather than
+ * a form, because the portal already owns a dialog and a sixth shape of
+ * modal is a sixth thing to keep in step.
+ */
+async function consignmentAddPair() {
+  const sku = await showPrompt("Style code?", { title: "Add a pair", placeholder: "DZ5485-400" });
+  if (sku === null) return;
+
+  if (!String(sku).trim()) {
+    await showAlert("A style code is needed.");
+    return;
+  }
+
+  const size = await showPrompt("Size, EU?", { title: "Add a pair", placeholder: "42.5" });
+  if (size === null) return;
+
+  if (!String(size).trim()) {
+    await showAlert("A size is needed.");
+    return;
+  }
+
+  const vat = await showPrompt("VAT type: Margin, VAT0 or VAT21?", {
+    title: "Add a pair",
+    placeholder: "Margin"
+  });
+
+  if (vat === null) return;
+
+  const vatType = String(vat).trim();
+
+  if (!["Margin", "VAT0", "VAT21"].includes(vatType)) {
+    await showAlert("VAT type has to be Margin, VAT0 or VAT21.");
+    return;
+  }
+
+  const price = await showPrompt("What do you want for it?", {
+    title: "Add a pair",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (price === null) return;
+
+  const complaint = kcMoneyCheck(price);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  const quantity = await showPrompt("How many?", { title: "Add a pair", placeholder: "1" });
+  if (quantity === null) return;
+
+  const count = Number(String(quantity).trim());
+
+  if (!Number.isInteger(count) || count < 1) {
+    await showAlert("Enter a whole number of one or more.");
+    return;
+  }
+
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  if (!store?.id) return;
+
+  try {
+    const response = await fetch("/api/consignment/inventory/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        merchant_id: store.id,
+        sku: String(sku).trim(),
+        size: String(size).trim(),
+        vat_type: vatType,
+        selling_price_suggested: Number(String(price).replace(/\s/g, "").replace(",", ".")),
+        quantity: count
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      await showAlert(data.error || data.details || "That pair was not accepted.");
+      return;
+    }
+
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
+/*
+ * A file of them.
+ *
+ * Read and checked here before anything is sent, the same five columns the
+ * Kickz Caviar importer requires. A store sees which line is wrong while it
+ * can still fix it, rather than reading about it in a summary afterwards.
+ */
+function consignmentParseCsv(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    throw new Error("The file needs a header row and at least one pair.");
+  }
+
+  const delimiter = lines[0].split(";").length > lines[0].split(",").length ? ";" : ",";
+
+  const headers = lines[0]
+    .replace(/^\uFEFF/, "")
+    .split(delimiter)
+    .map((header) => header.trim().replace(/^"|"$/g, "").toLowerCase());
+
+  const required = ["sku", "size eu", "vat type", "selling price (suggested)", "quantity"];
+  const missing = required.filter((column) => !headers.includes(column));
+
+  if (missing.length) {
+    throw new Error("Missing columns: " + missing.join(", "));
+  }
+
+  const at = (name) => headers.indexOf(name);
+
+  return lines.slice(1).map((line, index) => {
+    const values = line.split(delimiter).map((value) => value.trim().replace(/^"|"$/g, ""));
+
+    return {
+      row_number: index + 2,
+      sku: (values[at("sku")] || "").toUpperCase(),
+      size: values[at("size eu")] || "",
+      vat_type: values[at("vat type")] || "",
+      selling_price_suggested: Number(values[at("selling price (suggested)")] || 0),
+      quantity: Number(values[at("quantity")] || 0)
+    };
+  });
+}
+
+async function consignmentUploadCsv(file) {
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  if (!store?.id || !file) return;
+
+  let rows;
+
+  try {
+    rows = consignmentParseCsv(await file.text());
+  } catch (err) {
+    await showAlert(err.message);
+    return;
+  }
+
+  const bad = rows.filter(
+    (row) =>
+      !row.sku ||
+      !row.size ||
+      !["Margin", "VAT0", "VAT21"].includes(row.vat_type) ||
+      !(row.selling_price_suggested > 0) ||
+      !(row.quantity > 0)
+  );
+
+  if (bad.length) {
+    await showAlert(
+      `${bad.length} of ${rows.length} rows are not usable. First one is row ${bad[0].row_number}.`
+    );
+    return;
+  }
+
+  // Replace empties the shelf first, so it is asked for rather than offered.
+  const replace = await showConfirm(
+    `${rows.length} pairs read. Replace everything you have with this file? Cancel adds them to what is already there.`,
+    { title: "Import stock", confirmLabel: "Replace", cancelLabel: "Add" }
+  );
+
+  try {
+    const response = await fetch("/api/consignment/inventory/csv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        merchant_id: store.id,
+        mode: replace ? "replace" : "add",
+        rows
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      await showAlert(data.error || data.details || "The import was refused.");
+      return;
+    }
+
+    await showAlert(
+      "Sent. Importing runs in the background, so you can close this - the tab fills up as it goes."
+    );
+
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
 async function consignmentAccepted(sellerOfferRecordId, action) {
   const raw = localStorage.getItem("lojiq_merchant");
   const store = raw ? JSON.parse(raw) : null;
@@ -4426,6 +4636,38 @@ function amountForButton(rawValue) {
     
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
+
+      // Adding stock belongs on the tab that shows stock, and nowhere else.
+      const onStock = currentView === "consignment_inventory";
+      const addBtn = document.getElementById("stockAddBtn");
+      const csvBtn = document.getElementById("stockCsvBtn");
+
+      if (addBtn) addBtn.style.display = onStock ? "inline-flex" : "none";
+      if (csvBtn) csvBtn.style.display = onStock ? "inline-flex" : "none";
+
+      // Bound once. loadOrders runs on every tab change, and a listener added
+      // each time would fire the dialog as many times as you had switched.
+      if (addBtn && !addBtn.dataset.bound) {
+        addBtn.dataset.bound = "1";
+        addBtn.addEventListener("click", () => consignmentAddPair());
+      }
+
+      const csvFile = document.getElementById("stockCsvFile");
+
+      if (csvBtn && csvFile && !csvBtn.dataset.bound) {
+        csvBtn.dataset.bound = "1";
+        csvBtn.addEventListener("click", () => csvFile.click());
+
+        csvFile.addEventListener("change", async () => {
+          const file = csvFile.files && csvFile.files[0];
+
+          // Cleared before the upload, so picking the same file twice after a
+          // mistake still counts as a change.
+          csvFile.value = "";
+
+          if (file) await consignmentUploadCsv(file);
+        });
+      }
       pageTitle.textContent = label;
 
       // NEW — on a phone the name of the current view sits in the top
