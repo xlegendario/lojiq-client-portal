@@ -3425,17 +3425,29 @@ app.get("/api/consignment/offers", async (req, res) => {
         kickzGet("/api/dashboard/wtb-counter-offers", { ...scope, filter: "open" })
       ]);
 
+      /*
+        Tagged where they come from, because that is what decides the buttons.
+        A fresh offer nobody has answered is not the same row as your own
+        counter waiting on them, even though both sit under "Open".
+      */
       items = [
-        ...(fresh.items || fresh.orders || []),
-        ...(waiting.items || waiting.orders || [])
+        ...(fresh.items || fresh.orders || []).map((row) => ({ ...row, _kind: "fresh" })),
+        ...(waiting.items || waiting.orders || []).map((row) => ({ ...row, _kind: "own_counter" }))
       ];
     } else {
+      const denied = filter === "denied";
+
       const data = await kickzGet("/api/dashboard/wtb-counter-offers", {
         ...scope,
-        filter: filter === "denied" ? "denied" : "countered"
+        filter: denied ? "denied" : "countered"
       });
 
-      items = data.items || data.orders || [];
+      // A refused round and a refused fresh offer are answered differently,
+      // and the endpoint says which is which where it can.
+      items = (data.items || data.orders || []).map((row) => ({
+        ...row,
+        _kind: row._kind || (denied ? "denied" : "counter")
+      }));
     }
 
     /*
@@ -3475,6 +3487,114 @@ app.get("/api/consignment/offers", async (req, res) => {
  * signed-in merchant rather than the request, so nobody can answer somebody
  * else's round.
  */
+/*
+ * Every action the Kickz Caviar consignment Offers tab has, and only these.
+ *
+ * Which button a row carries depends on what kind of row it is, and the three
+ * pills each show different kinds:
+ *
+ *   Open       a fresh offer nobody has answered   Edit, Delete
+ *              your own counter, waiting on them    Edit, Accept previous, Delete
+ *   Countered  they came back with a price          Accept, Counter, Deny
+ *   Denied     a fresh offer that was refused       Retry, Delete
+ *              a counter that was refused           Accept previous, Retry, Delete
+ *
+ * Each one is the route the dashboard calls for that button, read off it
+ * rather than guessed - the last round of guessing pointed the whole tab at a
+ * table nothing is written to any more.
+ */
+async function consignmentPassthrough(req, res, { path, method = "POST", body }) {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const target = path(encodeURIComponent(req.params.id));
+
+    const payload = { seller_record_id: buyer.record_id, ...(body ? body(req) : {}) };
+
+    if (method === "DELETE") {
+      // The delete takes its seller on the query string, not in a body.
+      const url = `${KICKZ_PORTAL_BASE_URL}${target}?` +
+        new URLSearchParams({ seller_record_id: buyer.record_id }).toString();
+
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: { "x-kc-secret": COUNTER_OFFERS_SECRET }
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      return res.status(response.ok ? 200 : response.status).json(data);
+    }
+
+    res.json(await kickzPost(target, payload));
+  } catch (err) {
+    console.error(`Consignment action on ${req.params.id} failed:`, err.message);
+
+    res.status(err.status || 500).json({
+      error: err.message || "That did not go through",
+      ...(err.payload || {})
+    });
+  }
+}
+
+// A fresh offer you made: change the amount, or take it back.
+app.post("/api/consignment/offers/:id/edit", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/dashboard/wtb-open-offers/${id}/edit`,
+    body: (r) => ({
+      offer_amount: Number(r.body?.offer_amount),
+      vat_type: asText(r.body?.vat_type)
+    })
+  })
+);
+
+app.post("/api/consignment/offers/:id/remove", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/dashboard/wtb-open-offers/${id}`,
+    method: "DELETE"
+  })
+);
+
+// A round: take their previous price, change yours, or withdraw.
+app.post("/api/consignment/offers/:id/accept-previous", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/dashboard/wtb-counter-offers/${id}/accept-previous`
+  })
+);
+
+app.post("/api/consignment/offers/:id/edit-counter", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/dashboard/wtb-counter-offers/${id}/seller-edit`,
+    body: (r) => ({ price: Number(r.body?.price) })
+  })
+);
+
+app.post("/api/consignment/offers/:id/cancel", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/dashboard/wtb-counter-offers/${id}/cancel`
+  })
+);
+
+// After a refusal: come back with a different number.
+app.post("/api/consignment/offers/:id/retry", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/dashboard/wtb-counter-offers/${id}/retry-counter`,
+    body: (r) => ({ price: Number(r.body?.price) })
+  })
+);
+
+app.post("/api/consignment/offers/:id/retry-fresh", (req, res) =>
+  consignmentPassthrough(req, res, {
+    path: (id) => `/api/seller-offers/${id}/edit-after-denial`,
+    body: (r) => ({
+      offer_amount: Number(r.body?.offer_amount),
+      vat_type: asText(r.body?.vat_type),
+      previous_denied_amount: r.body?.previous_denied_amount
+    })
+  })
+);
+
 async function consignmentOfferAction(req, res, action, extra) {
   try {
     const buyer = await consignorFor(req, res);
