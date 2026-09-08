@@ -3282,6 +3282,51 @@ app.post("/api/consignment/inventory/csv", async (req, res) => {
  * than counting each tab as you arrive on it. Same here: the sidebar fills in
  * on load and after anything that changes a count.
  */
+/*
+ * How many sit behind each of the three pills.
+ *
+ * Asked in one go, so all three carry a number the moment the tab opens. It
+ * used to fill only the pill you were standing on, which meant Open said 1
+ * and the other two said nothing at all - and nothing reads as zero.
+ */
+app.get("/api/consignment/offer-counts", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const scope = { seller_record_id: buyer.record_id, scope: "consignment" };
+
+    /*
+      Only the pills we do not already have.
+
+      Kickz Caviar spends about four seconds on each of these - it chain-traces
+      every round to find the effective price - so asking for the list you are
+      already looking at doubles the wait for a number you can read off the
+      screen. The caller says which one it has.
+    */
+    const have = asText(req.query.have);
+    const size = (data) => (data.items || data.orders || []).length;
+
+    const wanted = ["open", "countered", "denied"].filter((pill) => pill !== have);
+
+    const answers = await Promise.all(
+      wanted.map((pill) =>
+        pill === "open"
+          ? Promise.all([
+              kickzGet("/api/dashboard/wtb-open-offers", scope),
+              kickzGet("/api/dashboard/wtb-counter-offers", { ...scope, filter: "open" })
+            ]).then(([fresh, waiting]) => size(fresh) + size(waiting))
+          : kickzGet("/api/dashboard/wtb-counter-offers", { ...scope, filter: pill }).then(size)
+      )
+    );
+
+    res.json(Object.fromEntries(wanted.map((pill, index) => [pill, answers[index]])));
+  } catch (err) {
+    console.error("Consignment offer counts failed:", err.message);
+    res.status(500).json({ error: "Failed to load offer counts", details: err.message });
+  }
+});
+
 app.get("/api/consignment/counts", async (req, res) => {
   try {
     const buyer = await consignorFor(req, res);
