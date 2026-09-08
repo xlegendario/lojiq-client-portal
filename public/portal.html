@@ -807,6 +807,35 @@ body.kc-dialog-open {
     .stock-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
 
     .stock-note { color: var(--muted); font-size: 12px; margin: 10px 0 0; line-height: 1.5; }
+
+    .csv-pill {
+      margin: 0 16px 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(var(--panel-2-rgb), .7);
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .csv-pill.hidden { display: none; }
+    .csv-pill.running { border-color: rgba(var(--primary-rgb), .6); }
+    .csv-pill.done { border-color: rgba(var(--green-rgb), .55); }
+    .csv-pill.failed { border-color: rgba(var(--red-rgb), .6); }
+
+    .csv-pill button {
+      background: none;
+      border: 0;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .csv-pill .skipped { text-decoration: underline; cursor: pointer; }
     .stock-error { color: var(--red); font-size: 12.5px; margin: 10px 0 0; min-height: 1em; }
 
     @media (max-width: 560px) {
@@ -2446,6 +2475,12 @@ body.kc-dialog-open {
             </div>
           </div>
 
+          <!-- A file of stock is imported in the background, so this is the
+               only thing that says how far it got. It stays until dismissed:
+               hiding itself would mean you miss it while looking away, and
+               then your inventory is quietly smaller than your file. -->
+          <div id="csvImportPill" class="csv-pill hidden"></div>
+
           <div id="pillRow" class="pill-row hidden"></div>
 
           <div class="table-wrap">
@@ -2873,6 +2908,177 @@ document.addEventListener("click", (event) => {
   if (what === "csv-submit") submitCsvStock();
 });
 
+/*
+ * What a field will accept, taken from the Kickz Caviar dashboard rather than
+ * decided again here.
+ *
+ * A style code is upper case letters, digits, a dash or a slash. A size adds
+ * a full stop and drops the dash, because sizes read 42.5 and 39 1/3. Price
+ * and quantity are whole numbers - KC takes no decimals on either, and a
+ * price of 249.99 on a consignment pair is not a thing.
+ *
+ * Applied as you type, with the cursor put back where it was. Without that
+ * the caret jumps to the end on every keystroke and typing into the middle
+ * of a code is impossible.
+ */
+function cleanSkuInput(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9\-\/ ]/g, "").trim();
+}
+
+function cleanSizeInput(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9.\/ ]/g, "").trim();
+}
+
+function cleanWholeNumberInput(value) {
+  return String(value || "").replace(/[^\d]/g, "");
+}
+
+document.addEventListener("input", (event) => {
+  const el = event.target;
+
+  const clean =
+    el.id === "addStockSku" ? cleanSkuInput
+      : el.classList.contains("stock-size") ? cleanSizeInput
+        : el.classList.contains("stock-price") || el.classList.contains("stock-qty")
+          ? cleanWholeNumberInput
+          : null;
+
+  if (!clean) return;
+
+  const cursor = el.selectionStart;
+  const before = el.value;
+  const after = clean(before);
+
+  if (after === before) return;
+
+  el.value = after;
+
+  // Only where the field still supports one - a number input has no
+  // selection to restore and throws if you ask.
+  try {
+    el.setSelectionRange(cursor - (before.length - after.length), cursor - (before.length - after.length));
+  } catch (err) {
+    /* nothing to put back */
+  }
+});
+
+/*
+ * How far the CSV got.
+ *
+ * The import runs in the background, so without this a store sends a file
+ * and hears nothing until it counts rows by hand. Polled while the job is
+ * queued or running and left alone after, exactly as the Kickz Caviar
+ * dashboard does it.
+ *
+ * Skipped rows are the ones worth clicking on: a row is skipped when we
+ * cannot match the style code, and that is the difference between a shelf
+ * that is short and a file that was wrong.
+ */
+let csvPillTimer = null;
+let csvPillDismissed = "";
+
+async function loadCsvImportStatus() {
+  const el = document.getElementById("csvImportPill");
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+
+  if (!el || !store?.id) return;
+
+  let job = null;
+
+  try {
+    const response = await fetch(
+      "/api/consignment/csv-status?merchant_id=" + encodeURIComponent(store.id)
+    );
+
+    if (!response.ok) return;
+
+    job = (await response.json()).job;
+  } catch (err) {
+    return;
+  }
+
+  if (!job || job.id === csvPillDismissed) {
+    el.className = "csv-pill hidden";
+    el.textContent = "";
+    return;
+  }
+
+  const total = Number(job.total_rows || 0);
+  const processed = Number(job.processed_rows || 0);
+  const skipped = Array.isArray(job.skipped_json) ? job.skipped_json : [];
+
+  const dismiss = `<button type="button" data-csv-dismiss="${job.id}" aria-label="Dismiss">&times;</button>`;
+
+  if (job.status === "queued" || job.status === "processing") {
+    el.className = "csv-pill running";
+    el.innerHTML = `<span>Importing stock, ${processed} of ${total} done...</span>${dismiss}`;
+
+    startCsvPill();
+    return;
+  }
+
+  stopCsvPill();
+
+  if (job.status === "failed") {
+    el.className = "csv-pill failed";
+    el.innerHTML = `<span>Import failed after ${processed} of ${total}.</span>${dismiss}`;
+    return;
+  }
+
+  el.className = "csv-pill done";
+
+  el.innerHTML = skipped.length
+    ? `<span>${processed - skipped.length} of ${total} imported, ` +
+      `<span class="skipped" data-csv-skipped>${skipped.length} skipped</span>.</span>${dismiss}`
+    : `<span>Import complete, ${total} pairs.</span>${dismiss}`;
+
+  el.dataset.skipped = JSON.stringify(skipped);
+}
+
+function startCsvPill() {
+  if (csvPillTimer) return;
+
+  csvPillTimer = setInterval(() => {
+    // Stop the moment you leave the tab it belongs to; there is nothing to
+    // report anywhere else and a timer nobody watches is a leak.
+    if (currentView !== "consignment_inventory") {
+      stopCsvPill();
+      return;
+    }
+
+    loadCsvImportStatus();
+  }, 5000);
+}
+
+function stopCsvPill() {
+  clearInterval(csvPillTimer);
+  csvPillTimer = null;
+}
+
+document.addEventListener("click", async (event) => {
+  const dismiss = event.target.closest("[data-csv-dismiss]");
+
+  if (dismiss) {
+    csvPillDismissed = dismiss.dataset.csvDismiss;
+    document.getElementById("csvImportPill").className = "csv-pill hidden";
+    return;
+  }
+
+  if (event.target.closest("[data-csv-skipped]")) {
+    const el = document.getElementById("csvImportPill");
+    const rows = JSON.parse(el.dataset.skipped || "[]");
+
+    await showAlert(
+      rows.length
+        ? "These rows were skipped:\n\n" +
+          rows
+            .map((row) => `${row.sku || "?"} ${row.size || ""} - ${row.reason || "no match"}`)
+            .join("\n")
+        : "Nothing was skipped."
+    );
+  }
+});
+
 function stockModal(id, open) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle("open", !!open);
@@ -2882,7 +3088,7 @@ function stockRowHtml() {
   return `
     <div class="stock-row">
       <label class="stock-field"><span>Size EU</span><input class="stock-size" type="text" placeholder="42.5"></label>
-      <label class="stock-field"><span>Price</span><input class="stock-price" type="text" inputmode="decimal" placeholder="250"></label>
+      <label class="stock-field"><span>Price</span><input class="stock-price" type="text" inputmode="numeric" placeholder="250"></label>
       <label class="stock-field"><span>Qty</span><input class="stock-qty" type="text" inputmode="numeric" placeholder="1"></label>
       <button type="button" class="table-btn" data-stock="drop-row">Remove</button>
     </div>
@@ -2924,7 +3130,7 @@ async function submitAddStock() {
   const rows = [...document.querySelectorAll("#addStockRows .stock-row")]
     .map((row) => ({
       size: row.querySelector(".stock-size").value.trim(),
-      price: Number(row.querySelector(".stock-price").value.replace(/\s/g, "").replace(",", ".")),
+      price: Number(row.querySelector(".stock-price").value.trim()),
       quantity: Number(row.querySelector(".stock-qty").value.trim())
     }))
     .filter((row) => row.size || row.price || row.quantity);
@@ -3128,9 +3334,10 @@ async function submitCsvStock() {
 
     stockModal("csvStockModal", false);
 
-    await showAlert("Sent. Importing runs in the background, so the tab fills up as it goes.");
-
-    window.location.reload();
+    // No reload: the pill is the thing that reports progress, and reloading
+    // would throw it away the moment it had something to say.
+    csvPillDismissed = "";
+    await loadCsvImportStatus();
   } catch (err) {
     preview.textContent = "";
     error.textContent = "Could not reach the server. Try again.";
@@ -4873,6 +5080,16 @@ function amountForButton(rawValue) {
 
       if (addBtn) addBtn.style.display = onStock ? "inline-flex" : "none";
       if (csvBtn) csvBtn.style.display = onStock ? "inline-flex" : "none";
+
+      // Asked once on arrival; it starts polling itself if a job is running.
+      if (onStock) {
+        loadCsvImportStatus();
+      } else {
+        stopCsvPill();
+
+        const pill = document.getElementById("csvImportPill");
+        if (pill) pill.className = "csv-pill hidden";
+      }
 
       /*
         Only the two buttons in the table header are bound here, and only
