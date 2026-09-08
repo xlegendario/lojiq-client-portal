@@ -2152,6 +2152,57 @@ body.kc-dialog-open {
       </div>
       </div>
 
+      <!-- The selling side. Hidden until we know this store consigns, and
+           laid out with the same eight steps a consignor sees in the Kickz
+           Caviar dashboard, in the same order - a store that uses both should
+           not have to learn two shapes of the same thing. -->
+      <div id="consignmentNavMain" class="nav-main" data-section-toggle="consignment" style="display:none;">
+        <span class="nav-arrow">›</span>
+        <span class="nav-label">Consignment</span>
+      </div>
+
+      <div id="section-consignment" class="nav-section">
+        <div class="nav-sub" data-view="consignment_offers">
+          <span>Offers</span>
+          <span id="count-consignment_offers" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_inventory">
+          <span>Inventory</span>
+          <span id="count-consignment_inventory" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_accepted">
+          <span>Accepted</span>
+          <span id="count-consignment_accepted" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_confirmed">
+          <span>Confirmed</span>
+          <span id="count-consignment_confirmed" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_label_requested">
+          <span>Label Requested</span>
+          <span id="count-consignment_label_requested" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_ready_to_ship">
+          <span>Ready To Ship</span>
+          <span id="count-consignment_ready_to_ship" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_shipped">
+          <span>Shipped</span>
+          <span id="count-consignment_shipped" class="count-pill">0</span>
+        </div>
+
+        <div class="nav-sub" data-view="consignment_delivered">
+          <span>Delivered</span>
+          <span id="count-consignment_delivered" class="count-pill">0</span>
+        </div>
+      </div>
+
       <div id="stockxNavMain" class="nav-main" data-section-toggle="stockx" style="display:none;">
         <span class="nav-arrow">›</span>
         <span class="nav-label">StockX</span>
@@ -2593,6 +2644,78 @@ function showPrompt(message, options) {
   return kcDialog("prompt", message, options);
 }
 
+/*
+ * Answering an offer on our own stock.
+ *
+ * Global because the table calls them by name from an onclick, the way every
+ * other action in it does. They ask Kickz Caviar and reload; nothing about
+ * what an answer means is decided in this file.
+ */
+async function consignmentAct(offerId, action, extra) {
+  const raw = localStorage.getItem("lojiq_merchant");
+  const store = raw ? JSON.parse(raw) : null;
+
+  if (!store?.id) return;
+
+  try {
+    const response = await fetch("/api/consignment/offers/" + encodeURIComponent(offerId) + "/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ merchant_id: store.id, ...(extra || {}) })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      // "No longer open" and "out of stock" are ordinary answers here, not
+      // failures: between loading the table and pressing a button somebody
+      // else can have settled the same pair.
+      await showAlert(data.error || data.details || "That did not go through.");
+      return;
+    }
+
+    await showAlert(
+      action === "confirm"
+        ? "Accepted. The shipping step follows in your channel."
+        : action === "deny"
+          ? "Declined."
+          : "Counter sent. We answer in your channel."
+    );
+
+    // The table lives inside the page's own closure, so there is no function
+    // here to call. Reloading is blunt but it is honest: after an accept the
+    // row is gone, the counts move and the next tab is different too.
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
+async function consignmentCounter(offerId) {
+  const answer = await showPrompt("What payout do you want for this pair?", {
+    title: "Counter offer",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (answer === null) return;
+
+  // kcMoneyCheck reports the PROBLEM, and an empty string means there is
+  // none. The dialog runs it as a validator too, so this is the second pair
+  // of eyes rather than the only one.
+  const complaint = kcMoneyCheck(answer);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  const price = Number(String(answer).replace(/\s/g, "").replace(",", "."));
+
+  await consignmentAct(offerId, "counter", { counter_price: price });
+}
+
     const merchantName = document.getElementById("merchantName");
     const logoutBtn = document.getElementById("logoutBtn");
     const searchInput = document.getElementById("searchInput");
@@ -2636,7 +2759,43 @@ function showPrompt(message, options) {
       stockx_orders: "Orders",
       stockx_second_orders: "Second Orders",
       open_payments: "Open Payments",
-      payment_history: "Payment History"
+      payment_history: "Payment History",
+
+      // The selling side, named the way the Kickz Caviar dashboard names the
+      // same eight steps.
+      consignment_offers: "Offers",
+      consignment_inventory: "Inventory",
+      consignment_accepted: "Accepted",
+      consignment_confirmed: "Confirmed",
+      consignment_label_requested: "Label Requested",
+      consignment_ready_to_ship: "Ready To Ship",
+      consignment_shipped: "Shipped",
+      consignment_delivered: "Delivered"
+    };
+
+    // Every consignment view, so the places that have to ask "is this the
+    // selling side" ask it once rather than listing eight names each time.
+    const CONSIGNMENT_VIEWS = [
+      "consignment_offers",
+      "consignment_inventory",
+      "consignment_accepted",
+      "consignment_confirmed",
+      "consignment_label_requested",
+      "consignment_ready_to_ship",
+      "consignment_shipped",
+      "consignment_delivered"
+    ];
+
+    // The tab name Kickz Caviar knows each of them by.
+    const CONSIGNMENT_ENDPOINTS = {
+      consignment_offers: "/api/consignment/offers",
+      consignment_inventory: "/api/consignment/inventory",
+      consignment_accepted: "/api/consignment/accepted",
+      consignment_confirmed: "/api/consignment/confirmed",
+      consignment_label_requested: "/api/consignment/label-requested",
+      consignment_ready_to_ship: "/api/consignment/ready-to-ship",
+      consignment_shipped: "/api/consignment/shipped",
+      consignment_delivered: "/api/consignment/delivered"
     };
 
     // CHANGED — this was thirteen arbitrary numbers; now seven sizes by
@@ -2713,6 +2872,72 @@ function showPrompt(message, options) {
     };
 
     const columnsByView = {
+      // Consignment reads the same either way: what the pair is, what it is
+      // worth and when. Offers add the two numbers a decision turns on -
+      // what the consignor asks and what we offered - and the buttons.
+      consignment_offers: [
+        ["product", "Product"],
+        ["seller_price", "Your Price"],
+        ["payout", "Our Offer"],
+        ["vat_type", "VAT Type"],
+        ["actions", "Actions"]
+      ],
+
+      consignment_inventory: [
+        ["product", "Product"],
+        ["vat_type", "VAT Type"],
+        ["payout", "Your Price"],
+        ["quantity", "Qty"]
+      ],
+
+      consignment_accepted: [
+        ["product", "Product"],
+        ["order_id", "Order"],
+        ["payout", "Payout"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"]
+      ],
+
+      consignment_confirmed: [
+        ["product", "Product"],
+        ["order_id", "Order"],
+        ["payout", "Payout"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"]
+      ],
+
+      consignment_label_requested: [
+        ["product", "Product"],
+        ["order_id", "Order"],
+        ["payout", "Payout"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"]
+      ],
+
+      consignment_ready_to_ship: [
+        ["product", "Product"],
+        ["order_id", "Order"],
+        ["payout", "Payout"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"]
+      ],
+
+      consignment_shipped: [
+        ["product", "Product"],
+        ["order_id", "Order"],
+        ["payout", "Payout"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"]
+      ],
+
+      consignment_delivered: [
+        ["product", "Product"],
+        ["order_id", "Order"],
+        ["payout", "Payout"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"]
+      ],
+
       open: [
         ["product", "Product"],
         ["size", "Size"],
@@ -3189,6 +3414,39 @@ function showPrompt(message, options) {
       // the shop (refuseShopForApiStore) lets any store with a manual side
       // in. A store on "both" was refused the link to a page it is allowed
       // to use; the two now ask the same question.
+      /*
+        The selling side, only for a store that actually sells to us.
+
+        Asked of the buyer record rather than kept in the merchant, because
+        Consignor? is ticked in Airtable the day we switch a store on and
+        nobody logs out and back in to notice. Shown quietly: a store that
+        does not consign never learns the page exists, and the route behind
+        it refuses on the same flag, so this is presentation and not the
+        lock.
+      */
+      /*
+        The selling side, shown only to a store that actually sells to us.
+
+        Asked of the buyer record rather than read off the merchant, because
+        Consignor? is ticked in Airtable the day we switch a store on and
+        nobody logs out and back in to notice. Presentation only: the routes
+        behind these tabs refuse on the same flag, so a store that finds them
+        another way still gets nowhere.
+      */
+      const consignmentNavMain = document.getElementById("consignmentNavMain");
+
+      if (consignmentNavMain && merchant?.id) {
+        fetch("/api/shop/buyer?merchant_id=" + encodeURIComponent(merchant.id))
+          .then((response) => (response.ok ? response.json() : null))
+          .then((buyer) => {
+            consignmentNavMain.style.display = buyer?.consignor ? "flex" : "none";
+
+            const section = document.getElementById("section-consignment");
+            if (section && !buyer?.consignor) section.style.display = "none";
+          })
+          .catch(() => {});
+      }
+
       const shopLink = document.getElementById("shopLink");
 
       if (shopLink) {
@@ -3361,6 +3619,31 @@ function amountForButton(rawValue) {
     }
 
     function renderActions(order) {
+      /*
+        Accept, counter and deny, and not one of them decides anything here.
+        Each goes to the same endpoint the Kickz Caviar dashboard uses, so a
+        store negotiating in this table gets the answer a consignor gets
+        there - which is the whole reason this is a second front end rather
+        than a second set of rules.
+      */
+      if (currentView === "consignment_offers") {
+        const id = escapeHtml(order.id);
+
+        return `
+          <div class="action-row">
+            <button class="action-btn green" type="button" onclick="consignmentAct('${id}', 'confirm')">
+              ACCEPT
+            </button>
+            <button class="action-btn blue" type="button" onclick="consignmentCounter('${id}')">
+              COUNTER
+            </button>
+            <button class="action-btn red" type="button" onclick="consignmentAct('${id}', 'deny')">
+              DENY
+            </button>
+          </div>
+        `;
+      }
+
       if (currentView === "open") {
         return `
           <div class="action-row">
@@ -3978,16 +4261,25 @@ function amountForButton(rawValue) {
           preloadedOffset = "";
         } else {
           const endpoint =
-            currentView === "returns"
-              ? "/api/returns"
-              : currentView === "inventory"
-                ? "/api/inventory"
-                : currentView === "offers"
-                  ? (offerPillEndpoints()[activeOfferPillFilter] || offerPillEndpoints().open)
-                  : "/api/orders";
+            CONSIGNMENT_ENDPOINTS[currentView]
+              ? CONSIGNMENT_ENDPOINTS[currentView]
+              : currentView === "returns"
+                ? "/api/returns"
+                : currentView === "inventory"
+                  ? "/api/inventory"
+                  : currentView === "offers"
+                    ? (offerPillEndpoints()[activeOfferPillFilter] || offerPillEndpoints().open)
+                    : "/api/orders";
 
+          /*
+            The selling side is not paged and not searched from here - Kickz
+            Caviar answers the whole tab at once, the way it does for its own
+            dashboard - so it gets the merchant and nothing else. Sending the
+            order machinery's offset and page_size would be ignored at best
+            and misread at worst.
+          */
           const requestParams =
-            currentView === "offers"
+            CONSIGNMENT_ENDPOINTS[currentView] || currentView === "offers"
               ? new URLSearchParams({ merchant_id: merchant.id })
               : params;
 
