@@ -3697,9 +3697,27 @@ async function loadConsignmentCounts() {
 
     const counts = await response.json();
 
+    /*
+      CHANGED - this wrote the number and stopped, so every consignment tab
+      with nothing in it sat there wearing a 0. The rest of the sidebar hides
+      an empty count, which is what makes a number in it mean something.
+
+      Same two lines as setNavCount, which lives in another scope. The
+      dashboard does the same thing with a "zero" class on its own counts.
+
+      The pills above the table are the exception and keep their 0. There the
+      number answers "how many are in this one" for three pills side by side,
+      and a blank pill beside two numbered ones reads as unknown rather than
+      as none.
+    */
     Object.entries(counts).forEach(([key, value]) => {
       const el = document.getElementById("count-consignment_" + key);
-      if (el) el.textContent = Number(value || 0);
+      if (!el) return;
+
+      const total = Number(value || 0);
+
+      el.textContent = total;
+      el.classList.toggle("zero", total === 0);
     });
   } catch (err) {
     /* a count that will not load is not worth an error in front of anyone */
@@ -3877,8 +3895,27 @@ async function consignmentCounter(offerId, isMemberWtb) {
     // product and actions are deliberately absent: product soaks up the
     // remaining space and actions is measured against its buttons.
     const columnWidths = {
-      // Wide enough for the dot and nothing more.
-      status: 44,
+      /*
+        FIXED - the dot column was called "status" and there is already a
+        "status" further down at 130. The later one wins, so a column holding
+        one dot was given the width of a worded status pill and pushed four
+        columns off the right edge of the Offers tab.
+
+        Its own name now, and its own size.
+      */
+      lowest_flag: 44,
+
+      // The consignment tabs, which had no sizes at all. Without an entry a
+      // column takes whatever is left, so four of them shared the table
+      // between them and everything after VAT Type fell outside the view.
+      order_id: 115,
+      your_offer: 105,
+      counter_offer: 115,
+      current_lowest: 125,
+      payout: 105,
+      selling_price_suggested: 115,
+      lowest_suggested_price: 115,
+      quantity: 85,
       // CHANGED - product used to be left out on purpose, so it took every
       // pixel the other columns did not claim. In a view with six columns
       // on a wide screen that is most of the table: the name sat on one
@@ -5133,16 +5170,7 @@ function amountForButton(rawValue) {
         `;
       }
 
-      /*
-        The consignment Offers tab is the exception. Its status column is not
-        a stage in a flow, it is whether you are still the cheapest on the
-        pair, and the dashboard draws that as a coloured dot rather than a
-        worded pill. The dot branch further down handles it.
-      */
-      if (
-        (key === "status" || key === "issue_status") &&
-        currentView !== "consignment_offers"
-      ) {
+      if (key === "status" || key === "issue_status") {
         const status = order[key] || "—";
       
         return `
@@ -5228,7 +5256,7 @@ function amountForButton(rawValue) {
         comparison was made. A dot that defaults to red says somebody
         undercut you when in fact nobody was asked.
       */
-      if (key === "status") {
+      if (key === "lowest_flag") {
         const state = order.status;
 
         if (state !== "Lowest" && state !== "Beaten") return "";
@@ -5445,7 +5473,7 @@ function amountForButton(rawValue) {
     function offerColumnsForPill() {
       if (activeOfferPillFilter === "denied") {
         return [
-          ["status", ""],
+          ["lowest_flag", ""],
           ["product", "Product"],
           ["size", "Size"],
           ["order_id", "Order ID"],
@@ -5459,7 +5487,7 @@ function amountForButton(rawValue) {
       }
 
       return [
-        ["status", ""],
+        ["lowest_flag", ""],
         ["product", "Product"],
         ["size", "Size"],
         ["order_id", "Order ID"],
