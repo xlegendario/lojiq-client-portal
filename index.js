@@ -3275,6 +3275,30 @@ app.post("/api/consignment/inventory/csv", async (req, res) => {
   }
 });
 
+/*
+ * The numbers beside the tabs.
+ *
+ * One call answers all eight, which is why the dashboard asks it once rather
+ * than counting each tab as you arrive on it. Same here: the sidebar fills in
+ * on load and after anything that changes a count.
+ */
+app.get("/api/consignment/counts", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const data = await kickzGet("/api/dashboard/counts", {
+      seller_record_id: buyer.record_id,
+      seller_id: buyer.seller_id
+    });
+
+    res.json(data.consignment || {});
+  } catch (err) {
+    console.error("Consignment counts failed:", err.message);
+    res.status(500).json({ error: "Failed to load counts", details: err.message });
+  }
+});
+
 app.get("/api/consignment/csv-status", async (req, res) => {
   try {
     const buyer = await consignorFor(req, res);
@@ -3451,17 +3475,33 @@ app.get("/api/consignment/offers", async (req, res) => {
     }
 
     /*
-      The names these routes use, checked against a live answer rather than
-      guessed: original_offer is what the consignor asked, counter_payout is
-      what we put back. Those are the two columns a decision turns on.
+      Filled the way the dashboard fills the same columns, cell for cell.
+
+      "Max Price" is the offer itself on a fresh row and the seller's original
+      ask on a round. "My Last Offer" is the buyer's latest figure on the
+      table, which is the previous store price while your counter is pending
+      and their counter once they answer. Both are what the dashboard puts
+      there; neither is a name I chose.
     */
-    const rows = items.map((row) => ({
-      ...row,
-      product: row.product || row.product_name || "",
-      seller_price: consignmentMoney(row.original_offer ?? row.seller_price),
-      offer_price: consignmentMoney(row.counter_payout ?? row.offer ?? row.offer_price),
-      date: row.date || row.raw_date || ""
-    }));
+    const rows = items.map((row) => {
+      const fresh = row._kind === "fresh";
+
+      const myLast =
+        row._kind === "own_counter"
+          ? row.previous_store_price
+          : (row._kind === "counter" ? row.counter_payout : null);
+
+      return {
+        ...row,
+        product: row.product || row.product_name || "",
+        amount: consignmentMoney(fresh ? row.offer : row.original_offer),
+        my_last_offer: consignmentMoney(myLast),
+        current_lowest: consignmentMoney(row.current_lowest),
+        // Kept for the buttons, which name the amount they act on.
+        offer_price: consignmentMoney(row.counter_payout ?? row.offer_price),
+        date: row.date || row.raw_date || row.denied_at || ""
+      };
+    });
 
     res.json({ count: rows.length, items: rows, orders: rows });
   } catch (err) {
@@ -3503,6 +3543,46 @@ app.get("/api/consignment/offers", async (req, res) => {
  * rather than guessed - the last round of guessing pointed the whole tab at a
  * table nothing is written to any more.
  */
+/*
+ * Asking for the shipping label, from the Confirmed tab.
+ *
+ * The step that moves a confirmed deal forward, and the one thing on those
+ * six status tabs that is an action rather than a link. Two routes because a
+ * want-to-buy and a store order are not the same record; the row says which.
+ */
+app.post("/api/consignment/request-label", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const memberWtbRecordId = asText(req.body?.member_wtb_record_id);
+    const orderRecordId = asText(req.body?.order_record_id);
+
+    if (!memberWtbRecordId && !orderRecordId) {
+      return res.status(400).json({ error: "Nothing to request a label for" });
+    }
+
+    res.json(
+      memberWtbRecordId
+        ? await kickzPost("/api/dashboard/member-wtb-request-label", {
+            member_wtb_record_id: memberWtbRecordId,
+            seller_record_id: buyer.record_id
+          })
+        : await kickzPost("/api/dashboard/request-label", {
+            order_record_id: orderRecordId,
+            seller_record_id: buyer.record_id
+          })
+    );
+  } catch (err) {
+    console.error("Consignment label request failed:", err.message);
+
+    res.status(err.status || 500).json({
+      error: err.message || "Failed to request the label",
+      ...(err.payload || {})
+    });
+  }
+});
+
 async function consignmentPassthrough(req, res, { path, method = "POST", body }) {
   try {
     const buyer = await consignorFor(req, res);
