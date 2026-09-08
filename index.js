@@ -3389,75 +3389,141 @@ app.get("/api/consignment/inventory", async (req, res) => {
   }
 });
 
+/*
+ * The offers on a store's consignment stock.
+ *
+ * FIXED - this asked /api/consignment/offers, which reads the Supabase
+ * consignment_offers table. That is the OLD route, and offers on a member
+ * want-to-buy have not been written there since the auto-offer replaced it.
+ * The tab was empty while the offers existed, one table over.
+ *
+ * The Kickz Caviar dashboard reads two endpoints for this tab, and so does
+ * this now:
+ *
+ *   Open       fresh offers AND counter rounds still waiting on the buyer
+ *   Countered  rounds where the buyer came back
+ *   Denied     rounds that were refused
+ *
+ * scope=consignment is what separates selling from buying on those routes;
+ * without it you get the store's own buying offers instead.
+ */
 app.get("/api/consignment/offers", async (req, res) => {
   try {
     const buyer = await consignorFor(req, res);
     if (!buyer) return;
 
-    const data = await kickzGet("/api/consignment/offers", {
-      seller_record_id: buyer.record_id,
-      filter: asText(req.query.filter) || "open"
-    });
+    const filter = asText(req.query.filter) || "open";
+    const scope = { seller_record_id: buyer.record_id, scope: "consignment" };
 
-    const items = (data.offers || data.items || data.data || []).map((row) => ({
+    let items = [];
+
+    if (filter === "open") {
+      // Two lists behind one word, exactly as the dashboard reads it: an
+      // offer nobody has answered yet, and a round the buyer still has.
+      const [fresh, waiting] = await Promise.all([
+        kickzGet("/api/dashboard/wtb-open-offers", scope),
+        kickzGet("/api/dashboard/wtb-counter-offers", { ...scope, filter: "open" })
+      ]);
+
+      items = [
+        ...(fresh.items || fresh.orders || []),
+        ...(waiting.items || waiting.orders || [])
+      ];
+    } else {
+      const data = await kickzGet("/api/dashboard/wtb-counter-offers", {
+        ...scope,
+        filter: filter === "denied" ? "denied" : "countered"
+      });
+
+      items = data.items || data.orders || [];
+    }
+
+    /*
+      The names these routes use, checked against a live answer rather than
+      guessed: original_offer is what the consignor asked, counter_payout is
+      what we put back. Those are the two columns a decision turns on.
+    */
+    const rows = items.map((row) => ({
       ...row,
-      product: row.product_name || row.product || "",
-      seller_price: consignmentMoney(row.seller_price),
-      offer_price: consignmentMoney(row.offer_price),
-      date: row.created_at_display || row.date || ""
+      product: row.product || row.product_name || "",
+      seller_price: consignmentMoney(row.original_offer ?? row.seller_price),
+      offer_price: consignmentMoney(row.counter_payout ?? row.offer ?? row.offer_price),
+      date: row.date || row.raw_date || ""
     }));
 
-    // The portal table reads data.orders; Kickz Caviar and the older offer
-    // routes here answer with items. Both go out, so neither side has to be
-    // taught the other's name.
-    res.json({ count: items.length, items, orders: items });
+    res.json({ count: rows.length, items: rows, orders: rows });
   } catch (err) {
-    console.error("Consignment offers failed:", err);
+    console.error("Consignment offers failed:", err.message);
     res.status(500).json({ error: "Failed to load offers", details: err.message });
   }
 });
 
 /*
- * Accept, counter and deny.
+ * Accept, counter and deny on a consignment offer.
  *
- * One handler for the three, because they differ only in which path they
- * hand the offer to and whether a price rides along. An error from the
- * portal is passed through with its own status: "no longer open" and "out of
- * stock" are normal answers a store has to see, not failures to hide.
+ * FIXED - these went to /api/consignment/offers/:id/..., which acts on the
+ * Supabase consignment_offers table. What a store actually sees are counter
+ * rounds in Airtable, so those buttons acted on nothing, or on the wrong row.
+ *
+ * The three the Kickz Caviar dashboard uses, read off it rather than assumed:
+ *
+ *   accept   wtb-counter-offers/:id/seller-accept
+ *   deny     wtb-counter-offers/:id/seller-deny
+ *   counter  seller-counter-mwtb for a want-to-buy, seller-counter otherwise
+ *
+ * The store's own record id rides along on every one, and it comes off the
+ * signed-in merchant rather than the request, so nobody can answer somebody
+ * else's round.
  */
-for (const [action, path] of [
-  ["confirm", "confirm"],
-  ["deny", "deny"],
-  ["counter", "counter"]
-]) {
-  app.post(`/api/consignment/offers/:id/${action}`, async (req, res) => {
-    try {
-      const buyer = await consignorFor(req, res);
-      if (!buyer) return;
+async function consignmentOfferAction(req, res, action, extra) {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
 
-      const body = { seller_record_id: buyer.record_id };
+    const offerId = encodeURIComponent(req.params.id);
 
-      if (action === "counter") {
-        const price = Number(req.body?.counter_price);
+    // A want-to-buy and a store order are answered on different routes, and
+    // the row says which it is.
+    const isMemberWtb = req.body?.is_member_wtb !== false;
 
-        if (!Number.isFinite(price) || price <= 0) {
-          return res.status(400).json({ error: "Enter a payout to counter with" });
-        }
+    const path =
+      action === "counter"
+        ? (isMemberWtb
+            ? `/api/dashboard/wtb-counter-offers/${offerId}/seller-counter-mwtb`
+            : `/api/counter-offers/${offerId}/seller-counter`)
+        : `/api/dashboard/wtb-counter-offers/${offerId}/${action}`;
 
-        body.counter_price = price;
-      }
+    res.json(await kickzPost(path, {
+      seller_record_id: buyer.record_id,
+      ...(extra || {})
+    }));
+  } catch (err) {
+    console.error(`Consignment ${action} failed:`, err.message);
 
-      res.json(await kickzPost(`/api/consignment/offers/${req.params.id}/${path}`, body));
-    } catch (err) {
-      console.error(`Consignment ${action} failed:`, err.message);
-
-      res.status(err.status || 500).json({
-        error: err.message || `Failed to ${action} the offer`,
-        ...(err.payload || {})
-      });
-    }
-  });
+    res.status(err.status || 500).json({
+      error: err.message || "That did not go through",
+      ...(err.payload || {})
+    });
+  }
 }
+
+app.post("/api/consignment/offers/:id/confirm", async (req, res) => {
+  await consignmentOfferAction(req, res, "seller-accept");
+});
+
+app.post("/api/consignment/offers/:id/deny", async (req, res) => {
+  await consignmentOfferAction(req, res, "seller-deny");
+});
+
+app.post("/api/consignment/offers/:id/counter", async (req, res) => {
+  const price = Number(req.body?.counter_price);
+
+  if (!Number.isFinite(price) || price <= 0) {
+    return res.status(400).json({ error: "Enter a payout to counter with" });
+  }
+
+  await consignmentOfferAction(req, res, "counter", { price });
+});
 
 // A whole file of want-to-buys, queued rather than posted one at a time.
 //
