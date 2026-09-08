@@ -1476,6 +1476,35 @@ body.kc-dialog-open {
       font-weight: 800;
     }
     
+    /*
+      The lowest/beaten dot on the consignment Offers tab, same size and
+      same glow as the dashboard so the two tabs read alike.
+    */
+    .status-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      margin: 0 auto;
+    }
+
+    .status-dot-lowest {
+      background: #67ff8b;
+
+      box-shadow:
+        0 0 10px rgba(103,255,139,0.9),
+        0 0 20px rgba(103,255,139,0.45),
+        0 0 34px rgba(103,255,139,0.22);
+    }
+
+    .status-dot-beaten {
+      background: #ff6767;
+
+      box-shadow:
+        0 0 10px rgba(255,103,103,0.9),
+        0 0 20px rgba(255,103,103,0.45),
+        0 0 34px rgba(255,103,103,0.22);
+    }
+
     .empty-floating {
       position: sticky;
       left: 50%;
@@ -3848,6 +3877,8 @@ async function consignmentCounter(offerId, isMemberWtb) {
     // product and actions are deliberately absent: product soaks up the
     // remaining space and actions is measured against its buttons.
     const columnWidths = {
+      // Wide enough for the dot and nothing more.
+      status: 44,
       // CHANGED - product used to be left out on purpose, so it took every
       // pixel the other columns did not claim. In a view with six columns
       // on a wide screen that is most of the table: the name sat on one
@@ -3925,6 +3956,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
       */
       consignment_inventory: [
         ["product", "Product"],
+        ["size", "Size"],
         ["vat_type", "VAT Type"],
         ["selling_price_suggested", "Selling Price"],
         ["lowest_suggested_price", "Lowest Price"],
@@ -3933,24 +3965,9 @@ async function consignmentCounter(offerId, isMemberWtb) {
       ],
 
       /*
-        The consignment Offers tab, taken from the screen it has to match
-        rather than from a renderer in the source.
-
-        Twice I copied the wrong one: consignmentOfferColumns is dead for this
-        tab, and renderWtbUnifiedOfferRows is the BUYING side. What a consignor
-        actually sees is this, and these are its own field names.
+        The consignment Offers tab has no fixed column set: it changes with
+        the pill, the way the dashboard changes it. See offerColumnsForPill.
       */
-      consignment_offers: [
-        ["product", "Product"],
-        ["size", "Size"],
-        ["order_id", "Order ID"],
-        ["your_offer", "Your Offer"],
-        ["counter_offer", "Counter Offer"],
-        ["vat_type", "VAT Type"],
-        ["current_lowest", "Current Lowest"],
-        ["date", "Date"],
-        ["actions", "Actions"]
-      ],
 
       /*
         No "Your Price" here. By the time a row reaches Accepted that price
@@ -3968,8 +3985,16 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["actions", "Action"]
       ],
 
+      /*
+        CHANGED - all five status tabs were missing Size.
+
+        The dashboard puts it between the product and the order on every one
+        of these, and a consignor holding the same pair in three sizes could
+        not tell the rows apart without it.
+      */
       consignment_confirmed: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
@@ -3979,6 +4004,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
 
       consignment_label_requested: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
@@ -3988,6 +4014,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
 
       consignment_ready_to_ship: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
@@ -3997,6 +4024,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
 
       consignment_shipped: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
@@ -4006,6 +4034,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
 
       consignment_delivered: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
@@ -5173,6 +5202,27 @@ function amountForButton(rawValue) {
         `;
       }
     
+      /*
+        Whether you are still the cheapest on this pair.
+
+        Green for lowest, red for beaten, and nothing at all when no
+        comparison was made. A dot that defaults to red says somebody
+        undercut you when in fact nobody was asked.
+      */
+      if (key === "status") {
+        const state = order.status;
+
+        if (state !== "Lowest" && state !== "Beaten") return "";
+
+        return `<div class="status-dot ${state === "Lowest" ? "status-dot-lowest" : "status-dot-beaten"}" title="${escapeHtml(state)}"></div>`;
+      }
+
+      // The consignment tabs are read side by side with the dashboard, and it
+      // writes an empty cell as a plain dash. Same tab, same dash.
+      if (currentView.startsWith("consignment_")) {
+        return escapeHtml(order[key] || "-");
+      }
+
       return escapeHtml(order[key] || "—");
     }
     
@@ -5362,8 +5412,55 @@ function amountForButton(rawValue) {
       });
     }
 
+    /*
+     * The columns on the consignment Offers tab, per pill.
+     *
+     * Read off the dashboard rather than settled once. It gives the sixth
+     * column a different name depending on whose move it was, and Denied is
+     * a different table again: the comparison moves behind the VAT type and
+     * the date column is headed by the thing that happened to the row.
+     *
+     * The first column carries no name. It holds the dot that says whether
+     * you are still the lowest, and a heading over a dot reads as clutter.
+     */
+    function offerColumnsForPill() {
+      if (activeOfferPillFilter === "denied") {
+        return [
+          ["status", ""],
+          ["product", "Product"],
+          ["size", "Size"],
+          ["order_id", "Order ID"],
+          ["your_offer", "Your Offer"],
+          ["vat_type", "VAT Type"],
+          ["counter_offer", "Buyer's Last Offer"],
+          ["current_lowest", "Current Lowest"],
+          ["date", "Denied"],
+          ["actions", "Actions"]
+        ];
+      }
+
+      return [
+        ["status", ""],
+        ["product", "Product"],
+        ["size", "Size"],
+        ["order_id", "Order ID"],
+        ["your_offer", "Your Offer"],
+        [
+          "counter_offer",
+          activeOfferPillFilter === "countered" ? "Counter Offer" : "Buyer's Last Offer"
+        ],
+        ["vat_type", "VAT Type"],
+        ["current_lowest", "Current Lowest"],
+        ["date", "Date"],
+        ["actions", "Actions"]
+      ];
+    }
+
     function renderOrders(orders) {
-      const columns = columnsByView[currentView] || columnsByView.open;
+      const columns =
+        currentView === "consignment_offers"
+          ? offerColumnsForPill()
+          : (columnsByView[currentView] || columnsByView.open);
 
       // NEW — additive only: his catch — "Seller's Offer" should read
       // "Seller's Last Offer" specifically on Countered (and later
