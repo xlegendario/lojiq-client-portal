@@ -3208,6 +3208,87 @@ for (const action of ["confirm", "deny"]) {
  * change and what happens after is settled on the other side, as everywhere
  * else here.
  */
+/*
+ * Putting stock in: one pair, or a file of them.
+ *
+ * The store never names its own seller record here either - both ids come off
+ * the merchant that is signed in, so a file cannot be uploaded into somebody
+ * else's inventory by editing a field.
+ *
+ * The CSV is parsed in the browser, the way the Kickz Caviar dashboard parses
+ * it, and arrives here as rows. That is on purpose: a store sees which lines
+ * are wrong before anything is sent, instead of finding out from a summary
+ * afterwards.
+ */
+app.post("/api/consignment/inventory/add", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    res.json(await kickzPost("/api/consignment/inventory/manual", {
+      seller_record_id: buyer.record_id,
+      seller_id: buyer.seller_id,
+      sku: asText(req.body?.sku),
+      size: asText(req.body?.size),
+      vat_type: asText(req.body?.vat_type),
+      selling_price_suggested: req.body?.selling_price_suggested,
+      quantity: req.body?.quantity
+    }));
+  } catch (err) {
+    console.error("Consignment add failed:", err.message);
+
+    res.status(err.status || 500).json({
+      error: err.message || "Failed to add the pair",
+      ...(err.payload || {})
+    });
+  }
+});
+
+app.post("/api/consignment/inventory/csv", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    if (!rows.length) {
+      return res.status(400).json({ error: "No rows to import" });
+    }
+
+    // Replace wipes what is there first. Kept as a separate word rather than
+    // a flag, because "add" and "replace" are the difference between a busy
+    // afternoon and an empty shelf.
+    const mode = asText(req.body?.mode) === "replace" ? "csv-replace" : "csv-add";
+
+    res.json(await kickzPost(`/api/consignment/inventory/${mode}`, {
+      seller_record_id: buyer.record_id,
+      seller_id: buyer.seller_id,
+      rows
+    }));
+  } catch (err) {
+    console.error("Consignment CSV failed:", err.message);
+
+    res.status(err.status || 500).json({
+      error: err.message || "Failed to import",
+      ...(err.payload || {})
+    });
+  }
+});
+
+app.get("/api/consignment/csv-status", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    res.json(await kickzGet("/api/consignment/csv-import/latest", {
+      seller_record_id: buyer.record_id
+    }));
+  } catch (err) {
+    console.error("Consignment CSV status failed:", err.message);
+    res.status(500).json({ error: "Failed to read the import", details: err.message });
+  }
+});
+
 app.post("/api/consignment/inventory/:id/edit", async (req, res) => {
   try {
     const buyer = await consignorFor(req, res);
