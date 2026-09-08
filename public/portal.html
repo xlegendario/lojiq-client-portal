@@ -838,22 +838,30 @@ body.kc-dialog-open {
     .csv-pill .skipped { text-decoration: underline; cursor: pointer; }
     .stock-error { color: var(--red); font-size: 12.5px; margin: 10px 0 0; min-height: 1em; }
 
-    /* A remove that does not need a word for it. Red, small, and out of the
-       way of the three fields it belongs to. */
+    /* A round red button with a white cross, rather than an outlined square
+       that reads as another input. It sits level with the bottom of the three
+       fields beside it. */
     .stock-drop {
       width: 34px;
-      height: 38px;
+      height: 34px;
+      margin-bottom: 2px;
       padding: 0;
-      border-radius: 9px;
-      border: 1px solid rgba(var(--red-rgb), .5);
-      background: transparent;
-      color: var(--red);
-      font-size: 17px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--red);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 700;
       line-height: 1;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .12s ease, transform .12s ease;
     }
 
-    .stock-drop:hover { border-color: var(--red); }
+    .stock-drop:hover { background: #d92d20; transform: scale(1.06); }
+    .stock-drop:active { transform: scale(.96); }
 
     @media (max-width: 560px) {
       .stock-cards { grid-template-columns: 1fr; }
@@ -864,7 +872,7 @@ body.kc-dialog-open {
       .stock-row { grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; }
       .stock-row .stock-field > span { font-size: 10.5px; margin-bottom: 4px; }
       .stock-row input { padding: 9px 8px; font-size: 13px; }
-      .stock-drop { width: 30px; }
+      .stock-drop { width: 30px; height: 30px; font-size: 16px; }
     }
 
     /* Nobody uploads a stock file from a phone, and on that width the two
