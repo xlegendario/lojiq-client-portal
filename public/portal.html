@@ -4016,6 +4016,13 @@ async function consignmentCounter(offerId) {
 
     let currentSource = localStorage.getItem("lojiq_current_source") || "orders";
     let activeOfferPillFilter = "open"; // NEW — additive only: Open vs Countered pill within the offers view
+
+    // The selling side's three counts, kept apart from the buying side's so
+    // one cannot be read as the other.
+    let consignmentPillCounts = {};
+
+    // Which of the two offer tabs the pill state belongs to.
+    let lastPillView = "";
     let merchant = null;
     let nextOffset = "";
     let hasMore = false;
@@ -4970,19 +4977,46 @@ function amountForButton(rawValue) {
       tableCount.textContent = `${pillTotal} Orders`;
     }
 
+    /*
+      Open, Countered and Denied - on the consignment offers tab as well.
+
+      It is the same question there as on the buying side: which of my open
+      negotiations am I looking at. Kickz Caviar gives a consignor these three
+      on the same tab, and this portal already had the row built.
+    */
+    function viewHasOfferPills() {
+      return currentView === "offers" || currentView === "consignment_offers";
+    }
+
     function renderPillRow(count) {
-      if (currentView !== "offers") {
+      if (!viewHasOfferPills()) {
         pillRow.classList.add("hidden");
         pillRow.innerHTML = "";
         return;
       }
 
-      offerPillCounts[activeOfferPillFilter] = count;
+      /*
+        Counts are kept per view, not shared.
+
+        refreshOfferPillCounts fills this object from the three BUYING offer
+        endpoints. Selling has its own three, and without a separate box the
+        consignment pills would sit there wearing the buying numbers - which
+        is worse than no number, because it looks like an answer.
+
+        Only the pill you are on gets a number on the selling side; the other
+        two are filled the moment you press them.
+      */
+      const counts = currentView === "consignment_offers"
+        ? consignmentPillCounts
+        : offerPillCounts;
+
+      counts[activeOfferPillFilter] = count;
 
       pillRow.classList.remove("hidden");
       pillRow.innerHTML = ["open", "countered", "denied"].map((key) => {
         const label = key === "open" ? "Open" : (key === "countered" ? "Countered" : "Denied");
         const isActive = key === activeOfferPillFilter;
+        const shown = counts[key];
 
         return `
           <button
@@ -4991,7 +5025,7 @@ function amountForButton(rawValue) {
             data-pill-filter="${key}"
           >
             <span>${label}</span>
-            <span class="pill-count">${offerPillCounts[key]}</span>
+            ${shown === undefined ? "" : `<span class="pill-count">${shown}</span>`}
           </button>
         `;
       }).join("");
@@ -5105,6 +5139,18 @@ function amountForButton(rawValue) {
       const label = viewLabels[currentView] || "Orders";
       tableTitle.textContent = label;
 
+      /*
+        The pill resets when you cross between buying offers and selling
+        offers. They are different lists behind the same three words, and
+        landing on "Denied" because that is where you left the other tab is a
+        list that does not match the pill above it.
+      */
+      if (viewHasOfferPills() && currentView !== lastPillView) {
+        activeOfferPillFilter = "open";
+        consignmentPillCounts = {};
+        lastPillView = currentView;
+      }
+
       // Adding stock belongs on the tab that shows stock, and nowhere else.
       const onStock = currentView === "consignment_inventory";
       const addBtn = document.getElementById("stockAddBtn");
@@ -5215,7 +5261,15 @@ function amountForButton(rawValue) {
           */
           const requestParams =
             CONSIGNMENT_ENDPOINTS[currentView] || currentView === "offers"
-              ? new URLSearchParams({ merchant_id: merchant.id })
+              ? new URLSearchParams({
+                  merchant_id: merchant.id,
+                  // Kickz Caviar calls the middle one "counter", the row
+                  // calls it "countered". Translated here rather than
+                  // renaming a pill that reads correctly.
+                  ...(currentView === "consignment_offers"
+                    ? { filter: activeOfferPillFilter === "countered" ? "counter" : activeOfferPillFilter }
+                    : {})
+                })
               : params;
 
           const response = await fetch(`${endpoint}?${requestParams.toString()}`);
