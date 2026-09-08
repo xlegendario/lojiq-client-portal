@@ -2826,6 +2826,30 @@ async function consignmentAct(offerId, action, extra) {
  * cannot miss: the click is caught wherever it happens and matched then.
  */
 document.addEventListener("click", (event) => {
+  /*
+    The cards come FIRST, and that is the whole point of this order.
+
+    They are not buttons - they are labels around a hidden radio - so the
+    lookup below finds nothing on them. Written the other way round, the
+    early return fired before the card was ever considered and Replace Stock
+    could not be picked. Twice, because the first fix sat behind that return.
+  */
+  const card = event.target.closest(".stock-card-choice");
+
+  if (card) {
+    const input = card.querySelector("input");
+
+    if (input) {
+      input.checked = true;
+
+      card.parentElement.querySelectorAll(".stock-card-choice").forEach((other) => {
+        other.classList.toggle("on", !!other.querySelector("input")?.checked);
+      });
+    }
+
+    return;
+  }
+
   const el = event.target.closest("[data-stock]");
   if (!el) return;
 
@@ -2847,21 +2871,6 @@ document.addEventListener("click", (event) => {
 
   if (what === "csv-cancel") stockModal("csvStockModal", false);
   if (what === "csv-submit") submitCsvStock();
-
-  // A card is the control, wherever inside it you happen to click.
-  const card = event.target.closest(".stock-card-choice");
-
-  if (card) {
-    const input = card.querySelector("input");
-
-    if (input) {
-      input.checked = true;
-
-      card.parentElement.querySelectorAll(".stock-card-choice").forEach((other) => {
-        other.classList.toggle("on", !!other.querySelector("input")?.checked);
-      });
-    }
-  }
 });
 
 function stockModal(id, open) {
