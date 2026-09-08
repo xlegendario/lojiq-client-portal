@@ -3630,6 +3630,31 @@ function consignmentAmount(value) {
  * on arrival and after anything that moves a deal along, which is what makes
  * the sidebar tell you where the work is without opening every tab.
  */
+async function loadConsignmentPillCounts() {
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  if (!store?.id) return;
+
+  try {
+    // The pill you are on is already counted from the list in front of you;
+    // asking for it again costs four seconds for a number on screen.
+    const response = await fetch(
+      "/api/consignment/offer-counts?merchant_id=" + encodeURIComponent(store.id) +
+      "&have=" + encodeURIComponent(activeOfferPillFilter)
+    );
+
+    if (!response.ok) return;
+
+    const counts = await response.json();
+
+    Object.assign(consignmentPillCounts, counts, { _loaded: true });
+
+    // Only repaint if you are still looking at them.
+    if (currentView === "consignment_offers") renderPillRow(currentOrders.length);
+  } catch (err) {
+    /* a count that will not load is not worth an error in front of anyone */
+  }
+}
+
 async function loadConsignmentCounts() {
   const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
   if (!store?.id) return;
@@ -3927,10 +3952,16 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["actions", "Actions"]
       ],
 
+      /*
+        No "Your Price" here. By the time a row reaches Accepted that price
+        has been agreed, and the only number that still means anything is
+        what you are being paid. Two amounts on a settled deal read as a
+        choice, and there is none left.
+      */
       consignment_accepted: [
         ["product", "Product"],
+        ["size", "Size"],
         ["order_id", "Order ID"],
-        ["seller_price", "Your Price"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
         ["date", "Date"],
@@ -5293,6 +5324,13 @@ function amountForButton(rawValue) {
         : offerPillCounts;
 
       counts[activeOfferPillFilter] = count;
+
+      // All three at once on the selling side, so none of them sits there
+      // blank. Asked once per visit; the answer is cached until you leave.
+      if (currentView === "consignment_offers" && !consignmentPillCounts._loaded) {
+        consignmentPillCounts._loaded = true;
+        loadConsignmentPillCounts();
+      }
 
       pillRow.classList.remove("hidden");
       pillRow.innerHTML = ["open", "countered", "denied"].map((key) => {
