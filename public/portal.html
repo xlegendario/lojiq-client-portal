@@ -738,6 +738,83 @@ body.kc-dialog-open {
       border-color: var(--primary-soft);
     }
 
+    /* ---- consignment stock modals ----------------------------------- */
+    /* Built to match the Kickz Caviar dashboard step for step, painted in
+       this portal's own tokens. Same questions, same order, same defaults;
+       a store that uses both should not have to learn two forms. */
+    .stock-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .64);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 90;
+      padding: 18px;
+    }
+
+    .stock-modal.open { display: flex; }
+
+    .stock-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      width: min(560px, 100%);
+      max-height: 88vh;
+      overflow-y: auto;
+    }
+
+    .stock-card h2 { margin: 0 0 4px; font-size: 17px; }
+    .stock-card p.sub { margin: 0 0 16px; color: var(--muted); font-size: 12.5px; }
+
+    .stock-field { display: block; margin-bottom: 14px; }
+    .stock-field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+
+    .stock-field input {
+      width: 100%;
+      background: rgba(var(--bg-rgb), .55);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 9px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+
+    .stock-cards { display: grid; gap: 8px; grid-template-columns: repeat(3, 1fr); margin-bottom: 16px; }
+
+    .stock-card-choice {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 700;
+      text-align: center;
+      background: rgba(var(--bg-rgb), .45);
+    }
+
+    .stock-card-choice.on { border-color: var(--primary); color: var(--text); }
+    .stock-card-choice input { display: none; }
+    .stock-card-choice span { display: block; font-weight: 400; color: var(--muted); font-size: 11px; margin-top: 3px; }
+
+    .stock-rows { display: grid; gap: 8px; margin-bottom: 12px; }
+
+    .stock-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px; align-items: end; }
+
+    .stock-row .stock-field { margin-bottom: 0; }
+
+    .stock-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
+
+    .stock-note { color: var(--muted); font-size: 12px; margin: 10px 0 0; line-height: 1.5; }
+    .stock-error { color: var(--red); font-size: 12.5px; margin: 10px 0 0; min-height: 1em; }
+
+    @media (max-width: 560px) {
+      .stock-cards { grid-template-columns: 1fr; }
+      .stock-row { grid-template-columns: 1fr 1fr; }
+    }
+
+
     .table-wrap {
       overflow: auto;
       max-height: calc(100vh - 360px);
@@ -2357,7 +2434,6 @@ body.kc-dialog-open {
               <!-- Only on the Inventory tab; loadOrders shows and hides it. -->
               <button id="stockAddBtn" class="table-btn" type="button" style="display:none;" title="Add a pair">Add pair</button>
               <button id="stockCsvBtn" class="table-btn" type="button" style="display:none;" title="Import a CSV">Import CSV</button>
-              <input id="stockCsvFile" type="file" accept=".csv,text/csv" style="display:none;">
 
               <div id="tableCount" class="table-count">0 Orders</div>
               <button id="refreshBtn" class="refresh-btn" type="button" title="Refresh current view">↻</button>
@@ -2729,104 +2805,151 @@ async function consignmentAct(offerId, action, extra) {
 /* ---- putting stock in ------------------------------------------------ */
 
 /*
- * One pair, asked for the way the Kickz Caviar dashboard asks for it: style
- * code, size, VAT type, price and how many. Five short questions rather than
- * a form, because the portal already owns a dialog and a sixth shape of
- * modal is a sixth thing to keep in step.
+ * The same two screens the Kickz Caviar dashboard has, question for question.
+ *
+ * Add Stock takes one style code, one VAT type and a row per size, because
+ * that is how stock arrives - a product in five sizes, not five products. The
+ * CSV asks add-or-replace before the file, since replace empties the shelf
+ * and that is not a question to meet with a file already chosen.
  */
-async function consignmentAddPair() {
-  const sku = await showPrompt("Style code?", { title: "Add a pair", placeholder: "DZ5485-400" });
-  if (sku === null) return;
+function stockModal(id, open) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle("open", !!open);
+}
 
-  if (!String(sku).trim()) {
-    await showAlert("A style code is needed.");
-    return;
-  }
+// The radio is what counts; the outline just has to follow it.
+function stockCardChoice(containerId) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
 
-  const size = await showPrompt("Size, EU?", { title: "Add a pair", placeholder: "42.5" });
-  if (size === null) return;
+  box.addEventListener("change", () => {
+    box.querySelectorAll(".stock-card-choice").forEach((card) => {
+      card.classList.toggle("on", !!card.querySelector("input")?.checked);
+    });
+  });
+}
 
-  if (!String(size).trim()) {
-    await showAlert("A size is needed.");
-    return;
-  }
+function stockRowHtml() {
+  return `
+    <div class="stock-row">
+      <label class="stock-field"><span>Size EU</span><input class="stock-size" type="text" placeholder="42.5"></label>
+      <label class="stock-field"><span>Price</span><input class="stock-price" type="text" inputmode="decimal" placeholder="250"></label>
+      <label class="stock-field"><span>Qty</span><input class="stock-qty" type="text" inputmode="numeric" placeholder="1"></label>
+      <button type="button" class="table-btn stock-drop">Remove</button>
+    </div>
+  `;
+}
 
-  const vat = await showPrompt("VAT type: Margin, VAT0 or VAT21?", {
-    title: "Add a pair",
-    placeholder: "Margin"
+function openAddStock() {
+  document.getElementById("addStockSku").value = "";
+  document.getElementById("addStockError").textContent = "";
+  document.getElementById("addStockRows").innerHTML = stockRowHtml();
+
+  const first = document.querySelector("#addStockVat input[value='Margin']");
+  if (first) first.checked = true;
+
+  document.querySelectorAll("#addStockVat .stock-card-choice").forEach((card, index) => {
+    card.classList.toggle("on", index === 0);
   });
 
-  if (vat === null) return;
+  stockModal("addStockModal", true);
+  document.getElementById("addStockSku").focus();
+}
 
-  const vatType = String(vat).trim();
-
-  if (!["Margin", "VAT0", "VAT21"].includes(vatType)) {
-    await showAlert("VAT type has to be Margin, VAT0 or VAT21.");
-    return;
-  }
-
-  const price = await showPrompt("What do you want for it?", {
-    title: "Add a pair",
-    money: true,
-    placeholder: "250",
-    validate: kcMoneyCheck
-  });
-
-  if (price === null) return;
-
-  const complaint = kcMoneyCheck(price);
-
-  if (complaint) {
-    await showAlert(complaint);
-    return;
-  }
-
-  const quantity = await showPrompt("How many?", { title: "Add a pair", placeholder: "1" });
-  if (quantity === null) return;
-
-  const count = Number(String(quantity).trim());
-
-  if (!Number.isInteger(count) || count < 1) {
-    await showAlert("Enter a whole number of one or more.");
-    return;
-  }
+async function submitAddStock() {
+  const error = document.getElementById("addStockError");
+  error.textContent = "";
 
   const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
   if (!store?.id) return;
 
-  try {
-    const response = await fetch("/api/consignment/inventory/add", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        merchant_id: store.id,
-        sku: String(sku).trim(),
-        size: String(size).trim(),
-        vat_type: vatType,
-        selling_price_suggested: Number(String(price).replace(/\s/g, "").replace(",", ".")),
-        quantity: count
-      })
-    });
+  const sku = document.getElementById("addStockSku").value.trim().toUpperCase();
 
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      await showAlert(data.error || data.details || "That pair was not accepted.");
-      return;
-    }
-
-    window.location.reload();
-  } catch (err) {
-    await showAlert("Could not reach the server. Try again.");
+  if (!sku) {
+    error.textContent = "A style code is needed.";
+    return;
   }
+
+  const vatType = document.querySelector("#addStockVat input:checked")?.value || "Margin";
+
+  const rows = [...document.querySelectorAll("#addStockRows .stock-row")]
+    .map((row) => ({
+      size: row.querySelector(".stock-size").value.trim(),
+      price: Number(row.querySelector(".stock-price").value.replace(/\s/g, "").replace(",", ".")),
+      quantity: Number(row.querySelector(".stock-qty").value.trim())
+    }))
+    .filter((row) => row.size || row.price || row.quantity);
+
+  if (!rows.length) {
+    error.textContent = "Add at least one size.";
+    return;
+  }
+
+  const bad = rows.find(
+    (row) => !row.size || !(row.price > 0) || !Number.isInteger(row.quantity) || row.quantity < 1
+  );
+
+  if (bad) {
+    error.textContent = `Size ${bad.size || "?"} needs a size, a price and a whole quantity.`;
+    return;
+  }
+
+  // One request per size, because the endpoint takes one pair - the same one
+  // the Kickz Caviar form posts to, once per row it has on screen.
+  const failures = [];
+
+  for (const row of rows) {
+    try {
+      const response = await fetch("/api/consignment/inventory/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          merchant_id: store.id,
+          sku,
+          size: row.size,
+          vat_type: vatType,
+          selling_price_suggested: row.price,
+          quantity: row.quantity
+        })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        failures.push(`${row.size}: ${data.error || data.details || "refused"}`);
+      }
+    } catch (err) {
+      failures.push(`${row.size}: could not reach the server`);
+    }
+  }
+
+  if (failures.length) {
+    // Partly through is worth saying out loud: the ones that landed are in.
+    error.textContent = failures.join(" \u00b7 ");
+    return;
+  }
+
+  stockModal("addStockModal", false);
+  window.location.reload();
+}
+
+function openCsvStock() {
+  document.getElementById("csvStockFile").value = "";
+  document.getElementById("csvStockPreview").textContent = "";
+  document.getElementById("csvStockError").textContent = "";
+
+  const add = document.querySelector("#csvStockMode input[value='add']");
+  if (add) add.checked = true;
+
+  document.querySelectorAll("#csvStockMode .stock-card-choice").forEach((card, index) => {
+    card.classList.toggle("on", index === 0);
+  });
+
+  stockModal("csvStockModal", true);
 }
 
 /*
- * A file of them.
- *
- * Read and checked here before anything is sent, the same five columns the
- * Kickz Caviar importer requires. A store sees which line is wrong while it
- * can still fix it, rather than reading about it in a summary afterwards.
+ * Read and checked here, the same five columns the Kickz Caviar importer
+ * requires, so a store sees a bad line while it can still fix it.
  */
 function consignmentParseCsv(text) {
   const lines = String(text || "")
@@ -2868,16 +2991,29 @@ function consignmentParseCsv(text) {
   });
 }
 
-async function consignmentUploadCsv(file) {
+async function submitCsvStock() {
+  const preview = document.getElementById("csvStockPreview");
+  const error = document.getElementById("csvStockError");
+
+  preview.textContent = "";
+  error.textContent = "";
+
   const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
-  if (!store?.id || !file) return;
+  const file = document.getElementById("csvStockFile").files?.[0];
+
+  if (!store?.id) return;
+
+  if (!file) {
+    error.textContent = "Choose a file first.";
+    return;
+  }
 
   let rows;
 
   try {
     rows = consignmentParseCsv(await file.text());
   } catch (err) {
-    await showAlert(err.message);
+    error.textContent = err.message;
     return;
   }
 
@@ -2891,43 +3027,64 @@ async function consignmentUploadCsv(file) {
   );
 
   if (bad.length) {
-    await showAlert(
-      `${bad.length} of ${rows.length} rows are not usable. First one is row ${bad[0].row_number}.`
-    );
+    error.textContent = `${bad.length} of ${rows.length} rows are not usable. First is row ${bad[0].row_number}.`;
     return;
   }
 
-  // Replace empties the shelf first, so it is asked for rather than offered.
-  const replace = await showConfirm(
-    `${rows.length} pairs read. Replace everything you have with this file? Cancel adds them to what is already there.`,
-    { title: "Import stock", confirmLabel: "Replace", cancelLabel: "Add" }
-  );
+  // The same duplicate check the dashboard runs: one style code and size can
+  // only mean one line, and two of them is a file someone edited twice.
+  const seen = new Set();
+  const duplicates = new Set();
+
+  rows.forEach((row) => {
+    const key = `${row.sku} / ${row.size}`;
+
+    if (seen.has(key)) duplicates.add(key);
+
+    seen.add(key);
+  });
+
+  if (duplicates.size) {
+    error.textContent = "The same pair appears twice: " + [...duplicates].join(", ");
+    return;
+  }
+
+  const mode = document.querySelector("#csvStockMode input:checked")?.value || "add";
+
+  if (mode === "replace") {
+    const sure = await showConfirm(
+      `Replace everything you have with these ${rows.length} pairs?`,
+      { title: "Replace stock", confirmLabel: "Replace", danger: true }
+    );
+
+    if (!sure) return;
+  }
+
+  preview.textContent = `Sending ${rows.length} pairs...`;
 
   try {
     const response = await fetch("/api/consignment/inventory/csv", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        merchant_id: store.id,
-        mode: replace ? "replace" : "add",
-        rows
-      })
+      body: JSON.stringify({ merchant_id: store.id, mode, rows })
     });
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      await showAlert(data.error || data.details || "The import was refused.");
+      preview.textContent = "";
+      error.textContent = data.error || data.details || "The import was refused.";
       return;
     }
 
-    await showAlert(
-      "Sent. Importing runs in the background, so you can close this - the tab fills up as it goes."
-    );
+    stockModal("csvStockModal", false);
+
+    await showAlert("Sent. Importing runs in the background, so the tab fills up as it goes.");
 
     window.location.reload();
   } catch (err) {
-    await showAlert("Could not reach the server. Try again.");
+    preview.textContent = "";
+    error.textContent = "Could not reach the server. Try again.";
   }
 }
 
@@ -4668,28 +4825,48 @@ function amountForButton(rawValue) {
       if (addBtn) addBtn.style.display = onStock ? "inline-flex" : "none";
       if (csvBtn) csvBtn.style.display = onStock ? "inline-flex" : "none";
 
-      // Bound once. loadOrders runs on every tab change, and a listener added
-      // each time would fire the dialog as many times as you had switched.
+      /*
+        Bound once. loadOrders runs on every tab change, and a listener added
+        each time would open the modal as many times as you had switched.
+      */
       if (addBtn && !addBtn.dataset.bound) {
         addBtn.dataset.bound = "1";
-        addBtn.addEventListener("click", () => consignmentAddPair());
+        addBtn.addEventListener("click", openAddStock);
+
+        stockCardChoice("addStockVat");
+        stockCardChoice("csvStockMode");
+
+        document.getElementById("addStockCancel")
+          ?.addEventListener("click", () => stockModal("addStockModal", false));
+
+        document.getElementById("addStockSubmit")
+          ?.addEventListener("click", submitAddStock);
+
+        document.getElementById("addStockAddRow")?.addEventListener("click", () => {
+          document.getElementById("addStockRows")
+            .insertAdjacentHTML("beforeend", stockRowHtml());
+        });
+
+        // Delegated, because the rows come and go. The last one stays: a form
+        // with nothing to fill in is a dead end.
+        document.getElementById("addStockRows")?.addEventListener("click", (event) => {
+          if (!event.target.classList.contains("stock-drop")) return;
+
+          const rows = document.querySelectorAll("#addStockRows .stock-row");
+
+          if (rows.length > 1) event.target.closest(".stock-row").remove();
+        });
       }
 
-      const csvFile = document.getElementById("stockCsvFile");
-
-      if (csvBtn && csvFile && !csvBtn.dataset.bound) {
+      if (csvBtn && !csvBtn.dataset.bound) {
         csvBtn.dataset.bound = "1";
-        csvBtn.addEventListener("click", () => csvFile.click());
+        csvBtn.addEventListener("click", openCsvStock);
 
-        csvFile.addEventListener("change", async () => {
-          const file = csvFile.files && csvFile.files[0];
+        document.getElementById("csvStockCancel")
+          ?.addEventListener("click", () => stockModal("csvStockModal", false));
 
-          // Cleared before the upload, so picking the same file twice after a
-          // mistake still counts as a change.
-          csvFile.value = "";
-
-          if (file) await consignmentUploadCsv(file);
-        });
+        document.getElementById("csvStockSubmit")
+          ?.addEventListener("click", submitCsvStock);
       }
       pageTitle.textContent = label;
 
@@ -6465,5 +6642,77 @@ function amountForButton(rawValue) {
       `;
     });
   </script>
+<!-- Add Stock. One style code, one VAT type, and a row per size - the same
+     shape as the Kickz Caviar dashboard, because a consignor there adds a
+     product and its sizes together rather than one pair at a time. -->
+<div class="stock-modal" id="addStockModal">
+  <div class="stock-card">
+    <h2>Add Stock</h2>
+    <p class="sub">Add one style code and the sizes you have of it.</p>
+
+    <label class="stock-field">
+      <span>Style code</span>
+      <input id="addStockSku" type="text" placeholder="DZ5485-400" autocomplete="off" spellcheck="false">
+    </label>
+
+    <div class="stock-cards" id="addStockVat">
+      <label class="stock-card-choice on"><input type="radio" name="addStockVat" value="Margin" checked>Margin</label>
+      <label class="stock-card-choice"><input type="radio" name="addStockVat" value="VAT21">VAT21</label>
+      <label class="stock-card-choice"><input type="radio" name="addStockVat" value="VAT0">VAT0</label>
+    </div>
+
+    <div class="stock-rows" id="addStockRows"></div>
+
+    <div class="stock-actions">
+      <button type="button" class="table-btn" id="addStockAddRow">Add size</button>
+      <button type="button" class="table-btn" id="addStockCancel">Cancel</button>
+      <button type="button" class="table-btn" id="addStockSubmit">Add stock</button>
+    </div>
+
+    <p class="stock-error" id="addStockError"></p>
+  </div>
+</div>
+
+<!-- Upload CSV. Add or replace is asked before the file is chosen, not after,
+     because replace empties the shelf and nobody should meet that question
+     holding a file they have already picked. -->
+<div class="stock-modal" id="csvStockModal">
+  <div class="stock-card">
+    <h2>Upload CSV</h2>
+    <p class="sub">Upload stock using the CSV template.</p>
+
+    <div class="stock-cards" id="csvStockMode" style="grid-template-columns: repeat(2, 1fr);">
+      <label class="stock-card-choice on">
+        <input type="radio" name="csvStockMode" value="add" checked>Add Stock
+        <span>Add quantities on top of what you have.</span>
+      </label>
+      <label class="stock-card-choice">
+        <input type="radio" name="csvStockMode" value="replace">Replace Stock
+        <span>Replace your entire inventory with this file.</span>
+      </label>
+    </div>
+
+    <label class="stock-field">
+      <span>CSV file</span>
+      <input id="csvStockFile" type="file" accept=".csv,text/csv">
+    </label>
+
+    <p class="stock-note">
+      <a href="/templates/consignment-stock-template.csv" download style="color: var(--primary-soft);">
+        Download CSV template
+      </a>
+      &middot; columns: SKU, Size EU, VAT Type, Selling Price (Suggested), Quantity
+    </p>
+
+    <p class="stock-note" id="csvStockPreview"></p>
+    <p class="stock-error" id="csvStockError"></p>
+
+    <div class="stock-actions">
+      <button type="button" class="table-btn" id="csvStockCancel">Cancel</button>
+      <button type="button" class="table-btn" id="csvStockSubmit">Upload</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
