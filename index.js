@@ -3132,9 +3132,13 @@ for (const [tab, endpoint] of [
       const buyer = await consignorFor(req, res);
       if (!buyer) return;
 
-      res.json(await kickzGet(`/api/dashboard/${endpoint}`, {
+      const data = await kickzGet(`/api/dashboard/${endpoint}`, {
         seller_record_id: buyer.record_id
-      }));
+      });
+
+      const items = data.items || data.orders || [];
+
+      res.json({ count: data.count ?? items.length, items, orders: items });
     } catch (err) {
       console.error(`Consignment ${tab} failed:`, err.message);
       res.status(500).json({ error: `Failed to load ${tab}`, details: err.message });
@@ -3167,7 +3171,10 @@ app.get("/api/consignment/inventory", async (req, res) => {
       date: row.created_at_display || row.date || ""
     }));
 
-    res.json({ count: items.length, items });
+    // The portal table reads data.orders; Kickz Caviar and the older offer
+    // routes here answer with items. Both go out, so neither side has to be
+    // taught the other's name.
+    res.json({ count: items.length, items, orders: items });
   } catch (err) {
     console.error("Consignment inventory failed:", err);
     res.status(500).json({ error: "Failed to load consignment stock", details: err.message });
@@ -3192,7 +3199,10 @@ app.get("/api/consignment/offers", async (req, res) => {
       date: row.created_at_display || row.date || ""
     }));
 
-    res.json({ count: items.length, items });
+    // The portal table reads data.orders; Kickz Caviar and the older offer
+    // routes here answer with items. Both go out, so neither side has to be
+    // taught the other's name.
+    res.json({ count: items.length, items, orders: items });
   } catch (err) {
     console.error("Consignment offers failed:", err);
     res.status(500).json({ error: "Failed to load offers", details: err.message });
