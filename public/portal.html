@@ -838,9 +838,33 @@ body.kc-dialog-open {
     .csv-pill .skipped { text-decoration: underline; cursor: pointer; }
     .stock-error { color: var(--red); font-size: 12.5px; margin: 10px 0 0; min-height: 1em; }
 
+    /* A remove that does not need a word for it. Red, small, and out of the
+       way of the three fields it belongs to. */
+    .stock-drop {
+      width: 34px;
+      height: 38px;
+      padding: 0;
+      border-radius: 9px;
+      border: 1px solid rgba(var(--red-rgb), .5);
+      background: transparent;
+      color: var(--red);
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .stock-drop:hover { border-color: var(--red); }
+
     @media (max-width: 560px) {
       .stock-cards { grid-template-columns: 1fr; }
-      .stock-row { grid-template-columns: 1fr 1fr; }
+
+      /* The three fields still fit side by side at this width, and stacking
+         them turned one pair into three rows of chrome. Tightened instead:
+         smaller labels, less padding, and a button that is just a cross. */
+      .stock-row { grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; }
+      .stock-row .stock-field > span { font-size: 10.5px; margin-bottom: 4px; }
+      .stock-row input { padding: 9px 8px; font-size: 13px; }
+      .stock-drop { width: 30px; }
     }
 
     /* Nobody uploads a stock file from a phone, and on that width the two
@@ -3090,7 +3114,7 @@ function stockRowHtml() {
       <label class="stock-field"><span>Size EU</span><input class="stock-size" type="text" placeholder="42.5"></label>
       <label class="stock-field"><span>Price</span><input class="stock-price" type="text" inputmode="numeric" placeholder="250"></label>
       <label class="stock-field"><span>Qty</span><input class="stock-qty" type="text" inputmode="numeric" placeholder="1"></label>
-      <button type="button" class="table-btn" data-stock="drop-row">Remove</button>
+      <button type="button" class="stock-drop" data-stock="drop-row" aria-label="Remove this size" title="Remove">&times;</button>
     </div>
   `;
 }
