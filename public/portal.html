@@ -3908,25 +3908,21 @@ async function consignmentCounter(offerId, isMemberWtb) {
       ],
 
       /*
-        The consignment Offers tab, cell for cell as the Kickz Caviar
-        dashboard renders it.
+        The consignment Offers tab, taken from the screen it has to match
+        rather than from a renderer in the source.
 
-        Its columns come from renderWtbUnifiedOfferRows, not from the older
-        consignmentOfferColumns list - that renderer is dead for this tab, and
-        reading it is what put the wrong five columns here the first time.
-
-        One thing is deliberately NOT copied. Over there the header list and
-        the row cells disagree: the names go "Seller's Offer, VAT Type" while
-        the cells go vat_type, current_lowest. The VAT type is printed under
-        the heading Seller's Offer. Each name sits over its own content here.
+        Twice I copied the wrong one: consignmentOfferColumns is dead for this
+        tab, and renderWtbUnifiedOfferRows is the BUYING side. What a consignor
+        actually sees is this, and these are its own field names.
       */
       consignment_offers: [
         ["product", "Product"],
-        ["order_id", "WTB ID"],
-        ["amount", "Max Price"],
-        ["my_last_offer", "My Last Offer"],
+        ["size", "Size"],
+        ["order_id", "Order ID"],
+        ["your_offer", "Your Offer"],
+        ["counter_offer", "Counter Offer"],
         ["vat_type", "VAT Type"],
-        ["current_lowest", "Seller's Offer"],
+        ["current_lowest", "Current Lowest"],
         ["date", "Date"],
         ["actions", "Actions"]
       ],
@@ -4709,8 +4705,8 @@ function amountForButton(rawValue) {
         const btn = (cls, label, call) =>
           `<button class="action-btn ${cls}" type="button" onclick="${call}">${label}</button>`;
 
-        const previous = order.previous_store_price
-          ? btn("green", "ACCEPT " + escapeHtml(order.previous_store_price),
+        const previous = order.counter_offer
+          ? btn("green", "ACCEPT " + escapeHtml(order.counter_offer),
                 `consignmentSimple('${id}', 'accept-previous')`)
           : "";
 
@@ -4735,7 +4731,7 @@ function amountForButton(rawValue) {
             btn("blue", "RETRY", `consignmentRetryCounter('${id}')`) +
             btn("red", "DELETE", `consignmentSimple('${id}', 'cancel', true)`);
         } else {
-          const amount = order.offer_price ? " " + escapeHtml(order.offer_price) : "";
+          const amount = order.counter_offer ? " " + escapeHtml(order.counter_offer) : "";
 
           buttons =
             btn("green", "ACCEPT" + amount, `consignmentAct('${id}', 'confirm', ${mwtb})`) +
