@@ -23,6 +23,7 @@ app.get("/shop", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "shop.html"));
 });
 
+
 // The guide gates itself on the merchant in localStorage, the same way
 // portal.html does, and hides the sections that do not apply to their
 // Order Intake.
@@ -2820,7 +2821,12 @@ async function getMerchantBuyer(merchant) {
     // country outside the Netherlands means we invoice without VAT. The
     // shop needs to know so it can tell a store what it will actually be
     // billed before it commits to an amount.
-    reverse_charge: hasVatId && !dutch
+    reverse_charge: hasVatId && !dutch,
+
+    // Whether this store sells to us as well as buying from us. The same
+    // record carries both roles on purpose, and this is what decides
+    // whether the Consignment tab exists for them at all.
+    consignor: record.fields["Consignor?"] === true
   };
 
   if (!buyer.seller_id) {
@@ -2841,7 +2847,23 @@ async function kickzGet(path, params) {
     }
   }
 
-  const response = await fetch(url);
+  /*
+    Identify ourselves here too.
+
+    The note on kickzPost says the GET endpoints need no proof, and that was
+    true when it was written: only the body was challenged. The consignment
+    reads now check a seller_record_id in the QUERY as well - a browser proves
+    itself with its cookie, a service with this header - so a GET that names a
+    seller needs the same thing a POST does.
+
+    Sent whenever we have it rather than only for those routes. A portal
+    endpoint that does not ask ignores it, and one rule beats a list that has
+    to be kept in step with the other side.
+  */
+  const response = await fetch(url, {
+    headers: COUNTER_OFFERS_SECRET ? { "x-kc-secret": COUNTER_OFFERS_SECRET } : {}
+  });
+
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -3035,13 +3057,189 @@ app.get("/api/shop/buyer", async (req, res) => {
     res.json({
       vat_rate: buyer.vat_rate,
       country: buyer.country,
-      reverse_charge: buyer.reverse_charge
+      reverse_charge: buyer.reverse_charge,
+      consignor: buyer.consignor
     });
   } catch (err) {
     console.error("Shop buyer context failed:", err);
     res.status(500).json({ error: "Failed to load buyer details", details: err.message });
   }
 });
+
+/*
+ * Consignment: the selling side of a store that also sells to us.
+ *
+ * Nothing here decides anything. Kickz Caviar owns what an offer is worth,
+ * what a counter may be and when a pair is spoken for, and it owns it in one
+ * place - so this resolves who is asking and hands the question over. That is
+ * the whole design: a second front end, not a second set of rules. The
+ * negotiation this store sees has to behave exactly like the one a consignor
+ * sees in the Kickz Caviar portal, and the only way to be sure of that is for
+ * both to be asking the same code.
+ *
+ * The store never names its own seller record. It comes off the merchant that
+ * is signed in, the same way the shop resolves a mark-up, so a store cannot
+ * ask after somebody else's stock by changing a number in a request.
+ */
+async function consignorFor(req, res) {
+  const merchantId = asText(req.query.merchant_id || req.body?.merchant_id);
+
+  if (!merchantId) {
+    res.status(400).json({ error: "Missing merchant_id" });
+    return null;
+  }
+
+  const merchant = await getCachedMerchant(merchantId);
+
+  if (refuseShopForApiStore(merchant, res)) return null;
+
+  const buyer = await getMerchantBuyer(merchant).catch(() => null);
+
+  if (!buyer) {
+    res.status(404).json({ error: "This store has no linked seller record" });
+    return null;
+  }
+
+  // A store that does not consign has no business reading consignment data,
+  // and the tab is not shown to it either - this is the same rule, enforced
+  // rather than displayed.
+  if (!buyer.consignor) {
+    res.status(403).json({ error: "This store is not set up to consign" });
+    return null;
+  }
+
+  return buyer;
+}
+
+/*
+ * The six status tabs, which differ only in the endpoint behind them.
+ *
+ * Kickz Caviar already answers each of these for its own dashboard, keyed on
+ * the seller record and nothing else. A store here reads exactly what a
+ * consignor reads there, which is the point: two front ends, one set of
+ * answers.
+ */
+for (const [tab, endpoint] of [
+  ["accepted", "consignment-accepted"],
+  ["confirmed", "consignment-confirmed"],
+  ["label-requested", "consignment-label-requested"],
+  ["ready-to-ship", "consignment-ready-to-ship"],
+  ["shipped", "consignment-shipped"],
+  ["delivered", "consignment-delivered"]
+]) {
+  app.get(`/api/consignment/${tab}`, async (req, res) => {
+    try {
+      const buyer = await consignorFor(req, res);
+      if (!buyer) return;
+
+      res.json(await kickzGet(`/api/dashboard/${endpoint}`, {
+        seller_record_id: buyer.record_id
+      }));
+    } catch (err) {
+      console.error(`Consignment ${tab} failed:`, err.message);
+      res.status(500).json({ error: `Failed to load ${tab}`, details: err.message });
+    }
+  });
+}
+
+app.get("/api/consignment/inventory", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const data = await kickzGet("/api/consignment/inventory", {
+      seller_record_id: buyer.record_id
+    });
+
+    /*
+      Into the shape the portal's table already speaks.
+
+      Its product cell reads product, sku, size and brand off a row, and the
+      six status tabs come back saying exactly that because Kickz Caviar
+      normalises them for its own dashboard. These two do not, so they are
+      lined up here - one renderer, one set of keys, and no branch in the
+      browser that has to remember which tab it is looking at.
+    */
+    const items = (data.inventory || data.items || data.data || []).map((row) => ({
+      ...row,
+      product: row.product_name || row.product || "",
+      payout: row.selling_price_suggested,
+      date: row.created_at_display || row.date || ""
+    }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Consignment inventory failed:", err);
+    res.status(500).json({ error: "Failed to load consignment stock", details: err.message });
+  }
+});
+
+app.get("/api/consignment/offers", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const data = await kickzGet("/api/consignment/offers", {
+      seller_record_id: buyer.record_id,
+      filter: asText(req.query.filter) || "open"
+    });
+
+    const items = (data.offers || data.items || data.data || []).map((row) => ({
+      ...row,
+      product: row.product_name || row.product || "",
+      payout: row.offer_price,
+      seller_price: row.seller_price,
+      date: row.created_at_display || row.date || ""
+    }));
+
+    res.json({ count: items.length, items });
+  } catch (err) {
+    console.error("Consignment offers failed:", err);
+    res.status(500).json({ error: "Failed to load offers", details: err.message });
+  }
+});
+
+/*
+ * Accept, counter and deny.
+ *
+ * One handler for the three, because they differ only in which path they
+ * hand the offer to and whether a price rides along. An error from the
+ * portal is passed through with its own status: "no longer open" and "out of
+ * stock" are normal answers a store has to see, not failures to hide.
+ */
+for (const [action, path] of [
+  ["confirm", "confirm"],
+  ["deny", "deny"],
+  ["counter", "counter"]
+]) {
+  app.post(`/api/consignment/offers/:id/${action}`, async (req, res) => {
+    try {
+      const buyer = await consignorFor(req, res);
+      if (!buyer) return;
+
+      const body = { seller_record_id: buyer.record_id };
+
+      if (action === "counter") {
+        const price = Number(req.body?.counter_price);
+
+        if (!Number.isFinite(price) || price <= 0) {
+          return res.status(400).json({ error: "Enter a payout to counter with" });
+        }
+
+        body.counter_price = price;
+      }
+
+      res.json(await kickzPost(`/api/consignment/offers/${req.params.id}/${path}`, body));
+    } catch (err) {
+      console.error(`Consignment ${action} failed:`, err.message);
+
+      res.status(err.status || 500).json({
+        error: err.message || `Failed to ${action} the offer`,
+        ...(err.payload || {})
+      });
+    }
+  });
+}
 
 // A whole file of want-to-buys, queued rather than posted one at a time.
 //
