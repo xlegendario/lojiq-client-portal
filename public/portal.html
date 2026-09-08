@@ -2818,44 +2818,55 @@ async function consignmentAct(offerId, action, extra) {
  * CSV asks add-or-replace before the file, since replace empties the shelf
  * and that is not a question to meet with a file already chosen.
  */
+/*
+ * Everything inside the two stock modals, delegated on document.
+ *
+ * They live at the bottom of the page and the code that used to bind them ran
+ * while it was still being parsed, so the handlers landed on nothing. This
+ * cannot miss: the click is caught wherever it happens and matched then.
+ */
+document.addEventListener("click", (event) => {
+  const el = event.target.closest("[data-stock]");
+  if (!el) return;
+
+  const what = el.dataset.stock;
+
+  if (what === "add-cancel") stockModal("addStockModal", false);
+  if (what === "add-submit") submitAddStock();
+
+  if (what === "add-row") {
+    document.getElementById("addStockRows").insertAdjacentHTML("beforeend", stockRowHtml());
+  }
+
+  // The last row stays: a form with nothing to fill in is a dead end.
+  if (what === "drop-row") {
+    const rows = document.querySelectorAll("#addStockRows .stock-row");
+
+    if (rows.length > 1) el.closest(".stock-row").remove();
+  }
+
+  if (what === "csv-cancel") stockModal("csvStockModal", false);
+  if (what === "csv-submit") submitCsvStock();
+
+  // A card is the control, wherever inside it you happen to click.
+  const card = event.target.closest(".stock-card-choice");
+
+  if (card) {
+    const input = card.querySelector("input");
+
+    if (input) {
+      input.checked = true;
+
+      card.parentElement.querySelectorAll(".stock-card-choice").forEach((other) => {
+        other.classList.toggle("on", !!other.querySelector("input")?.checked);
+      });
+    }
+  }
+});
+
 function stockModal(id, open) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle("open", !!open);
-}
-
-/*
- * The cards are the control; the radio inside them only records the answer.
- *
- * CHANGED - this listened for "change" alone and left the clicking to the
- * label wrapping the radio. Replace Stock could not be picked: the label
- * carries a description in its own span, and a click landing on that child
- * never reached the input, so nothing changed and nothing looked different.
- *
- * Handling the click on the card settles it wherever it lands, and the radio
- * is still what gets read when the form is submitted.
- */
-function stockCardChoice(containerId) {
-  const box = document.getElementById(containerId);
-  if (!box) return;
-
-  const paint = () => {
-    box.querySelectorAll(".stock-card-choice").forEach((card) => {
-      card.classList.toggle("on", !!card.querySelector("input")?.checked);
-    });
-  };
-
-  box.addEventListener("click", (event) => {
-    const card = event.target.closest(".stock-card-choice");
-    if (!card) return;
-
-    const input = card.querySelector("input");
-    if (!input) return;
-
-    input.checked = true;
-    paint();
-  });
-
-  box.addEventListener("change", paint);
 }
 
 function stockRowHtml() {
@@ -2864,7 +2875,7 @@ function stockRowHtml() {
       <label class="stock-field"><span>Size EU</span><input class="stock-size" type="text" placeholder="42.5"></label>
       <label class="stock-field"><span>Price</span><input class="stock-price" type="text" inputmode="decimal" placeholder="250"></label>
       <label class="stock-field"><span>Qty</span><input class="stock-qty" type="text" inputmode="numeric" placeholder="1"></label>
-      <button type="button" class="table-btn stock-drop">Remove</button>
+      <button type="button" class="table-btn" data-stock="drop-row">Remove</button>
     </div>
   `;
 }
@@ -4855,48 +4866,27 @@ function amountForButton(rawValue) {
       if (csvBtn) csvBtn.style.display = onStock ? "inline-flex" : "none";
 
       /*
-        Bound once. loadOrders runs on every tab change, and a listener added
-        each time would open the modal as many times as you had switched.
+        Only the two buttons in the table header are bound here, and only
+        once: loadOrders runs on every tab change, and a listener added each
+        time would open the modal as many times as you had switched.
+
+        FIXED - the buttons INSIDE the modals were bound here too, and they
+        never were. This runs while the page is still being parsed, and the
+        modals sit at the bottom of it, so getElementById returned null and
+        the optional chaining swallowed it without a word. Cancel and Upload
+        did nothing at all. They are delegated on document now, which does
+        not care what has been parsed yet.
       */
       if (addBtn && !addBtn.dataset.bound) {
         addBtn.dataset.bound = "1";
         addBtn.addEventListener("click", openAddStock);
-
-        stockCardChoice("addStockVat");
-        stockCardChoice("csvStockMode");
-
-        document.getElementById("addStockCancel")
-          ?.addEventListener("click", () => stockModal("addStockModal", false));
-
-        document.getElementById("addStockSubmit")
-          ?.addEventListener("click", submitAddStock);
-
-        document.getElementById("addStockAddRow")?.addEventListener("click", () => {
-          document.getElementById("addStockRows")
-            .insertAdjacentHTML("beforeend", stockRowHtml());
-        });
-
-        // Delegated, because the rows come and go. The last one stays: a form
-        // with nothing to fill in is a dead end.
-        document.getElementById("addStockRows")?.addEventListener("click", (event) => {
-          if (!event.target.classList.contains("stock-drop")) return;
-
-          const rows = document.querySelectorAll("#addStockRows .stock-row");
-
-          if (rows.length > 1) event.target.closest(".stock-row").remove();
-        });
       }
 
       if (csvBtn && !csvBtn.dataset.bound) {
         csvBtn.dataset.bound = "1";
         csvBtn.addEventListener("click", openCsvStock);
-
-        document.getElementById("csvStockCancel")
-          ?.addEventListener("click", () => stockModal("csvStockModal", false));
-
-        document.getElementById("csvStockSubmit")
-          ?.addEventListener("click", submitCsvStock);
       }
+
       pageTitle.textContent = label;
 
       // NEW — on a phone the name of the current view sits in the top
@@ -6693,9 +6683,9 @@ function amountForButton(rawValue) {
     <div class="stock-rows" id="addStockRows"></div>
 
     <div class="stock-actions">
-      <button type="button" class="table-btn" id="addStockAddRow">Add size</button>
-      <button type="button" class="table-btn" id="addStockCancel">Cancel</button>
-      <button type="button" class="table-btn" id="addStockSubmit">Add stock</button>
+      <button type="button" class="table-btn" data-stock="add-row">Add size</button>
+      <button type="button" class="table-btn" data-stock="add-cancel">Cancel</button>
+      <button type="button" class="table-btn" data-stock="add-submit">Add stock</button>
     </div>
 
     <p class="stock-error" id="addStockError"></p>
@@ -6737,8 +6727,8 @@ function amountForButton(rawValue) {
     <p class="stock-error" id="csvStockError"></p>
 
     <div class="stock-actions">
-      <button type="button" class="table-btn" id="csvStockCancel">Cancel</button>
-      <button type="button" class="table-btn" id="csvStockSubmit">Upload</button>
+      <button type="button" class="table-btn" data-stock="csv-cancel">Cancel</button>
+      <button type="button" class="table-btn" data-stock="csv-submit">Upload</button>
     </div>
   </div>
 </div>
