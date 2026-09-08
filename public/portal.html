@@ -2691,6 +2691,141 @@ async function consignmentAct(offerId, action, extra) {
   }
 }
 
+/*
+ * Accepted: your price was taken, do you still have the pair.
+ *
+ * A different pair of endpoints from the offer buttons because it is a later
+ * question, and it keys on the seller offer rather than the offer row - the
+ * same two names the Kickz Caviar dashboard uses for the same two buttons.
+ */
+async function consignmentAccepted(sellerOfferRecordId, action) {
+  const raw = localStorage.getItem("lojiq_merchant");
+  const store = raw ? JSON.parse(raw) : null;
+
+  if (!store?.id) return;
+
+  if (action === "deny") {
+    const sure = await showConfirm(
+      "Say you no longer have this pair? We will look for it somewhere else.",
+      { title: "Deny", confirmLabel: "Deny", danger: true }
+    );
+
+    if (!sure) return;
+  }
+
+  try {
+    const response = await fetch("/api/consignment/accepted/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        merchant_id: store.id,
+        seller_offer_record_id: sellerOfferRecordId
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      await showAlert(data.error || data.details || "That did not go through.");
+      return;
+    }
+
+    await showAlert(
+      action === "confirm"
+        ? "Confirmed. The shipping step follows in your channel."
+        : "Noted. We will source it elsewhere."
+    );
+
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
+/*
+ * Changing a pair, or taking it off the shelf.
+ *
+ * Price and quantity are the only two a consignor edits, which is what the
+ * Kickz Caviar dashboard offers - anything else about a pair is what it is.
+ */
+async function consignmentEdit(inventoryId) {
+  const price = await showPrompt("What do you want for this pair?", {
+    title: "Edit pair",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (price === null) return;
+
+  const complaint = kcMoneyCheck(price);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  const quantity = await showPrompt("How many do you have?", {
+    title: "Edit pair",
+    placeholder: "1"
+  });
+
+  if (quantity === null) return;
+
+  const count = Number(String(quantity).trim());
+
+  if (!Number.isInteger(count) || count < 0) {
+    await showAlert("Enter a whole number.");
+    return;
+  }
+
+  await consignmentInventoryCall(inventoryId, "edit", {
+    selling_price_suggested: Number(String(price).replace(/\s/g, "").replace(",", ".")),
+    quantity: count
+  });
+}
+
+async function consignmentRemove(inventoryId) {
+  const sure = await showConfirm("Take this pair off? We will stop offering on it.", {
+    title: "Remove pair",
+    confirmLabel: "Remove",
+    danger: true
+  });
+
+  if (!sure) return;
+
+  await consignmentInventoryCall(inventoryId, "remove");
+}
+
+async function consignmentInventoryCall(inventoryId, action, body) {
+  const raw = localStorage.getItem("lojiq_merchant");
+  const store = raw ? JSON.parse(raw) : null;
+
+  if (!store?.id) return;
+
+  try {
+    const response = await fetch(
+      "/api/consignment/inventory/" + encodeURIComponent(inventoryId) + "/" + action,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchant_id: store.id, ...(body || {}) })
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      await showAlert(data.error || data.details || "That did not go through.");
+      return;
+    }
+
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
 async function consignmentCounter(offerId) {
   const answer = await showPrompt("What payout do you want for this pair?", {
     title: "Counter offer",
@@ -2872,70 +3007,90 @@ async function consignmentCounter(offerId) {
     };
 
     const columnsByView = {
-      // Consignment reads the same either way: what the pair is, what it is
-      // worth and when. Offers add the two numbers a decision turns on -
-      // what the consignor asks and what we offered - and the buttons.
-      consignment_offers: [
-        ["product", "Product"],
-        ["seller_price", "Your Price"],
-        ["payout", "Our Offer"],
-        ["vat_type", "VAT Type"],
-        ["actions", "Actions"]
-      ],
+      /*
+        Column for column what the Kickz Caviar dashboard shows a consignor,
+        because a store that uses both should not have to work out that two
+        screens are the same screen.
 
+        Size is the one difference and it is not one: this table folds size
+        and brand under the product name by its own convention, and printing
+        a Size column beside that would say it twice.
+      */
       consignment_inventory: [
         ["product", "Product"],
         ["vat_type", "VAT Type"],
-        ["payout", "Your Price"],
-        ["quantity", "Qty"]
+        ["selling_price_suggested", "Selling Price"],
+        ["lowest_suggested_price", "Lowest Price"],
+        ["quantity", "Quantity"],
+        ["actions", "Action"]
       ],
 
+      consignment_offers: [
+        ["product", "Product"],
+        ["order_id", "Order ID"],
+        ["seller_price", "Your Price"],
+        ["offer_price", "Offer"],
+        ["vat_type", "VAT Type"],
+        ["date", "Date"],
+        ["actions", "Action"]
+      ],
+
+      // Accepted asks something none of the others do - your price was
+      // accepted, do you still have it - so it shows the asking price next
+      // to the payout. The five after it share one set.
       consignment_accepted: [
         ["product", "Product"],
-        ["order_id", "Order"],
+        ["order_id", "Order ID"],
+        ["seller_price", "Your Price"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
-        ["date", "Date"]
+        ["date", "Date"],
+        ["actions", "Action"]
       ],
 
       consignment_confirmed: [
         ["product", "Product"],
-        ["order_id", "Order"],
+        ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
-        ["date", "Date"]
+        ["date", "Date"],
+        ["actions", "Action"]
       ],
 
       consignment_label_requested: [
         ["product", "Product"],
-        ["order_id", "Order"],
+        ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
-        ["date", "Date"]
+        ["date", "Date"],
+        ["actions", "Action"]
       ],
 
       consignment_ready_to_ship: [
         ["product", "Product"],
-        ["order_id", "Order"],
+        ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
-        ["date", "Date"]
+        ["date", "Date"],
+        ["actions", "Action"]
       ],
 
       consignment_shipped: [
         ["product", "Product"],
-        ["order_id", "Order"],
+        ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
-        ["date", "Date"]
+        ["date", "Date"],
+        ["actions", "Action"]
       ],
 
       consignment_delivered: [
         ["product", "Product"],
-        ["order_id", "Order"],
+        ["order_id", "Order ID"],
         ["payout", "Payout"],
         ["vat_type", "VAT Type"],
-        ["date", "Date"]
+        ["date", "Date"],
+        ["actions", "Action"]
       ],
 
       open: [
@@ -3642,6 +3797,67 @@ function amountForButton(rawValue) {
             </button>
           </div>
         `;
+      }
+
+      /*
+        Accepted asks the one question the other status tabs do not: your
+        price was taken, do you still have the pair. So it keeps a Confirm
+        and a Deny, and the Confirm names the amount the way the Kickz
+        Caviar dashboard names it - nobody should have to look up a column
+        to know what they are agreeing to.
+      */
+      if (currentView === "consignment_accepted") {
+        const offerId = escapeHtml(order.seller_offer_record_id || "");
+
+        if (!offerId) return "—";
+
+        return `
+          <div class="action-row">
+            <button class="action-btn green" type="button" onclick="consignmentAccepted('${offerId}', 'confirm')">
+              CONFIRM ${escapeHtml(order.payout || "")}
+            </button>
+            <button class="action-btn red" type="button" onclick="consignmentAccepted('${offerId}', 'deny')">
+              DENY
+            </button>
+          </div>
+        `;
+      }
+
+      if (currentView === "consignment_inventory") {
+        const id = escapeHtml(order.id || "");
+
+        if (!id) return "—";
+
+        return `
+          <div class="action-row">
+            <button class="action-btn blue" type="button" onclick="consignmentEdit('${id}')">
+              EDIT
+            </button>
+            <button class="action-btn red" type="button" onclick="consignmentRemove('${id}')">
+              REMOVE
+            </button>
+          </div>
+        `;
+      }
+
+      // The rest carry what there is to carry: the label once it exists, the
+      // tracking once it moves, and the channel the conversation happened in.
+      if (currentView.startsWith("consignment_")) {
+        const links = [];
+
+        if (order.label_url) {
+          links.push(`<a class="action-btn blue" href="${escapeHtml(order.label_url)}" target="_blank" rel="noopener">LABEL</a>`);
+        }
+
+        if (order.tracking_url) {
+          links.push(`<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank" rel="noopener">TRACKING</a>`);
+        }
+
+        if (order.discord_url) {
+          links.push(`<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">CHANNEL</a>`);
+        }
+
+        return links.length ? `<div class="action-row">${links.join("")}</div>` : "—";
       }
 
       if (currentView === "open") {
