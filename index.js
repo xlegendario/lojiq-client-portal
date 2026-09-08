@@ -3543,14 +3543,52 @@ app.get("/api/consignment/offers", async (req, res) => {
         : when.toLocaleDateString("en-GB");
     };
 
-    const rows = items.map((row) => ({
-      ...row,
-      product: row.product || row.product_name || "",
-      your_offer: money(row.original_offer ?? row.offer ?? row.seller_price),
-      counter_offer: money(row.counter_payout ?? row.previous_store_price),
-      current_lowest: money(row.current_lowest),
-      date: asDate(row.raw_date || row.denied_at || row.date || row.created_at)
-    }));
+    /*
+      CHANGED - these were filled with ?? fallbacks, which quietly picks
+      whichever field happens to be there. The dashboard picks per kind of
+      row, and the two disagree on every row that has both.
+
+      Your Offer is the consignor's own position and nothing else. On a fresh
+      offer that is what he asked; on anything with a round behind it, the
+      price he opened with. Taking a counter payout for it would print our own
+      figure under his name, which is the same mistake that put our bid in the
+      market comparison.
+    */
+    const rows = items.map((row) => {
+      const kind = asText(row._kind);
+
+      const yourOffer = kind === "fresh" ? row.offer : row.original_offer;
+
+      /*
+        One column, two readings, exactly as the dashboard has them.
+
+        On your own counter it is the buyer's PREVIOUS figure - the one the
+        Accept button still takes. On his counter it is what he has just put
+        in front of you. A fresh offer has neither, and neither does a fresh
+        offer that was denied outright: nobody ever named a second number.
+      */
+      const buyersLastOffer =
+        kind === "own_counter" || kind === "denied"
+          ? row.previous_store_price
+          : kind === "counter"
+            ? row.counter_payout
+            : "";
+
+      return {
+        ...row,
+        product: row.product || row.product_name || "",
+        your_offer: money(yourOffer),
+        counter_offer: money(buyersLastOffer),
+        current_lowest: money(row.current_lowest),
+
+        // Lowest or Beaten, for the dot in the first column. Left blank
+        // where no comparison was made, so nothing is implied by a colour.
+        status: asText(row.status),
+
+        // A denied row is dated by its refusal, everything else by itself.
+        date: asDate(kind === "fresh" ? row.raw_date : (row.denied_at || row.raw_date))
+      };
+    });
 
     res.json({ count: rows.length, items: rows, orders: rows });
   } catch (err) {
