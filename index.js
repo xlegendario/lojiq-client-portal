@@ -3081,6 +3081,22 @@ app.get("/api/shop/buyer", async (req, res) => {
  * is signed in, the same way the shop resolves a mark-up, so a store cannot
  * ask after somebody else's stock by changing a number in a request.
  */
+/*
+ * Money the way the other side prints it.
+ *
+ * The portal's table renders a column it does not know about verbatim, so a
+ * bare 150 would sit under "Selling Price" looking like a quantity. Kickz
+ * Caviar's dashboard writes these with the sign attached; matching it here
+ * keeps the two screens identical without teaching this table a new rule.
+ */
+function consignmentMoney(value) {
+  const amount = Number(value);
+
+  return Number.isFinite(amount) && amount > 0
+    ? `€ ${amount.toFixed(2)}`
+    : "";
+}
+
 async function consignorFor(req, res) {
   const merchantId = asText(req.query.merchant_id || req.body?.merchant_id);
 
@@ -3136,7 +3152,11 @@ for (const [tab, endpoint] of [
         seller_record_id: buyer.record_id
       });
 
-      const items = data.items || data.orders || [];
+      const items = (data.items || data.orders || []).map((row) => ({
+        ...row,
+        payout: consignmentMoney(row.payout),
+        seller_price: consignmentMoney(row.seller_price)
+      }));
 
       res.json({ count: data.count ?? items.length, items, orders: items });
     } catch (err) {
@@ -3145,6 +3165,112 @@ for (const [tab, endpoint] of [
     }
   });
 }
+
+/*
+ * Confirming or denying a match on the Accepted tab.
+ *
+ * A different pair of endpoints from the offer buttons, and deliberately so:
+ * this answers "your price was accepted, do you still have it", which is a
+ * later question than "will you take this". Same two names Kickz Caviar uses
+ * for the same two buttons.
+ */
+for (const action of ["confirm", "deny"]) {
+  app.post(`/api/consignment/accepted/${action}`, async (req, res) => {
+    try {
+      const buyer = await consignorFor(req, res);
+      if (!buyer) return;
+
+      const sellerOfferRecordId = asText(req.body?.seller_offer_record_id);
+
+      if (!sellerOfferRecordId) {
+        return res.status(400).json({ error: "Missing seller_offer_record_id" });
+      }
+
+      res.json(await kickzPost(`/api/dashboard/consignment-${action}`, {
+        seller_record_id: buyer.record_id,
+        seller_offer_record_id: sellerOfferRecordId
+      }));
+    } catch (err) {
+      console.error(`Consignment accepted ${action} failed:`, err.message);
+
+      res.status(err.status || 500).json({
+        error: err.message || `Failed to ${action}`,
+        ...(err.payload || {})
+      });
+    }
+  });
+}
+
+/*
+ * Changing or removing a pair.
+ *
+ * The store owns its own stock, so both go straight through - what they may
+ * change and what happens after is settled on the other side, as everywhere
+ * else here.
+ */
+app.post("/api/consignment/inventory/:id/edit", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const response = await fetch(
+      `${KICKZ_PORTAL_BASE_URL}/api/consignment/inventory/${encodeURIComponent(req.params.id)}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-kc-secret": COUNTER_OFFERS_SECRET
+        },
+        body: JSON.stringify({
+          seller_record_id: buyer.record_id,
+          selling_price_suggested: req.body?.selling_price_suggested,
+          quantity: req.body?.quantity
+        })
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error("Consignment edit failed:", err.message);
+    res.status(500).json({ error: "Failed to update the pair", details: err.message });
+  }
+});
+
+app.post("/api/consignment/inventory/:id/remove", async (req, res) => {
+  try {
+    const buyer = await consignorFor(req, res);
+    if (!buyer) return;
+
+    const response = await fetch(
+      `${KICKZ_PORTAL_BASE_URL}/api/consignment/inventory/${encodeURIComponent(req.params.id)}`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-kc-secret": COUNTER_OFFERS_SECRET
+        },
+        body: JSON.stringify({ seller_record_id: buyer.record_id })
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return res.status(response.status).json(data);
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error("Consignment remove failed:", err.message);
+    res.status(500).json({ error: "Failed to remove the pair", details: err.message });
+  }
+});
 
 app.get("/api/consignment/inventory", async (req, res) => {
   try {
@@ -3167,8 +3293,9 @@ app.get("/api/consignment/inventory", async (req, res) => {
     const items = (data.inventory || data.items || data.data || []).map((row) => ({
       ...row,
       product: row.product_name || row.product || "",
-      payout: row.selling_price_suggested,
-      date: row.created_at_display || row.date || ""
+      selling_price_suggested: consignmentMoney(row.selling_price_suggested),
+      lowest_suggested_price: consignmentMoney(row.lowest_suggested_price),
+      quantity: row.quantity ?? ""
     }));
 
     // The portal table reads data.orders; Kickz Caviar and the older offer
@@ -3194,8 +3321,8 @@ app.get("/api/consignment/offers", async (req, res) => {
     const items = (data.offers || data.items || data.data || []).map((row) => ({
       ...row,
       product: row.product_name || row.product || "",
-      payout: row.offer_price,
-      seller_price: row.seller_price,
+      seller_price: consignmentMoney(row.seller_price),
+      offer_price: consignmentMoney(row.offer_price),
       date: row.created_at_display || row.date || ""
     }));
 
