@@ -4861,14 +4861,30 @@ function amountForButton(rawValue) {
 
         if (!offerId) return "—";
 
+        /*
+          CHANGED - the link to the channel was missing.
+
+          The dashboard puts three things here, not two: Confirm, Deny, and a
+          link to the confirmation channel this request was posted in. For a
+          store that channel lives in the Lojiq server, and it is where the
+          same question was asked with the same two buttons - so leaving the
+          link out meant the tab and the channel could not be read side by
+          side.
+        */
+        const channel = order.discord_url
+          ? `<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`
+          : "";
+
         return `
           <div class="action-row">
-            <button class="action-btn green" type="button" onclick="consignmentAccepted('${offerId}', 'confirm')">
-              CONFIRM ${escapeHtml(order.payout || "")}
+            <button class="action-btn green action-accept" type="button" onclick="consignmentAccepted('${offerId}', 'confirm')">
+              <span class="accept-kop">CONFIRM</span>
+              <span class="accept-amount">${escapeHtml(amountForButton(order.payout))}</span>
             </button>
             <button class="action-btn red" type="button" onclick="consignmentAccepted('${offerId}', 'deny')">
               DENY
             </button>
+            ${channel}
           </div>
         `;
       }
