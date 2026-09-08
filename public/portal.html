@@ -2828,7 +2828,7 @@ function showPrompt(message, options) {
  * other action in it does. They ask Kickz Caviar and reload; nothing about
  * what an answer means is decided in this file.
  */
-async function consignmentAct(offerId, action, extra) {
+async function consignmentAct(offerId, action, isMemberWtb, extra) {
   const raw = localStorage.getItem("lojiq_merchant");
   const store = raw ? JSON.parse(raw) : null;
 
@@ -2838,7 +2838,11 @@ async function consignmentAct(offerId, action, extra) {
     const response = await fetch("/api/consignment/offers/" + encodeURIComponent(offerId) + "/" + action, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ merchant_id: store.id, ...(extra || {}) })
+      body: JSON.stringify({
+        merchant_id: store.id,
+        is_member_wtb: isMemberWtb !== 0,
+        ...(extra || {})
+      })
     });
 
     const data = await response.json().catch(() => ({}));
@@ -3504,7 +3508,7 @@ async function consignmentInventoryCall(inventoryId, action, body) {
   }
 }
 
-async function consignmentCounter(offerId) {
+async function consignmentCounter(offerId, isMemberWtb) {
   const answer = await showPrompt("What payout do you want for this pair?", {
     title: "Counter offer",
     money: true,
@@ -3526,7 +3530,7 @@ async function consignmentCounter(offerId) {
 
   const price = Number(String(answer).replace(/\s/g, "").replace(",", "."));
 
-  await consignmentAct(offerId, "counter", { counter_price: price });
+  await consignmentAct(offerId, "counter", isMemberWtb, { counter_price: price });
 }
 
     const merchantName = document.getElementById("merchantName");
@@ -4469,15 +4473,23 @@ function amountForButton(rawValue) {
       if (currentView === "consignment_offers") {
         const id = escapeHtml(order.id);
 
+        // Which route answers this round: a want-to-buy and a store order are
+        // not answered on the same one, and the row is what knows.
+        const mwtb = order.is_member_wtb === false ? 0 : 1;
+
+        // Accept names the amount, the way the dashboard names it. Nobody
+        // should have to read a column to know what they are agreeing to.
+        const amount = order.offer_price ? " " + escapeHtml(order.offer_price) : "";
+
         return `
           <div class="action-row">
-            <button class="action-btn green" type="button" onclick="consignmentAct('${id}', 'confirm')">
-              ACCEPT
+            <button class="action-btn green" type="button" onclick="consignmentAct('${id}', 'confirm', ${mwtb})">
+              ACCEPT${amount}
             </button>
-            <button class="action-btn blue" type="button" onclick="consignmentCounter('${id}')">
+            <button class="action-btn blue" type="button" onclick="consignmentCounter('${id}', ${mwtb})">
               COUNTER
             </button>
-            <button class="action-btn red" type="button" onclick="consignmentAct('${id}', 'deny')">
+            <button class="action-btn red" type="button" onclick="consignmentAct('${id}', 'deny', ${mwtb})">
               DENY
             </button>
           </div>
@@ -5263,9 +5275,10 @@ function amountForButton(rawValue) {
             CONSIGNMENT_ENDPOINTS[currentView] || currentView === "offers"
               ? new URLSearchParams({
                   merchant_id: merchant.id,
-                  // Kickz Caviar calls the middle one "counter", the row
-                  // calls it "countered". Translated here rather than
-                  // renaming a pill that reads correctly.
+                  // The pill reads "Countered" on both sides. The endpoint
+                  // behind it compares against "counter" and nothing else,
+                  // so sending the label falls through to the open list and
+                  // shows the wrong rows. Translated at the last moment.
                   ...(currentView === "consignment_offers"
                     ? { filter: activeOfferPillFilter === "countered" ? "counter" : activeOfferPillFilter }
                     : {})
