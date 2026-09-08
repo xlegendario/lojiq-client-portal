@@ -1207,6 +1207,12 @@ body.kc-dialog-open {
       background: linear-gradient(135deg, var(--primary), var(--primary-soft));
     }
 
+    /* Discord's own blurple, the same two stops the dashboard uses, so a
+       link to a channel looks like one on both sides. */
+    .action-btn.discord {
+      background: linear-gradient(180deg, #5865F2, #404EED);
+    }
+
     .action-btn.yellow {
       background: var(--warning);
       color: var(--bg);
@@ -4872,7 +4878,7 @@ function amountForButton(rawValue) {
           side.
         */
         const channel = order.discord_url
-          ? `<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`
+          ? `<a class="action-btn discord" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`
           : "";
 
         return `
@@ -4921,7 +4927,7 @@ function amountForButton(rawValue) {
               REQUEST LABEL
             </button>
             ${order.discord_url
-              ? `<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">CHANNEL</a>`
+              ? `<a class="action-btn discord" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">CHANNEL</a>`
               : ""}
           </div>
         `;
@@ -4944,7 +4950,7 @@ function amountForButton(rawValue) {
         }
 
         if (order.discord_url) {
-          links.push(`<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`);
+          links.push(`<a class="action-btn discord" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`);
         }
 
         return links.length ? `<div class="action-row">${links.join("")}</div>` : "—";
