@@ -4765,9 +4765,21 @@ function amountForButton(rawValue) {
         const btn = (cls, label, call) =>
           `<button class="action-btn ${cls}" type="button" onclick="${call}">${label}</button>`;
 
+        /*
+          The accept gets its own tall button with the amount under the word,
+          and the other two stack beside it. Same markup and the same class
+          the buying tab uses, so one stylesheet shapes both and the column
+          can be narrow instead of holding three buttons side by side.
+        */
+        const accept = (amount, call) => `
+          <button class="action-btn green action-accept" type="button" onclick="${call}">
+            <span class="accept-kop">ACCEPT</span>
+            <span class="accept-amount">${escapeHtml(amountForButton(amount))}</span>
+          </button>
+        `;
+
         const previous = order.counter_offer
-          ? btn("green", "ACCEPT " + escapeHtml(order.counter_offer),
-                `consignmentSimple('${id}', 'accept-previous')`)
+          ? accept(order.counter_offer, `consignmentSimple('${id}', 'accept-previous')`)
           : "";
 
         let buttons;
@@ -4791,10 +4803,8 @@ function amountForButton(rawValue) {
             btn("blue", "RETRY", `consignmentRetryCounter('${id}')`) +
             btn("red", "DELETE", `consignmentSimple('${id}', 'cancel', true)`);
         } else {
-          const amount = order.counter_offer ? " " + escapeHtml(order.counter_offer) : "";
-
           buttons =
-            btn("green", "ACCEPT" + amount, `consignmentAct('${id}', 'confirm', ${mwtb})`) +
+            accept(order.counter_offer, `consignmentAct('${id}', 'confirm', ${mwtb})`) +
             btn("blue", "COUNTER", `consignmentCounter('${id}', ${mwtb})`) +
             btn("red", "DENY", `consignmentAct('${id}', 'deny', ${mwtb})`);
         }
@@ -5123,7 +5133,16 @@ function amountForButton(rawValue) {
         `;
       }
 
-      if (key === "status" || key === "issue_status") {
+      /*
+        The consignment Offers tab is the exception. Its status column is not
+        a stage in a flow, it is whether you are still the cheapest on the
+        pair, and the dashboard draws that as a coloured dot rather than a
+        worded pill. The dot branch further down handles it.
+      */
+      if (
+        (key === "status" || key === "issue_status") &&
+        currentView !== "consignment_offers"
+      ) {
         const status = order[key] || "—";
       
         return `
