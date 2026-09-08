@@ -715,6 +715,29 @@ body.kc-dialog-open {
       border-color: var(--primary-soft);
     }
 
+    /* The two stock buttons carry words, and .refresh-btn is a 32px square
+       built for one character - text in it wraps over the count beside it.
+       Same border, same height, sized to what it says. */
+    .table-btn {
+      cursor: pointer;
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 9px;
+      border: 1px solid var(--border);
+      background: rgba(var(--bg-rgb), 0.55);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .table-btn:hover {
+      border-color: var(--primary-soft);
+    }
+
     .table-wrap {
       overflow: auto;
       max-height: calc(100vh - 360px);
@@ -2332,8 +2355,8 @@ body.kc-dialog-open {
             <div id="tableTitle" class="table-title">Open Orders</div>
             <div class="table-actions">
               <!-- Only on the Inventory tab; loadOrders shows and hides it. -->
-              <button id="stockAddBtn" class="refresh-btn" type="button" style="display:none;" title="Add a pair">+ Pair</button>
-              <button id="stockCsvBtn" class="refresh-btn" type="button" style="display:none;" title="Import a CSV">CSV</button>
+              <button id="stockAddBtn" class="table-btn" type="button" style="display:none;" title="Add a pair">Add pair</button>
+              <button id="stockCsvBtn" class="table-btn" type="button" style="display:none;" title="Import a CSV">Import CSV</button>
               <input id="stockCsvFile" type="file" accept=".csv,text/csv" style="display:none;">
 
               <div id="tableCount" class="table-count">0 Orders</div>
@@ -4591,7 +4614,7 @@ function amountForButton(rawValue) {
         ordersTableBody.innerHTML = `
           <tr>
             <td colspan="${columns.length}" class="empty">
-              <div class="empty-floating">No orders found</div>
+              <div class="empty-floating">${currentView === "consignment_inventory" ? "No stock yet. Add a pair or import a CSV." : currentView.startsWith("consignment_") ? "Nothing here yet." : "No orders found"}</div>
             </td>
           </tr>
         `;
@@ -4795,7 +4818,11 @@ function amountForButton(rawValue) {
 
           tableCount.textContent = `${pillTotal} Orders`;
         } else {
-          tableCount.textContent = `${currentOrders.length} Orders`;
+          // "Orders" is wrong over a shelf of shoes, and this table now
+          // shows one.
+          tableCount.textContent = currentView.startsWith("consignment_")
+            ? `${currentOrders.length} ${currentView === "consignment_inventory" ? "Pairs" : "Items"}`
+            : `${currentOrders.length} Orders`;
         }
     
         currentViewStat.textContent = currentOrders.length;
