@@ -3623,6 +3623,64 @@ function consignmentAmount(value) {
   return Number(String(value).replace(/\s/g, "").replace(",", "."));
 }
 
+/*
+ * The numbers beside the consignment tabs.
+ *
+ * One call answers all eight, so it is asked once rather than per tab. Called
+ * on arrival and after anything that moves a deal along, which is what makes
+ * the sidebar tell you where the work is without opening every tab.
+ */
+async function loadConsignmentCounts() {
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  if (!store?.id) return;
+
+  try {
+    const response = await fetch(
+      "/api/consignment/counts?merchant_id=" + encodeURIComponent(store.id)
+    );
+
+    if (!response.ok) return;
+
+    const counts = await response.json();
+
+    Object.entries(counts).forEach(([key, value]) => {
+      const el = document.getElementById("count-consignment_" + key);
+      if (el) el.textContent = Number(value || 0);
+    });
+  } catch (err) {
+    /* a count that will not load is not worth an error in front of anyone */
+  }
+}
+
+async function consignmentRequestLabel(memberWtbRecordId, orderRecordId) {
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  if (!store?.id) return;
+
+  try {
+    const response = await fetch("/api/consignment/request-label", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        merchant_id: store.id,
+        member_wtb_record_id: memberWtbRecordId,
+        order_record_id: orderRecordId
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      await showAlert(data.error || data.details || "That did not go through.");
+      return;
+    }
+
+    await showAlert("Requested. The label follows in your channel.");
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
 async function consignmentPost(offerId, action, body) {
   const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
   if (!store?.id) return;
@@ -3849,19 +3907,30 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["actions", "Action"]
       ],
 
+      /*
+        The consignment Offers tab, cell for cell as the Kickz Caviar
+        dashboard renders it.
+
+        Its columns come from renderWtbUnifiedOfferRows, not from the older
+        consignmentOfferColumns list - that renderer is dead for this tab, and
+        reading it is what put the wrong five columns here the first time.
+
+        One thing is deliberately NOT copied. Over there the header list and
+        the row cells disagree: the names go "Seller's Offer, VAT Type" while
+        the cells go vat_type, current_lowest. The VAT type is printed under
+        the heading Seller's Offer. Each name sits over its own content here.
+      */
       consignment_offers: [
         ["product", "Product"],
-        ["order_id", "Order ID"],
-        ["seller_price", "Your Price"],
-        ["offer_price", "Offer"],
+        ["order_id", "WTB ID"],
+        ["amount", "Max Price"],
+        ["my_last_offer", "My Last Offer"],
         ["vat_type", "VAT Type"],
+        ["current_lowest", "Seller's Offer"],
         ["date", "Date"],
-        ["actions", "Action"]
+        ["actions", "Actions"]
       ],
 
-      // Accepted asks something none of the others do - your price was
-      // accepted, do you still have it - so it shows the asking price next
-      // to the payout. The five after it share one set.
       consignment_accepted: [
         ["product", "Product"],
         ["order_id", "Order ID"],
@@ -4429,6 +4498,8 @@ async function consignmentCounter(offerId, isMemberWtb) {
 
             const section = document.getElementById("section-consignment");
             if (section && !buyer?.consignor) section.style.display = "none";
+
+            if (buyer?.consignor) loadConsignmentCounts();
           })
           .catch(() => {});
       }
@@ -4716,21 +4787,45 @@ function amountForButton(rawValue) {
         `;
       }
 
-      // The rest carry what there is to carry: the label once it exists, the
-      // tracking once it moves, and the channel the conversation happened in.
+      /*
+        Confirmed is the one status tab with something to press rather than
+        something to open. Asking for the label is what moves the deal on, and
+        without it a store sits on a confirmed sale with nowhere to go.
+      */
+      if (currentView === "consignment_confirmed") {
+        const mwtb = escapeHtml(order.member_wtb_record_id || "");
+        const ord = escapeHtml(order.order_record_id || "");
+
+        return `
+          <div class="action-row">
+            <button class="action-btn green" type="button" onclick="consignmentRequestLabel('${mwtb}', '${ord}')">
+              REQUEST LABEL
+            </button>
+            ${order.discord_url
+              ? `<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">CHANNEL</a>`
+              : ""}
+          </div>
+        `;
+      }
+
+      /*
+        What the remaining tabs carry, named the way the dashboard names it:
+        the label once it exists, the tracking once it moves, and the channel
+        the conversation happened in.
+      */
       if (currentView.startsWith("consignment_")) {
         const links = [];
 
         if (order.label_url) {
-          links.push(`<a class="action-btn blue" href="${escapeHtml(order.label_url)}" target="_blank" rel="noopener">LABEL</a>`);
+          links.push(`<a class="action-btn blue" href="${escapeHtml(order.label_url)}" target="_blank" rel="noopener" download>DOWNLOAD LABEL</a>`);
         }
 
         if (order.tracking_url) {
-          links.push(`<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank" rel="noopener">TRACKING</a>`);
+          links.push(`<a class="action-btn blue" href="${escapeHtml(order.tracking_url)}" target="_blank" rel="noopener">TRACK</a>`);
         }
 
         if (order.discord_url) {
-          links.push(`<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">CHANNEL</a>`);
+          links.push(`<a class="action-btn" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`);
         }
 
         return links.length ? `<div class="action-row">${links.join("")}</div>` : "—";
