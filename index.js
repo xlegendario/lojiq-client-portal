@@ -3475,33 +3475,37 @@ app.get("/api/consignment/offers", async (req, res) => {
     }
 
     /*
-      Filled the way the dashboard fills the same columns, cell for cell.
+      The three amounts a consignor decides on, under the names he sees.
 
-      "Max Price" is the offer itself on a fresh row and the seller's original
-      ask on a round. "My Last Offer" is the buyer's latest figure on the
-      table, which is the previous store price while your counter is pending
-      and their counter once they answer. Both are what the dashboard puts
-      there; neither is a name I chose.
+      Your Offer is his own asking price, Counter Offer is what we put back,
+      Current Lowest is where the market sits. Those are the field names the
+      route answers with - original_offer, counter_payout, current_lowest -
+      and the em-dashes on screen were me reading them off the buying side.
     */
-    const rows = items.map((row) => {
-      const fresh = row._kind === "fresh";
+    const money = (value) => {
+      const amount = Number(String(value ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
 
-      const myLast =
-        row._kind === "own_counter"
-          ? row.previous_store_price
-          : (row._kind === "counter" ? row.counter_payout : null);
+      return Number.isFinite(amount) && amount > 0 ? `€ ${amount.toFixed(2)}` : "";
+    };
 
-      return {
-        ...row,
-        product: row.product || row.product_name || "",
-        amount: consignmentMoney(fresh ? row.offer : row.original_offer),
-        my_last_offer: consignmentMoney(myLast),
-        current_lowest: consignmentMoney(row.current_lowest),
-        // Kept for the buttons, which name the amount they act on.
-        offer_price: consignmentMoney(row.counter_payout ?? row.offer_price),
-        date: row.date || row.raw_date || row.denied_at || ""
-      };
-    });
+    const asDate = (value) => {
+      if (!value) return "";
+
+      const when = new Date(value);
+
+      return Number.isNaN(when.getTime())
+        ? String(value)
+        : when.toLocaleDateString("en-GB");
+    };
+
+    const rows = items.map((row) => ({
+      ...row,
+      product: row.product || row.product_name || "",
+      your_offer: money(row.original_offer ?? row.offer ?? row.seller_price),
+      counter_offer: money(row.counter_payout ?? row.previous_store_price),
+      current_lowest: money(row.current_lowest),
+      date: asDate(row.raw_date || row.denied_at || row.date || row.created_at)
+    }));
 
     res.json({ count: rows.length, items: rows, orders: rows });
   } catch (err) {
