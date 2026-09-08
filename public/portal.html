@@ -3508,6 +3508,148 @@ async function consignmentInventoryCall(inventoryId, action, body) {
   }
 }
 
+/*
+ * The actions that need nothing but a yes.
+ *
+ * Delete and Withdraw ask first, because both take something back that the
+ * other side can already see.
+ */
+async function consignmentSimple(offerId, action, confirmFirst) {
+  if (confirmFirst) {
+    const sure = await showConfirm(
+      action === "remove"
+        ? "Take this offer back?"
+        : "Withdraw your counter?",
+      { title: "Are you sure?", confirmLabel: "Yes", danger: true }
+    );
+
+    if (!sure) return;
+  }
+
+  await consignmentPost(offerId, action);
+}
+
+// Change the amount on an offer nobody has answered yet.
+async function consignmentEditOffer(offerId, vatType) {
+  const amount = await showPrompt("What do you want to offer instead?", {
+    title: "Edit offer",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (amount === null) return;
+
+  const complaint = kcMoneyCheck(amount);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  await consignmentPost(offerId, "edit", {
+    offer_amount: consignmentAmount(amount),
+    vat_type: vatType
+  });
+}
+
+// Change your own counter while it is still waiting on them.
+async function consignmentEditCounter(offerId) {
+  const price = await showPrompt("What payout do you want instead?", {
+    title: "Edit counter",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (price === null) return;
+
+  const complaint = kcMoneyCheck(price);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  await consignmentPost(offerId, "edit-counter", { price: consignmentAmount(price) });
+}
+
+// Come back after a refusal, with a different number.
+async function consignmentRetryCounter(offerId) {
+  const price = await showPrompt("What payout do you want to try?", {
+    title: "Try again",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (price === null) return;
+
+  const complaint = kcMoneyCheck(price);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  await consignmentPost(offerId, "retry", { price: consignmentAmount(price) });
+}
+
+async function consignmentRetryFresh(offerId, vatType, deniedAmount) {
+  const amount = await showPrompt("What do you want to offer instead?", {
+    title: "Try again",
+    money: true,
+    placeholder: "250",
+    validate: kcMoneyCheck
+  });
+
+  if (amount === null) return;
+
+  const complaint = kcMoneyCheck(amount);
+
+  if (complaint) {
+    await showAlert(complaint);
+    return;
+  }
+
+  await consignmentPost(offerId, "retry-fresh", {
+    offer_amount: consignmentAmount(amount),
+    vat_type: vatType,
+    previous_denied_amount: deniedAmount
+  });
+}
+
+function consignmentAmount(value) {
+  return Number(String(value).replace(/\s/g, "").replace(",", "."));
+}
+
+async function consignmentPost(offerId, action, body) {
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  if (!store?.id) return;
+
+  try {
+    const response = await fetch(
+      "/api/consignment/offers/" + encodeURIComponent(offerId) + "/" + action,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchant_id: store.id, ...(body || {}) })
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      await showAlert(data.error || data.details || "That did not go through.");
+      return;
+    }
+
+    window.location.reload();
+  } catch (err) {
+    await showAlert("Could not reach the server. Try again.");
+  }
+}
+
 async function consignmentCounter(offerId, isMemberWtb) {
   const answer = await showPrompt("What payout do you want for this pair?", {
     title: "Counter offer",
@@ -4470,30 +4612,67 @@ function amountForButton(rawValue) {
         there - which is the whole reason this is a second front end rather
         than a second set of rules.
       */
+      /*
+        Which buttons a consignment offer carries depends on what kind of row
+        it is, not on which pill you are looking at. The dashboard tags them
+        and so does the proxy:
+
+          fresh          an offer nobody has answered      Edit, Delete
+          own_counter    your counter, waiting on them     Edit, Accept previous, Delete
+          counter        they came back with a price       Accept, Counter, Deny
+          fresh_denied   your offer was refused            Retry, Delete
+          denied         your counter was refused          Accept previous, Retry, Delete
+
+        Accept and Accept previous name their amount, the way the dashboard
+        names them. Nobody should have to read a column to know what they are
+        agreeing to.
+      */
       if (currentView === "consignment_offers") {
         const id = escapeHtml(order.id);
+        const kind = order._kind || "counter";
 
         // Which route answers this round: a want-to-buy and a store order are
         // not answered on the same one, and the row is what knows.
         const mwtb = order.is_member_wtb === false ? 0 : 1;
 
-        // Accept names the amount, the way the dashboard names it. Nobody
-        // should have to read a column to know what they are agreeing to.
-        const amount = order.offer_price ? " " + escapeHtml(order.offer_price) : "";
+        const btn = (cls, label, call) =>
+          `<button class="action-btn ${cls}" type="button" onclick="${call}">${label}</button>`;
 
-        return `
-          <div class="action-row">
-            <button class="action-btn green" type="button" onclick="consignmentAct('${id}', 'confirm', ${mwtb})">
-              ACCEPT${amount}
-            </button>
-            <button class="action-btn blue" type="button" onclick="consignmentCounter('${id}', ${mwtb})">
-              COUNTER
-            </button>
-            <button class="action-btn red" type="button" onclick="consignmentAct('${id}', 'deny', ${mwtb})">
-              DENY
-            </button>
-          </div>
-        `;
+        const previous = order.previous_store_price
+          ? btn("green", "ACCEPT " + escapeHtml(order.previous_store_price),
+                `consignmentSimple('${id}', 'accept-previous')`)
+          : "";
+
+        let buttons;
+
+        if (kind === "fresh") {
+          buttons =
+            btn("blue", "EDIT", `consignmentEditOffer('${id}', '${escapeHtml(order.vat_type || "")}')`) +
+            btn("red", "DELETE", `consignmentSimple('${id}', 'remove', true)`);
+        } else if (kind === "own_counter") {
+          buttons =
+            btn("blue", "EDIT", `consignmentEditCounter('${id}')`) +
+            previous +
+            btn("red", "DELETE", `consignmentSimple('${id}', 'cancel', true)`);
+        } else if (kind === "fresh_denied") {
+          buttons =
+            btn("blue", "RETRY", `consignmentRetryFresh('${id}', '${escapeHtml(order.vat_type || "")}', '${escapeHtml(order.original_offer || "")}')`) +
+            btn("red", "DELETE", `consignmentSimple('${id}', 'remove', true)`);
+        } else if (kind === "denied") {
+          buttons =
+            previous +
+            btn("blue", "RETRY", `consignmentRetryCounter('${id}')`) +
+            btn("red", "DELETE", `consignmentSimple('${id}', 'cancel', true)`);
+        } else {
+          const amount = order.offer_price ? " " + escapeHtml(order.offer_price) : "";
+
+          buttons =
+            btn("green", "ACCEPT" + amount, `consignmentAct('${id}', 'confirm', ${mwtb})`) +
+            btn("blue", "COUNTER", `consignmentCounter('${id}', ${mwtb})`) +
+            btn("red", "DENY", `consignmentAct('${id}', 'deny', ${mwtb})`);
+        }
+
+        return `<div class="action-row">${buttons}</div>`;
       }
 
       /*
