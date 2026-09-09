@@ -4921,11 +4921,29 @@ function amountForButton(rawValue) {
         const mwtb = escapeHtml(order.member_wtb_record_id || "");
         const ord = escapeHtml(order.order_record_id || "");
 
+        /*
+          CHANGED - this offered the label straight away, and the dashboard
+          does not.
+
+          On a want-to-buy the label waits for the buyer to pay, which is the
+          same thing the deal-updates message in Discord waits for. A store
+          order skips the check, because there the money is settled by then.
+
+          I had this backwards once: a store consigning here is a CONSIGNOR,
+          and the payment being waited on is the BUYER's. That a Lojiq store
+          settles its own purchases in batch has nothing to do with it.
+        */
+        const canRequestLabel =
+          !order.member_wtb_record_id ||
+          ["Paid", "Trusted"].includes(String(order.payment_status || "").trim());
+
         return `
           <div class="action-row">
+            ${canRequestLabel ? `
             <button class="action-btn green" type="button" onclick="consignmentRequestLabel('${mwtb}', '${ord}')">
               REQUEST LABEL
             </button>
+            ` : ""}
             ${order.discord_url
               ? `<a class="action-btn discord" href="${escapeHtml(order.discord_url)}" target="_blank" rel="noopener">DISCORD</a>`
               : ""}
