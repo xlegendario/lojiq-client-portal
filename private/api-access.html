@@ -310,6 +310,7 @@
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
     .chip { font: 12px var(--mono); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--soft); }
     .chip.call { color: var(--info); }
+    .chip.manual { font-family: inherit; color: var(--warn); background: var(--warn-bg); border-color: transparent; }
     .chip.status { color: var(--ink); }
     .chip.event { color: var(--good); }
     .card h3 code { text-transform: none; font-size: 13px; }
@@ -558,9 +559,9 @@
           intro: "For buying. Post the pairs you are looking for, and follow each one until it is delivered to you.",
           flow: [
             { title: "Place a want-to-buy", text: "It goes out to our seller network and is matched against stock straight away.", call: "POST /want-to-buys", status: "is_open: true" },
-            { title: "Accept an offer", text: "Offers reach you in your dashboard and Discord. You accept there, not through the API.", status: "" },
+            { title: "Accept an offer", text: "Offers reach you in your dashboard and on Discord, and you accept them there.", manual: "In your dashboard, not through the API" },
             { title: "A seller is found", text: "The pair is reserved for you and invoice_amount tells you what you pay.", event: "want_to_buy.filled", status: "fulfillment_status: Allocated" },
-            { title: "Pay", text: "Pay the invoice with the payment link you receive.", event: "want_to_buy.paid", status: "payment_status: Paid" },
+            { title: "Pay", text: "You pay in your dashboard, the same way as for any purchase. The API tells you when the payment is confirmed.", manual: "In your dashboard, not through the API", event: "want_to_buy.paid", status: "payment_status: Paid" },
             { title: "On its way", text: "The seller ships and tracking starts.", event: "want_to_buy.shipped", status: "shipping_status: Shipped" },
             { title: "Delivered", text: "You have the pair.", event: "want_to_buy.delivered", status: "shipping_status: Delivered" }
           ],
@@ -609,10 +610,10 @@
               field: "payment_status",
               rows: [
                 ["Pending", "Nothing to pay yet.", "Nothing."],
-                ["Awaiting Payment", "The invoice is ready.", "Pay with the payment link you received."],
+                ["Awaiting Payment", "The invoice is ready.", "Pay in your dashboard."],
                 ["Pending Payment", "Your payment is started but not confirmed yet, for example a bank transfer.", "Wait."],
                 ["Paid", "Paid.", "Nothing."],
-                ["Expired", "The payment link expired before it was paid.", "Contact support."]
+                ["Expired", "The payment request expired before it was paid.", "Contact support."]
               ]
             },
             {
@@ -626,7 +627,7 @@
             }
           ],
           events: [
-            ["want_to_buy.filled", "A seller is found; invoice_amount is known", "Pay the invoice"],
+            ["want_to_buy.filled", "A seller is found; invoice_amount is known", "Pay in your dashboard"],
             ["want_to_buy.paid", "Your payment is confirmed", ""],
             ["want_to_buy.shipped", "The parcel is on its way to you", "Use tracking_url"],
             ["want_to_buy.delivered", "The pair is delivered", ""],
@@ -921,6 +922,7 @@ function isGenuineWebhook(rawBody, headers, secret) {
               <span>${esc(step.text)}</span>
               <div class="chips">
                 ${step.call ? `<code class="chip call">${esc(step.call)}</code>` : ""}
+                ${step.manual ? `<span class="chip manual">${esc(step.manual)}</span>` : ""}
                 ${step.status ? `<code class="chip status">${esc(step.status)}</code>` : ""}
                 ${step.event ? `<code class="chip event">webhook ${esc(step.event)}</code>` : ""}
               </div>
@@ -948,7 +950,7 @@ function isGenuineWebhook(rawBody, headers, secret) {
 
             <div class="card" id="${chapter.id}-flow">
               <h2>How it works</h2>
-              <p class="lead">Every step, with the call you make, the status you see and the webhook you get.</p>
+              <p class="lead">Every step, with the call you make, the status you see and the webhook you get. Steps marked in yellow happen in your dashboard, not through the API.</p>
               ${renderFlow(chapter.flow)}
             </div>
 
