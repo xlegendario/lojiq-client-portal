@@ -2460,6 +2460,13 @@ body.kc-dialog-open {
         <span aria-hidden="true">?</span>
         <span>Guide</span>
       </a>
+
+      <!-- Under the guide and just as quiet: only stores that connect their
+           own systems need it. -->
+      <a class="sidebar-guide-link" href="/api-access">
+        <span aria-hidden="true">&lt;/&gt;</span>
+        <span>API Access</span>
+      </a>
     </aside>
 
     <main class="main">
@@ -7407,8 +7414,13 @@ function amountForButton(rawValue) {
     tableWrap.addEventListener("scroll", loadMoreIfNeeded, { passive: true });
     window.addEventListener("scroll", loadMoreIfNeeded, { passive: true });
     
-    logoutBtn.addEventListener("click", () => {
+    logoutBtn.addEventListener("click", async () => {
       localStorage.removeItem("lojiq_merchant");
+
+      // Also ends the API Access session, so a shared computer does not stay
+      // signed in to key management after Logout.
+      await fetch("/api/logout", { method: "POST" }).catch(() => {});
+
       window.location.href = "/";
     });
 
