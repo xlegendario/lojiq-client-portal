@@ -572,7 +572,7 @@
               ["id", "uuid", "Stays the same for the life of the want-to-buy. Keep it from the moment you place one."],
               ["wtb_id", "string or null", "Our number for it, such as MWTB-000422, handy when you contact support."],
               ["sku, size, product_name, brand", "string", "The pair you are looking for."],
-              ["max_price", "number or null", "Your ceiling in EUR. null means no ceiling."],
+              ["max_price", "number or null", "Your ceiling in EUR, if you set one. null means no ceiling: every offer reaches you."],
               ["inventory_type", "string", "all, private or b2b: which stock may fill it."],
               ["is_open", "boolean", "true while we are still looking for a seller."],
               ["purchase_status, fulfillment_status", "string", "Where the purchase is. See the statuses below."],
@@ -795,13 +795,17 @@
           params: [
             ["sku", "body", "Yes", "string", "style code", "Checked against our catalogue"],
             ["size", "body", "Yes", "string", "42, 42.5, 37 1/3, S..XXL", "One size per want-to-buy"],
-            ["max_price", "body", "No", "number", "> 0", "Your ceiling in EUR. Leave out for no ceiling"],
+            ["max_price", "body", "No (optional)", "number", "> 0", "Your ceiling in EUR. Leave it out for no ceiling"],
             ["inventory_type", "body", "No", "string", "all, private, b2b", "Default all. b2b requires a VAT ID on your profile"]
           ],
-          curl: `curl -X POST "${API}/want-to-buys" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"sku": "M2002RDB", "size": "46.5", "max_price": 150}'`,
+          curl: `curl -X POST "${API}/want-to-buys" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"sku": "M2002RDB", "size": "46.5", "max_price": 150}'
+
+# Without a ceiling, max_price is simply left out:
+# -d '{"sku": "M2002RDB", "size": "46.5"}'`,
           success: { success: true, data: { item: SAMPLE_WTB } },
           error: { success: false, message: "SKU \"XX0000-000\" could not be found or confirmed in our database. Please double-check the SKU and try again." },
           notes: [
+            "Only sku and size are required. max_price is optional: leave it out and every offer reaches you, so you decide on price when you accept. Set it and no offer above it is made.",
             "Keep the id: it is how this want-to-buy is named in the list, in get and cancel, and in every webhook.",
             "Placing is one at a time on purpose: each want-to-buy is sent to the whole seller network.",
             "Offers and confirmations arrive in your dashboard and Discord. Accepting, countering and declining are done there.",
