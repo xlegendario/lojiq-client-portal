@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import Airtable from "airtable";
 import compression from "compression";
 import cron from "node-cron";
+import { apiAccessPagePath, createApiAccess } from "./apiAccess.js";
 
 dotenv.config();
 
@@ -77,7 +78,11 @@ const {
   MOLLIE_WEBHOOK_URL = "https://portal.lojiq.io/api/mollie/webhook",
 
   AIRTABLE_PAYMENT_BATCHES_TABLE = "Payment Batches",
-  AIRTABLE_MEMBER_WTBS_TABLE = "Member WTBs"
+  AIRTABLE_MEMBER_WTBS_TABLE = "Member WTBs",
+
+  // API Access. Without a session secret the page and its routes stay off.
+  LOJIQ_SESSION_SECRET,
+  LOJIQ_PUBLIC_ORIGIN = "https://portal.lojiq.io"
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -88,6 +93,24 @@ if (!RESET_EMAIL_FROM) throw new Error("Missing RESET_EMAIL_FROM");
 sgMail.setApiKey(SENDGRID_API_KEY);
 
 const airtable = new Airtable({ apiKey: AIRTABLE_TOKEN }).base(AIRTABLE_BASE_ID);
+
+/*
+ * API Access: the page, the store's keys and webhooks, and the API itself
+ * passed through to where it runs. See apiAccess.js for why this one corner
+ * of the portal has a real session.
+ */
+const apiAccess = createApiAccess({
+  sessionSecret: LOJIQ_SESSION_SECRET,
+  kickzBaseUrl: KICKZ_PORTAL_BASE_URL,
+  serviceSecret: COUNTER_OFFERS_SECRET,
+  publicOrigin: LOJIQ_PUBLIC_ORIGIN,
+  loadMerchant: (merchantId) => getCachedMerchant(merchantId),
+  loadSeller: (merchant) => getMerchantBuyer(merchant),
+  pageFile: apiAccessPagePath(__dirname)
+});
+
+app.use(apiAccess.router);
+app.use(apiAccess.errorHandler);
 
 function asText(value) {
   if (value === null || value === undefined) return "";
@@ -138,6 +161,12 @@ app.get("/", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
+// Ends the API Access session. The rest of logging out stays in the browser.
+app.post("/api/logout", (req, res) => {
+  apiAccess.clearSession(req, res);
+  res.json({ ok: true });
+});
+
 app.post("/api/login", async (req, res) => {
   try {
     const email = asText(req.body.email).toLowerCase();
@@ -167,6 +196,10 @@ app.post("/api/login", async (req, res) => {
     if (merchant.portal_password !== password) {
       return res.status(401).json({ error: "Invalid login" });
     }
+
+    // Only API Access reads this. Everything else still works off the
+    // merchant the page keeps in the browser, exactly as before.
+    apiAccess.setSession(req, res, merchant.id);
 
     res.json({
       merchant: {
