@@ -248,6 +248,23 @@
     .error { color: var(--bad); font-size: 13.5px; margin-top: 10px; min-height: 1em; }
 
     .deliveries { margin-top: 8px; }
+
+    /* Chapters */
+    .chapter { margin-top: 34px; }
+    .chapter-head { border-color: var(--accent); }
+    .eyebrow { display: block; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--accent); margin-bottom: 4px; }
+    .chapter-head h2 { font-size: 24px; }
+    .flow { margin: 0 0 18px; padding-left: 22px; }
+    .flow li + li { margin-top: 4px; }
+    .section-title { margin: 26px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .toc a .method { font-size: 10px; padding: 3px 5px; margin-right: 4px; }
+    .chapters-overview { margin: 4px 0 18px; }
+    .chapter-link { display: grid; gap: 4px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); text-decoration: none; }
+    .chapter-link:hover { border-color: var(--accent); }
+    .chapter-link strong { font-size: 16px; color: var(--accent); }
+    .chapter-link span { font-size: 13.5px; color: var(--muted); }
+    .event-group { display: grid; gap: 6px; }
+    .event-group > span { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -346,7 +363,6 @@
 
       const SAMPLE_SALE = {
         id: "7e1d3c7a-0f42-4b86-9a52-2f7f1c1a9b10",
-        role: "sold",
         status: "active",
         sku: "DZ5485-612",
         size: "42",
@@ -366,22 +382,83 @@
       };
 
       const SAMPLE_WTB = {
-        id: "recHONoV85RbgAvMD",
+        id: "3b0c8e52-6a1f-4d7e-9b24-5f8a1c2d3e40",
         wtb_id: "MWTB-000422",
         sku: "M2002RDB",
         size: "46.5",
         product_name: "New Balance 2002R Protection Pack Phantom",
         brand: "New Balance",
-        max_price: 143,
+        max_price: 150,
         inventory_type: "all",
         is_open: true,
         purchase_status: "Offers Sent",
         fulfillment_status: "Outsource",
         payment_status: "Pending",
-        created_at: "2026-09-02T09:58:57.905Z"
+        invoice_amount: null,
+        currency: "EUR",
+        shipping_status: null,
+        tracking_number: null,
+        tracking_url: null,
+        placed_at: "2026-09-02T09:58:57.000Z",
+        updated_at: "2026-09-02T09:58:57.000Z"
+      };
+
+      const SAMPLE_WTB_SHIPPED = {
+        ...SAMPLE_WTB,
+        is_open: false,
+        purchase_status: "Confirmed",
+        fulfillment_status: "Fulfilled",
+        payment_status: "Paid",
+        invoice_amount: 143,
+        shipping_status: "Shipped",
+        tracking_number: "05145107551456",
+        tracking_url: "https://www.dpdgroup.com/nl/mydpd/my-parcels/incoming?parcelNumber=05145107551456",
+        updated_at: "2026-09-05T14:00:00.000Z"
       };
 
       const PAGINATION = { current_page: 1, per_page: 50, total: 1, last_page: 1, has_more_pages: false };
+
+      /*
+        Two chapters, because they are two different jobs:
+
+          Consignment   you sell: you list stock, you see what sold, you ship
+          Want To Buys  you buy: you post what you want and follow it until
+                        the pair arrives
+      */
+      const CHAPTERS = [
+        {
+          id: "consignment",
+          title: "Consignment",
+          intro: "For selling. List the pairs you have, see which of them sold, and get the label to ship each sale.",
+          flow: [
+            "Keep your stock current with the Inventory endpoints.",
+            "When one of your pairs is bought, it appears in the Sales feed.",
+            "Request the shipping label, download it, and ship the pair."
+          ],
+          sections: ["Inventory", "Sales", "Labels"],
+          events: [
+            ["sale.created", "You sold a pair"],
+            ["label.ready", "The shipping label for a sale can be downloaded"],
+            ["sale.cancelled", "A sale was cancelled; do not ship it"],
+            ["sale.updated", "Anything else changed on a sale, such as tracking or your payout status"]
+          ]
+        },
+        {
+          id: "want-to-buys",
+          title: "Want To Buys",
+          intro: "For buying. Post the pairs you are looking for, and follow each one from the moment it is placed until the pair is on its way to you.",
+          flow: [
+            "Place a want-to-buy. It goes out to our seller network and is matched against stock straight away.",
+            "Offers and confirmations reach you in your dashboard and Discord, where you accept them.",
+            "Follow payment, shipping and tracking on the want-to-buy itself, by polling or by webhook."
+          ],
+          sections: ["Want To Buys"],
+          events: [
+            ["want_to_buy.updated", "Something changed on your want-to-buy: a seller filled it, the invoice amount, payment, shipping or tracking"],
+            ["want_to_buy.cancelled", "Your want-to-buy was cancelled"]
+          ]
+        }
+      ];
 
       const ENDPOINTS = [
         {
@@ -464,81 +541,14 @@
           notes: ["* Send id or ids.", "Ids that are not yours, or do not exist, are returned in not_found."]
         },
         {
-          group: "Want-to-buys",
-          id: "wtb-create",
-          method: "POST",
-          path: "/want-to-buys",
-          title: "Place a want-to-buy",
-          text: "One pair in one size. It is posted to our seller network and matched against our consignment stock straight away, exactly like one placed in your dashboard.",
-          params: [
-            ["sku", "body", "Yes", "string", "style code", "Checked against our catalogue"],
-            ["size", "body", "Yes", "string", "42, 42.5, 37 1/3, S..XXL", "One size per want-to-buy"],
-            ["max_price", "body", "No", "number", "> 0", "Your ceiling in EUR. Leave out for no ceiling"],
-            ["inventory_type", "body", "No", "string", "all, private, b2b", "Default all. b2b requires a VAT ID on your profile"]
-          ],
-          curl: `curl -X POST "${API}/want-to-buys" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"sku": "M2002RDB", "size": "46.5", "max_price": 143}'`,
-          success: { success: true, data: { item: SAMPLE_WTB } },
-          error: { success: false, message: "SKU \"XX0000-000\" could not be found or confirmed in our database. Please double-check the SKU and try again." },
-          notes: [
-            "Placing is one at a time on purpose: each want-to-buy is sent to the whole seller network.",
-            "Offers and confirmations arrive in your dashboard and Discord. Accepting, countering and declining are done there.",
-            "If the response is a 500 saying it was placed but could not be read back, do not retry. List your want-to-buys instead."
-          ]
-        },
-        {
-          group: "Want-to-buys",
-          id: "wtb-list",
-          method: "GET",
-          path: "/want-to-buys",
-          title: "List your want-to-buys",
-          text: "Newest first.",
-          params: [
-            ["status", "query", "No", "string", "open, closed, all", "Default all. Open means still waiting for a seller"],
-            ["sku", "query", "No", "string", "exact SKU", "Only this SKU"],
-            ["page", "query", "No", "integer", ">= 1", "Page number"],
-            ["per_page", "query", "No", "integer", "1..100", "Page size, default 50"]
-          ],
-          curl: `curl "${API}/want-to-buys?status=open" \\\n${curlHeaders()}`,
-          success: { success: true, data: { items: [SAMPLE_WTB], pagination: PAGINATION } },
-          error: { success: false, message: "status must be open, closed or all" }
-        },
-        {
-          group: "Want-to-buys",
-          id: "wtb-get",
-          method: "GET",
-          path: "/want-to-buys/{id}",
-          title: "Get one want-to-buy",
-          params: [["id", "path", "Yes", "string", "", "The id from the create or list response"]],
-          curl: `curl "${API}/want-to-buys/recHONoV85RbgAvMD" \\\n${curlHeaders()}`,
-          success: { success: true, data: { item: SAMPLE_WTB } },
-          error: { success: false, message: "Want-to-buy not found" }
-        },
-        {
-          group: "Want-to-buys",
-          id: "wtb-cancel",
-          method: "DELETE",
-          path: "/want-to-buys/{id}",
-          title: "Cancel a want-to-buy",
-          text: "Only while it is still open and nothing has been paid.",
-          params: [["id", "path", "Yes", "string", "", "The want-to-buy to cancel"]],
-          curl: `curl -X DELETE "${API}/want-to-buys/recHONoV85RbgAvMD" \\\n${curlHeaders()}`,
-          success: { success: true, data: { item: { ...SAMPLE_WTB, is_open: false, purchase_status: "Cancelled", fulfillment_status: "Cancelled" } } },
-          error: { success: false, message: "This want-to-buy can no longer be cancelled (Allocated). Contact support." },
-          notes: [
-            "Returns 409 once a seller is involved or payment is due.",
-            "Cancelling one that is already cancelled returns 200 with already_cancelled: true."
-          ]
-        },
-        {
           group: "Sales",
           id: "sales-list",
           method: "GET",
           path: "/sales",
           title: "Sales feed",
-          text: "What you sold and what you bought through your want-to-buys. Poll it with updated_since to pick up every change.",
+          text: "The pairs you sold. Poll it with updated_since to pick up every change.",
           params: [
             ["updated_since", "query", "No", "datetime", "ISO-8601, UTC", "Rows with updated_at on or after this moment"],
-            ["role", "query", "No", "string", "sold, bought, all", "Default all"],
             ["status", "query", "No", "string", "active, cancelled, all", "Default all"],
             ["page", "query", "No", "integer", ">= 1", "Page number"],
             ["per_page", "query", "No", "integer", "1..100", "Page size, default 50"]
@@ -550,7 +560,9 @@
             "Oldest change first. Page through, then call again with meta.next_updated_since.",
             "updated_since is inclusive, so the last row of one call can come back in the next. De-duplicate on id plus updated_at.",
             "A sale is final once it appears here: it exists from the moment the deal is confirmed.",
-            "role sold: amount is your payout. role bought: amount is your invoice.",
+            "amount is your payout, and payment_status is the status of that payout.",
+            "source is order when a shop customer bought the pair, member_wtb when it filled somebody's want-to-buy. You ship both the same way.",
+            "What you buy yourself is not here: see Want To Buys.",
             "The feed is refreshed every few minutes. For changes the moment they happen, add a webhook."
           ]
         },
@@ -571,15 +583,15 @@
           method: "POST",
           path: "/sales/{id}/request-label",
           title: "Request a shipping label",
-          text: "For a sale where you ship the pair. Some labels are ready within seconds, others follow later: check label_available, the feed, or the label.ready webhook.",
-          params: [["id", "path", "Yes", "uuid", "", "A sale with role sold"]],
+          text: "For one of your sales. Some labels are ready within seconds, others follow later: check label_available, the feed, or the label.ready webhook.",
+          params: [["id", "path", "Yes", "uuid", "", "The sale id from the feed"]],
           curl: `curl -X POST "${API}/sales/7e1d3c7a-0f42-4b86-9a52-2f7f1c1a9b10/request-label" \\\n${curlHeaders()}`,
           success: { success: true, data: { requested: true, label_available: true, tracking_number: "05162999841548" } },
           error: { success: false, message: "The buyer has not paid yet. The label can be requested once they have.", code: "awaiting_payment" },
           notes: [
             "409 label_available: a label already exists, fetch it instead.",
             "409 not_requestable: the deal is past the point where a label can be requested; fulfillment_status says where it is.",
-            "409 awaiting_payment: for a want-to-buy sale, the buyer has to pay first."
+            "409 awaiting_payment: for a sale with source member_wtb, the buyer has to pay first."
           ]
         },
         {
@@ -589,12 +601,86 @@
           path: "/sales/{id}/label",
           title: "Download the label",
           text: "Returns the label itself as a PDF file, not a link.",
-          params: [["id", "path", "Yes", "uuid", "", "A sale with role sold"]],
+          params: [["id", "path", "Yes", "uuid", "", "The sale id from the feed"]],
           curl: `curl "${API}/sales/7e1d3c7a-0f42-4b86-9a52-2f7f1c1a9b10/label" \\\n  -H "Authorization: Bearer <api_key>" \\\n  -o label.pdf`,
           success: null,
           successText: "200 with Content-Type: application/pdf and the file as the body.",
           error: { success: false, message: "No label yet", code: "label_not_ready" },
-          notes: ["Only the seller shipping the pair can download it. The label carries the buyer's address: store it only as long as you need it."]
+          notes: ["The label carries the buyer's address: store it only as long as you need it."]
+        },
+        {
+          group: "Want To Buys",
+          id: "wtb-create",
+          method: "POST",
+          path: "/want-to-buys",
+          title: "Place a want-to-buy",
+          text: "One pair in one size. It is posted to our seller network and matched against our consignment stock straight away, exactly like one placed in your dashboard.",
+          params: [
+            ["sku", "body", "Yes", "string", "style code", "Checked against our catalogue"],
+            ["size", "body", "Yes", "string", "42, 42.5, 37 1/3, S..XXL", "One size per want-to-buy"],
+            ["max_price", "body", "No", "number", "> 0", "Your ceiling in EUR. Leave out for no ceiling"],
+            ["inventory_type", "body", "No", "string", "all, private, b2b", "Default all. b2b requires a VAT ID on your profile"]
+          ],
+          curl: `curl -X POST "${API}/want-to-buys" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"sku": "M2002RDB", "size": "46.5", "max_price": 150}'`,
+          success: { success: true, data: { item: SAMPLE_WTB } },
+          error: { success: false, message: "SKU \"XX0000-000\" could not be found or confirmed in our database. Please double-check the SKU and try again." },
+          notes: [
+            "Keep the id: it is how this want-to-buy is named in the list, in get and cancel, and in every webhook.",
+            "Placing is one at a time on purpose: each want-to-buy is sent to the whole seller network.",
+            "Offers and confirmations arrive in your dashboard and Discord. Accepting, countering and declining are done there.",
+            "If the response is a 500 saying it was placed but could not be read back, do not retry. List your want-to-buys instead."
+          ]
+        },
+        {
+          group: "Want To Buys",
+          id: "wtb-list",
+          method: "GET",
+          path: "/want-to-buys",
+          title: "Want-to-buy feed",
+          text: "All your want-to-buys, including ones placed in your dashboard. Poll it with updated_since to follow each purchase through payment, shipping and tracking.",
+          params: [
+            ["updated_since", "query", "No", "datetime", "ISO-8601, UTC", "Rows with updated_at on or after this moment"],
+            ["status", "query", "No", "string", "open, closed, all", "Default all. Open means still waiting for a seller"],
+            ["sku", "query", "No", "string", "exact SKU", "Only this SKU"],
+            ["page", "query", "No", "integer", ">= 1", "Page number"],
+            ["per_page", "query", "No", "integer", "1..100", "Page size, default 50"]
+          ],
+          curl: `curl "${API}/want-to-buys?updated_since=2026-09-01T00:00:00Z" \\\n${curlHeaders()}`,
+          success: { success: true, data: { items: [SAMPLE_WTB_SHIPPED], pagination: PAGINATION }, meta: { next_updated_since: "2026-09-05T14:00:00.000Z" } },
+          error: { success: false, message: "status must be open, closed or all" },
+          notes: [
+            "Oldest change first. Page through, then call again with meta.next_updated_since. updated_since is inclusive: de-duplicate on id plus updated_at.",
+            "invoice_amount is what you pay, set once a seller has filled it. Until then it is null.",
+            "payment_status, shipping_status, tracking_number and tracking_url follow your purchase until delivery.",
+            "The feed is refreshed every few minutes. A want-to-buy you place or cancel through the API shows up at once."
+          ]
+        },
+        {
+          group: "Want To Buys",
+          id: "wtb-get",
+          method: "GET",
+          path: "/want-to-buys/{id}",
+          title: "Get one want-to-buy",
+          params: [["id", "path", "Yes", "uuid", "", "The id from the place or feed response"]],
+          curl: `curl "${API}/want-to-buys/3b0c8e52-6a1f-4d7e-9b24-5f8a1c2d3e40" \\\n${curlHeaders()}`,
+          success: { success: true, data: { item: SAMPLE_WTB_SHIPPED } },
+          error: { success: false, message: "Want-to-buy not found" }
+        },
+        {
+          group: "Want To Buys",
+          id: "wtb-cancel",
+          method: "DELETE",
+          path: "/want-to-buys/{id}",
+          title: "Cancel a want-to-buy",
+          text: "Only while it is still open and nothing has been paid.",
+          params: [["id", "path", "Yes", "uuid", "", "The want-to-buy to cancel"]],
+          curl: `curl -X DELETE "${API}/want-to-buys/3b0c8e52-6a1f-4d7e-9b24-5f8a1c2d3e40" \\\n${curlHeaders()}`,
+          success: { success: true, data: { item: { ...SAMPLE_WTB, is_open: false, purchase_status: "Cancelled", fulfillment_status: "Cancelled", updated_at: "2026-09-03T08:00:00.000Z" } } },
+          error: { success: false, message: "This want-to-buy can no longer be cancelled (Allocated). Contact support." },
+          notes: [
+            "Returns 409 once a seller has filled it or payment is due. That is checked against the current state, not the feed.",
+            "Cancelling one that is already cancelled returns 200 with already_cancelled: true."
+          ]
         }
       ];
 
@@ -637,18 +723,61 @@ function isGenuineWebhook(rawBody, headers, secret) {
     crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }`;
 
-      function renderDocs() {
-        const groups = [...new Set(ENDPOINTS.map((e) => e.group))];
+      function renderChapter(chapter) {
+        const endpoints = ENDPOINTS.filter((e) => chapter.sections.includes(e.group));
 
+        return `
+          <div class="chapter" id="${chapter.id}">
+            <div class="card chapter-head">
+              <span class="eyebrow">Chapter</span>
+              <h2>${esc(chapter.title)}</h2>
+              <p class="lead">${esc(chapter.intro)}</p>
+              <ol class="flow">${chapter.flow.map((step) => `<li>${esc(step)}</li>`).join("")}</ol>
+              <nav class="toc">
+                ${endpoints.map((e) => `<a href="#${e.id}"><span class="method ${e.method}">${e.method}</span> ${esc(e.title)}</a>`).join("")}
+                <a href="#${chapter.id}-webhooks">Webhooks</a>
+              </nav>
+            </div>
+
+            ${chapter.sections.map((section) => `
+              ${chapter.sections.length > 1 ? `<h3 class="section-title">${esc(section)}</h3>` : ""}
+              ${endpoints.filter((e) => e.group === section).map(renderEndpoint).join("")}
+            `).join("")}
+
+            <div class="card" id="${chapter.id}-webhooks">
+              <h2>${esc(chapter.title)} webhooks</h2>
+              <p class="lead">Subscribe to these under <strong>Manage Keys</strong>. How deliveries are signed and retried is under <a href="#webhooks">Webhooks</a>.</p>
+              ${eventTable(chapter.events)}
+            </div>
+          </div>`;
+      }
+
+      function eventTable(events) {
+        return `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Event</th><th>Sent when</th></tr></thead>
+            <tbody>${events.map(([name, text]) => `<tr><td><code>${esc(name)}</code></td><td>${esc(text)}</td></tr>`).join("")}</tbody>
+          </table></div>`;
+      }
+
+      function renderDocs() {
         document.getElementById("tab-docs").innerHTML = `
           <div class="card">
             <h2>${esc(BRAND)} API v1</h2>
-            <p class="lead">Place consignment stock and want-to-buys, follow your sales, and get your shipping labels, from your own systems.</p>
+            <p class="lead">Connect your own systems. The API has two parts, and you can use either or both with the same key.</p>
+
+            <div class="two chapters-overview">
+              ${CHAPTERS.map((c) => `
+                <a class="chapter-link" href="#${c.id}">
+                  <strong>${esc(c.title)}</strong>
+                  <span>${esc(c.intro)}</span>
+                </a>`).join("")}
+            </div>
 
             <nav class="toc">
               <a href="#auth">Authentication</a>
               <a href="#conventions">Conventions</a>
-              ${ENDPOINTS.map((e) => `<a href="#${e.id}">${esc(e.title)}</a>`).join("")}
+              ${CHAPTERS.map((c) => `<a href="#${c.id}">${esc(c.title)}</a>`).join("")}
               <a href="#webhooks">Webhooks</a>
             </nav>
 
@@ -669,7 +798,8 @@ function isGenuineWebhook(rawBody, headers, secret) {
             <h3>Live and test keys</h3>
             <ul class="notes">
               <li><code>sk_live_</code> keys act on your real account. A want-to-buy placed with one goes out to real sellers.</li>
-              <li><code>sk_test_</code> keys use a separate sandbox: stock and want-to-buys you place are stored apart and reach no one. The sales feed returns two sample sales, the label endpoint returns a sample PDF, and a label request is simulated.</li>
+              <li><code>sk_test_</code> keys use a separate sandbox: stock and want-to-buys you place are stored apart and reach no one.</li>
+              <li>With a test key, the sales feed returns two sample sales, the label endpoint returns a sample PDF, and a label request is simulated. The want-to-buy feed shows your test want-to-buys plus one sample purchase that has been paid and shipped.</li>
               <li>Each response carries <code>X-Api-Mode: live</code> or <code>test</code>, so you can always see which one you used.</li>
             </ul>
             <h3>Rate limits</h3>
@@ -692,28 +822,26 @@ function isGenuineWebhook(rawBody, headers, secret) {
             </ul>
           </div>
 
-          ${groups.map((g) => ENDPOINTS.filter((e) => e.group === g).map(renderEndpoint).join("")).join("")}
+          ${CHAPTERS.map(renderChapter).join("")}
 
           <div class="card" id="webhooks">
             <h2>Webhooks</h2>
-            <p class="lead">Instead of polling, have sale events sent to your own endpoint the moment they happen. Add one under <strong>Manage Keys</strong>.</p>
+            <p class="lead">Instead of polling, have events sent to your own endpoint the moment they happen. Add one under <strong>Manage Keys</strong> and pick the events it should receive.</p>
 
             <h3>Events</h3>
-            ${paramTable([
-              ["sale.created", "event", "", "", "", "A new sale or purchase"],
-              ["label.ready", "event", "", "", "", "The label is available (seller only)"],
-              ["sale.cancelled", "event", "", "", "", "The deal was cancelled"],
-              ["sale.updated", "event", "", "", "", "Anything else changed, such as tracking or shipping status"]
-            ])}
+            ${CHAPTERS.map((c) => `<p class="small muted">${esc(c.title)}</p>${eventTable(c.events)}`).join("")}
 
             <h3>Delivery</h3>
             ${codeBlock(`POST https://your-endpoint.example.com/webhooks
 Content-Type: application/json
-X-Webhook-Event: label.ready
+X-Webhook-Event: want_to_buy.updated
 X-Webhook-Delivery: 2c9a1f0e-5b6d-4e21-8f3a-7d9e0b1c2a34
 X-Webhook-Timestamp: 1757844300
 X-Webhook-Signature: sha256=5f0c…`, "Headers")}
-            ${codeBlock(json({ id: "b8e3f2a1-7c4d-4e5f-9a6b-1c2d3e4f5a6b", type: "label.ready", created_at: "2026-09-14T10:05:00.000Z", data: { item: SAMPLE_SALE } }), "Body")}
+            <div class="two">
+              ${codeBlock(json({ id: "b8e3f2a1-7c4d-4e5f-9a6b-1c2d3e4f5a6b", type: "label.ready", created_at: "2026-09-14T10:05:00.000Z", data: { item: SAMPLE_SALE } }), "Consignment body")}
+              ${codeBlock(json({ id: "d4a7c1e9-2b3f-4a5e-8c6d-7e8f9a0b1c2d", type: "want_to_buy.updated", created_at: "2026-09-05T14:00:00.000Z", data: { item: SAMPLE_WTB_SHIPPED } }), "Want To Buys body")}
+            </div>
 
             <h3>Verify the signature</h3>
             <p>Check every delivery before trusting it. The signature is an HMAC-SHA256 of <code>&lt;timestamp&gt;.&lt;raw body&gt;</code> with your webhook secret.</p>
@@ -725,14 +853,14 @@ X-Webhook-Signature: sha256=5f0c…`, "Headers")}
               <li>Failed deliveries are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours and 12 hours.</li>
               <li>After 5 deliveries in a row fail every retry, the webhook is switched off. Turn it back on under Manage Keys.</li>
               <li>The same event can arrive more than once. De-duplicate on the event <code>id</code>.</li>
-              <li><code>data.item</code> is the same row as in the sales feed, with the same <code>id</code>. Webhooks and polling can be mixed.</li>
+              <li><code>data.item</code> is the same row as in the matching feed, with the same <code>id</code>: a sale for <code>sale.*</code> and <code>label.ready</code>, a want-to-buy for <code>want_to_buy.*</code>. Webhooks and polling can be mixed.</li>
               <li>Only public <code>https</code> addresses are accepted, and redirects are not followed.</li>
             </ul>
 
             <h3>Send a test event</h3>
-            <p>Sends a signed sample event, marked <code>"test": true</code>, to all your active webhooks and returns what each endpoint answered.</p>
-            ${codeBlock(`curl -X POST "${API}/webhooks/test" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"type": "label.ready"}'`, "Request")}
-            ${codeBlock(json({ success: true, data: { items: [{ webhook_id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", event_type: "label.ready", delivered: true, status_code: 200, error: null }] } }), "Success")}
+            <p>Sends a signed sample event of the type you choose, marked <code>"test": true</code>, to all your active webhooks and returns what each endpoint answered.</p>
+            ${codeBlock(`curl -X POST "${API}/webhooks/test" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"type": "want_to_buy.updated"}'`, "Request")}
+            ${codeBlock(json({ success: true, data: { items: [{ webhook_id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", event_type: "want_to_buy.updated", delivered: true, status_code: 200, error: null }] } }), "Success")}
           </div>`;
       }
 
@@ -759,7 +887,6 @@ X-Webhook-Signature: sha256=5f0c…`, "Headers")}
         return data.data;
       }
 
-      const EVENTS = ["sale.created", "label.ready", "sale.cancelled", "sale.updated"];
 
       function renderKeysShell() {
         document.getElementById("tab-keys").innerHTML = `
@@ -785,15 +912,17 @@ X-Webhook-Signature: sha256=5f0c…`, "Headers")}
 
           <div class="card">
             <h2>Webhooks</h2>
-            <p class="lead">Sale events sent to your endpoint as they happen. The secret is shown once and signs every delivery.</p>
+            <p class="lead">Events sent to your endpoint as they happen. The secret is shown once and signs every delivery.</p>
             <div id="hooksList"><p class="empty">Loading…</p></div>
             <form class="inline" id="hookForm">
               <label class="field">Endpoint URL
                 <input type="url" name="url" required placeholder="https://your-endpoint.example.com/webhooks" />
               </label>
-              <fieldset>
-                ${EVENTS.map((e) => `<label><input type="checkbox" name="events" value="${e}" checked /> <code>${e}</code></label>`).join("")}
-              </fieldset>
+              ${CHAPTERS.map((c) => `
+                <fieldset class="event-group">
+                  <span>${esc(c.title)}</span>
+                  ${c.events.map(([e]) => `<label><input type="checkbox" name="events" value="${e}" checked /> <code>${e}</code></label>`).join("")}
+                </fieldset>`).join("")}
               <button class="btn primary" type="submit">Add webhook</button>
             </form>
             <div id="hookReveal"></div>
@@ -907,7 +1036,7 @@ X-Webhook-Signature: sha256=5f0c…`, "Headers")}
                   <td>${when(h.last_failure_at)}</td>
                   <td>
                     <div class="row-actions">
-                      <button class="btn" type="button" data-test="${esc(h.id)}">Send test</button>
+                      <button class="btn" type="button" data-test="${esc(h.id)}" data-test-type="${esc(h.events[0] || "sale.created")}">Send test</button>
                       <button class="btn" type="button" data-deliveries="${esc(h.id)}">Deliveries</button>
                       ${h.active ? "" : `<button class="btn" type="button" data-enable="${esc(h.id)}">Turn on</button>`}
                       <button class="btn danger" type="button" data-delete-hook="${esc(h.id)}">Remove</button>
@@ -970,7 +1099,7 @@ X-Webhook-Signature: sha256=5f0c…`, "Headers")}
           if (test) {
             test.disabled = true;
             test.textContent = "Sending…";
-            const result = await call("POST", `/webhooks/${test.dataset.test}/test`, { type: "sale.created" });
+            const result = await call("POST", `/webhooks/${test.dataset.test}/test`, { type: test.dataset.testType });
             test.textContent = result.delivered ? `Delivered (${result.status_code})` : `Failed: ${result.error || result.status_code}`;
             setTimeout(() => { test.textContent = "Send test"; test.disabled = false; }, 4000);
             await loadHooks();
