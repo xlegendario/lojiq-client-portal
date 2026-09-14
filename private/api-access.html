@@ -218,9 +218,10 @@
       border-radius: 8px;
       background: var(--panel-2);
       color: var(--ink);
-      min-width: 220px;
+      min-width: min(220px, 100%);
+      max-width: 100%;
     }
-    input[type=url] { min-width: 340px; }
+    input[type=url] { min-width: min(340px, 100%); }
     fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 12px; flex-wrap: wrap; }
     fieldset label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
 
@@ -264,6 +265,54 @@
     .chapter-link strong { font-size: 16px; color: var(--accent); }
     .chapter-link span { font-size: 13.5px; color: var(--muted); }
     .event-group { display: grid; gap: 6px; }
+
+    /* Endpoints fold open, so a chapter reads as a list first */
+    details.endpoint { padding: 0; }
+    details.endpoint > summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 14px 18px;
+      cursor: pointer;
+      list-style: none;
+    }
+    details.endpoint > summary::-webkit-details-marker { display: none; }
+    details.endpoint > summary::after { content: "+"; margin-left: auto; color: var(--muted); font: 600 18px var(--mono); }
+    details.endpoint[open] > summary::after { content: "-"; }
+    details.endpoint > summary:hover .summary-title { color: var(--accent); }
+    .summary-title { color: var(--muted); font-size: 14px; }
+    .endpoint-body { padding: 0 18px 18px; }
+    .endpoint-body > .lead { margin-top: 0; }
+    details.endpoint { margin-bottom: 8px; }
+
+    /* Step lists */
+    .timeline { list-style: none; counter-reset: step; margin: 6px 0 0; padding: 0; }
+    .timeline > li { position: relative; counter-increment: step; padding: 0 0 18px 44px; display: grid; gap: 4px; }
+    .timeline > li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font: 700 13px var(--mono);
+      background: var(--soft);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+    }
+    .timeline > li:not(:last-child)::after { content: ""; position: absolute; left: 14px; top: 30px; bottom: 2px; width: 1px; background: var(--line); }
+    .timeline > li > span { color: var(--muted); font-size: 14px; }
+    .timeline .code { margin-top: 6px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+    .chip { font: 12px var(--mono); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--soft); }
+    .chip.call { color: var(--info); }
+    .chip.status { color: var(--ink); }
+    .chip.event { color: var(--good); }
+    .card h3 code { text-transform: none; font-size: 13px; }
     .event-group > span { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     [hidden] { display: none !important; }
   </style>
@@ -424,38 +473,165 @@
           Consignment   you sell: you list stock, you see what sold, you ship
           Want To Buys  you buy: you post what you want and follow it until
                         the pair arrives
+
+        Each chapter explains itself in the order a partner needs it: how it
+        works, what the object means, what every status means, and only then
+        the endpoints.
       */
       const CHAPTERS = [
         {
           id: "consignment",
           title: "Consignment",
-          intro: "For selling. List the pairs you have, see which of them sold, and get the label to ship each sale.",
+          intro: "For selling. List the pairs you have, see which of them sold, and ship them with our label.",
           flow: [
-            "Keep your stock current with the Inventory endpoints.",
-            "When one of your pairs is bought, it appears in the Sales feed.",
-            "Request the shipping label, download it, and ship the pair."
+            { title: "List your stock", text: "Send your pairs with a price. Update or remove them whenever your stock changes.", call: "POST /inventory" },
+            { title: "A pair sells", text: "The sale appears in your feed. Take the pair off anywhere else you sell it.", event: "sale.created", status: "fulfillment_status: Allocated" },
+            { title: "Request the label", text: "One call. Some labels are ready within seconds, others take a little longer.", call: "POST /sales/{id}/request-label", status: "fulfillment_status: Requested Label" },
+            { title: "Download and ship", text: "Download the PDF, pack the pair and hand it to the carrier.", call: "GET /sales/{id}/label", event: "label.ready", status: "fulfillment_status: Ready to Ship" },
+            { title: "On its way", text: "The carrier scans the parcel and tracking starts.", event: "sale.shipped", status: "shipping_status: Shipped" },
+            { title: "Delivered", text: "The buyer has the pair.", event: "sale.delivered", status: "shipping_status: Delivered" },
+            { title: "Paid out", text: "Your payout for this sale is paid.", event: "sale.paid_out", status: "payment_status: Paid" }
           ],
           sections: ["Inventory", "Sales", "Labels"],
+          object: {
+            name: "Sale",
+            fields: [
+              ["id", "uuid", "Stays the same for the life of the sale. Use it for the label calls."],
+              ["status", "string", "active or cancelled. A cancelled sale is never shipped."],
+              ["sku, size, product_name", "string", "The pair you sold."],
+              ["amount", "number", "Your payout for this pair in EUR."],
+              ["source", "string", "order: a shop customer bought it. member_wtb: it filled somebody's want-to-buy. You ship both the same way."],
+              ["reference", "string", "The order number or want-to-buy number, handy when you contact support."],
+              ["fulfillment_status", "string", "Where the deal is. See the statuses below."],
+              ["shipping_status", "string or null", "Where the parcel is. null until a parcel exists."],
+              ["payment_status", "string or null", "The status of your payout."],
+              ["tracking_number, tracking_url", "string or null", "Filled once the label is made."],
+              ["label_available", "boolean", "true when GET /sales/{id}/label will return the PDF."],
+              ["sale_date", "datetime", "When it sold."],
+              ["updated_at", "datetime", "Last time anything in this sale changed."]
+            ]
+          },
+          statuses: [
+            {
+              field: "fulfillment_status",
+              rows: [
+                ["Allocated", "Sold to you. Nothing shipped yet.", "Request the label. For source member_wtb, wait until the buyer has paid (the request tells you)."],
+                ["Awaiting Label", "Sold, waiting for a label. Same as Allocated.", "Request the label."],
+                ["Requested Label", "The label is being made.", "Wait for label.ready."],
+                ["Ready to Ship", "The label is available.", "Download it and ship the pair."],
+                ["Fulfilled", "Shipped. From here, follow shipping_status.", "Nothing."],
+                ["Store Fulfilled", "The shop sent this order from its own stock.", "Do not ship this pair."],
+                ["Cancelled", "The deal is off. status is cancelled too.", "Do not ship. If you already did, contact support."]
+              ]
+            },
+            {
+              field: "shipping_status",
+              rows: [
+                ["null", "No parcel yet.", ""],
+                ["Pending", "The label exists, the carrier has not scanned the parcel yet.", "Ship it."],
+                ["Shipped", "The parcel is on its way.", "Nothing."],
+                ["Delivered", "The buyer has the pair.", "Nothing."]
+              ]
+            },
+            {
+              field: "payment_status",
+              rows: [
+                ["To Pay", "Your payout is still to be paid.", "Nothing."],
+                ["Paid", "Your payout is paid.", "Nothing."],
+                ["null", "No payout is recorded for this sale.", "Contact support if you expect one."]
+              ]
+            }
+          ],
           events: [
-            ["sale.created", "You sold a pair"],
-            ["label.ready", "The shipping label for a sale can be downloaded"],
-            ["sale.cancelled", "A sale was cancelled; do not ship it"],
-            ["sale.updated", "Anything else changed on a sale, such as tracking or your payout status"]
+            ["sale.created", "You sold a pair", "Book the sale, take the pair off your own shop"],
+            ["label.ready", "The shipping label can be downloaded", "Download it and ship"],
+            ["sale.shipped", "The carrier scanned the parcel", ""],
+            ["sale.delivered", "The buyer received the pair", ""],
+            ["sale.paid_out", "Your payout for this sale is paid", ""],
+            ["sale.cancelled", "The sale was cancelled", "Do not ship"],
+            ["sale.updated", "Anything else changed, such as the tracking number or the amount", "Check changes"]
           ]
         },
         {
           id: "want-to-buys",
           title: "Want To Buys",
-          intro: "For buying. Post the pairs you are looking for, and follow each one from the moment it is placed until the pair is on its way to you.",
+          intro: "For buying. Post the pairs you are looking for, and follow each one until it is delivered to you.",
           flow: [
-            "Place a want-to-buy. It goes out to our seller network and is matched against stock straight away.",
-            "Offers and confirmations reach you in your dashboard and Discord, where you accept them.",
-            "Follow payment, shipping and tracking on the want-to-buy itself, by polling or by webhook."
+            { title: "Place a want-to-buy", text: "It goes out to our seller network and is matched against stock straight away.", call: "POST /want-to-buys", status: "is_open: true" },
+            { title: "Accept an offer", text: "Offers reach you in your dashboard and Discord. You accept there, not through the API.", status: "" },
+            { title: "A seller is found", text: "The pair is reserved for you and invoice_amount tells you what you pay.", event: "want_to_buy.filled", status: "fulfillment_status: Allocated" },
+            { title: "Pay", text: "Pay the invoice with the payment link you receive.", event: "want_to_buy.paid", status: "payment_status: Paid" },
+            { title: "On its way", text: "The seller ships and tracking starts.", event: "want_to_buy.shipped", status: "shipping_status: Shipped" },
+            { title: "Delivered", text: "You have the pair.", event: "want_to_buy.delivered", status: "shipping_status: Delivered" }
           ],
           sections: ["Want To Buys"],
+          object: {
+            name: "Want-to-buy",
+            fields: [
+              ["id", "uuid", "Stays the same for the life of the want-to-buy. Keep it from the moment you place one."],
+              ["wtb_id", "string or null", "Our number for it, such as MWTB-000422, handy when you contact support."],
+              ["sku, size, product_name, brand", "string", "The pair you are looking for."],
+              ["max_price", "number or null", "Your ceiling in EUR. null means no ceiling."],
+              ["inventory_type", "string", "all, private or b2b: which stock may fill it."],
+              ["is_open", "boolean", "true while we are still looking for a seller."],
+              ["purchase_status, fulfillment_status", "string", "Where the purchase is. See the statuses below."],
+              ["invoice_amount", "number or null", "What you pay in EUR. null until a seller is found."],
+              ["payment_status", "string", "Whether you have paid."],
+              ["shipping_status", "string or null", "Where the parcel is. null until a parcel exists."],
+              ["tracking_number, tracking_url", "string or null", "Filled once the seller has a label."],
+              ["placed_at", "datetime", "When it was placed."],
+              ["updated_at", "datetime", "Last time anything in this want-to-buy changed."]
+            ]
+          },
+          statuses: [
+            {
+              field: "fulfillment_status",
+              rows: [
+                ["Outsource / Pending", "Open: we are looking for a seller. is_open is true.", "Wait for offers, or cancel."],
+                ["Confirmed", "You accepted an offer; the pair is being reserved.", "Nothing."],
+                ["Allocated", "A seller is found and the pair is reserved for you.", "Pay, if payment_status asks for it."],
+                ["Requested Label", "The seller is getting a label.", "Nothing."],
+                ["Ready to Ship", "The seller has a label and is shipping.", "Nothing."],
+                ["Fulfilled", "Shipped. From here, follow shipping_status.", "Nothing."],
+                ["Cancelled", "The want-to-buy is off.", "Nothing."]
+              ]
+            },
+            {
+              field: "purchase_status",
+              rows: [
+                ["Offers Sent", "Sent to our seller network.", "Nothing."],
+                ["Confirmed", "A seller confirmed.", "Nothing."],
+                ["Out Of Stock", "The pair you picked was no longer available.", "Wait for another offer."],
+                ["Cancelled", "The want-to-buy is off.", "Nothing."]
+              ]
+            },
+            {
+              field: "payment_status",
+              rows: [
+                ["Pending", "Nothing to pay yet.", "Nothing."],
+                ["Awaiting Payment", "The invoice is ready.", "Pay with the payment link you received."],
+                ["Pending Payment", "Your payment is started but not confirmed yet, for example a bank transfer.", "Wait."],
+                ["Paid", "Paid.", "Nothing."],
+                ["Expired", "The payment link expired before it was paid.", "Contact support."]
+              ]
+            },
+            {
+              field: "shipping_status",
+              rows: [
+                ["null", "No parcel yet.", ""],
+                ["Pending", "The label exists, the carrier has not scanned the parcel yet.", "Nothing."],
+                ["Shipped", "The parcel is on its way to you.", "Nothing."],
+                ["Delivered", "Delivered.", "Nothing."]
+              ]
+            }
+          ],
           events: [
-            ["want_to_buy.updated", "Something changed on your want-to-buy: a seller filled it, the invoice amount, payment, shipping or tracking"],
-            ["want_to_buy.cancelled", "Your want-to-buy was cancelled"]
+            ["want_to_buy.filled", "A seller is found; invoice_amount is known", "Pay the invoice"],
+            ["want_to_buy.paid", "Your payment is confirmed", ""],
+            ["want_to_buy.shipped", "The parcel is on its way to you", "Use tracking_url"],
+            ["want_to_buy.delivered", "The pair is delivered", ""],
+            ["want_to_buy.cancelled", "The want-to-buy was cancelled", ""],
+            ["want_to_buy.updated", "Anything else changed, such as the tracking number", "Check changes"]
           ]
         }
       ];
@@ -686,21 +862,23 @@
 
       function renderEndpoint(e) {
         return `
-          <article class="card" id="${e.id}">
-            <div class="endpoint-title">
+          <details class="card endpoint" id="${e.id}">
+            <summary>
               <span class="method ${e.method}">${e.method}</span>
-              <span class="path">/api/v1${esc(e.path)}</span>
+              <span class="path">${esc(e.path)}</span>
+              <span class="summary-title">${esc(e.title)}</span>
+            </summary>
+            <div class="endpoint-body">
+              ${e.text ? `<p class="lead">${esc(e.text)}</p>` : ""}
+              ${paramTable(e.params)}
+              ${codeBlock(e.curl, "Request")}
+              <div class="two">
+                ${e.success ? codeBlock(json(e.success), "Success") : `<div class="code"><div class="label">Success</div><pre>${esc(e.successText)}</pre></div>`}
+                ${codeBlock(json(e.error), "Error")}
+              </div>
+              ${e.notes && e.notes.length ? `<ul class="notes">${e.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
             </div>
-            <h2>${esc(e.title)}</h2>
-            ${e.text ? `<p class="lead">${esc(e.text)}</p>` : ""}
-            ${paramTable(e.params)}
-            ${codeBlock(e.curl, "Request")}
-            <div class="two">
-              ${e.success ? codeBlock(json(e.success), "Success") : `<div class="code"><div class="label">Success</div><pre>${esc(e.successText)}</pre></div>`}
-              ${codeBlock(json(e.error), "Error")}
-            </div>
-            ${e.notes && e.notes.length ? `<ul class="notes">${e.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
-          </article>`;
+          </details>`;
       }
 
       const VERIFY_NODE = `import crypto from "crypto";
@@ -723,6 +901,33 @@ function isGenuineWebhook(rawBody, headers, secret) {
     crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }`;
 
+      function simpleTable(head, rows) {
+        return `
+          <div class="table-wrap"><table>
+            <thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map((r) => `<tr>${r.map((cell, i) => `<td>${i === 0 ? `<code>${esc(cell)}</code>` : esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table></div>`;
+      }
+
+      function eventTable(events) {
+        return simpleTable(["Event", "Sent when", "What you do"], events);
+      }
+
+      function renderFlow(flow) {
+        return `
+          <ol class="timeline">${flow.map((step) => `
+            <li>
+              <strong>${esc(step.title)}</strong>
+              <span>${esc(step.text)}</span>
+              <div class="chips">
+                ${step.call ? `<code class="chip call">${esc(step.call)}</code>` : ""}
+                ${step.status ? `<code class="chip status">${esc(step.status)}</code>` : ""}
+                ${step.event ? `<code class="chip event">webhook ${esc(step.event)}</code>` : ""}
+              </div>
+            </li>`).join("")}
+          </ol>`;
+      }
+
       function renderChapter(chapter) {
         const endpoints = ENDPOINTS.filter((e) => chapter.sections.includes(e.group));
 
@@ -732,39 +937,56 @@ function isGenuineWebhook(rawBody, headers, secret) {
               <span class="eyebrow">Chapter</span>
               <h2>${esc(chapter.title)}</h2>
               <p class="lead">${esc(chapter.intro)}</p>
-              <ol class="flow">${chapter.flow.map((step) => `<li>${esc(step)}</li>`).join("")}</ol>
               <nav class="toc">
-                ${endpoints.map((e) => `<a href="#${e.id}"><span class="method ${e.method}">${e.method}</span> ${esc(e.title)}</a>`).join("")}
+                <a href="#${chapter.id}-flow">How it works</a>
+                <a href="#${chapter.id}-object">The ${esc(chapter.object.name.toLowerCase())} object</a>
+                <a href="#${chapter.id}-statuses">Statuses</a>
+                <a href="#${chapter.id}-endpoints">Endpoints</a>
                 <a href="#${chapter.id}-webhooks">Webhooks</a>
               </nav>
             </div>
 
-            ${chapter.sections.map((section) => `
-              ${chapter.sections.length > 1 ? `<h3 class="section-title">${esc(section)}</h3>` : ""}
-              ${endpoints.filter((e) => e.group === section).map(renderEndpoint).join("")}
-            `).join("")}
+            <div class="card" id="${chapter.id}-flow">
+              <h2>How it works</h2>
+              <p class="lead">Every step, with the call you make, the status you see and the webhook you get.</p>
+              ${renderFlow(chapter.flow)}
+            </div>
+
+            <div class="card" id="${chapter.id}-object">
+              <h2>The ${esc(chapter.object.name.toLowerCase())} object</h2>
+              <p class="lead">What every ${esc(chapter.object.name.toLowerCase())} in a response or webhook looks like.</p>
+              ${simpleTable(["Field", "Type", "Meaning"], chapter.object.fields)}
+            </div>
+
+            <div class="card" id="${chapter.id}-statuses">
+              <h2>Statuses</h2>
+              <p class="lead">What each value means, and whether you need to do anything.</p>
+              ${chapter.statuses.map((group) => `
+                <h3><code>${esc(group.field)}</code></h3>
+                ${simpleTable(["Value", "Meaning", "What you do"], group.rows)}
+              `).join("")}
+            </div>
+
+            <div id="${chapter.id}-endpoints">
+              ${chapter.sections.map((section) => `
+                <h3 class="section-title">${esc(section)}</h3>
+                ${endpoints.filter((e) => e.group === section).map(renderEndpoint).join("")}
+              `).join("")}
+            </div>
 
             <div class="card" id="${chapter.id}-webhooks">
               <h2>${esc(chapter.title)} webhooks</h2>
-              <p class="lead">Subscribe to these under <strong>Manage Keys</strong>. How deliveries are signed and retried is under <a href="#webhooks">Webhooks</a>.</p>
+              <p class="lead">Subscribe under <strong>Manage Keys</strong>. How deliveries are signed and retried is under <a href="#webhooks">Webhooks</a>.</p>
               ${eventTable(chapter.events)}
             </div>
           </div>`;
       }
 
-      function eventTable(events) {
-        return `
-          <div class="table-wrap"><table>
-            <thead><tr><th>Event</th><th>Sent when</th></tr></thead>
-            <tbody>${events.map(([name, text]) => `<tr><td><code>${esc(name)}</code></td><td>${esc(text)}</td></tr>`).join("")}</tbody>
-          </table></div>`;
-      }
-
       function renderDocs() {
         document.getElementById("tab-docs").innerHTML = `
           <div class="card">
-            <h2>${esc(BRAND)} API v1</h2>
-            <p class="lead">Connect your own systems. The API has two parts, and you can use either or both with the same key.</p>
+            <h2>${esc(BRAND)} API</h2>
+            <p class="lead">Connect your own systems. The API has two parts; use either or both with the same key.</p>
 
             <div class="two chapters-overview">
               ${CHAPTERS.map((c) => `
@@ -774,95 +996,161 @@ function isGenuineWebhook(rawBody, headers, secret) {
                 </a>`).join("")}
             </div>
 
-            <nav class="toc">
-              <a href="#auth">Authentication</a>
-              <a href="#conventions">Conventions</a>
-              ${CHAPTERS.map((c) => `<a href="#${c.id}">${esc(c.title)}</a>`).join("")}
-              <a href="#webhooks">Webhooks</a>
-            </nav>
-
             <div class="table-wrap"><table>
               <thead><tr><th>Base URL</th></tr></thead>
               <tbody><tr><td><code>${esc(API)}</code></td></tr></tbody>
             </table></div>
           </div>
 
-          <div class="card" id="auth">
-            <h2>Authentication</h2>
-            <p>Send your API key with every request. Create keys under <strong>Manage Keys</strong>.</p>
-            ${paramTable([
-              ["Authorization", "header", "Yes", "string", "Bearer sk_live_… or Bearer sk_test_…", "Your API key"],
-              ["Accept", "header", "Recommended", "string", "application/json", "JSON response"],
-              ["Content-Type", "header", "For bodies", "string", "application/json", "On POST, PATCH and DELETE with a body"]
-            ])}
-            <h3>Live and test keys</h3>
-            <ul class="notes">
-              <li><code>sk_live_</code> keys act on your real account. A want-to-buy placed with one goes out to real sellers.</li>
-              <li><code>sk_test_</code> keys use a separate sandbox: stock and want-to-buys you place are stored apart and reach no one.</li>
-              <li>With a test key, the sales feed returns two sample sales, the label endpoint returns a sample PDF, and a label request is simulated. The want-to-buy feed shows your test want-to-buys plus one sample purchase that has been paid and shipped.</li>
-              <li>Each response carries <code>X-Api-Mode: live</code> or <code>test</code>, so you can always see which one you used.</li>
-            </ul>
-            <h3>Rate limits</h3>
-            <ul class="notes">
-              <li>100 requests per minute per key.</li>
-              <li>Over the limit you get <code>429</code>. Wait for the number of seconds in <code>Retry-After</code>, and back off further if it happens again.</li>
-              <li>Every response carries <code>X-RateLimit-Limit</code> and <code>X-RateLimit-Remaining</code>.</li>
-            </ul>
-          </div>
-
-          <div class="card" id="conventions">
-            <h2>Conventions</h2>
-            <ul class="notes">
-              <li>Every JSON response has <code>success</code>. On success the result is in <code>data</code>; on failure there is a <code>message</code>, sometimes with a <code>code</code>.</li>
-              <li>Lists return <code>data.items</code> and <code>data.pagination</code> with <code>current_page</code>, <code>per_page</code>, <code>total</code>, <code>last_page</code> and <code>has_more_pages</code>.</li>
-              <li>Amounts are in EUR, as numbers.</li>
-              <li>Sizes are EU: <code>42</code>, <code>42.5</code>, <code>37 1/3</code>, or a clothing size like <code>M</code>.</li>
-              <li>Timestamps are ISO-8601 in UTC. Send UTC too.</li>
-              <li>Status codes: <code>400</code> invalid input, <code>401</code> missing or revoked key, <code>404</code> not found or not yours, <code>409</code> not possible in the current state, <code>429</code> rate limited, <code>5xx</code> our side.</li>
-            </ul>
+          <div class="card" id="quickstart">
+            <h2>Quickstart</h2>
+            <p class="lead">Your first call in two minutes. A test key never touches anything real, so try whatever you like.</p>
+            <ol class="timeline steps">
+              <li>
+                <strong>Create a test key</strong>
+                <span>Open <a href="#keys" data-open-keys>Manage Keys</a>, choose Test and copy the key. It starts with <code>sk_test_</code>.</span>
+              </li>
+              <li>
+                <strong>Make a call</strong>
+                <span>Replace <code>&lt;api_key&gt;</code> with your key.</span>
+                ${codeBlock(`curl "${API}/sales" \\\n  -H "Authorization: Bearer <api_key>"`, "Request")}
+              </li>
+              <li>
+                <strong>Read the answer</strong>
+                <span>A test key returns sample data in exactly the live shape.</span>
+                ${codeBlock(json({ success: true, data: { items: [SAMPLE_SALE], pagination: PAGINATION }, meta: { next_updated_since: SAMPLE_SALE.updated_at } }), "Response")}
+              </li>
+              <li>
+                <strong>Go live</strong>
+                <span>When your integration works, create a live key and swap it in. Nothing else changes.</span>
+              </li>
+            </ol>
           </div>
 
           ${CHAPTERS.map(renderChapter).join("")}
 
-          <div class="card" id="webhooks">
-            <h2>Webhooks</h2>
-            <p class="lead">Instead of polling, have events sent to your own endpoint the moment they happen. Add one under <strong>Manage Keys</strong> and pick the events it should receive.</p>
+          <div class="chapter" id="reference">
+            <div class="card chapter-head">
+              <span class="eyebrow">Reference</span>
+              <h2>For every call</h2>
+              <nav class="toc">
+                <a href="#auth">Authentication</a>
+                <a href="#conventions">Responses and errors</a>
+                <a href="#polling">Keeping up to date</a>
+                <a href="#webhooks">Webhooks</a>
+              </nav>
+            </div>
 
-            <h3>Events</h3>
-            ${CHAPTERS.map((c) => `<p class="small muted">${esc(c.title)}</p>${eventTable(c.events)}`).join("")}
+            <div class="card" id="auth">
+              <h2>Authentication</h2>
+              <p>Send your API key with every request. Create keys under <strong>Manage Keys</strong>.</p>
+              ${paramTable([
+                ["Authorization", "header", "Yes", "string", "Bearer sk_live_… or Bearer sk_test_…", "Your API key"],
+                ["Accept", "header", "Recommended", "string", "application/json", "JSON response"],
+                ["Content-Type", "header", "For bodies", "string", "application/json", "On POST, PATCH and DELETE with a body"]
+              ])}
+              <h3>Live and test keys</h3>
+              <ul class="notes">
+                <li><code>sk_live_</code> keys act on your real account. A want-to-buy placed with one goes out to real sellers.</li>
+                <li><code>sk_test_</code> keys use a separate sandbox: stock and want-to-buys you place are stored apart and reach no one.</li>
+                <li>With a test key, the sales feed returns two sample sales, the label endpoint returns a sample PDF, and a label request is simulated. The want-to-buy feed shows your test want-to-buys plus one sample purchase that has been paid and shipped.</li>
+                <li>Each response carries <code>X-Api-Mode: live</code> or <code>test</code>, so you can always see which one you used.</li>
+              </ul>
+              <h3>Rate limits</h3>
+              <ul class="notes">
+                <li>100 requests per minute per key.</li>
+                <li>Over the limit you get <code>429</code>. Wait for the number of seconds in <code>Retry-After</code>, and back off further if it happens again.</li>
+                <li>Every response carries <code>X-RateLimit-Limit</code> and <code>X-RateLimit-Remaining</code>.</li>
+              </ul>
+            </div>
 
-            <h3>Delivery</h3>
-            ${codeBlock(`POST https://your-endpoint.example.com/webhooks
+            <div class="card" id="conventions">
+              <h2>Responses and errors</h2>
+              <ul class="notes">
+                <li>Every JSON response has <code>success</code>. On success the result is in <code>data</code>; on failure there is a <code>message</code> you can show, sometimes with a <code>code</code> you can check.</li>
+                <li>Lists return <code>data.items</code> and <code>data.pagination</code> with <code>current_page</code>, <code>per_page</code>, <code>total</code>, <code>last_page</code> and <code>has_more_pages</code>.</li>
+                <li>Amounts are in EUR, as numbers. Sizes are EU: <code>42</code>, <code>42.5</code>, <code>37 1/3</code>, or a clothing size like <code>M</code>. Timestamps are ISO-8601 in UTC.</li>
+              </ul>
+              ${simpleTable(["Status", "Meaning", "What you do"], [
+                ["200", "It worked.", ""],
+                ["400", "Something in your request is invalid. message says what.", "Fix the request."],
+                ["401", "No key, a malformed key, or a revoked key.", "Check the Authorization header."],
+                ["404", "Not found, or not yours.", "Check the id."],
+                ["409", "Not possible right now, for example a label for a cancelled sale.", "Read message and code."],
+                ["429", "Too many requests.", "Wait Retry-After seconds."],
+                ["5xx", "Something went wrong on our side.", "Try again later; contact support if it keeps happening."]
+              ])}
+            </div>
+
+            <div class="card" id="polling">
+              <h2>Keeping up to date</h2>
+              <p class="lead">Both feeds work the same way. Use polling, webhooks, or both.</p>
+              <ol class="timeline steps">
+                <li><strong>First run</strong><span>Call <code>GET /sales</code> or <code>GET /want-to-buys</code> without <code>updated_since</code> and page through everything.</span></li>
+                <li><strong>Remember where you are</strong><span>Store <code>meta.next_updated_since</code> from the last page.</span></li>
+                <li><strong>Every few minutes</strong><span>Call again with <code>updated_since</code> set to that value. You get only what changed, oldest change first.</span></li>
+                <li><strong>De-duplicate</strong><span><code>updated_since</code> is inclusive, so the last row can come back once more. Skip rows whose <code>id</code> and <code>updated_at</code> you already have.</span></li>
+              </ol>
+              <p class="small muted">The feeds are refreshed every few minutes. Changes you make through the API itself show up at once.</p>
+            </div>
+
+            <div class="card" id="webhooks">
+              <h2>Webhooks</h2>
+              <p class="lead">Have events sent to your own endpoint the moment we see them. Add one under <strong>Manage Keys</strong> and pick the events it should receive.</p>
+
+              <h3>How events work</h3>
+              <ul class="notes">
+                <li>Each moment worth acting on has its own event, such as <code>sale.paid_out</code> or <code>want_to_buy.shipped</code>. Subscribe to only the ones you need.</li>
+                <li>Any other change is sent as <code>sale.updated</code> or <code>want_to_buy.updated</code>.</li>
+                <li>A specific event is sent <em>instead of</em> the .updated one, never as well. A cancellation is only ever <code>.cancelled</code>.</li>
+                <li><code>data.changes</code> lists every field that changed, so you never have to compare with what you had.</li>
+                <li><code>data.item</code> is the full, current object, the same as in the feed.</li>
+              </ul>
+
+              <h3>Events</h3>
+              ${CHAPTERS.map((c) => `<p class="small muted">${esc(c.title)}</p>${eventTable(c.events)}`).join("")}
+
+              <h3>A delivery</h3>
+              ${codeBlock(`POST https://your-endpoint.example.com/webhooks
 Content-Type: application/json
-X-Webhook-Event: want_to_buy.updated
+X-Webhook-Event: sale.paid_out
 X-Webhook-Delivery: 2c9a1f0e-5b6d-4e21-8f3a-7d9e0b1c2a34
 X-Webhook-Timestamp: 1757844300
 X-Webhook-Signature: sha256=5f0c…`, "Headers")}
-            <div class="two">
-              ${codeBlock(json({ id: "b8e3f2a1-7c4d-4e5f-9a6b-1c2d3e4f5a6b", type: "label.ready", created_at: "2026-09-14T10:05:00.000Z", data: { item: SAMPLE_SALE } }), "Consignment body")}
-              ${codeBlock(json({ id: "d4a7c1e9-2b3f-4a5e-8c6d-7e8f9a0b1c2d", type: "want_to_buy.updated", created_at: "2026-09-05T14:00:00.000Z", data: { item: SAMPLE_WTB_SHIPPED } }), "Want To Buys body")}
+              ${codeBlock(json({ id: "b8e3f2a1-7c4d-4e5f-9a6b-1c2d3e4f5a6b", type: "sale.paid_out", created_at: "2026-09-20T10:05:00.000Z", data: { item: { ...SAMPLE_SALE, fulfillment_status: "Fulfilled", shipping_status: "Delivered", payment_status: "Paid", updated_at: "2026-09-20T10:05:00.000Z" }, changes: ["payment_status"] } }), "Body")}
+
+              <h3>Verify the signature</h3>
+              <p>Check every delivery before trusting it. The signature is an HMAC-SHA256 of <code>&lt;timestamp&gt;.&lt;raw body&gt;</code> with your webhook secret.</p>
+              ${codeBlock(VERIFY_NODE, "Node.js")}
+
+              <h3>Rules</h3>
+              <ul class="notes">
+                <li>Answer with any <code>2xx</code> within 10 seconds. Do the real work afterwards.</li>
+                <li>Failed deliveries are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours and 12 hours.</li>
+                <li>After 5 deliveries in a row fail every retry, the webhook is switched off. Turn it back on under Manage Keys.</li>
+                <li>The same event can arrive more than once. De-duplicate on the event <code>id</code>.</li>
+                <li>Only public <code>https</code> addresses are accepted, and redirects are not followed.</li>
+              </ul>
+
+              <h3>Send a test event</h3>
+              <p>Sends a signed sample of the event you choose, marked <code>"test": true</code>, to all your active webhooks, and returns what each endpoint answered. Manage Keys has a button for this too.</p>
+              ${codeBlock(`curl -X POST "${API}/webhooks/test" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"type": "want_to_buy.shipped"}'`, "Request")}
+              ${codeBlock(json({ success: true, data: { items: [{ webhook_id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", event_type: "want_to_buy.shipped", delivered: true, status_code: 200, error: null }] } }), "Success")}
             </div>
-
-            <h3>Verify the signature</h3>
-            <p>Check every delivery before trusting it. The signature is an HMAC-SHA256 of <code>&lt;timestamp&gt;.&lt;raw body&gt;</code> with your webhook secret.</p>
-            ${codeBlock(VERIFY_NODE, "Node.js")}
-
-            <h3>Rules</h3>
-            <ul class="notes">
-              <li>Answer with any <code>2xx</code> within 10 seconds. Do the real work afterwards.</li>
-              <li>Failed deliveries are retried after 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours and 12 hours.</li>
-              <li>After 5 deliveries in a row fail every retry, the webhook is switched off. Turn it back on under Manage Keys.</li>
-              <li>The same event can arrive more than once. De-duplicate on the event <code>id</code>.</li>
-              <li><code>data.item</code> is the same row as in the matching feed, with the same <code>id</code>: a sale for <code>sale.*</code> and <code>label.ready</code>, a want-to-buy for <code>want_to_buy.*</code>. Webhooks and polling can be mixed.</li>
-              <li>Only public <code>https</code> addresses are accepted, and redirects are not followed.</li>
-            </ul>
-
-            <h3>Send a test event</h3>
-            <p>Sends a signed sample event of the type you choose, marked <code>"test": true</code>, to all your active webhooks and returns what each endpoint answered.</p>
-            ${codeBlock(`curl -X POST "${API}/webhooks/test" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '{"type": "want_to_buy.updated"}'`, "Request")}
-            ${codeBlock(json({ success: true, data: { items: [{ webhook_id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", event_type: "want_to_buy.updated", delivered: true, status_code: 200, error: null }] } }), "Success")}
           </div>`;
       }
+
+      // A link to an endpoint opens it, wherever it is on the page.
+      function openFromHash() {
+        const target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+
+        if (target && target.tagName === "DETAILS") {
+          target.open = true;
+          target.scrollIntoView();
+        }
+      }
+
+      window.addEventListener("hashchange", openFromHash);
 
       /* ---------------- manage keys ---------------- */
 
@@ -1173,8 +1461,17 @@ X-Webhook-Signature: sha256=5f0c…`, "Headers")}
 
       document.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-open-keys]")) return;
+
+        event.preventDefault();
+        showTab("keys");
+        window.scrollTo(0, 0);
+      });
+
       renderDocs();
       showTab(location.hash === "#keys" ? "keys" : "docs");
+      openFromHash();
     })();
   </script>
 </body>
