@@ -91,7 +91,12 @@ const {
   LOJIQ_ADMIN_SECRET,
   LOJIQ_ADMIN_USERS,
   SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY
+  SUPABASE_SERVICE_ROLE_KEY,
+
+  // Admin buttons that go beyond this service. Without them those buttons say
+  // what is missing instead of failing silently.
+  KC_PORTAL_SECRET,
+  DELIVERED_DISCORD_WEBHOOK_URL
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -133,6 +138,14 @@ const adminPortal = createAdminPortal({
   airtableBaseId: AIRTABLE_BASE_ID,
   audit: createAuditLog({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY }),
   savedFilters: createSavedFilters({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY }),
+  services: {
+    wmsBaseUrl: RETURN_SERVICE_BASE_URL,
+    kickzBaseUrl: KICKZ_PORTAL_BASE_URL,
+    counterOffersSecret: COUNTER_OFFERS_SECRET,
+    kcPortalSecret: KC_PORTAL_SECRET,
+    discordUpdatesBaseUrl: DISCORD_UPDATES_BASE_URL,
+    deliveredWebhookUrl: DELIVERED_DISCORD_WEBHOOK_URL
+  },
   pageFile: adminPagePath(__dirname)
 });
 

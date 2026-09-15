@@ -1,9 +1,9 @@
 // admin/adminRouter.js
 //
 // The Lojiq Admin portal: the page on /admin and everything it calls under
-// /api/admin. Step one is reading - every Store Orders and Member WTBs tab,
-// the filters, search and the side panel. Buttons that change records come
-// after, and each of them goes through the action log.
+// /api/admin: every Store Orders and Member WTBs tab, the filters, search, the
+// side panel, and the buttons. What each button does lives in adminActions.js;
+// every one goes through the action log.
 //
 // Nothing here trusts the browser for identity. Every /api/admin route but
 // login needs the signed admin cookie; see adminAuth.js.
@@ -39,6 +39,18 @@ import {
   sortFieldFor
 } from "./adminViews.js";
 import { NAME_MAX, SECTIONS, cleanFilters } from "./adminFilters.js";
+import {
+  ActionError,
+  EXTERNAL_BASE,
+  EXTERNAL_SALES_TABLE,
+  LINK_FIELDS,
+  actionFields,
+  availableActions,
+  describeAction,
+  publicActions,
+  rowLinks,
+  runAction
+} from "./adminActions.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -182,7 +194,43 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
     return out;
   }
 
-  return { select, byIds };
+  // One record, written. Only ever called from an action in adminActions.js,
+  // after that action has read the record fresh and checked it may run.
+  async function update(table, id, fields) {
+    const response = await fetchImpl(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}/${id}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+      signal: AbortSignal.timeout(30_000)
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(`${table}: ${data?.error?.message || data?.error?.type || `Airtable answered ${response.status}`}`);
+    }
+
+    return data;
+  }
+
+  async function create(table, fields) {
+    const response = await fetchImpl(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+      signal: AbortSignal.timeout(30_000)
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(`${table}: ${data?.error?.message || data?.error?.type || `Airtable answered ${response.status}`}`);
+    }
+
+    return data;
+  }
+
+  return { select, byIds, update, create };
 }
 
 /* ---------------- the router ---------------- */
@@ -194,13 +242,16 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   airtableToken, airtableBaseId
  *   audit           createAuditLog(...)
  *   savedFilters    createSavedFilters(...)
+ *   services        { wmsBaseUrl, kickzBaseUrl, counterOffersSecret, kcPortalSecret,
+ *                     discordUpdatesBaseUrl, deliveredWebhookUrl } for the buttons
  *   pageFile        private/admin.html
  */
-export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, pageFile, fetchImpl = fetch }) {
+export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, fetchImpl = fetch }) {
   const router = express.Router();
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
   const airtable = createAirtableReader({ token: airtableToken, baseId: airtableBaseId, fetchImpl });
+  const externalSales = createAirtableReader({ token: airtableToken, baseId: EXTERNAL_BASE, fetchImpl });
   const attempts = createAttemptLimiter();
   const cache = new Map();
 
@@ -319,7 +370,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   });
 
   router.get("/api/admin/me", (req, res) => {
-    res.json({ user: { email: req.admin.email, name: req.admin.name }, views: publicViews() });
+    res.json({ user: { email: req.admin.email, name: req.admin.name }, views: publicViews(), actions: publicActions() });
   });
 
   // Every store that can have store orders, for the Store Name filter: Order
@@ -390,7 +441,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       const data = await cached(key, async () => {
         const page = await airtable.select(TABLES[view.source], {
           formula: buildListFormula(view, filters),
-          fields: fieldsFor(view),
+          fields: listFields(view),
           sort: sortFieldFor(view),
           pageSize: PAGE_SIZE,
           offset
@@ -406,7 +457,12 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
             for (const column of view.columns) cells[column.key] = cellValue(column, fields, unit);
 
-            return { id: record.id, cells };
+            return {
+              id: record.id,
+              cells,
+              actions: availableActions(view.source, view.actions, fields),
+              links: view.actions.length ? rowLinks(view.source, fields) : {}
+            };
           }),
           next_offset: page.offset
         };
@@ -538,6 +594,184 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }
   });
 
+  /* ----- buttons ----- */
+
+  function listFieldsFor(source, actionKeys) {
+    const fields = new Set(actionFields(source, actionKeys));
+    if (actionKeys.some((key) => key === "track" || key === "discord")) for (const field of LINK_FIELDS[source] || []) fields.add(field);
+    return [...fields];
+  }
+
+  function listFields(view) {
+    return [...new Set([...fieldsFor(view), ...(view.actions.length ? listFieldsFor(view.source, view.actions) : [])])];
+  }
+
+  const service = (base) => text(base).replace(/\/$/, "");
+
+  async function post(url, body, headers = {}) {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60_000)
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      // The owning service's own sentence is the useful one ("This offer is no longer available.").
+      throw new ActionError(text(data.error || data.message || data.details) || `The service answered ${response.status}.`, response.status >= 500 ? 502 : 409);
+    }
+
+    return data;
+  }
+
+  const deps = {
+    airtable,
+
+    callKc(pathName, body, which = "counter") {
+      const secret = which === "portal" ? services.kcPortalSecret : services.counterOffersSecret;
+      if (!service(services.kickzBaseUrl) || !text(secret)) {
+        throw new ActionError(which === "portal" ? "Sending member offers needs KC_PORTAL_SECRET on this service." : "This button needs COUNTER_OFFERS_SECRET on this service.", 503);
+      }
+      return post(`${service(services.kickzBaseUrl)}${pathName}`, body, { "x-kc-secret": secret });
+    },
+
+    callWms(pathName, body) {
+      if (!service(services.wmsBaseUrl)) throw new ActionError("The WMS address is not configured.", 503);
+      return post(`${service(services.wmsBaseUrl)}${pathName}`, body);
+    },
+
+    get itemShippedUrl() {
+      return service(services.discordUpdatesBaseUrl) ? `${service(services.discordUpdatesBaseUrl)}/` : "";
+    },
+
+    get deliveredWebhookUrl() {
+      return text(services.deliveredWebhookUrl);
+    },
+
+    // A notification that fails must not undo the status that was already
+    // written; it comes back as a sentence in the result instead.
+    async notify(url, body, label) {
+      if (!url) return `No ${label} sent (not configured here).`;
+
+      try {
+        await post(url, body);
+        return "";
+      } catch (err) {
+        console.error("[admin] notification failed:", label, err.message);
+        return `The ${label} could not be sent.`;
+      }
+    },
+
+    async updateExternalSale(orderId, shippingStatus) {
+      if (!text(orderId)) return "";
+
+      try {
+        const { records } = await externalSales.select(EXTERNAL_SALES_TABLE, {
+          formula: `{Order Number} = ${formulaString(orderId)}`,
+          fields: ["Order Number"],
+          pageSize: 1,
+          maxRecords: 1
+        });
+
+        if (!records[0]) return "";
+
+        await externalSales.update(EXTERNAL_SALES_TABLE, records[0].id, { "Shipping Status": shippingStatus });
+        return "";
+      } catch (err) {
+        console.error("[admin] external sales update failed:", orderId, err.message);
+        return "The External Sales Log row could not be updated.";
+      }
+    },
+
+    async firstLinked(table, value, fields) {
+      const id = Array.isArray(value) ? value[0] : value;
+      if (!id) return null;
+      return (await airtable.byIds(table, [id], fields).catch(() => new Map())).get(id) || null;
+    }
+  };
+
+  async function freshRecord(source, id, key) {
+    if (!TABLES[source] || source === "units" || source === "merchants") throw new ActionError("Unknown list", 404);
+    if (!/^rec[A-Za-z0-9]{14}$/.test(id)) throw new ActionError("Invalid record", 400);
+
+    const idField = PANELS[source]?.[0]?.fields?.[0]?.field;
+    const fields = [...new Set([...actionFields(source, [key]), ...(idField ? [idField] : [])])];
+    const found = await airtable.byIds(TABLES[source], [id], fields);
+
+    if (!found.has(id)) throw new ActionError("This record no longer exists.", 404);
+
+    return { id, fields: found.get(id), label: idField ? text(flat(found.get(id)[idField])) : id };
+  }
+
+  function actionError(res, err, key) {
+    if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
+    console.error("[admin] action failed:", key, err.message);
+    return res.status(502).json({ error: "Something went wrong while doing this. Nothing is guaranteed to have changed; check the record." });
+  }
+
+  // What the dialog should say for this record right now.
+  router.get("/api/admin/action", async (req, res) => {
+    const key = text(req.query.action);
+    const source = text(req.query.source);
+
+    try {
+      if (!publicActions()[key]) throw new ActionError("This button does not exist.", 404);
+      const record = await freshRecord(source, text(req.query.id), key);
+      res.json({ label: record.label, ...describeAction(key, source, record) });
+    } catch (err) {
+      actionError(res, err, key);
+    }
+  });
+
+  async function perform(req, res, { key, source, id, input, file }) {
+    try {
+      const record = await freshRecord(source, id, key);
+      const result = await runAction({ key, source, record, input, file, deps });
+
+      cache.clear();
+      audit.record({
+        actor: req.admin,
+        action: publicActions()[key]?.label || key,
+        source,
+        recordId: id,
+        label: record.label,
+        details: { changed: result.changed || null, note: result.message }
+      });
+
+      res.json({ ok: true, message: result.message });
+    } catch (err) {
+      actionError(res, err, key);
+    }
+  }
+
+  router.post("/api/admin/action", async (req, res) => {
+    const input = req.body?.input && typeof req.body.input === "object" ? req.body.input : {};
+    const key = text(req.body?.action);
+
+    if (publicActions()[key]?.upload) return res.status(400).json({ error: "Upload the file through the upload form." });
+
+    await perform(req, res, { key, source: text(req.body?.source), id: text(req.body?.id), input, file: null });
+  });
+
+  // The label itself travels as the raw PDF, so the JSON body limit of the
+  // rest of the portal does not apply to it.
+  router.post("/api/admin/action/upload", express.raw({ type: "application/pdf", limit: "10mb" }), async (req, res) => {
+    const key = text(req.query.action);
+
+    if (!publicActions()[key]?.upload) return res.status(400).json({ error: "This button does not take a file." });
+    if (!Buffer.isBuffer(req.body)) return res.status(400).json({ error: "The label must be a PDF file." });
+
+    await perform(req, res, {
+      key,
+      source: text(req.query.source),
+      id: text(req.query.id),
+      input: { tracking: text(req.query.tracking) },
+      file: req.body
+    });
+  });
+
   // One record for the side panel, with its unit and its history.
   router.get("/api/admin/record", async (req, res) => {
     const source = text(req.query.source);
@@ -547,7 +781,9 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return res.status(400).json({ error: "Invalid record" });
 
     try {
-      const found = await airtable.byIds(TABLES[source], [id], panelFields(source));
+      const view = findView(text(req.query.section), text(req.query.view));
+      const tabActions = view && view.source === source ? view.actions : [];
+      const found = await airtable.byIds(TABLES[source], [id], [...new Set([...panelFields(source), ...listFieldsFor(source, tabActions)])]);
       const fields = found.get(id);
 
       if (!fields) return res.status(404).json({ error: "This record no longer exists." });
@@ -571,6 +807,8 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
         source,
         label: text(flat(fields[idField])),
         groups,
+        actions: availableActions(source, tabActions, fields),
+        links: rowLinks(source, fields),
         timeline: await audit.forRecord(id)
       });
     } catch (err) {

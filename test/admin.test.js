@@ -165,8 +165,9 @@ test("Open Orders shows whether an order is Pending or Outsource", () => {
 function fakeAirtable() {
   const calls = [];
 
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options = {}) => {
     const u = new URL(url);
+    u.method = options.method || "GET";
     calls.push(u);
     const table = decodeURIComponent(u.pathname.split("/").pop());
 
@@ -323,6 +324,37 @@ test("router: saved filters are shared, only the owner deletes", async () => {
 
     const own = await fetch(`${base}/api/admin/filters/11111111-1111-1111-1111-111111111111`, { method: "DELETE", headers: { cookie: asDario.cookie } });
     assert.equal(own.status, 200);
+  });
+});
+
+test("router: buttons need a login, read fresh, and refuse what cannot run", async () => {
+  const air = fakeAirtable();
+
+  await withServer({ fetchImpl: air.fetchImpl }, async (base, logged) => {
+    const body = JSON.stringify({ action: "solved", source: "store", id: "recAAAAAAAAAAAAAA", input: {} });
+
+    const anonymous = await fetch(`${base}/api/admin/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    assert.equal(anonymous.status, 401);
+
+    const { cookie } = await login(base);
+    const headers = { cookie, "Content-Type": "application/json" };
+
+    // The fake order has no open issue, so Solved must be refused without a write.
+    const refused = await fetch(`${base}/api/admin/action`, { method: "POST", headers, body });
+    assert.equal(refused.status, 409);
+    assert.match((await refused.json()).error, /no open issue/);
+    assert.equal(air.calls.some((u) => u.method === "PATCH"), false);
+    assert.equal(logged.some((entry) => entry.action === "Solved"), false);
+
+    const unknown = await fetch(`${base}/api/admin/action`, { method: "POST", headers, body: JSON.stringify({ action: "delete_everything", source: "store", id: "recAAAAAAAAAAAAAA" }) });
+    assert.equal(unknown.status, 404);
+
+    const noFile = await fetch(`${base}/api/admin/action`, { method: "POST", headers, body: JSON.stringify({ action: "upload_label", source: "store", id: "recAAAAAAAAAAAAAA" }) });
+    assert.equal(noFile.status, 400);
+
+    const me = await (await fetch(`${base}/api/admin/me`, { headers: { cookie } })).json();
+    assert.equal(me.actions.upload_label.upload, true);
+    assert.deepEqual(me.views.find((v) => v.section === "store" && v.key === "ready").actions, ["add_note", "track", "mark_shipped", "discord"]);
   });
 });
 

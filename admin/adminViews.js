@@ -281,9 +281,34 @@ const TABS = [
 // A picture is the quickest way to recognise a pair, so it opens every list.
 const PICTURE = col("picture", "Picture", "Picture", "image");
 
+// The buttons on each tab, from the Whimsical. What each one does is in
+// adminActions.js; a button only shows on a row where it can run.
+const TAB_ACTIONS = {
+  "store/open": ["send_offer", "custom_price"],
+  "store/fulfilled": ["track", "discord"],
+  "store/allocated": ["discord"],
+  "store/labels": ["upload_label", "discord"],
+  "store/ready": ["add_note", "track", "mark_shipped", "discord"],
+  "store/delayed": ["add_note", "track", "mark_shipped", "discord"],
+  "store/shipped": ["add_note", "track", "mark_delivered", "discord"],
+  "store/delivered": ["track", "discord"],
+  "store/completed": ["track"],
+  "store/issues": ["solved", "discord"],
+
+  "mwtb/open": ["send_offer", "custom_price"],
+  "mwtb/fulfilled": ["track", "discord"],
+  "mwtb/allocated": ["discord"],
+  "mwtb/labels": ["upload_label", "discord"],
+  "mwtb/ready": ["track", "mark_shipped", "discord"],
+  "mwtb/shipped": ["track", "mark_delivered", "discord"],
+  "mwtb/delivered": ["track", "discord"],
+  "mwtb/completed": ["track"]
+};
+
 export const VIEWS = TABS.map((view) => ({
   ...view,
-  columns: [PICTURE, ...view.columns.filter((column) => column.type !== "image")]
+  columns: [PICTURE, ...view.columns.filter((column) => column.type !== "image")],
+  actions: TAB_ACTIONS[`${view.section}/${view.key}`] || []
 }));
 
 export function findView(section, key) {
@@ -473,11 +498,12 @@ export function panelFields(source) {
 
 // What the page needs to draw the navigation and the tables.
 export function publicViews() {
-  return VIEWS.map(({ key, section, source, label, columns }) => ({
+  return VIEWS.map(({ key, section, source, label, columns, actions }) => ({
     key,
     section,
     source,
     label,
+    actions,
     columns: columns.map(({ key: columnKey, label: columnLabel, type }) => ({ key: columnKey, label: columnLabel, type }))
   }));
 }

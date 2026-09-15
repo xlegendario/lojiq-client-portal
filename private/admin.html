@@ -334,6 +334,64 @@
     .pill.move { background: rgba(47, 128, 237, 0.18); color: var(--primary-soft); }
     .pill.bad { background: rgba(240, 68, 56, 0.16); color: #FF7A70; }
 
+    /* Buttons stay in view at the right edge of a wide table. */
+    th.actions, td.actions { position: sticky; right: 0; z-index: 1; background: var(--panel); box-shadow: -10px 0 12px -10px rgba(0, 0, 0, 0.6); text-align: right; }
+    th.actions { z-index: 3; background: var(--panel-2); }
+    tbody tr:hover td.actions { background: #16181d; }
+    .row-actions { display: inline-flex; gap: 6px; }
+    .act {
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+    }
+    .act:hover { border-color: var(--primary); color: #fff; }
+    .act.run { border-color: rgba(47, 128, 237, 0.55); color: var(--primary-soft); }
+    .panel-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .panel-actions:empty { display: none; }
+
+    dialog.action-dialog {
+      width: min(440px, calc(100vw - 32px));
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+    }
+    dialog.action-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+    .action-form { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+    .action-form h2 { margin: 0; font-size: 17px; }
+    .action-form p { margin: 0; color: var(--muted); line-height: 1.45; }
+    .action-form .blocked { color: var(--warning); }
+    .action-form .input { width: 100%; }
+    .action-form input[type=file] { color: var(--muted); }
+    .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      z-index: 60;
+      max-width: min(560px, calc(100vw - 32px));
+      background: #0f2a1e;
+      border: 1px solid rgba(22, 179, 100, 0.5);
+      color: #d6f5e6;
+      padding: 12px 16px;
+      border-radius: 10px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    }
+
     .state { padding: 40px 16px; text-align: center; color: var(--muted); }
     .state.error-state { color: var(--red); }
     .more { display: flex; justify-content: center; }
@@ -501,8 +559,24 @@
         <h2 id="panelTitle"></h2>
         <button class="btn ghost" id="panelClose" type="button" aria-label="Close">✕</button>
       </div>
+      <div class="panel-actions" id="panelActions"></div>
       <div class="panel-body" id="panelBody"></div>
     </aside>
+
+    <dialog class="action-dialog" id="actionDialog">
+      <form class="action-form" id="actionForm" method="dialog" novalidate>
+        <h2 id="actionTitle"></h2>
+        <p id="actionText"></p>
+        <div id="actionInputs" class="action-inputs"></div>
+        <div class="error" id="actionError" role="alert"></div>
+        <div class="dialog-foot">
+          <button class="btn ghost" id="actionCancel" type="button">Cancel</button>
+          <button class="btn primary" id="actionConfirm" type="submit">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" hidden></div>
   </div>
 
 <script>
@@ -918,14 +992,32 @@
   /* ---------------- list ---------------- */
 
   function drawHead(view) {
-    $("tableHead").innerHTML = `<tr>${view.columns.map((c) => `<th class="${c.type}">${esc(c.label)}</th>`).join("")}</tr>`;
+    const actions = view.actions?.length ? '<th class="actions">Actions</th>' : "";
+    $("tableHead").innerHTML = `<tr>${view.columns.map((c) => `<th class="${c.type}">${esc(c.label)}</th>`).join("")}${actions}</tr>`;
+  }
+
+  // The buttons a record can use right now, in the tab's order.
+  function actionButtons(source, keys, links) {
+    return (keys || [])
+      .map((key) => {
+        const def = state.actions[key];
+        if (!def) return "";
+
+        if (def.kind === "link") {
+          const href = links?.[key];
+          return href ? `<a class="act" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(def.label)} ↗</a>` : "";
+        }
+
+        return `<button class="act run" type="button" data-action="${esc(key)}" data-source="${esc(source)}">${esc(def.label)}</button>`;
+      })
+      .join("");
   }
 
   function drawRows(view, rows, append) {
     const html = rows
       .map((row) => `<tr data-id="${esc(row.id)}"${state.selected.endsWith(row.id) ? ' class="selected"' : ""}>${view.columns
         .map((c) => `<td class="${c.type}">${render(c.type, row.cells[c.key])}</td>`)
-        .join("")}</tr>`)
+        .join("")}${view.actions?.length ? `<td class="actions"><span class="row-actions">${actionButtons(view.source, row.actions, row.links)}</span></td>` : ""}</tr>`)
       .join("");
 
     if (append) $("tableBody").insertAdjacentHTML("beforeend", html);
@@ -995,6 +1087,13 @@
   $("moreButton").addEventListener("click", () => loadList({ more: true }));
 
   $("tableBody").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (button) {
+      const row = button.closest("tr[data-id]");
+      openAction(button.dataset.action, button.dataset.source, row.dataset.id);
+      return;
+    }
+
     if (event.target.closest("a")) return;
     const row = event.target.closest("tr[data-id]");
     if (!row) return;
@@ -1021,11 +1120,13 @@
     $("panelBody").innerHTML = "";
 
     try {
-      const data = await api(`/api/admin/record?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}`);
+      const data = await api(`/api/admin/record?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}&section=${encodeURIComponent(state.section)}&view=${encodeURIComponent(state.view)}`);
 
       if (state.selected !== `${source}:${id}`) return;
 
       $("panelTitle").textContent = data.label || "Record";
+      $("panelActions").innerHTML = actionButtons(source, data.actions, data.links);
+      $("panelActions").dataset.id = id;
 
       const groups = data.groups
         .map((group) => {
@@ -1059,8 +1160,146 @@
 
   $("panelClose").addEventListener("click", () => closePanel());
 
+  $("panelActions").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (button) openAction(button.dataset.action, button.dataset.source, $("panelActions").dataset.id);
+  });
+
+  /* ---------------- actions ---------------- */
+
+  let pending = null;
+  let toastTimer;
+
+  function toast(message) {
+    $("toast").textContent = message;
+    $("toast").hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $("toast").hidden = true; }, 7000);
+  }
+
+  function inputHtml(spec, prefill) {
+    const id = `action-${spec.name}`;
+    const value = prefill === null || prefill === undefined ? "" : prefill;
+
+    if (spec.type === "file") {
+      return `<div class="field"><label for="${id}">${esc(spec.label)}</label><input id="${id}" name="${esc(spec.name)}" type="file" accept="${esc(spec.accept || "")}"></div>`;
+    }
+
+    const extra = spec.type === "money" ? ' inputmode="decimal" autocomplete="off"' : ' autocomplete="off"';
+    const max = spec.max ? ` maxlength="${Number(spec.max)}"` : "";
+
+    return `<div class="field"><label for="${id}">${esc(spec.label)}</label><input class="input" id="${id}" name="${esc(spec.name)}" type="text" value="${esc(value)}"${extra}${max}></div>`;
+  }
+
+  async function openAction(key, source, id) {
+    const def = state.actions[key];
+    if (!def) return;
+
+    pending = { key, source, id, def };
+
+    $("actionTitle").textContent = def.label;
+    $("actionText").textContent = "Loading…";
+    $("actionText").classList.remove("blocked");
+    $("actionInputs").innerHTML = "";
+    $("actionError").textContent = "";
+    $("actionConfirm").disabled = true;
+    $("actionConfirm").textContent = def.label;
+    $("actionDialog").showModal();
+
+    try {
+      const info = await api(`/api/admin/action?action=${encodeURIComponent(key)}&source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}`);
+      if (pending?.id !== id || pending?.key !== key) return;
+
+      $("actionTitle").textContent = `${def.label} · ${info.label}`;
+
+      if (info.blocked) {
+        $("actionText").textContent = info.blocked;
+        $("actionText").classList.add("blocked");
+        return;
+      }
+
+      $("actionText").textContent = info.confirm || def.note || "";
+      $("actionInputs").innerHTML = def.inputs.map((spec) => inputHtml(spec, info.prefill?.[spec.name])).join("");
+      $("actionConfirm").disabled = false;
+      ($("actionInputs").querySelector("input") || $("actionConfirm")).focus();
+    } catch (err) {
+      $("actionText").textContent = "";
+      $("actionError").textContent = err.message;
+    }
+  }
+
+  // Enter in a text field confirms, like any form.
+  $("actionInputs").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.matches("input.input") && !$("actionConfirm").disabled) {
+      event.preventDefault();
+      $("actionForm").requestSubmit();
+    }
+  });
+
+  $("actionCancel").addEventListener("click", () => {
+    pending = null;
+    $("actionDialog").close();
+  });
+
+  $("actionForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!pending) return;
+
+    const { key, source, id, def } = pending;
+    const input = {};
+    let file = null;
+
+    for (const spec of def.inputs) {
+      const el = $(`action-${spec.name}`);
+      if (spec.type === "file") file = el.files[0] || null;
+      else input[spec.name] = el.value.trim();
+
+      if (spec.required && (spec.type === "file" ? !file : !input[spec.name])) {
+        $("actionError").textContent = `Fill in: ${spec.label}.`;
+        return;
+      }
+    }
+
+    $("actionConfirm").disabled = true;
+    $("actionError").textContent = "";
+
+    try {
+      let result;
+
+      if (def.upload) {
+        if (file.size > 10 * 1024 * 1024) throw new Error("The label is larger than 10 MB.");
+
+        const params = new URLSearchParams({ action: key, source, id, tracking: input.tracking || "" });
+        const response = await fetch(`/api/admin/action/upload?${params}`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/pdf", Accept: "application/json" },
+          body: file
+        });
+
+        result = await response.json().catch(() => ({}));
+        if (response.status === 401) { showLogin(); throw new Error("Not signed in"); }
+        if (!response.ok) throw new Error(result.error || `Upload failed (${response.status})`);
+      } else {
+        result = await api("/api/admin/action", { method: "POST", body: JSON.stringify({ action: key, source, id, input }) });
+      }
+
+      pending = null;
+      $("actionDialog").close();
+      toast(result.message || "Done.");
+
+      loadList({ fresh: true });
+      if (state.selected === `${source}:${id}`) openRecord(source, id);
+    } catch (err) {
+      $("actionError").textContent = err.message;
+      $("actionConfirm").disabled = false;
+    }
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      // The dialog closes itself on Escape; leave the panel open behind it.
+      if ($("actionDialog").open) return;
       if (!$("storePopover").hidden) toggleStorePopover(false);
       else if (!$("searchResults").hidden) hideResults();
       else if (!$("panel").hidden) closePanel();
@@ -1142,6 +1381,7 @@
       const me = await api("/api/admin/me");
       state.user = me.user;
       state.views = me.views;
+      state.actions = me.actions || {};
     } catch {
       return;
     }
