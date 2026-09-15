@@ -335,9 +335,20 @@
     .pill.bad { background: rgba(240, 68, 56, 0.16); color: #FF7A70; }
 
     /* Buttons stay in view at the right edge of a wide table. */
-    th.actions, td.actions { position: sticky; right: 0; z-index: 1; background: var(--panel); box-shadow: -10px 0 12px -10px rgba(0, 0, 0, 0.6); text-align: right; }
-    th.actions { z-index: 3; background: var(--panel-2); }
-    tbody tr:hover td.actions { background: #16181d; }
+    /* Its own lighter strip with a rule on the left, so it reads as a separate
+       column and not as the end of the data. */
+    th.actions, td.actions {
+      position: sticky;
+      right: 0;
+      z-index: 1;
+      text-align: left;
+      background: #1B1C21;
+      border-left: 1px solid #2E2F36;
+      box-shadow: -12px 0 14px -12px rgba(0, 0, 0, 0.7);
+    }
+    th.actions { z-index: 3; background: #202127; color: #B4B4BC; }
+    tbody tr:hover td.actions { background: #212329; }
+    tbody tr.selected td.actions { background: #1F2530; }
     .row-actions { display: inline-flex; gap: 6px; }
     .act {
       height: 28px;
