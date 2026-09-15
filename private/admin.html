@@ -518,6 +518,7 @@
     .act.copy { height: 22px; padding: 0 7px; font-size: 11px; }
     .money .copy-cell { justify-content: flex-end; }
     .summary-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); }
+    .summary-bar .selection { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 4px 2px 10px; border: 1px solid var(--primary); border-radius: 8px; color: var(--text); }
     .summary-bar strong { color: var(--strong); font-variant-numeric: tabular-nums; }
 
     .state { padding: 40px 16px; text-align: center; color: var(--muted); }
@@ -1244,8 +1245,7 @@
     $("paymentSummary").hidden = view.section !== "money";
     $("moreButton").hidden = true;
 
-    if (view.key === "payouts") return loadPayouts(ticket, fresh);
-    if (view.section === "money") return loadPayments(ticket, fresh);
+    if (view.section === "money") return loadMoney(view.key, ticket, fresh);
 
     $("crumb").textContent = SECTION_LABEL[view.section];
     $("viewTitle").textContent = view.label;
@@ -1305,127 +1305,140 @@
     return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / DAY)) : null;
   };
 
-  async function loadPayments(ticket, fresh) {
-    $("crumb").textContent = "Money";
-    $("viewTitle").textContent = "Open Payments";
-    document.title = "Open Payments · Lojiq Admin";
+  /*
+   * Open Payments and Payouts.
+   *
+   * Both read their whole list once. Searching and filtering then happen here,
+   * instantly; Refresh and Mark paid read the list again. What is ticked is
+   * remembered by record, so a tick survives a search: find an order, tick it,
+   * find the next one, tick it, and mark them all paid in one go. The server
+   * still settles one seller or one store per request, so a selection across
+   * several is sent as one request each.
+   */
 
-    $("tableHead").innerHTML = `<tr>
-      <th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify Order Number</th>
-      <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th><th class="status">Shipping Status</th><th>Track</th>
-      <th class="date">Date</th><th class="actions">Actions</th></tr>`;
-    $("tableBody").innerHTML = "";
-    $("rowCount").textContent = "";
-    $("paymentSummary").innerHTML = "";
-    setState("Loading…");
+  const LIST_TTL = 5 * 60 * 1000;
+  const bankAmount = (value) => Number(value || 0).toFixed(2).replace(".", ",");
+  const copyButton = (value, label) => value ? `<button class="act copy" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}">Copy</button>` : "";
 
-    const params = new URLSearchParams();
-    for (const store of state.stores) params.append("store", store);
-    if (state.stores.length && state.storeMode === "exclude") params.set("store_mode", "exclude");
-    if (state.q) params.set("q", state.q);
-    if (state.kind !== "all") params.set("kind", state.kind);
-    if (fresh) params.set("_", Date.now());
+  const money2 = (n) => Math.round(n * 100) / 100;
 
-    try {
-      const data = await api(`/api/admin/payments?${params}`);
-      if (ticket !== state.request) return;
-
-      state.payments = data;
-
-      $("paymentSummary").innerHTML = data.count
-        ? `<span><strong>${data.count}</strong> open amount${data.count === 1 ? "" : "s"}</span><span><strong>${esc(data.groups.length)}</strong> store${data.groups.length === 1 ? "" : "s"}</span><span>total <strong>${esc(money.format(data.total))}</strong></span>`
-        : "";
-
-      $("tableBody").innerHTML = data.groups.map((group, g) => {
-        const age = daysSince(group.oldest);
-        const head = `<tr class="group-row" data-group="${g}"><td colspan="14"><div class="group-head">
-          <input type="checkbox" id="group-all-${g}" data-group-all="${g}" aria-label="Select all of ${esc(group.store)}">
-          <strong>${esc(group.store)}</strong>
-          <span class="meta">${group.rows.length} open</span>
-          <span class="total">${esc(money.format(group.total))}</span>
-          ${age === null ? "" : `<span class="meta age${age >= 14 ? " old" : ""}">oldest ${age} day${age === 1 ? "" : "s"}</span>`}
-          <button class="act run" type="button" data-mark-paid="${g}">Mark paid</button>
-        </div></td></tr>`;
-
-        const rows = group.rows.map((row, r) => `<tr data-id="${esc(row.id)}" data-source="${esc(row.source)}" data-group-row="${g}">
-          <td class="check"><input type="checkbox" id="pay-${g}-${r}" data-pick="${g}" data-index="${r}" aria-label="Select ${esc(row.label)}"></td>
-          <td class="image">${render("image", { value: row.picture })}</td>
-          <td class="id">${render("id", { value: row.label })}</td>
-          <td><span class="kind">${row.source === "store" ? "Order" : "WTB"}</span></td>
-          <td>${render("text", { value: row.number })}</td>
-          <td>${render("text", { value: row.product })}</td>
-          <td>${render("text", { value: row.size })}</td>
-          <td class="money">${render("money", { value: row.amount })}</td>
-          <td class="status">${render("status", { value: row.status })}</td>
-          <td class="status">${render("status", { value: row.fulfillment })}</td>
-          <td class="status">${render("status", { value: row.shipping })}</td>
-          <td>${row.track ? `<a class="act" href="${esc(row.track)}" target="_blank" rel="noopener noreferrer">Track ↗</a>` : '<span class="dash">—</span>'}</td>
-          <td class="date">${render("date", { value: row.date })}</td>
-          <td class="actions"><span class="row-actions">${row.link ? `<button class="act" type="button" data-copy="${esc(row.link)}">Copy link</button><a class="act" href="${esc(row.link)}" target="_blank" rel="noopener noreferrer">Payment link ↗</a>` : '<span class="dash">—</span>'}</span></td>
-        </tr>`).join("");
-
-        return head + rows;
-      }).join("");
-
-      $("tableWrap").style.setProperty("--thead-h", `${$("tableHead").offsetHeight}px`);
-      setState(data.count ? "" : "Nothing open. Every payable order is paid.");
-      $("rowCount").textContent = data.count ? `${data.count} rows` : "";
-    } catch (err) {
-      if (ticket !== state.request) return;
-      setState(err.message, true);
+  const MONEY = {
+    payments: {
+      url: "/api/admin/payments",
+      picked: new Set(),
+      all: null,
+      at: 0,
+      view: null,
+      rowKey: (row) => `${row.source}:${row.id}`,
+      groupKey: (row) => row.store,
+      groupLabel: (row) => row.store,
+      unit: ["amount", "amounts"],
+      who: ["store", "stores"]
+    },
+    payouts: {
+      url: "/api/admin/payouts",
+      picked: new Set(),
+      all: null,
+      at: 0,
+      view: null,
+      rowKey: (row) => row.id,
+      groupKey: (row) => row.seller_record_id || `unknown:${row.seller.name}`,
+      groupLabel: (row) => row.seller.name,
+      unit: ["unit", "units"],
+      who: ["seller", "sellers"]
     }
-  }
+  };
 
-  // Same rules as the server (adminPayouts.js), on the list already loaded.
-  function filterPayouts(all) {
+  const allRows = (m) => (m.all ? m.all.groups.flatMap((group) => group.rows) : []);
+
+  function filterMoney(kind) {
+    const m = MONEY[kind];
     const needle = state.q.toLowerCase();
-    const shippingOk = (row) => {
-      switch (state.shipping) {
-        case "shipped": return row.shipping === "Shipped";
-        case "delivered": return row.shipping === "Delivered";
-        case "shipped_or_delivered": return row.shipping === "Shipped" || row.shipping === "Delivered";
-        case "not_shipped": return row.shipping !== "Shipped" && row.shipping !== "Delivered";
-        default: return true;
-      }
-    };
 
-    const rows = all.groups.flatMap((group) => group.rows).filter((row) =>
-      shippingOk(row) &&
-      (!state.unitType || row.type === state.unitType) &&
-      (!needle || [row.seller.name, row.seller.person, row.seller.discord, row.seller.id, row.item, row.reference, row.product, row.sku].join(" ").toLowerCase().includes(needle))
-    );
+    const rows = allRows(m).filter((row) => {
+      if (kind === "payments") {
+        if (state.stores.length && (state.storeMode === "exclude" ? state.stores.includes(row.store) : !state.stores.includes(row.store))) return false;
+        if (state.kind !== "all" && row.source !== state.kind) return false;
+        return !needle || [row.store, row.label, row.number, row.product, row.sku].join(" ").toLowerCase().includes(needle);
+      }
+
+      const shippingOk = state.shipping === "shipped" ? row.shipping === "Shipped"
+        : state.shipping === "delivered" ? row.shipping === "Delivered"
+        : state.shipping === "shipped_or_delivered" ? row.shipping === "Shipped" || row.shipping === "Delivered"
+        : state.shipping === "not_shipped" ? row.shipping !== "Shipped" && row.shipping !== "Delivered"
+        : true;
+
+      return shippingOk &&
+        (!state.unitType || row.type === state.unitType) &&
+        (!needle || [row.seller.name, row.seller.person, row.seller.discord, row.seller.id, row.item, row.reference, row.product, row.sku].join(" ").toLowerCase().includes(needle));
+    });
 
     const groups = new Map();
+
     for (const row of rows) {
-      const key = row.seller_record_id || `unknown:${row.seller.name}`;
-      if (!groups.has(key)) groups.set(key, { key, seller: row.seller, rows: [], total: 0 });
+      const key = m.groupKey(row);
+      if (!groups.has(key)) groups.set(key, { key, label: m.groupLabel(row), seller: row.seller, store: row.store, rows: [], total: 0, oldest: "" });
       const group = groups.get(key);
       group.rows.push(row);
-      group.total = Math.round((group.total + row.amount) * 100) / 100;
+      group.total = money2(group.total + row.amount);
+      if (row.date && (!group.oldest || row.date < group.oldest)) group.oldest = row.date;
     }
 
-    const list = [...groups.values()].sort((a, b) => b.total - a.total);
+    const list = [...groups.values()];
 
-    return {
-      groups: list,
-      count: rows.length,
-      total: Math.round(list.reduce((sum, group) => sum + group.total, 0) * 100) / 100,
-      types: all.types
-    };
+    if (kind === "payments") {
+      for (const group of list) group.rows.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      list.sort((a, b) => (a.oldest || "9").localeCompare(b.oldest || "9"));
+    } else {
+      list.sort((a, b) => b.total - a.total);
+    }
+
+    return { groups: list, count: rows.length, total: money2(list.reduce((sum, group) => sum + group.total, 0)) };
   }
 
-  async function loadPayouts(ticket, fresh) {
-    $("crumb").textContent = "Money";
-    $("viewTitle").textContent = "Payouts";
-    document.title = "Payouts · Lojiq Admin";
+  // Everything ticked, over the whole list, whatever the search shows now.
+  function pickedRows(kind, groupKey = null) {
+    const m = MONEY[kind];
+    return allRows(m).filter((row) => m.picked.has(m.rowKey(row)) && (groupKey === null || m.groupKey(row) === groupKey));
+  }
 
-    $("tableHead").innerHTML = `<tr>
-      <th class="check"></th><th class="image">Picture</th><th class="id">Item ID</th><th>Type</th><th>Product</th><th>Size</th>
-      <th>Order / WTB ID</th><th>Shopify</th><th class="money">Payout</th><th class="money">Shipping Deduction</th><th class="status">Verification Status</th>
-      <th class="status">Shipping Status</th><th>Track</th><th class="date">Purchase Date</th></tr>`;
-    // The whole To Pay list is read once; searching and filtering then happen
-    // here, instantly. Refresh and Mark paid read it again.
-    const haveList = state.payoutsAll && !fresh && Date.now() - state.payoutsAt < 5 * 60 * 1000;
+  function drawSelection(kind) {
+    const m = MONEY[kind];
+    const rows = pickedRows(kind);
+    const view = m.view;
+
+    const listed = view && view.count
+      ? kind === "payments"
+        ? `<span><strong>${view.count}</strong> open ${view.count === 1 ? "amount" : "amounts"}</span><span><strong>${view.groups.length}</strong> ${view.groups.length === 1 ? "store" : "stores"}</span><span>total <strong>${esc(money.format(view.total))}</strong></span>`
+        : `<span><strong>${view.count}</strong> ${view.count === 1 ? "unit" : "units"} on To Pay</span><span><strong>${view.groups.length}</strong> ${view.groups.length === 1 ? "seller" : "sellers"}</span><span>total <strong>${esc(money.format(view.total))}</strong></span>`
+      : "";
+
+    const selected = rows.length
+      ? `<span class="selection"><strong>${rows.length}</strong> selected · <strong>${esc(money.format(money2(rows.reduce((sum, row) => sum + row.amount, 0))))}</strong>
+          <button class="act run" type="button" data-paid-selected="${kind}">Mark selected paid</button>
+          <button class="act" type="button" data-clear-selected="${kind}">Clear</button></span>`
+      : "";
+
+    $("paymentSummary").innerHTML = listed + selected;
+  }
+
+  async function loadMoney(kind, ticket, fresh) {
+    const m = MONEY[kind];
+    const isPayouts = kind === "payouts";
+
+    $("crumb").textContent = "Money";
+    $("viewTitle").textContent = isPayouts ? "Payouts" : "Open Payments";
+    document.title = `${isPayouts ? "Payouts" : "Open Payments"} · Lojiq Admin`;
+
+    $("tableHead").innerHTML = isPayouts
+      ? `<tr><th class="check"></th><th class="image">Picture</th><th class="id">Item ID</th><th>Type</th><th>Product</th><th>Size</th>
+         <th>Order / WTB ID</th><th>Shopify</th><th class="money">Payout</th><th class="money">Shipping Deduction</th><th class="status">Verification Status</th>
+         <th class="status">Shipping Status</th><th>Track</th><th class="date">Purchase Date</th></tr>`
+      : `<tr><th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify Order Number</th>
+         <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th><th class="status">Shipping Status</th><th>Track</th>
+         <th class="date">Date</th><th class="actions">Actions</th></tr>`;
+
+    const haveList = m.all && !fresh && Date.now() - m.at < LIST_TTL;
 
     if (!haveList) {
       $("tableBody").innerHTML = "";
@@ -1436,140 +1449,179 @@
 
     try {
       if (!haveList) {
-        const all = await api(`/api/admin/payouts${fresh ? `?_=${Date.now()}` : ""}`);
+        const all = await api(`${m.url}${fresh ? `?_=${Date.now()}` : ""}`);
         if (ticket !== state.request) return;
-        state.payoutsAll = all;
-        state.payoutsAt = Date.now();
+
+        m.all = all;
+        m.at = Date.now();
+
+        // A tick on something that is no longer on the list goes.
+        const present = new Set(allRows(m).map(m.rowKey));
+        for (const key of [...m.picked]) if (!present.has(key)) m.picked.delete(key);
       }
 
-      const data = filterPayouts(state.payoutsAll);
-      state.payouts = data;
+      if (isPayouts) {
+        $("typeFilter").innerHTML = '<option value="">Every type</option>' + (m.all.types || []).map((type) => `<option value="${esc(type)}">${esc(type)}</option>`).join("");
+        $("typeFilter").value = state.unitType;
+      }
 
-      $("typeFilter").innerHTML = '<option value="">Every type</option>' + data.types.map((type) => `<option value="${esc(type)}">${esc(type)}</option>`).join("");
-      $("typeFilter").value = state.unitType;
+      const view = filterMoney(kind);
+      m.view = view;
 
-      $("paymentSummary").innerHTML = data.count
-        ? `<span><strong>${data.count}</strong> unit${data.count === 1 ? "" : "s"} on To Pay</span><span><strong>${data.groups.length}</strong> seller${data.groups.length === 1 ? "" : "s"}</span><span>total <strong>${esc(money.format(data.total))}</strong></span>`
-        : "";
-
-      $("tableBody").innerHTML = data.groups.map((group, g) => {
-        const info = group.seller.payout_info;
-        const head = `<tr class="group-row"><td colspan="14"><div class="group-head">
-          <input type="checkbox" id="unit-all-${g}" data-unit-all="${g}" aria-label="Select all of ${esc(group.seller.name)}">
-          <span class="copy-cell"><strong>${esc(group.seller.name)}</strong>${copyButton(group.seller.name, "Name")}</span>
-          ${group.seller.id ? `<span class="meta">${esc(group.seller.id)}</span>` : ""}
-          ${group.seller.discord ? `<span class="meta">@${esc(group.seller.discord.replace(/^@/, ""))}</span>` : ""}
-          <span class="meta">${group.rows.length} unit${group.rows.length === 1 ? "" : "s"}</span>
-          <span class="copy-cell"><span class="total">${esc(money.format(group.total))}</span>${copyButton(bankAmount(group.total), "Total")}</span>
-          <span class="payout-info${info ? "" : " missing"}">${info ? esc(info) : "No Payout Info"}${copyButton(info, "Payout Info")}</span>
-          <button class="act run" type="button" data-unit-paid="${g}">Mark paid</button>
-        </div></td></tr>`;
-
-        const rows = group.rows.map((row, r) => `<tr data-unit="${esc(row.id)}">
-          <td class="check"><input type="checkbox" id="unit-${g}-${r}" data-unit-pick="${g}" data-index="${r}" aria-label="Select ${esc(row.item)}"></td>
-          <td class="image">${render("image", { value: row.picture })}</td>
-          <td class="id">${render("id", { value: row.item })}</td>
-          <td>${render("text", { value: row.type })}</td>
-          <td>${render("text", { value: row.product })}</td>
-          <td>${render("text", { value: row.size })}</td>
-          <td><span class="copy-cell">${render("id", { value: row.reference_id })}${copyButton(row.reference_id, row.reference_id.startsWith("MWTB") ? "Member WTB ID" : "Order ID")}</span></td>
-          <td>${render("text", { value: row.shopify })}</td>
-          <td class="money"><span class="copy-cell">${render("money", { value: row.amount })}${copyButton(row.amount ? bankAmount(row.amount) : "", "Payout")}</span></td>
-          <td class="money">${row.deduction ? render("money", { value: row.deduction }) : '<span class="dash">—</span>'}</td>
-          <td class="status">${render("status", { value: row.verification })}</td>
-          <td class="status">${render("status", { value: row.shipping })}</td>
-          <td>${row.track ? `<a class="act" href="${esc(row.track)}" target="_blank" rel="noopener noreferrer">Track ↗</a>` : '<span class="dash">—</span>'}</td>
-          <td class="date">${render("date", { value: row.date })}</td>
-        </tr>`).join("");
-
-        return head + rows;
-      }).join("");
+      drawMoneyRows(kind);
+      drawSelection(kind);
 
       $("tableWrap").style.setProperty("--thead-h", `${$("tableHead").offsetHeight}px`);
-      setState(data.count ? "" : "Nothing to pay out with these filters.");
-      $("rowCount").textContent = data.count ? `${data.count} rows` : "";
+      setState(view.count ? "" : isPayouts ? "Nothing to pay out with these filters." : "Nothing open with these filters.");
+      $("rowCount").textContent = view.count ? `${view.count} rows` : "";
     } catch (err) {
       if (ticket !== state.request) return;
       setState(err.message, true);
     }
   }
 
-  const bankAmount = (value) => Number(value || 0).toFixed(2).replace(".", ",");
-  const copyButton = (value, label) => value ? `<button class="act copy" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}">Copy</button>` : "";
+  function drawMoneyRows(kind) {
+    const m = MONEY[kind];
+    const isPayouts = kind === "payouts";
 
-  function openUnitsPaid(groupIndex) {
-    const group = state.payouts.groups[groupIndex];
-    const rows = [...$("tableBody").querySelectorAll(`input[data-unit-pick="${groupIndex}"]:checked`)].map((box) => group.rows[Number(box.dataset.index)]);
+    $("tableBody").innerHTML = m.view.groups.map((group) => {
+      const allTicked = group.rows.every((row) => m.picked.has(m.rowKey(row)));
+      const groupBox = `<input type="checkbox" data-group-key="${esc(group.key)}" data-money="${kind}"${allTicked ? " checked" : ""} aria-label="Select all of ${esc(group.label)}">`;
+      const paidButton = `<button class="act run" type="button" data-group-paid="${esc(group.key)}" data-money="${kind}">Mark paid</button>`;
 
-    if (!rows.length) {
-      toast("Tick the units you paid first.");
-      return;
-    }
+      let head;
 
-    const total = rows.reduce((sum, row) => sum + row.amount, 0);
+      if (isPayouts) {
+        const info = group.seller.payout_info;
+        head = `<tr class="group-row"><td colspan="14"><div class="group-head">
+          ${groupBox}
+          <span class="copy-cell"><strong>${esc(group.seller.name)}</strong>${copyButton(group.seller.name, "Name")}</span>
+          ${group.seller.id ? `<span class="meta">${esc(group.seller.id)}</span>` : ""}
+          ${group.seller.discord ? `<span class="meta">@${esc(group.seller.discord.replace(/^@/, ""))}</span>` : ""}
+          <span class="meta">${group.rows.length} ${group.rows.length === 1 ? "unit" : "units"}</span>
+          <span class="copy-cell"><span class="total">${esc(money.format(group.total))}</span>${copyButton(bankAmount(group.total), "Total")}</span>
+          <span class="payout-info${info ? "" : " missing"}">${info ? esc(info) : "No Payout Info"}${copyButton(info, "Payout Info")}</span>
+          ${paidButton}
+        </div></td></tr>`;
+      } else {
+        const age = daysSince(group.oldest);
+        head = `<tr class="group-row"><td colspan="14"><div class="group-head">
+          ${groupBox}
+          <strong>${esc(group.store)}</strong>
+          <span class="meta">${group.rows.length} open</span>
+          <span class="total">${esc(money.format(group.total))}</span>
+          ${age === null ? "" : `<span class="meta age${age >= 14 ? " old" : ""}">oldest ${age} ${age === 1 ? "day" : "days"}</span>`}
+          ${paidButton}
+        </div></td></tr>`;
+      }
 
-    pending = { payout: { ids: rows.map((row) => row.id) } };
+      const rows = group.rows.map((row) => {
+        const key = m.rowKey(row);
+        const box = `<td class="check"><input type="checkbox" data-pick-key="${esc(key)}" data-money="${kind}"${m.picked.has(key) ? " checked" : ""} aria-label="Select ${esc(isPayouts ? row.item : row.label)}"></td>`;
+        const track = `<td>${row.track ? `<a class="act" href="${esc(row.track)}" target="_blank" rel="noopener noreferrer">Track ↗</a>` : '<span class="dash">—</span>'}</td>`;
 
-    $("actionTitle").textContent = `Mark paid · ${group.seller.name}`;
-    $("actionText").classList.remove("blocked");
-    $("actionText").textContent = `${rows.length} unit${rows.length === 1 ? "" : "s"}, ${money.format(total)} in total, paid to this seller? Payment Status becomes Paid.`;
-    $("actionInputs").innerHTML = `<p class="note">${rows.map((row) => esc(row.item)).join(", ")}</p>`;
-    $("actionError").textContent = "";
-    $("actionConfirm").textContent = "Mark paid";
-    $("actionConfirm").disabled = false;
-    $("actionDialog").showModal();
-    $("actionConfirm").focus();
-  }
+        if (isPayouts) {
+          return `<tr data-unit="${esc(row.id)}">
+            ${box}
+            <td class="image">${render("image", { value: row.picture })}</td>
+            <td class="id">${render("id", { value: row.item })}</td>
+            <td>${render("text", { value: row.type })}</td>
+            <td>${render("text", { value: row.product })}</td>
+            <td>${render("text", { value: row.size })}</td>
+            <td><span class="copy-cell">${render("id", { value: row.reference_id })}${copyButton(row.reference_id, row.reference_id.startsWith("MWTB") ? "Member WTB ID" : "Order ID")}</span></td>
+            <td>${render("text", { value: row.shopify })}</td>
+            <td class="money"><span class="copy-cell">${render("money", { value: row.amount })}${copyButton(row.amount ? bankAmount(row.amount) : "", "Payout")}</span></td>
+            <td class="money">${row.deduction ? render("money", { value: row.deduction }) : '<span class="dash">—</span>'}</td>
+            <td class="status">${render("status", { value: row.verification })}</td>
+            <td class="status">${render("status", { value: row.shipping })}</td>
+            ${track}
+            <td class="date">${render("date", { value: row.date })}</td>
+          </tr>`;
+        }
 
-  function pickedIn(group) {
-    return [...$("tableBody").querySelectorAll(`input[data-pick="${group}"]:checked`)]
-      .map((box) => state.payments.groups[group].rows[Number(box.dataset.index)]);
+        return `<tr data-id="${esc(row.id)}" data-source="${esc(row.source)}">
+          ${box}
+          <td class="image">${render("image", { value: row.picture })}</td>
+          <td class="id">${render("id", { value: row.label })}</td>
+          <td><span class="kind">${row.source === "store" ? "Order" : "WTB"}</span></td>
+          <td>${render("text", { value: row.number })}</td>
+          <td>${render("text", { value: row.product })}</td>
+          <td>${render("text", { value: row.size })}</td>
+          <td class="money">${render("money", { value: row.amount })}</td>
+          <td class="status">${render("status", { value: row.status })}</td>
+          <td class="status">${render("status", { value: row.fulfillment })}</td>
+          <td class="status">${render("status", { value: row.shipping })}</td>
+          ${track}
+          <td class="date">${render("date", { value: row.date })}</td>
+          <td class="actions"><span class="row-actions">${row.link ? `<button class="act" type="button" data-copy="${esc(row.link)}">Copy link</button><a class="act" href="${esc(row.link)}" target="_blank" rel="noopener noreferrer">Payment link ↗</a>` : '<span class="dash">—</span>'}</span></td>
+        </tr>`;
+      }).join("");
+
+      return head + rows;
+    }).join("");
   }
 
   $("tableBody").addEventListener("change", (event) => {
-    const unitAll = event.target.closest("input[data-unit-all]");
-    if (unitAll) {
-      for (const box of $("tableBody").querySelectorAll(`input[data-unit-pick="${unitAll.dataset.unitAll}"]`)) box.checked = unitAll.checked;
-      return;
+    const groupBox = event.target.closest("input[data-group-key]");
+    const rowBox = event.target.closest("input[data-pick-key]");
+    const box = groupBox || rowBox;
+    if (!box) return;
+
+    const kind = box.dataset.money;
+    const m = MONEY[kind];
+
+    if (groupBox) {
+      const group = m.view.groups.find((g) => g.key === groupBox.dataset.groupKey);
+      for (const row of group?.rows || []) {
+        if (groupBox.checked) m.picked.add(m.rowKey(row));
+        else m.picked.delete(m.rowKey(row));
+      }
+      for (const input of $("tableBody").querySelectorAll("input[data-pick-key]")) input.checked = m.picked.has(input.dataset.pickKey);
+    } else {
+      if (rowBox.checked) m.picked.add(rowBox.dataset.pickKey);
+      else m.picked.delete(rowBox.dataset.pickKey);
+
+      const group = m.view.groups.find((g) => g.rows.some((row) => m.rowKey(row) === rowBox.dataset.pickKey));
+      const head = group && [...$("tableBody").querySelectorAll("input[data-group-key]")].find((input) => input.dataset.groupKey === group.key);
+      if (head) head.checked = group.rows.every((row) => m.picked.has(m.rowKey(row)));
     }
 
-    const unitBox = event.target.closest("input[data-unit-pick]");
-    if (unitBox) {
-      const boxes = [...$("tableBody").querySelectorAll(`input[data-unit-pick="${unitBox.dataset.unitPick}"]`)];
-      $(`unit-all-${unitBox.dataset.unitPick}`).checked = boxes.every((b) => b.checked);
-      return;
-    }
-
-    const all = event.target.closest("input[data-group-all]");
-    if (all) {
-      for (const box of $("tableBody").querySelectorAll(`input[data-pick="${all.dataset.groupAll}"]`)) box.checked = all.checked;
-      return;
-    }
-
-    const box = event.target.closest("input[data-pick]");
-    if (box) {
-      const boxes = [...$("tableBody").querySelectorAll(`input[data-pick="${box.dataset.pick}"]`)];
-      $(`group-all-${box.dataset.pick}`).checked = boxes.every((b) => b.checked);
-    }
+    drawSelection(kind);
   });
 
-  function openMarkPaid(groupIndex) {
-    const group = state.payments.groups[groupIndex];
-    const rows = pickedIn(groupIndex);
+  // One request per seller or store, as the server settles them.
+  function openMoneyPaid(kind, rows) {
+    const m = MONEY[kind];
 
     if (!rows.length) {
-      toast("Tick at least one amount of this store first.");
+      toast(kind === "payouts" ? "Tick the units you paid first." : "Tick the amounts that were paid first.");
       return;
     }
 
-    const total = rows.reduce((sum, row) => sum + row.amount, 0);
+    const batches = new Map();
+    for (const row of rows) {
+      const key = m.groupKey(row);
+      if (!batches.has(key)) batches.set(key, { label: m.groupLabel(row), rows: [] });
+      batches.get(key).rows.push(row);
+    }
 
-    pending = { payment: { store: group.store, targets: rows.map((row) => ({ source: row.source, id: row.id })) } };
+    const list = [...batches.values()];
+    const total = money2(rows.reduce((sum, row) => sum + row.amount, 0));
+    const [one, many] = m.unit;
+    const [who, whos] = m.who;
 
-    $("actionTitle").textContent = `Mark paid · ${group.store}`;
+    pending = { money: { kind, batches: list } };
+
+    $("actionTitle").textContent = list.length === 1 ? `Mark paid · ${list[0].label}` : `Mark paid · ${list.length} ${whos}`;
     $("actionText").classList.remove("blocked");
-    $("actionText").textContent = `${rows.length} amount${rows.length === 1 ? "" : "s"}, ${money.format(total)} in total, received by bank transfer? They are marked Paid with today's date, recorded as one Bank Transfer payment, and any payment link they were on is cancelled.`;
-    $("actionInputs").innerHTML = `<p class="note">${rows.map((row) => esc(row.label)).join(", ")}</p>`;
+    $("actionText").textContent = kind === "payouts"
+      ? `${rows.length} ${rows.length === 1 ? one : many}, ${money.format(total)} in total, paid to ${list.length === 1 ? "this seller" : `${list.length} sellers`}? Payment Status becomes Paid.`
+      : `${rows.length} ${rows.length === 1 ? one : many}, ${money.format(total)} in total, received by bank transfer? They are marked Paid with today's date, recorded as one Bank Transfer payment per store, and any payment link they were on is cancelled.`;
+    $("actionInputs").innerHTML = list.map((batch) => {
+      const sum = money2(batch.rows.reduce((s, row) => s + row.amount, 0));
+      const ids = batch.rows.map((row) => kind === "payouts" ? row.item : row.label).join(", ");
+      return `<p class="note"><strong>${esc(batch.label)}</strong> · ${batch.rows.length} · ${esc(money.format(sum))}<br>${esc(ids)}</p>`;
+    }).join("");
     $("actionError").textContent = "";
     $("actionConfirm").textContent = "Mark paid";
     $("actionConfirm").disabled = false;
@@ -1577,12 +1629,60 @@
     $("actionConfirm").focus();
   }
 
-  $("tableBody").addEventListener("click", (event) => {
-    const markPaid = event.target.closest("button[data-mark-paid]");
-    if (markPaid) return openMarkPaid(Number(markPaid.dataset.markPaid));
+  async function submitMoneyPaid() {
+    const { kind, batches } = pending.money;
+    const m = MONEY[kind];
+    const done = [];
+    const failed = [];
 
-    const unitPaid = event.target.closest("button[data-unit-paid]");
-    if (unitPaid) return openUnitsPaid(Number(unitPaid.dataset.unitPaid));
+    $("actionConfirm").disabled = true;
+    $("actionError").textContent = "";
+
+    for (const batch of batches) {
+      try {
+        const body = kind === "payouts"
+          ? { ids: batch.rows.map((row) => row.id) }
+          : { targets: batch.rows.map((row) => ({ source: row.source, id: row.id })) };
+
+        const result = await api(kind === "payouts" ? "/api/admin/payouts/mark-paid" : "/api/admin/payments/mark-paid", { method: "POST", body: JSON.stringify(body) });
+
+        for (const row of batch.rows) m.picked.delete(m.rowKey(row));
+        done.push(result.message || `${batch.label} marked paid.`);
+      } catch (err) {
+        failed.push(`${batch.label}: ${err.message}`);
+      }
+    }
+
+    loadList({ fresh: true });
+
+    if (failed.length) {
+      $("actionError").textContent = failed.join(" ");
+      $("actionInputs").innerHTML = done.map((line) => `<p class="note">✓ ${esc(line)}</p>`).join("");
+      pending = null;
+      $("actionConfirm").disabled = true;
+      return;
+    }
+
+    pending = null;
+    $("actionDialog").close();
+    toast(done.join(" "));
+  }
+
+  $("paymentSummary").addEventListener("click", (event) => {
+    const paid = event.target.closest("button[data-paid-selected]");
+    if (paid) return openMoneyPaid(paid.dataset.paidSelected, pickedRows(paid.dataset.paidSelected));
+
+    const clear = event.target.closest("button[data-clear-selected]");
+    if (clear) {
+      MONEY[clear.dataset.clearSelected].picked.clear();
+      drawMoneyRows(clear.dataset.clearSelected);
+      drawSelection(clear.dataset.clearSelected);
+    }
+  });
+
+  $("tableBody").addEventListener("click", (event) => {
+    const groupPaid = event.target.closest("button[data-group-paid]");
+    if (groupPaid) return openMoneyPaid(groupPaid.dataset.money, pickedRows(groupPaid.dataset.money, groupPaid.dataset.groupPaid));
 
     const copy = event.target.closest("button[data-copy]");
     if (copy) {
@@ -1592,6 +1692,7 @@
     }
 
     if (event.target.closest("input, tr.group-row")) return;
+    if (event.target.closest("tr[data-unit]")) return;
 
     const button = event.target.closest("button[data-action]");
     if (button) {
@@ -1767,41 +1868,7 @@
     event.preventDefault();
     if (!pending) return;
 
-    if (pending.payout) {
-      $("actionConfirm").disabled = true;
-      $("actionError").textContent = "";
-
-      try {
-        const result = await api("/api/admin/payouts/mark-paid", { method: "POST", body: JSON.stringify({ ids: pending.payout.ids }) });
-        pending = null;
-        $("actionDialog").close();
-        toast(result.message || "Marked paid.");
-        loadList({ fresh: true });
-      } catch (err) {
-        $("actionError").textContent = err.message;
-        $("actionConfirm").disabled = false;
-      }
-
-      return;
-    }
-
-    if (pending.payment) {
-      $("actionConfirm").disabled = true;
-      $("actionError").textContent = "";
-
-      try {
-        const result = await api("/api/admin/payments/mark-paid", { method: "POST", body: JSON.stringify({ targets: pending.payment.targets }) });
-        pending = null;
-        $("actionDialog").close();
-        toast(result.message || "Marked paid.");
-        loadList({ fresh: true });
-      } catch (err) {
-        $("actionError").textContent = err.message;
-        $("actionConfirm").disabled = false;
-      }
-
-      return;
-    }
+    if (pending.money) return submitMoneyPaid();
 
     const { key, source, id, def } = pending;
     const input = {};
