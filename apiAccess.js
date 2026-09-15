@@ -119,7 +119,13 @@ export function createApiAccess({ sessionSecret, kickzBaseUrl, serviceSecret, pu
 
     // Logged in the old way, through the browser only: send them through the
     // login once, which is what sets the cookie.
-    if (!merchant) return res.redirect("/");
+    //
+    // FIXED - this went to "/" plainly, and the login page sends anyone the
+    // browser remembers straight on to /portal. So a store logged in from
+    // before API Access existed clicked the tab and landed back where it
+    // started, with nothing said. The login page now knows why it was sent
+    // there, asks for the password once, and comes back here.
+    if (!merchant) return res.redirect("/?next=api-access");
 
     const config = {
       brand: "Lojiq",

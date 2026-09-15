@@ -170,8 +170,18 @@
     const backToLoginBtn = document.getElementById("backToLoginBtn");
     const forgotMessageBox = document.getElementById("forgotMessageBox");
 
+    // Sent here by API Access, which needs a login this browser does not
+    // have yet. Only this one destination is honoured, so the parameter can
+    // never be used to send someone elsewhere after logging in.
+    const wantsApiAccess = new URLSearchParams(window.location.search).get("next") === "api-access";
+    const afterLogin = wantsApiAccess ? "/api-access" : "/portal";
+
     const existingMerchant = localStorage.getItem("lojiq_merchant");
-    if (existingMerchant) {
+
+    if (wantsApiAccess) {
+      errorBox.textContent = "Please log in again to open API Access.";
+      errorBox.style.display = "block";
+    } else if (existingMerchant) {
       window.location.href = "/portal";
     }
 
@@ -198,7 +208,7 @@
         }
 
         localStorage.setItem("lojiq_merchant", JSON.stringify(data.merchant));
-        window.location.href = "/portal";
+        window.location.href = afterLogin;
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.style.display = "block";
