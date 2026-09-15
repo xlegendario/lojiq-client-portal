@@ -1179,7 +1179,7 @@
 
     $("tableHead").innerHTML = `<tr>
       <th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify Order Number</th>
-      <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th><th class="status">Shipping Status</th>
+      <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th><th class="status">Shipping Status</th><th>Track</th>
       <th class="date">Date</th><th class="actions">Actions</th></tr>`;
     $("tableBody").innerHTML = "";
     $("rowCount").textContent = "";
@@ -1205,7 +1205,7 @@
 
       $("tableBody").innerHTML = data.groups.map((group, g) => {
         const age = daysSince(group.oldest);
-        const head = `<tr class="group-row" data-group="${g}"><td colspan="13"><div class="group-head">
+        const head = `<tr class="group-row" data-group="${g}"><td colspan="14"><div class="group-head">
           <input type="checkbox" id="group-all-${g}" data-group-all="${g}" checked aria-label="Select all of ${esc(group.store)}">
           <strong>${esc(group.store)}</strong>
           <span class="meta">${group.rows.length} open</span>
@@ -1226,8 +1226,9 @@
           <td class="status">${render("status", { value: row.status })}</td>
           <td class="status">${render("status", { value: row.fulfillment })}</td>
           <td class="status">${render("status", { value: row.shipping })}</td>
+          <td>${row.track ? `<a class="act" href="${esc(row.track)}" target="_blank" rel="noopener noreferrer">Track ↗</a>` : '<span class="dash">—</span>'}</td>
           <td class="date">${render("date", { value: row.date })}</td>
-          <td class="actions"><span class="row-actions">${row.track ? `<a class="act" href="${esc(row.track)}" target="_blank" rel="noopener noreferrer">Track ↗</a>` : ""}${row.link ? `<button class="act" type="button" data-copy="${esc(row.link)}">Copy link</button><a class="act" href="${esc(row.link)}" target="_blank" rel="noopener noreferrer">Payment link ↗</a>` : ""}</span></td>
+          <td class="actions"><span class="row-actions">${row.link ? `<button class="act" type="button" data-copy="${esc(row.link)}">Copy link</button><a class="act" href="${esc(row.link)}" target="_blank" rel="noopener noreferrer">Payment link ↗</a>` : '<span class="dash">—</span>'}</span></td>
         </tr>`).join("");
 
         return head + rows;
