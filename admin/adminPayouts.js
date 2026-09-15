@@ -92,6 +92,9 @@ function unitRow(record, sellers, orderIds = new Map()) {
     verification: text(f["Verification Status"]),
     availability: text(f["Availability Status"]),
     reference,
+    // Just the ID, for pasting into the bank transfer's description.
+    reference_id: onOrder ? orderId : onWtb ? text(first(f["Member WTB ID"])) : "",
+    shopify: onOrder ? [text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ") : "",
     shipping: onOrder ? text(first(f["Shipping Status"])) : onWtb ? text(first(f["Shipping Status (MWTB)"])) : "",
     track: onOrder ? webUrl(f["Tracking URL (from Unfulfilled Orders Log)"]) : onWtb ? webUrl(f["Tracking URL (MWTB)"]) : "",
     date: text(f["Purchase Date"]),
