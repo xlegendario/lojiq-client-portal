@@ -6,6 +6,9 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Lojiq Admin</title>
   <link rel="icon" href="/favicon.png">
+  <script>
+    try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
+  </script>
   <style>
     /* Same palette as the store portal (portal.html), so the two read as one
        product: flat near-black, Lojiq blue as the only accent. */
@@ -23,7 +26,87 @@
       --green: #16B364;
       --red: #F04438;
       --warning: #F59E0B;
+
+      /* Everything below is what used to be written out by hand in the rules. */
+      --strong: #FFFFFF;
+      --faint: #55555D;
+      --nav-title: #5F5F68;
+      --hover-border: #3A3A41;
+      --strip: #1B1C21;
+      --strip-head: #202127;
+      --strip-line: #2E2F36;
+      --strip-hover: #212329;
+      --strip-selected: #1F2530;
+      --strip-head-text: #B4B4BC;
+      --row-hover: rgba(102, 179, 255, 0.06);
+      --row-selected: rgba(102, 179, 255, 0.12);
+      --pill-bg: rgba(139, 139, 149, 0.16);
+      --pill-text: #CFCFD7;
+      --good-bg: rgba(22, 179, 100, 0.16);
+      --good-text: #4ADE9A;
+      --wait-bg: rgba(245, 158, 11, 0.16);
+      --wait-text: #FBBF4C;
+      --move-bg: rgba(47, 128, 237, 0.18);
+      --bad-bg: rgba(240, 68, 56, 0.16);
+      --bad-text: #FF7A70;
+      --run-border: rgba(47, 128, 237, 0.55);
+      --choice-checked: rgba(47, 128, 237, 0.1);
+      --toast-bg: #0F2A1E;
+      --toast-border: rgba(22, 179, 100, 0.5);
+      --toast-text: #D6F5E6;
+      --shadow: rgba(0, 0, 0, 0.5);
+      --backdrop: rgba(0, 0, 0, 0.6);
+      --logo-plate: transparent;
       color-scheme: dark;
+    }
+
+    /* Light, for whoever prefers it; chosen with the switch at the bottom of
+       the sidebar and remembered per browser. */
+    :root[data-theme="light"] {
+      --bg: #F3F5F8;
+      --panel: #FFFFFF;
+      --panel-2: #F0F2F6;
+      --border: #DCE0E7;
+      --text: #1A1D23;
+      --muted: #616875;
+      --nav-item: #3E4450;
+      --primary: #2F80ED;
+      --primary-soft: #1B64C8;
+      --primary-tint: rgba(47, 128, 237, 0.12);
+      --green: #12975A;
+      --red: #D63B30;
+      --warning: #B86E00;
+      --strong: #0C0E13;
+      --faint: #A2A8B2;
+      --nav-title: #8A909B;
+      --hover-border: #C3C9D3;
+      --strip: #F1F3F7;
+      --strip-head: #E8EBF1;
+      --strip-line: #D3D8E0;
+      --strip-hover: #E7ECF4;
+      --strip-selected: #DCE7F8;
+      --strip-head-text: #4A505B;
+      --row-hover: rgba(47, 128, 237, 0.05);
+      --row-selected: rgba(47, 128, 237, 0.1);
+      --pill-bg: rgba(97, 104, 117, 0.12);
+      --pill-text: #3E4450;
+      --good-bg: rgba(18, 151, 90, 0.12);
+      --good-text: #0C7446;
+      --wait-bg: rgba(214, 139, 0, 0.14);
+      --wait-text: #8F5500;
+      --move-bg: rgba(47, 128, 237, 0.12);
+      --bad-bg: rgba(214, 59, 48, 0.1);
+      --bad-text: #B42E24;
+      --run-border: rgba(47, 128, 237, 0.5);
+      --choice-checked: rgba(47, 128, 237, 0.08);
+      --toast-bg: #E6F5EC;
+      --toast-border: rgba(18, 151, 90, 0.45);
+      --toast-text: #0E4F31;
+      --shadow: rgba(20, 28, 40, 0.14);
+      --backdrop: rgba(20, 28, 40, 0.35);
+      /* The logo is white lettering; on a light page it sits on a dark plate. */
+      --logo-plate: #121215;
+      color-scheme: light;
     }
 
     * { box-sizing: border-box; }
@@ -93,7 +176,7 @@
       white-space: nowrap;
     }
 
-    .btn:hover { border-color: #3a3a41; }
+    .btn:hover { border-color: var(--hover-border); }
     .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 4px 16px rgba(47, 128, 237, 0.32); }
     .btn.primary:disabled { opacity: 0.6; cursor: default; }
     .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
@@ -122,7 +205,10 @@
     }
 
     .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
-    .logo img { width: 104px; height: auto; display: block; }
+    .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
+    :root[data-theme="light"] .logo img { padding: 4px 6px; }
+    :root[data-theme="light"] .login-card img { background: var(--logo-plate); border-radius: 8px; padding: 6px 8px; }
+    .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
     .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
 
     .nav-title {
@@ -130,7 +216,7 @@
       font-weight: 800;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #5F5F68;
+      color: var(--nav-title);
       margin: 14px 8px 5px;
     }
 
@@ -147,9 +233,9 @@
       font-size: 12px;
     }
 
-    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: #fff; }
+    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
     .nav-item.active { font-weight: 700; }
-    .nav-item.soon { color: #55555d; pointer-events: none; }
+    .nav-item.soon { color: var(--faint); pointer-events: none; }
     .nav-item.soon small { font-size: 10px; }
 
     .sidebar-foot {
@@ -192,7 +278,7 @@
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 10px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 16px 40px var(--shadow);
       max-height: 60vh;
       overflow-y: auto;
       padding: 6px;
@@ -231,7 +317,7 @@
     .picker { position: relative; }
     .picker-button { position: relative; min-width: 180px; max-width: 280px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 26px; }
     .picker-button::after { content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11px; }
-    .picker-button.active { border-color: var(--primary); color: #fff; }
+    .picker-button.active { border-color: var(--primary); color: var(--strong); }
 
     .popover {
       position: absolute;
@@ -243,7 +329,7 @@
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 10px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 16px 40px var(--shadow);
       padding: 10px;
       display: flex;
       flex-direction: column;
@@ -253,7 +339,7 @@
     .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--panel-2); border-radius: 8px; padding: 3px; }
     .mode label { position: relative; display: flex; align-items: center; justify-content: center; height: 28px; border-radius: 6px; cursor: pointer; color: var(--muted); font-weight: 700; }
     .mode input { position: absolute; opacity: 0; pointer-events: none; }
-    .mode label:has(input:checked) { background: var(--primary-tint); color: #fff; }
+    .mode label:has(input:checked) { background: var(--primary-tint); color: var(--strong); }
     .mode label:has(input:focus-visible) { outline: 2px solid var(--primary-soft); }
 
     .store-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; }
@@ -280,7 +366,7 @@
     th {
       position: sticky;
       top: 0;
-      z-index: 2;
+      z-index: 4;
       background: var(--panel-2);
       text-align: left;
       font-size: 10.5px;
@@ -304,16 +390,16 @@
     }
 
     tbody tr { cursor: pointer; }
-    tbody tr:hover td { background: rgba(102, 179, 255, 0.06); }
-    tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
+    tbody tr:hover td { background: var(--row-hover); }
+    tbody tr.selected td { background: var(--row-selected); }
     tbody tr:last-child td { border-bottom: 0; }
 
     td.money, td.hours { text-align: right; font-variant-numeric: tabular-nums; }
     th.money, th.hours { text-align: right; }
     /* Same face and size as the rest of the row; a monospace SKU read as smaller. */
     .mono { font-variant-numeric: tabular-nums; }
-    .id { font-weight: 700; color: #fff; }
-    .dash { color: #55555d; }
+    .id { font-weight: 700; color: var(--strong); }
+    .dash { color: var(--faint); }
     .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
     .thumb.empty { background: var(--panel-2); border: 1px dashed var(--border); }
 
@@ -325,14 +411,14 @@
       border-radius: 999px;
       font-size: 11px;
       font-weight: 700;
-      background: rgba(139, 139, 149, 0.16);
-      color: #CFCFD7;
+      background: var(--pill-bg);
+      color: var(--pill-text);
     }
 
-    .pill.good { background: rgba(22, 179, 100, 0.16); color: #4ADE9A; }
-    .pill.wait { background: rgba(245, 158, 11, 0.16); color: #FBBF4C; }
-    .pill.move { background: rgba(47, 128, 237, 0.18); color: var(--primary-soft); }
-    .pill.bad { background: rgba(240, 68, 56, 0.16); color: #FF7A70; }
+    .pill.good { background: var(--good-bg); color: var(--good-text); }
+    .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
+    .pill.move { background: var(--move-bg); color: var(--primary-soft); }
+    .pill.bad { background: var(--bad-bg); color: var(--bad-text); }
 
     /* Buttons stay in view at the right edge of a wide table. */
     /* Its own lighter strip with a rule on the left, so it reads as a separate
@@ -342,13 +428,13 @@
       right: 0;
       z-index: 1;
       text-align: left;
-      background: #1B1C21;
-      border-left: 1px solid #2E2F36;
-      box-shadow: -12px 0 14px -12px rgba(0, 0, 0, 0.7);
+      background: var(--strip);
+      border-left: 1px solid var(--strip-line);
+      box-shadow: -12px 0 14px -12px var(--shadow);
     }
-    th.actions { z-index: 3; background: #202127; color: #B4B4BC; }
-    tbody tr:hover td.actions { background: #212329; }
-    tbody tr.selected td.actions { background: #1F2530; }
+    th.actions { z-index: 5; background: var(--strip-head); color: var(--strip-head-text); }
+    tbody tr:hover td.actions { background: var(--strip-hover); }
+    tbody tr.selected td.actions { background: var(--strip-selected); }
     .row-actions { display: inline-flex; gap: 6px; }
     .act {
       height: 28px;
@@ -365,8 +451,8 @@
       align-items: center;
       white-space: nowrap;
     }
-    .act:hover { border-color: var(--primary); color: #fff; }
-    .act.run { border-color: rgba(47, 128, 237, 0.55); color: var(--primary-soft); }
+    .act:hover { border-color: var(--primary); color: var(--strong); }
+    .act.run { border-color: var(--run-border); color: var(--primary-soft); }
     .panel-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
     .panel-actions:empty { display: none; }
 
@@ -377,9 +463,9 @@
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 0;
-      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 30px 80px var(--shadow);
     }
-    dialog.action-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog.action-dialog::backdrop { background: var(--backdrop); }
     .action-form { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
     .action-form h2 { margin: 0; font-size: 17px; }
     .action-form p { margin: 0; color: var(--muted); line-height: 1.45; }
@@ -391,7 +477,7 @@
     .choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .choices legend { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
     .choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); cursor: pointer; line-height: 1.4; }
-    .choice:has(input:checked) { border-color: var(--primary); background: rgba(47, 128, 237, 0.1); }
+    .choice:has(input:checked) { border-color: var(--primary); background: var(--choice-checked); }
     .choice input { margin-top: 3px; accent-color: var(--primary); }
     .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
@@ -402,32 +488,34 @@
       transform: translateX(-50%);
       z-index: 60;
       max-width: min(560px, calc(100vw - 32px));
-      background: #0f2a1e;
-      border: 1px solid rgba(22, 179, 100, 0.5);
-      color: #d6f5e6;
+      background: var(--toast-bg);
+      border: 1px solid var(--toast-border);
+      color: var(--toast-text);
       padding: 12px 16px;
       border-radius: 10px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 16px 40px var(--shadow);
     }
 
     /* ---------- open payments ---------- */
-    tr.group-row td { background: #1B1C21; border-top: 1px solid #2E2F36; padding: 10px 12px; cursor: default; white-space: normal; max-width: none; overflow: visible; }
-    tbody tr.group-row:hover td { background: #1B1C21; }
+    tr.group-row td { background: var(--strip); border-top: 1px solid var(--strip-line); padding: 10px 12px; cursor: default; white-space: normal; max-width: none; overflow: visible; }
+    /* A seller or store bar stays under the column headers until the next one pushes it out. */
+    tr.group-row td { position: sticky; top: var(--thead-h, 34px); z-index: 3; }
+    tbody tr.group-row:hover td { background: var(--strip); }
     /* The group header stays in view while the wide table scrolls sideways. */
     .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; position: sticky; left: 12px; width: max-content; max-width: calc(100vw - 290px); }
     @media (max-width: 860px) { .group-head { max-width: calc(100vw - 70px); } }
-    .group-head strong { font-size: 14px; color: #fff; }
+    .group-head strong { font-size: 14px; color: var(--strong); }
     .group-head .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
-    .group-head .total { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .group-head .total { color: var(--strong); font-weight: 700; font-variant-numeric: tabular-nums; }
     .group-head .spacer { flex: 1 1 auto; }
     .group-head .age.old { color: var(--warning); font-weight: 700; }
     td.check, th.check { width: 34px; text-align: center; }
     td.check input, th.check input, .group-head input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
     .kind { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-    .payout-info { display: inline-flex; align-items: center; gap: 8px; max-width: 520px; padding: 4px 8px; border: 1px solid #2E2F36; border-radius: 7px; background: var(--panel); color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .payout-info { display: inline-flex; align-items: center; gap: 8px; max-width: 520px; padding: 4px 8px; border: 1px solid var(--strip-line); border-radius: 7px; background: var(--panel); color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .payout-info.missing { color: var(--warning); }
     .summary-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); }
-    .summary-bar strong { color: #fff; font-variant-numeric: tabular-nums; }
+    .summary-bar strong { color: var(--strong); font-variant-numeric: tabular-nums; }
 
     .state { padding: 40px 16px; text-align: center; color: var(--muted); }
     .state.error-state { color: var(--red); }
@@ -443,7 +531,7 @@
       height: 100vh;
       background: var(--panel);
       border-left: 1px solid var(--border);
-      box-shadow: -20px 0 50px rgba(0, 0, 0, 0.45);
+      box-shadow: -20px 0 50px var(--shadow);
       z-index: 40;
       display: flex;
       flex-direction: column;
@@ -473,7 +561,7 @@
     @media (max-width: 860px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { position: fixed; left: 0; top: 0; width: 240px; z-index: 50; background: var(--bg); transform: translateX(-100%); transition: transform 0.18s ease; }
-      .sidebar.open { transform: none; box-shadow: 20px 0 50px rgba(0, 0, 0, 0.5); }
+      .sidebar.open { transform: none; box-shadow: 20px 0 50px var(--shadow); }
       .nav-toggle { display: inline-flex; align-items: center; }
       .topbar { padding: 0 16px; }
       .content { padding: 16px; }
@@ -525,6 +613,7 @@
 
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName"></strong></span>
+        <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
         <button class="btn ghost" id="logoutButton" type="button">Log out</button>
       </div>
     </nav>
@@ -1273,6 +1362,7 @@
         return head + rows;
       }).join("");
 
+      $("tableWrap").style.setProperty("--thead-h", `${$("tableHead").offsetHeight}px`);
       setState(data.count ? "" : "Nothing open. Every payable order is paid.");
       $("rowCount").textContent = data.count ? `${data.count} rows` : "";
     } catch (err) {
@@ -1346,6 +1436,7 @@
         return head + rows;
       }).join("");
 
+      $("tableWrap").style.setProperty("--thead-h", `${$("tableHead").offsetHeight}px`);
       setState(data.count ? "" : "Nothing to pay out with these filters.");
       $("rowCount").textContent = data.count ? `${data.count} rows` : "";
     } catch (err) {
@@ -1843,6 +1934,24 @@
       $("loginButton").disabled = false;
     }
   });
+
+  function syncThemeSwitch() {
+    const light = document.documentElement.dataset.theme === "light";
+    $("themeSwitch").textContent = light ? "Dark mode" : "Light mode";
+    $("themeSwitch").setAttribute("aria-pressed", String(light));
+  }
+
+  $("themeSwitch").addEventListener("click", () => {
+    const light = document.documentElement.dataset.theme !== "light";
+
+    if (light) document.documentElement.dataset.theme = "light";
+    else delete document.documentElement.dataset.theme;
+
+    try { localStorage.setItem("lojiq-admin-theme", light ? "light" : "dark"); } catch { /* not remembered, still switched */ }
+    syncThemeSwitch();
+  });
+
+  syncThemeSwitch();
 
   $("logoutButton").addEventListener("click", async () => {
     await api("/api/admin/logout", { method: "POST", body: "{}" }).catch(() => {});
