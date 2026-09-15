@@ -411,9 +411,11 @@
     }
 
     /* ---------- open payments ---------- */
-    tr.group-row td { background: #1B1C21; border-top: 1px solid #2E2F36; padding: 10px 12px; cursor: default; white-space: normal; max-width: none; }
+    tr.group-row td { background: #1B1C21; border-top: 1px solid #2E2F36; padding: 10px 12px; cursor: default; white-space: normal; max-width: none; overflow: visible; }
     tbody tr.group-row:hover td { background: #1B1C21; }
-    .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+    /* The group header stays in view while the wide table scrolls sideways. */
+    .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; position: sticky; left: 12px; width: max-content; max-width: calc(100vw - 290px); }
+    @media (max-width: 860px) { .group-head { max-width: calc(100vw - 70px); } }
     .group-head strong { font-size: 14px; color: #fff; }
     .group-head .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
     .group-head .total { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -422,6 +424,8 @@
     td.check, th.check { width: 34px; text-align: center; }
     td.check input, th.check input, .group-head input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
     .kind { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .payout-info { display: inline-flex; align-items: center; gap: 8px; max-width: 520px; padding: 4px 8px; border: 1px solid #2E2F36; border-radius: 7px; background: var(--panel); color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .payout-info.missing { color: var(--warning); }
     .summary-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); }
     .summary-bar strong { color: #fff; font-variant-numeric: tabular-nums; }
 
@@ -518,7 +522,6 @@
 
       <div class="nav-title">Money</div>
       <div id="navMoney"></div>
-      <span class="nav-item soon">Payouts <small>soon</small></span>
 
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName"></strong></span>
@@ -564,6 +567,16 @@
             <option value="all">Store orders and member WTBs</option>
             <option value="store">Store orders</option>
             <option value="mwtb">Member WTBs</option>
+          </select>
+          <select class="select" id="shippingFilter" aria-label="Shipping Status" hidden>
+            <option value="all">Every shipping status</option>
+            <option value="shipped_or_delivered">Shipped or Delivered</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="not_shipped">Not shipped yet</option>
+          </select>
+          <select class="select" id="typeFilter" aria-label="Seller Type" hidden>
+            <option value="">Every type</option>
           </select>
           <input class="input" id="buyerFilter" type="search" placeholder="Buyer" aria-label="Buyer" hidden>
           <input class="input" id="listSearch" type="search" placeholder="Search this list" aria-label="Search this list">
@@ -631,6 +644,9 @@
     stores: [],
     storeMode: "include",
     kind: "all",
+    shipping: "all",
+    unitType: "",
+    payouts: null,
     storesKind: "",
     payments: null,
     allStores: [],
@@ -649,7 +665,10 @@
 
   // Open Payments is its own screen, not a list of one table, but it sits in
   // the navigation and the address bar like any tab.
-  const MONEY_VIEWS = [{ key: "payments", section: "money", source: "mixed", label: "Open Payments", columns: [], actions: [] }];
+  const MONEY_VIEWS = [
+    { key: "payments", section: "money", source: "mixed", label: "Open Payments", columns: [], actions: [] },
+    { key: "payouts", section: "money", source: "units", label: "Payouts", columns: [], actions: [] }
+  ];
 
   /* ---------------- helpers ---------------- */
 
@@ -738,6 +757,8 @@
     state.buyer = params.get("buyer") || "";
     state.q = params.get("q") || "";
     state.kind = ["store", "mwtb"].includes(params.get("kind")) ? params.get("kind") : "all";
+    state.shipping = ["shipped", "delivered", "shipped_or_delivered", "not_shipped"].includes(params.get("shipping")) ? params.get("shipping") : "all";
+    state.unitType = params.get("type") || "";
 
     return params.get("open") || "";
   }
@@ -749,7 +770,9 @@
       for (const store of state.stores) params.append("store", store);
       if (state.stores.length && state.storeMode === "exclude") params.set("mode", "exclude");
     }
-    if (state.section === "money" && state.kind !== "all") params.set("kind", state.kind);
+    if (state.section === "money" && state.view === "payments" && state.kind !== "all") params.set("kind", state.kind);
+    if (state.view === "payouts" && state.shipping !== "all") params.set("shipping", state.shipping);
+    if (state.view === "payouts" && state.unitType) params.set("type", state.unitType);
     if (state.buyer && state.section === "mwtb") params.set("buyer", state.buyer);
     if (state.q) params.set("q", state.q);
     if (open) params.set("open", open);
@@ -809,11 +832,16 @@
 
   function syncFilters() {
     const isMoney = state.section === "money";
-    const isStore = state.section === "store" || isMoney;
+    const isPayouts = isMoney && state.view === "payouts";
+    const isStore = state.section === "store" || (isMoney && !isPayouts);
 
     $("storePicker").hidden = !isStore;
     $("buyerFilter").hidden = state.section !== "mwtb";
-    $("kindFilter").hidden = !isMoney;
+    $("kindFilter").hidden = !isMoney || isPayouts;
+    $("shippingFilter").hidden = !isPayouts;
+    $("typeFilter").hidden = !isPayouts;
+    $("shippingFilter").value = state.shipping;
+    $("typeFilter").value = state.unitType;
     $("kindFilter").value = state.kind;
     $("refreshButton").hidden = false;
     $("storeButton").textContent = storeLabel();
@@ -1045,6 +1073,16 @@
     typing = setTimeout(fn, 350);
   };
 
+  $("shippingFilter").addEventListener("change", () => {
+    state.shipping = $("shippingFilter").value;
+    filtersChanged();
+  });
+
+  $("typeFilter").addEventListener("change", () => {
+    state.unitType = $("typeFilter").value;
+    filtersChanged();
+  });
+
   $("kindFilter").addEventListener("change", () => {
     state.kind = $("kindFilter").value;
     filtersChanged();
@@ -1112,6 +1150,7 @@
     $("paymentSummary").hidden = view.section !== "money";
     $("moreButton").hidden = true;
 
+    if (view.key === "payouts") return loadPayouts(ticket, fresh);
     if (view.section === "money") return loadPayments(ticket, fresh);
 
     $("crumb").textContent = SECTION_LABEL[view.section];
@@ -1206,7 +1245,7 @@
       $("tableBody").innerHTML = data.groups.map((group, g) => {
         const age = daysSince(group.oldest);
         const head = `<tr class="group-row" data-group="${g}"><td colspan="14"><div class="group-head">
-          <input type="checkbox" id="group-all-${g}" data-group-all="${g}" checked aria-label="Select all of ${esc(group.store)}">
+          <input type="checkbox" id="group-all-${g}" data-group-all="${g}" aria-label="Select all of ${esc(group.store)}">
           <strong>${esc(group.store)}</strong>
           <span class="meta">${group.rows.length} open</span>
           <span class="total">${esc(money.format(group.total))}</span>
@@ -1215,7 +1254,7 @@
         </div></td></tr>`;
 
         const rows = group.rows.map((row, r) => `<tr data-id="${esc(row.id)}" data-source="${esc(row.source)}" data-group-row="${g}">
-          <td class="check"><input type="checkbox" id="pay-${g}-${r}" data-pick="${g}" data-index="${r}" checked aria-label="Select ${esc(row.label)}"></td>
+          <td class="check"><input type="checkbox" id="pay-${g}-${r}" data-pick="${g}" data-index="${r}" aria-label="Select ${esc(row.label)}"></td>
           <td class="image">${render("image", { value: row.picture })}</td>
           <td class="id">${render("id", { value: row.label })}</td>
           <td><span class="kind">${row.source === "store" ? "Order" : "WTB"}</span></td>
@@ -1242,12 +1281,122 @@
     }
   }
 
+  async function loadPayouts(ticket, fresh) {
+    $("crumb").textContent = "Money";
+    $("viewTitle").textContent = "Payouts";
+    document.title = "Payouts · Lojiq Admin";
+
+    $("tableHead").innerHTML = `<tr>
+      <th class="check"></th><th class="image">Picture</th><th class="id">Item ID</th><th>Type</th><th>Product</th><th>Size</th>
+      <th>Order / WTB</th><th class="money">Payout</th><th class="money">Shipping Deduction</th><th class="status">Verification Status</th>
+      <th class="status">Shipping Status</th><th>Track</th><th class="date">Purchase Date</th></tr>`;
+    $("tableBody").innerHTML = "";
+    $("rowCount").textContent = "";
+    $("paymentSummary").innerHTML = "";
+    setState("Loading…");
+
+    const params = new URLSearchParams();
+    if (state.shipping !== "all") params.set("shipping", state.shipping);
+    if (state.unitType) params.set("type", state.unitType);
+    if (state.q) params.set("q", state.q);
+    if (fresh) params.set("_", Date.now());
+
+    try {
+      const data = await api(`/api/admin/payouts?${params}`);
+      if (ticket !== state.request) return;
+
+      state.payouts = data;
+
+      $("typeFilter").innerHTML = '<option value="">Every type</option>' + data.types.map((type) => `<option value="${esc(type)}">${esc(type)}</option>`).join("");
+      $("typeFilter").value = state.unitType;
+
+      $("paymentSummary").innerHTML = data.count
+        ? `<span><strong>${data.count}</strong> unit${data.count === 1 ? "" : "s"} on To Pay</span><span><strong>${data.groups.length}</strong> seller${data.groups.length === 1 ? "" : "s"}</span><span>total <strong>${esc(money.format(data.total))}</strong></span>`
+        : "";
+
+      $("tableBody").innerHTML = data.groups.map((group, g) => {
+        const info = group.seller.payout_info;
+        const head = `<tr class="group-row"><td colspan="13"><div class="group-head">
+          <input type="checkbox" id="unit-all-${g}" data-unit-all="${g}" aria-label="Select all of ${esc(group.seller.name)}">
+          <strong>${esc(group.seller.name)}</strong>
+          ${group.seller.id ? `<span class="meta">${esc(group.seller.id)}</span>` : ""}
+          ${group.seller.person && group.seller.person !== group.seller.name ? `<span class="meta">${esc(group.seller.person)}</span>` : ""}
+          <span class="meta">${group.rows.length} unit${group.rows.length === 1 ? "" : "s"}</span>
+          <span class="total">${esc(money.format(group.total))}</span>
+          <span class="payout-info${info ? "" : " missing"}">${info ? esc(info) : "No Payout Info"}${info ? `<button class="act" type="button" data-copy="${esc(info)}">Copy</button>` : ""}</span>
+          <button class="act run" type="button" data-unit-paid="${g}">Mark paid</button>
+        </div></td></tr>`;
+
+        const rows = group.rows.map((row, r) => `<tr data-unit="${esc(row.id)}">
+          <td class="check"><input type="checkbox" id="unit-${g}-${r}" data-unit-pick="${g}" data-index="${r}" aria-label="Select ${esc(row.item)}"></td>
+          <td class="image">${render("image", { value: row.picture })}</td>
+          <td class="id">${render("id", { value: row.item })}</td>
+          <td>${render("text", { value: row.type })}</td>
+          <td>${render("text", { value: row.product })}</td>
+          <td>${render("text", { value: row.size })}</td>
+          <td>${render("text", { value: row.reference })}</td>
+          <td class="money">${render("money", { value: row.amount })}</td>
+          <td class="money">${row.deduction ? render("money", { value: row.deduction }) : '<span class="dash">—</span>'}</td>
+          <td class="status">${render("status", { value: row.verification })}</td>
+          <td class="status">${render("status", { value: row.shipping })}</td>
+          <td>${row.track ? `<a class="act" href="${esc(row.track)}" target="_blank" rel="noopener noreferrer">Track ↗</a>` : '<span class="dash">—</span>'}</td>
+          <td class="date">${render("date", { value: row.date })}</td>
+        </tr>`).join("");
+
+        return head + rows;
+      }).join("");
+
+      setState(data.count ? "" : "Nothing to pay out with these filters.");
+      $("rowCount").textContent = data.count ? `${data.count} rows` : "";
+    } catch (err) {
+      if (ticket !== state.request) return;
+      setState(err.message, true);
+    }
+  }
+
+  function openUnitsPaid(groupIndex) {
+    const group = state.payouts.groups[groupIndex];
+    const rows = [...$("tableBody").querySelectorAll(`input[data-unit-pick="${groupIndex}"]:checked`)].map((box) => group.rows[Number(box.dataset.index)]);
+
+    if (!rows.length) {
+      toast("Tick the units you paid first.");
+      return;
+    }
+
+    const total = rows.reduce((sum, row) => sum + row.amount, 0);
+
+    pending = { payout: { ids: rows.map((row) => row.id) } };
+
+    $("actionTitle").textContent = `Mark paid · ${group.seller.name}`;
+    $("actionText").classList.remove("blocked");
+    $("actionText").textContent = `${rows.length} unit${rows.length === 1 ? "" : "s"}, ${money.format(total)} in total, paid to this seller? Payment Status becomes Paid.`;
+    $("actionInputs").innerHTML = `<p class="note">${rows.map((row) => esc(row.item)).join(", ")}</p>`;
+    $("actionError").textContent = "";
+    $("actionConfirm").textContent = "Mark paid";
+    $("actionConfirm").disabled = false;
+    $("actionDialog").showModal();
+    $("actionConfirm").focus();
+  }
+
   function pickedIn(group) {
     return [...$("tableBody").querySelectorAll(`input[data-pick="${group}"]:checked`)]
       .map((box) => state.payments.groups[group].rows[Number(box.dataset.index)]);
   }
 
   $("tableBody").addEventListener("change", (event) => {
+    const unitAll = event.target.closest("input[data-unit-all]");
+    if (unitAll) {
+      for (const box of $("tableBody").querySelectorAll(`input[data-unit-pick="${unitAll.dataset.unitAll}"]`)) box.checked = unitAll.checked;
+      return;
+    }
+
+    const unitBox = event.target.closest("input[data-unit-pick]");
+    if (unitBox) {
+      const boxes = [...$("tableBody").querySelectorAll(`input[data-unit-pick="${unitBox.dataset.unitPick}"]`)];
+      $(`unit-all-${unitBox.dataset.unitPick}`).checked = boxes.every((b) => b.checked);
+      return;
+    }
+
     const all = event.target.closest("input[data-group-all]");
     if (all) {
       for (const box of $("tableBody").querySelectorAll(`input[data-pick="${all.dataset.groupAll}"]`)) box.checked = all.checked;
@@ -1288,6 +1437,9 @@
   $("tableBody").addEventListener("click", (event) => {
     const markPaid = event.target.closest("button[data-mark-paid]");
     if (markPaid) return openMarkPaid(Number(markPaid.dataset.markPaid));
+
+    const unitPaid = event.target.closest("button[data-unit-paid]");
+    if (unitPaid) return openUnitsPaid(Number(unitPaid.dataset.unitPaid));
 
     const copy = event.target.closest("button[data-copy]");
     if (copy) {
@@ -1462,6 +1614,24 @@
   $("actionForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!pending) return;
+
+    if (pending.payout) {
+      $("actionConfirm").disabled = true;
+      $("actionError").textContent = "";
+
+      try {
+        const result = await api("/api/admin/payouts/mark-paid", { method: "POST", body: JSON.stringify({ ids: pending.payout.ids }) });
+        pending = null;
+        $("actionDialog").close();
+        toast(result.message || "Marked paid.");
+        loadList({ fresh: true });
+      } catch (err) {
+        $("actionError").textContent = err.message;
+        $("actionConfirm").disabled = false;
+      }
+
+      return;
+    }
 
     if (pending.payment) {
       $("actionConfirm").disabled = true;
@@ -1673,7 +1843,7 @@
   window.addEventListener("hashchange", () => {
     if ($("appView").hidden) return;
 
-    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind].join("|");
+    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind, state.shipping, state.unitType].join("|");
     const sectionBefore = state.section;
     const before = listKey();
     const open = readHash();

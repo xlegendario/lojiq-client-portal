@@ -52,6 +52,7 @@ import {
   runAction
 } from "./adminActions.js";
 import { PaymentError, loadOpenPayments, markPaidByBankTransfer } from "./adminPayments.js";
+import { PayoutError, SHIPPING_FILTERS, loadPayouts, markUnitsPaid } from "./adminPayouts.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -895,6 +896,50 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       if (err instanceof PaymentError) return res.status(err.status).json({ error: err.message });
       console.error("[admin] mark paid failed:", err.message);
       res.status(502).json({ error: "Something went wrong while marking this paid. Check the records before trying again." });
+    }
+  });
+
+  /* ----- Payouts ----- */
+
+  router.get("/api/admin/payouts", async (req, res) => {
+    const filters = {
+      shipping: SHIPPING_FILTERS.includes(req.query.shipping) ? req.query.shipping : "all",
+      type: text(req.query.type),
+      search: text(req.query.q)
+    };
+
+    try {
+      const data = await cached(JSON.stringify(["payouts", filters, req.query._ ? Date.now() : 0]), () => loadPayouts(airtable, filters));
+      res.json(data);
+    } catch (err) {
+      console.error("[admin] payouts failed:", err.message);
+      res.status(502).json({ error: "Could not load the payouts from Airtable." });
+    }
+  });
+
+  router.post("/api/admin/payouts/mark-paid", async (req, res) => {
+    try {
+      const result = await markUnitsPaid({ ids: req.body?.ids, airtable });
+
+      cache.clear();
+
+      for (const unit of result.units) {
+        audit.record({
+          actor: req.admin,
+          action: "Payout marked paid",
+          source: "units",
+          recordId: unit.id,
+          label: unit.item,
+          details: { seller: result.seller, units: result.count, total: result.total }
+        });
+      }
+
+      const amount = result.total.toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+      res.json({ ok: true, message: `${result.count} unit${result.count === 1 ? "" : "s"}${result.seller ? ` of ${result.seller}` : ""} marked Paid (${amount}).` });
+    } catch (err) {
+      if (err instanceof PayoutError) return res.status(err.status).json({ error: err.message });
+      console.error("[admin] payout mark paid failed:", err.message);
+      res.status(502).json({ error: "Something went wrong while marking these paid. Check the units before trying again." });
     }
   });
 
