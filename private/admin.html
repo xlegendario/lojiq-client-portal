@@ -1164,7 +1164,7 @@
   let typing;
   const debounce = (fn) => {
     clearTimeout(typing);
-    typing = setTimeout(fn, 350);
+    typing = setTimeout(fn, 250);
   };
 
   $("shippingFilter").addEventListener("change", () => {

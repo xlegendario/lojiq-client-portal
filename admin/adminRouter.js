@@ -450,9 +450,12 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
           formula: buildListFormula(view, filters),
           fields: listFields(view),
           sort: sortFieldFor(view),
-          pageSize: PAGE_SIZE,
+          // A tab that leaves rows out after reading asks for more per page.
+          pageSize: view.exclude ? 100 : PAGE_SIZE,
           offset
         });
+
+        if (view.exclude) page.records = page.records.filter((record) => !view.exclude(record.fields || {}));
 
         const units = view.source === "queue" ? new Map() : await unitsFor(page.records);
 

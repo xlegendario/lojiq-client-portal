@@ -103,8 +103,11 @@ test("filters combine with the tab and only apply where they exist", () => {
   assert.doesNotMatch(formula, /Buyer Name/);
 
   const general = findView("store", "general");
-  assert.match(buildListFormula(general, {}), /^NOT\(AND\(TRIM\(\{Store Name\} & ''\) = 'SneakerAsk'/);
-  assert.match(buildListFormula(general, { stores: ["SneakerAsk"] }), /^AND\(NOT\(/);
+  // SneakerAsk's Found orders are left out after reading, not by a slow formula.
+  assert.equal(buildListFormula(general, {}), "");
+  assert.equal(general.exclude({ "Store Name": ["SneakerAsk"], "Fulfillment Status": "Found & Tracked" }), true);
+  assert.equal(general.exclude({ "Store Name": ["SneakerAsk"], "Fulfillment Status": "Outsource" }), false);
+  assert.equal(general.exclude({ "Store Name": ["Genky"], "Fulfillment Status": "Found" }), false);
 
   // Several stores, left out; duplicates and blanks ignored.
   const excluded = buildListFormula(open, { stores: ["A", "B", "A", " "], storeMode: "exclude" });

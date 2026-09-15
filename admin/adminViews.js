@@ -157,7 +157,14 @@ const TABS = [
     key: "general", section: "store", source: "store", label: "General",
     // Everything, except SneakerAsk's Found and Found & Tracked orders:
     // 2312 rows on 15-09-2026 that Dario does not want in this list.
-    formula: `NOT(AND(TRIM({Store Name} & '') = 'SneakerAsk', ${anyOf("Fulfillment Status", ["Found", "Found & Tracked"])}))`,
+    //
+    // Left out after reading, not in the Airtable formula: that formula made
+    // Airtable evaluate and sort the whole order log, 8 seconds per page,
+    // against 0.4 seconds without it.
+    formula: "",
+    exclude: (f) =>
+      String(Array.isArray(f["Store Name"]) ? f["Store Name"][0] : f["Store Name"] || "").trim() === "SneakerAsk" &&
+      ["Found", "Found & Tracked"].includes(String(f["Fulfillment Status"] || "")),
     columns: [...storeBase, STORE.fulfillment]
   },
   {
