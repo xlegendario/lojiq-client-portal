@@ -144,7 +144,8 @@ const adminPortal = createAdminPortal({
     counterOffersSecret: COUNTER_OFFERS_SECRET,
     kcPortalSecret: KC_PORTAL_SECRET,
     discordUpdatesBaseUrl: DISCORD_UPDATES_BASE_URL,
-    deliveredWebhookUrl: DELIVERED_DISCORD_WEBHOOK_URL
+    deliveredWebhookUrl: DELIVERED_DISCORD_WEBHOOK_URL,
+    mollieApiKey: MOLLIE_API_KEY
   },
   pageFile: adminPagePath(__dirname)
 });

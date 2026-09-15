@@ -410,6 +410,21 @@
       box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
     }
 
+    /* ---------- open payments ---------- */
+    tr.group-row td { background: #1B1C21; border-top: 1px solid #2E2F36; padding: 10px 12px; cursor: default; white-space: normal; max-width: none; }
+    tbody tr.group-row:hover td { background: #1B1C21; }
+    .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+    .group-head strong { font-size: 14px; color: #fff; }
+    .group-head .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .group-head .total { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .group-head .spacer { flex: 1 1 auto; }
+    .group-head .age.old { color: var(--warning); font-weight: 700; }
+    td.check, th.check { width: 34px; text-align: center; }
+    td.check input, th.check input, .group-head input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+    .kind { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .summary-bar { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); }
+    .summary-bar strong { color: #fff; font-variant-numeric: tabular-nums; }
+
     .state { padding: 40px 16px; text-align: center; color: var(--muted); }
     .state.error-state { color: var(--red); }
     .more { display: flex; justify-content: center; }
@@ -502,7 +517,7 @@
       <div id="navMwtb"></div>
 
       <div class="nav-title">Money</div>
-      <span class="nav-item soon">Open Payments <small>soon</small></span>
+      <div id="navMoney"></div>
       <span class="nav-item soon">Payouts <small>soon</small></span>
 
       <div class="sidebar-foot">
@@ -545,6 +560,11 @@
               </div>
             </div>
           </div>
+          <select class="select" id="kindFilter" aria-label="What to show" hidden>
+            <option value="all">Store orders and member WTBs</option>
+            <option value="store">Store orders</option>
+            <option value="mwtb">Member WTBs</option>
+          </select>
           <input class="input" id="buyerFilter" type="search" placeholder="Buyer" aria-label="Buyer" hidden>
           <input class="input" id="listSearch" type="search" placeholder="Search this list" aria-label="Search this list">
           <button class="btn" id="refreshButton" type="button">Refresh</button>
@@ -552,6 +572,8 @@
           <button class="btn ghost" id="deleteFilterButton" type="button" hidden>Delete filter</button>
           <span class="count" id="rowCount"></span>
         </div>
+
+        <div class="summary-bar" id="paymentSummary" hidden></div>
 
         <form class="save-row" id="saveRow" hidden>
           <input class="input" id="saveName" maxlength="60" placeholder="Name, e.g. No SneakerAsk" aria-label="Filter name" autocomplete="off">
@@ -608,6 +630,9 @@
     view: "open",
     stores: [],
     storeMode: "include",
+    kind: "all",
+    storesKind: "",
+    payments: null,
     allStores: [],
     savedFilters: [],
     savedId: "",
@@ -620,7 +645,11 @@
     selected: ""
   };
 
-  const SECTION_LABEL = { store: "Store Orders", mwtb: "Member WTBs" };
+  const SECTION_LABEL = { store: "Store Orders", mwtb: "Member WTBs", money: "Money" };
+
+  // Open Payments is its own screen, not a list of one table, but it sits in
+  // the navigation and the address bar like any tab.
+  const MONEY_VIEWS = [{ key: "payments", section: "money", source: "mixed", label: "Open Payments", columns: [], actions: [] }];
 
   /* ---------------- helpers ---------------- */
 
@@ -708,6 +737,7 @@
     state.storeMode = params.get("mode") === "exclude" ? "exclude" : "include";
     state.buyer = params.get("buyer") || "";
     state.q = params.get("q") || "";
+    state.kind = ["store", "mwtb"].includes(params.get("kind")) ? params.get("kind") : "all";
 
     return params.get("open") || "";
   }
@@ -715,10 +745,11 @@
   function writeHash(open = state.selected) {
     const params = new URLSearchParams();
 
-    if (state.section === "store") {
+    if (state.section === "store" || state.section === "money") {
       for (const store of state.stores) params.append("store", store);
       if (state.stores.length && state.storeMode === "exclude") params.set("mode", "exclude");
     }
+    if (state.section === "money" && state.kind !== "all") params.set("kind", state.kind);
     if (state.buyer && state.section === "mwtb") params.set("buyer", state.buyer);
     if (state.q) params.set("q", state.q);
     if (open) params.set("open", open);
@@ -732,8 +763,8 @@
   /* ---------------- navigation ---------------- */
 
   function drawNav() {
-    for (const section of ["store", "mwtb"]) {
-      $(section === "store" ? "navStore" : "navMwtb").innerHTML = state.views
+    for (const section of ["store", "mwtb", "money"]) {
+      $(section === "store" ? "navStore" : section === "mwtb" ? "navMwtb" : "navMoney").innerHTML = state.views
         .filter((v) => v.section === section)
         .map((v) => `<a class="nav-item${v.section === state.section && v.key === state.view ? " active" : ""}" href="#/${v.section}/${v.key}" data-section="${v.section}" data-view="${v.key}">${esc(v.label)}</a>`)
         .join("");
@@ -752,6 +783,7 @@
     drawNav();
     loadList();
     loadSavedFilters();
+    loadStores();
   }
 
   $("sidebar").addEventListener("click", (event) => {
@@ -776,10 +808,14 @@
   }
 
   function syncFilters() {
-    const isStore = state.section === "store";
+    const isMoney = state.section === "money";
+    const isStore = state.section === "store" || isMoney;
 
     $("storePicker").hidden = !isStore;
-    $("buyerFilter").hidden = isStore;
+    $("buyerFilter").hidden = state.section !== "mwtb";
+    $("kindFilter").hidden = !isMoney;
+    $("kindFilter").value = state.kind;
+    $("refreshButton").hidden = false;
     $("storeButton").textContent = storeLabel();
     $("storeButton").classList.toggle("active", isStore && state.stores.length > 0);
     $("storeModeInclude").checked = state.storeMode !== "exclude";
@@ -812,10 +848,15 @@
       : '<div class="results-empty">No store matches.</div>';
   }
 
+  // Open Payments also lists Manual stores; the order tabs only the stores that have store orders.
   async function loadStores() {
+    const kind = state.section === "money" ? "all" : "store";
+    if (state.storesKind === kind && state.allStores.length) return drawStoreList();
+
     try {
-      const { stores } = await api("/api/admin/stores");
+      const { stores } = await api(kind === "all" ? "/api/admin/stores?all=1" : "/api/admin/stores");
       state.allStores = stores;
+      state.storesKind = kind;
     } catch {
       /* The picker still shows the stores already chosen; the lists still work. */
     }
@@ -896,6 +937,15 @@
 
   async function loadSavedFilters() {
     const section = state.section;
+
+    // Saved filters belong to the order sections.
+    if (section === "money") {
+      state.savedFilters = [];
+      $("savedFilter").hidden = true;
+      $("saveFilterButton").hidden = true;
+      $("deleteFilterButton").hidden = true;
+      return;
+    }
 
     try {
       const data = await api("/api/admin/filters?section=" + encodeURIComponent(section));
@@ -995,6 +1045,11 @@
     typing = setTimeout(fn, 350);
   };
 
+  $("kindFilter").addEventListener("change", () => {
+    state.kind = $("kindFilter").value;
+    filtersChanged();
+  });
+
   $("buyerFilter").addEventListener("input", () => debounce(() => {
     state.buyer = $("buyerFilter").value.trim();
     filtersChanged();
@@ -1054,6 +1109,11 @@
 
     const ticket = ++state.request;
 
+    $("paymentSummary").hidden = view.section !== "money";
+    $("moreButton").hidden = true;
+
+    if (view.section === "money") return loadPayments(ticket, fresh);
+
     $("crumb").textContent = SECTION_LABEL[view.section];
     $("viewTitle").textContent = view.label;
     document.title = `${view.label} · ${SECTION_LABEL[view.section]} · Lojiq Admin`;
@@ -1104,7 +1164,137 @@
 
   $("moreButton").addEventListener("click", () => loadList({ more: true }));
 
+  /* ---------------- open payments ---------------- */
+
+  const DAY = 24 * 60 * 60 * 1000;
+  const daysSince = (value) => {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / DAY)) : null;
+  };
+
+  async function loadPayments(ticket, fresh) {
+    $("crumb").textContent = "Money";
+    $("viewTitle").textContent = "Open Payments";
+    document.title = "Open Payments · Lojiq Admin";
+
+    $("tableHead").innerHTML = `<tr>
+      <th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify Order Number</th>
+      <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th>
+      <th class="date">Date</th><th>Payment Link</th></tr>`;
+    $("tableBody").innerHTML = "";
+    $("rowCount").textContent = "";
+    $("paymentSummary").innerHTML = "";
+    setState("Loading…");
+
+    const params = new URLSearchParams();
+    for (const store of state.stores) params.append("store", store);
+    if (state.stores.length && state.storeMode === "exclude") params.set("store_mode", "exclude");
+    if (state.q) params.set("q", state.q);
+    if (state.kind !== "all") params.set("kind", state.kind);
+    if (fresh) params.set("_", Date.now());
+
+    try {
+      const data = await api(`/api/admin/payments?${params}`);
+      if (ticket !== state.request) return;
+
+      state.payments = data;
+
+      $("paymentSummary").innerHTML = data.count
+        ? `<span><strong>${data.count}</strong> open amount${data.count === 1 ? "" : "s"}</span><span><strong>${esc(data.groups.length)}</strong> store${data.groups.length === 1 ? "" : "s"}</span><span>total <strong>${esc(money.format(data.total))}</strong></span>`
+        : "";
+
+      $("tableBody").innerHTML = data.groups.map((group, g) => {
+        const age = daysSince(group.oldest);
+        const head = `<tr class="group-row" data-group="${g}"><td colspan="12"><div class="group-head">
+          <input type="checkbox" id="group-all-${g}" data-group-all="${g}" checked aria-label="Select all of ${esc(group.store)}">
+          <strong>${esc(group.store)}</strong>
+          <span class="meta">${group.rows.length} open</span>
+          <span class="total">${esc(money.format(group.total))}</span>
+          ${age === null ? "" : `<span class="meta age${age >= 14 ? " old" : ""}">oldest ${age} day${age === 1 ? "" : "s"}</span>`}
+          <button class="act run" type="button" data-mark-paid="${g}">Mark paid</button>
+        </div></td></tr>`;
+
+        const rows = group.rows.map((row, r) => `<tr data-id="${esc(row.id)}" data-source="${esc(row.source)}" data-group-row="${g}">
+          <td class="check"><input type="checkbox" id="pay-${g}-${r}" data-pick="${g}" data-index="${r}" checked aria-label="Select ${esc(row.label)}"></td>
+          <td class="image">${render("image", { value: row.picture })}</td>
+          <td class="id">${render("id", { value: row.label })}</td>
+          <td><span class="kind">${row.source === "store" ? "Order" : "WTB"}</span></td>
+          <td>${render("text", { value: row.number })}</td>
+          <td>${render("text", { value: row.product })}</td>
+          <td>${render("text", { value: row.size })}</td>
+          <td class="money">${render("money", { value: row.amount })}</td>
+          <td class="status">${render("status", { value: row.status })}</td>
+          <td class="status">${render("status", { value: row.fulfillment })}</td>
+          <td class="date">${render("date", { value: row.date })}</td>
+          <td>${row.link ? `<span class="row-actions"><button class="act" type="button" data-copy="${esc(row.link)}">Copy link</button><a class="act" href="${esc(row.link)}" target="_blank" rel="noopener noreferrer">Open ↗</a></span>` : '<span class="dash">—</span>'}</td>
+        </tr>`).join("");
+
+        return head + rows;
+      }).join("");
+
+      setState(data.count ? "" : "Nothing open. Every payable order is paid.");
+      $("rowCount").textContent = data.count ? `${data.count} rows` : "";
+    } catch (err) {
+      if (ticket !== state.request) return;
+      setState(err.message, true);
+    }
+  }
+
+  function pickedIn(group) {
+    return [...$("tableBody").querySelectorAll(`input[data-pick="${group}"]:checked`)]
+      .map((box) => state.payments.groups[group].rows[Number(box.dataset.index)]);
+  }
+
+  $("tableBody").addEventListener("change", (event) => {
+    const all = event.target.closest("input[data-group-all]");
+    if (all) {
+      for (const box of $("tableBody").querySelectorAll(`input[data-pick="${all.dataset.groupAll}"]`)) box.checked = all.checked;
+      return;
+    }
+
+    const box = event.target.closest("input[data-pick]");
+    if (box) {
+      const boxes = [...$("tableBody").querySelectorAll(`input[data-pick="${box.dataset.pick}"]`)];
+      $(`group-all-${box.dataset.pick}`).checked = boxes.every((b) => b.checked);
+    }
+  });
+
+  function openMarkPaid(groupIndex) {
+    const group = state.payments.groups[groupIndex];
+    const rows = pickedIn(groupIndex);
+
+    if (!rows.length) {
+      toast("Tick at least one amount of this store first.");
+      return;
+    }
+
+    const total = rows.reduce((sum, row) => sum + row.amount, 0);
+
+    pending = { payment: { store: group.store, targets: rows.map((row) => ({ source: row.source, id: row.id })) } };
+
+    $("actionTitle").textContent = `Mark paid · ${group.store}`;
+    $("actionText").classList.remove("blocked");
+    $("actionText").textContent = `${rows.length} amount${rows.length === 1 ? "" : "s"}, ${money.format(total)} in total, received by bank transfer? They are marked Paid with today's date, recorded as one Bank Transfer payment, and any payment link they were on is cancelled.`;
+    $("actionInputs").innerHTML = `<p class="note">${rows.map((row) => esc(row.label)).join(", ")}</p>`;
+    $("actionError").textContent = "";
+    $("actionConfirm").textContent = "Mark paid";
+    $("actionConfirm").disabled = false;
+    $("actionDialog").showModal();
+    $("actionConfirm").focus();
+  }
+
   $("tableBody").addEventListener("click", (event) => {
+    const markPaid = event.target.closest("button[data-mark-paid]");
+    if (markPaid) return openMarkPaid(Number(markPaid.dataset.markPaid));
+
+    const copy = event.target.closest("button[data-copy]");
+    if (copy) {
+      navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast("Payment link copied."), () => toast("Could not copy; use Open instead."));
+      return;
+    }
+
+    if (event.target.closest("input, tr.group-row")) return;
+
     const button = event.target.closest("button[data-action]");
     if (button) {
       const row = button.closest("tr[data-id]");
@@ -1117,7 +1307,7 @@
     if (!row) return;
 
     const view = currentView();
-    openRecord(view.source, row.dataset.id);
+    openRecord(row.dataset.source || view.source, row.dataset.id);
   });
 
   /* ---------------- side panel ---------------- */
@@ -1271,6 +1461,24 @@
     event.preventDefault();
     if (!pending) return;
 
+    if (pending.payment) {
+      $("actionConfirm").disabled = true;
+      $("actionError").textContent = "";
+
+      try {
+        const result = await api("/api/admin/payments/mark-paid", { method: "POST", body: JSON.stringify({ targets: pending.payment.targets }) });
+        pending = null;
+        $("actionDialog").close();
+        toast(result.message || "Marked paid.");
+        loadList({ fresh: true });
+      } catch (err) {
+        $("actionError").textContent = err.message;
+        $("actionConfirm").disabled = false;
+      }
+
+      return;
+    }
+
     const { key, source, id, def } = pending;
     const input = {};
     let file = null;
@@ -1407,7 +1615,7 @@
     try {
       const me = await api("/api/admin/me");
       state.user = me.user;
-      state.views = me.views;
+      state.views = [...me.views, ...MONEY_VIEWS];
       state.actions = me.actions || {};
     } catch {
       return;
@@ -1463,7 +1671,7 @@
   window.addEventListener("hashchange", () => {
     if ($("appView").hidden) return;
 
-    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q].join("|");
+    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind].join("|");
     const sectionBefore = state.section;
     const before = listKey();
     const open = readHash();
@@ -1472,7 +1680,7 @@
       syncFilters();
       drawNav();
       loadList();
-      if (state.section !== sectionBefore) loadSavedFilters();
+      if (state.section !== sectionBefore) { loadSavedFilters(); loadStores(); }
     }
 
     const [source, id] = open.split(":");

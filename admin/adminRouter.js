@@ -51,6 +51,7 @@ import {
   rowLinks,
   runAction
 } from "./adminActions.js";
+import { PaymentError, loadOpenPayments, markPaidByBankTransfer } from "./adminPayments.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -243,7 +244,7 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   audit           createAuditLog(...)
  *   savedFilters    createSavedFilters(...)
  *   services        { wmsBaseUrl, kickzBaseUrl, counterOffersSecret, kcPortalSecret,
- *                     discordUpdatesBaseUrl, deliveredWebhookUrl } for the buttons
+ *                     discordUpdatesBaseUrl, deliveredWebhookUrl, mollieApiKey } for the buttons
  *   pageFile        private/admin.html
  */
 export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, fetchImpl = fetch }) {
@@ -255,7 +256,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   const attempts = createAttemptLimiter();
   const cache = new Map();
 
-  let storesCache = { at: 0, names: [] };
+  const storesCache = { store: { at: 0, names: [] }, all: { at: 0, names: [] } };
 
   const page = fs.existsSync(pageFile) ? fs.readFileSync(pageFile, "utf8") : "";
 
@@ -378,13 +379,17 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   // a Manual store only ever has Member WTBs.
   router.get("/api/admin/stores", async (req, res) => {
     try {
-      if (Date.now() - storesCache.at > STORES_CACHE_MS) {
+      // Open Payments also covers Manual stores, whose want-to-buys are billed too.
+      const kind = req.query.all === "1" ? "all" : "store";
+      const entry = storesCache[kind];
+
+      if (Date.now() - entry.at > STORES_CACHE_MS) {
         const names = new Set();
         let offset = "";
 
         do {
           const page = await airtable.select(TABLES.merchants, {
-            formula: `LOWER(TRIM({Order Intake} & '')) != 'manual'`,
+            formula: kind === "all" ? "" : `LOWER(TRIM({Order Intake} & '')) != 'manual'`,
             fields: ["Store Name"],
             pageSize: 100,
             offset
@@ -398,10 +403,11 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
           offset = page.offset;
         } while (offset);
 
-        storesCache = { at: Date.now(), names: [...names].sort((a, b) => a.localeCompare(b)) };
+        entry.at = Date.now();
+        entry.names = [...names].sort((a, b) => a.localeCompare(b));
       }
 
-      res.json({ stores: storesCache.names });
+      res.json({ stores: entry.names });
     } catch (err) {
       console.error("[admin] stores failed:", err.message);
       res.status(502).json({ error: "Could not load the stores from Airtable." });
@@ -793,6 +799,103 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       input: { tracking: text(req.query.tracking) },
       file: req.body
     });
+  });
+
+  /* ----- Open Payments ----- */
+
+  router.get("/api/admin/payments", async (req, res) => {
+    const filters = {
+      stores: [].concat(req.query.store || []).map(text),
+      storeMode: req.query.store_mode === "exclude" ? "exclude" : "include",
+      search: text(req.query.q),
+      kind: ["store", "mwtb"].includes(req.query.kind) ? req.query.kind : "all"
+    };
+
+    try {
+      const data = await cached(JSON.stringify(["payments", filters, req.query._ ? Date.now() : 0]), () => loadOpenPayments(airtable, filters));
+      res.json(data);
+    } catch (err) {
+      console.error("[admin] open payments failed:", err.message);
+      res.status(502).json({ error: "Could not load the open payments from Airtable." });
+    }
+  });
+
+  const paymentDeps = {
+    airtable,
+
+    async tellKickzPaid(memberWtbIds) {
+      if (!service(services.kickzBaseUrl) || !text(services.counterOffersSecret)) {
+        return "Kickz Caviar was not told these want-to-buys are paid (not configured here); the seller's label step may wait.";
+      }
+
+      const failed = [];
+
+      for (const id of memberWtbIds) {
+        try {
+          await post(`${service(services.kickzBaseUrl)}/api/internal/member-wtb-paid`, { member_wtb_record_id: id }, { "x-kc-secret": services.counterOffersSecret });
+        } catch (err) {
+          console.error("[admin] member-wtb-paid failed:", id, err.message);
+          failed.push(id);
+        }
+      }
+
+      return failed.length ? `Kickz Caviar could not be told about ${failed.length} paid want-to-buy(s); the seller's label step may wait.` : "";
+    },
+
+    // A payment link that stays live could still take money for amounts that are paid now.
+    async archiveMollieLink(linkId) {
+      if (!text(services.mollieApiKey)) return "the Mollie link could not be switched off here (no Mollie key); it can still be paid.";
+
+      try {
+        const response = await fetchImpl(`https://api.mollie.com/v2/payment-links/${encodeURIComponent(linkId)}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${services.mollieApiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ archived: true }),
+          signal: AbortSignal.timeout(20_000)
+        });
+
+        if (response.ok) return "";
+
+        const data = await response.json().catch(() => ({}));
+        console.error("[admin] archiving Mollie link failed:", linkId, response.status, data.detail || data.title);
+        return "the Mollie link could not be switched off; it can still be paid. Deactivate it in Mollie.";
+      } catch (err) {
+        console.error("[admin] archiving Mollie link failed:", linkId, err.message);
+        return "the Mollie link could not be switched off; it can still be paid. Deactivate it in Mollie.";
+      }
+    }
+  };
+
+  router.post("/api/admin/payments/mark-paid", async (req, res) => {
+    try {
+      const result = await markPaidByBankTransfer({ targets: req.body?.targets, deps: paymentDeps });
+
+      cache.clear();
+
+      for (const target of result.targets) {
+        audit.record({
+          actor: req.admin,
+          action: "Mark paid (bank transfer)",
+          source: target.source,
+          recordId: target.id,
+          label: target.label,
+          details: { store: result.store, total: result.total, count: result.count, cancelled_links: result.cancelled }
+        });
+      }
+
+      const amount = result.total.toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+      const message = [
+        `${result.count} amount${result.count === 1 ? "" : "s"} for ${result.store} marked paid (${amount}, bank transfer).`,
+        result.cancelled.length ? `Cancelled payment link ${result.cancelled.join(", ")}.` : "",
+        ...result.notes
+      ].filter(Boolean).join(" ");
+
+      res.json({ ok: true, message });
+    } catch (err) {
+      if (err instanceof PaymentError) return res.status(err.status).json({ error: err.message });
+      console.error("[admin] mark paid failed:", err.message);
+      res.status(502).json({ error: "Something went wrong while marking this paid. Check the records before trying again." });
+    }
   });
 
   // One record for the side panel, with its unit and its history.
