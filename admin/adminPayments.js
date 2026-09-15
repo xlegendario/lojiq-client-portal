@@ -31,7 +31,8 @@ export const PAYMENT_TABLES = {
     numberField: "Shopify Order Number",
     dateField: "Order Date",
     fields: ["Order ID", "Store Name", "Client", "Shopify Order Number", "Shopify Product Name", "SKU", "Size", "Picture",
-      "Invoice Price (VAT Included)", "Invoice Status", "Payment Link", "Payment Batches", "Order Date", "Fulfillment Status"]
+      "Invoice Price (VAT Included)", "Invoice Status", "Payment Link", "Payment Batches", "Order Date", "Fulfillment Status",
+      "Shipping Status", "Tracking URL"]
   },
   mwtb: {
     table: "Member WTBs",
@@ -44,7 +45,8 @@ export const PAYMENT_TABLES = {
     numberField: "Member WTB ID",
     dateField: "Date",
     fields: ["Member WTB ID", "Buyer Seller ID", "Buyer Name", "Product Name", "SKU", "Size", "Picture",
-      "Invoice Price", "Final Buying Price", "Payment Status", "Payment Link", "Payment Batches", "Date", "Fulfillment Status"]
+      "Invoice Price", "Final Buying Price", "Payment Status", "Payment Link", "Payment Batches", "Date", "Fulfillment Status",
+      "Shipping Status", "Tracking URL"]
   }
 };
 
@@ -123,6 +125,7 @@ function rowFor(source, record, merchants) {
 
   const picture = Array.isArray(f.Picture) && f.Picture[0] ? f.Picture[0].thumbnails?.small?.url || f.Picture[0].url || "" : "";
   const link = text(f["Payment Link"]);
+  const tracking = text(f["Tracking URL"]);
 
   return {
     id: record.id,
@@ -138,6 +141,8 @@ function rowFor(source, record, merchants) {
     amount: amountOf(source, f),
     status: text(f[spec.statusField]),
     fulfillment: text(f["Fulfillment Status"]),
+    shipping: text(f["Shipping Status"]),
+    track: /^https?:\/\//i.test(tracking) ? tracking : "",
     link: /^https?:\/\//i.test(link) ? link : "",
     date: text(f[spec.dateField])
   };
