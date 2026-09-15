@@ -322,7 +322,9 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     res.json({ user: { email: req.admin.email, name: req.admin.name }, views: publicViews() });
   });
 
-  // Every store name, for the Store Name filter.
+  // Every store that can have store orders, for the Store Name filter: Order
+  // Intake API or Both. Blank counts as API, as it does in the client portal;
+  // a Manual store only ever has Member WTBs.
   router.get("/api/admin/stores", async (req, res) => {
     try {
       if (Date.now() - storesCache.at > STORES_CACHE_MS) {
@@ -330,7 +332,12 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
         let offset = "";
 
         do {
-          const page = await airtable.select(TABLES.merchants, { fields: ["Store Name"], pageSize: 100, offset });
+          const page = await airtable.select(TABLES.merchants, {
+            formula: `LOWER(TRIM({Order Intake} & '')) != 'manual'`,
+            fields: ["Store Name"],
+            pageSize: 100,
+            offset
+          });
 
           for (const record of page.records) {
             const name = text(record.fields?.["Store Name"]);

@@ -268,6 +268,11 @@ test("router: login, guard, list, logout", async () => {
     assert.match(orderCall.searchParams.get("filterByFormula"), /NOT\(OR\(TRIM\(\{Store Name\} & ''\) = 'Test Store',TRIM\(\{Store Name\} & ''\) = 'Other'\)\)/);
     assert.ok(orderCall.searchParams.getAll("fields[]").includes("Target Buying Price"));
 
+    // Manual stores never have store orders, so they are not in the store filter.
+    assert.equal((await fetch(`${base}/api/admin/stores`, { headers: { cookie } })).status, 200);
+    const merchantsCall = air.calls.find((u) => u.pathname.endsWith("Merchants"));
+    assert.equal(merchantsCall.searchParams.get("filterByFormula"), "LOWER(TRIM({Order Intake} & '')) != 'manual'");
+
     assert.equal((await fetch(`${base}/api/admin/list?section=store&view=nope`, { headers: { cookie } })).status, 404);
     assert.equal((await fetch(`${base}/api/admin/record?source=store&id=../../etc`, { headers: { cookie } })).status, 400);
 
