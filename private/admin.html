@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Lojiq Admin</title>
+  <link rel="icon" href="/favicon.png">
+  <style>
+    /* Same palette as the store portal (portal.html), so the two read as one
+       product: flat near-black, Lojiq blue as the only accent. */
+    :root {
+      --bg: #08080A;
+      --panel: #121215;
+      --panel-2: #17171B;
+      --border: #26262B;
+      --text: #E9E9EE;
+      --muted: #8B8B95;
+      --nav-item: #A8A8AF;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --primary-tint: rgba(102, 179, 255, 0.16);
+      --green: #16B364;
+      --red: #F04438;
+      --warning: #F59E0B;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    button, input, select { font: inherit; color: inherit; }
+    a { color: var(--primary-soft); }
+    [hidden] { display: none !important; }
+
+    :focus-visible { outline: 2px solid var(--primary-soft); outline-offset: 2px; }
+
+    /* ---------- login ---------- */
+
+    .login {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 360px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .login-card img { width: 132px; height: auto; }
+    .login-card h1 { margin: 4px 0 0; font-size: 18px; }
+    .login-card p { margin: 0; color: var(--muted); }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+
+    .input, .select {
+      height: 36px;
+      padding: 0 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      min-width: 0;
+    }
+
+    .input:focus, .select:focus { border-color: var(--primary); outline: none; }
+
+    .btn {
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      cursor: pointer;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .btn:hover { border-color: #3a3a41; }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 4px 16px rgba(47, 128, 237, 0.32); }
+    .btn.primary:disabled { opacity: 0.6; cursor: default; }
+    .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+    .btn.ghost:hover { color: var(--text); }
+
+    .error { color: var(--red); min-height: 1em; }
+
+    /* ---------- shell ---------- */
+
+    .app {
+      display: grid;
+      grid-template-columns: 200px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      padding: 16px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
+    .logo img { width: 104px; height: auto; display: block; }
+    .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
+
+    .nav-title {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #5F5F68;
+      margin: 14px 8px 5px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-height: 30px;
+      padding: 0 8px;
+      border-radius: 7px;
+      color: var(--nav-item);
+      text-decoration: none;
+      font-size: 12px;
+    }
+
+    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: #fff; }
+    .nav-item.active { font-weight: 700; }
+    .nav-item.soon { color: #55555d; pointer-events: none; }
+    .nav-item.soon small { font-size: 10px; }
+
+    .sidebar-foot {
+      margin-top: auto;
+      padding: 12px 8px 0;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      color: var(--muted);
+    }
+
+    .sidebar-foot strong { color: var(--text); }
+
+    .main { min-width: 0; display: flex; flex-direction: column; }
+
+    .topbar {
+      height: 60px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 20;
+    }
+
+    .nav-toggle { display: none; }
+
+    .search { position: relative; flex: 1 1 auto; max-width: 520px; }
+    .search .input { width: 100%; }
+
+    .search-results {
+      position: absolute;
+      top: 42px;
+      left: 0;
+      right: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 6px;
+    }
+
+    .result {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 2px 10px;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 7px;
+      border: 0;
+      background: none;
+      cursor: pointer;
+    }
+
+    .result:hover, .result.focus { background: var(--primary-tint); }
+    .result .kind { grid-row: span 2; align-self: center; font-size: 10px; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
+    .result .line { font-weight: 700; }
+    .result .sub { color: var(--muted); font-size: 12px; }
+    .results-empty { padding: 10px; color: var(--muted); }
+
+    .content { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+    .heading { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .heading h1 { margin: 0; font-size: 20px; }
+    .heading .crumb { color: var(--muted); }
+
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .filters .input { width: 240px; }
+    .filters .select { max-width: 240px; }
+    .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    /* ---------- table ---------- */
+
+    .table-wrap {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: auto;
+      background: var(--panel);
+      max-height: calc(100vh - 210px);
+    }
+
+    table { border-collapse: collapse; width: max-content; min-width: 100%; }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--panel-2);
+      text-align: left;
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: middle;
+    }
+
+    tbody tr { cursor: pointer; }
+    tbody tr:hover td { background: rgba(102, 179, 255, 0.06); }
+    tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
+    tbody tr:last-child td { border-bottom: 0; }
+
+    td.money, td.hours { text-align: right; font-variant-numeric: tabular-nums; }
+    th.money, th.hours { text-align: right; }
+    .mono { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: 12px; }
+    .id { font-weight: 700; color: #fff; }
+    .dash { color: #55555d; }
+    .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(139, 139, 149, 0.16);
+      color: #CFCFD7;
+    }
+
+    .pill.good { background: rgba(22, 179, 100, 0.16); color: #4ADE9A; }
+    .pill.wait { background: rgba(245, 158, 11, 0.16); color: #FBBF4C; }
+    .pill.move { background: rgba(47, 128, 237, 0.18); color: var(--primary-soft); }
+    .pill.bad { background: rgba(240, 68, 56, 0.16); color: #FF7A70; }
+
+    .state { padding: 40px 16px; text-align: center; color: var(--muted); }
+    .state.error-state { color: var(--red); }
+    .more { display: flex; justify-content: center; }
+
+    /* ---------- side panel ---------- */
+
+    .panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(480px, 100%);
+      height: 100vh;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      box-shadow: -20px 0 50px rgba(0, 0, 0, 0.45);
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-head h2 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+    .panel-body { overflow-y: auto; padding: 14px 16px 30px; display: flex; flex-direction: column; gap: 18px; }
+
+    .group h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .group dl { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 12px; }
+    .group dt { color: var(--muted); }
+    .group dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .group dd .thumb { width: 96px; height: 96px; }
+
+    .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+    .timeline small { color: var(--muted); }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: fixed; left: 0; top: 0; width: 240px; z-index: 50; background: var(--bg); transform: translateX(-100%); transition: transform 0.18s ease; }
+      .sidebar.open { transform: none; box-shadow: 20px 0 50px rgba(0, 0, 0, 0.5); }
+      .nav-toggle { display: inline-flex; align-items: center; }
+      .topbar { padding: 0 16px; }
+      .content { padding: 16px; }
+      .filters .input, .filters .select { width: 100%; max-width: none; }
+      .count { margin-left: 0; }
+      .group dl { grid-template-columns: 1fr; gap: 2px; }
+      .group dd { margin-bottom: 6px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sidebar { transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= login ================= -->
+  <main class="login" id="loginView" hidden>
+    <form class="login-card" id="loginForm" novalidate>
+      <img src="/logo.png" alt="Lojiq">
+      <h1>Admin</h1>
+      <p>Sign in with your own admin account.</p>
+      <div class="field">
+        <label for="loginEmail">E-mail</label>
+        <input class="input" id="loginEmail" type="email" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="loginPassword">Password</label>
+        <input class="input" id="loginPassword" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="error" id="loginError" role="alert"></div>
+      <button class="btn primary" id="loginButton" type="submit">Sign in</button>
+    </form>
+  </main>
+
+  <!-- ================= app ================= -->
+  <div class="app" id="appView" hidden>
+    <nav class="sidebar" id="sidebar" aria-label="Admin navigation">
+      <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
+
+      <div class="nav-title">Store Orders</div>
+      <div id="navStore"></div>
+
+      <div class="nav-title">Member WTBs</div>
+      <div id="navMwtb"></div>
+
+      <div class="nav-title">Money</div>
+      <span class="nav-item soon">Open Payments <small>soon</small></span>
+      <span class="nav-item soon">Payouts <small>soon</small></span>
+
+      <div class="sidebar-foot">
+        <span>Signed in as <strong id="userName"></strong></span>
+        <button class="btn ghost" id="logoutButton" type="button">Log out</button>
+      </div>
+    </nav>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="btn nav-toggle" id="navToggle" type="button" aria-label="Open navigation">☰</button>
+        <div class="search">
+          <input class="input" id="globalSearch" type="search" placeholder="Search order ID, WTB ID, Shopify number, SKU, tracking…" autocomplete="off" aria-label="Search everything">
+          <div class="search-results" id="searchResults" hidden></div>
+        </div>
+      </header>
+
+      <section class="content">
+        <div class="heading">
+          <span class="crumb" id="crumb"></span>
+          <h1 id="viewTitle"></h1>
+        </div>
+
+        <div class="filters">
+          <select class="select" id="storeFilter" aria-label="Store Name">
+            <option value="">All stores</option>
+          </select>
+          <input class="input" id="buyerFilter" type="search" placeholder="Buyer" aria-label="Buyer" hidden>
+          <input class="input" id="listSearch" type="search" placeholder="Search this list" aria-label="Search this list">
+          <button class="btn" id="refreshButton" type="button">Refresh</button>
+          <span class="count" id="rowCount"></span>
+        </div>
+
+        <div class="table-wrap" id="tableWrap">
+          <table>
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+          <div class="state" id="tableState" hidden></div>
+        </div>
+
+        <div class="more"><button class="btn" id="moreButton" type="button" hidden>Load more</button></div>
+      </section>
+    </div>
+
+    <aside class="panel" id="panel" hidden aria-label="Record details">
+      <div class="panel-head">
+        <h2 id="panelTitle"></h2>
+        <button class="btn ghost" id="panelClose" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="panel-body" id="panelBody"></div>
+    </aside>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const state = {
+    user: null,
+    views: [],
+    section: "store",
+    view: "open",
+    store: "",
+    buyer: "",
+    q: "",
+    rows: [],
+    nextOffset: "",
+    loading: false,
+    request: 0,
+    selected: ""
+  };
+
+  const SECTION_LABEL = { store: "Store Orders", mwtb: "Member WTBs" };
+
+  /* ---------------- helpers ---------------- */
+
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const money = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" });
+  const dateFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  async function api(path, options = {}) {
+    const response = await fetch(path, {
+      credentials: "same-origin",
+      ...options,
+      headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}) }
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (response.status === 401 && !path.endsWith("/login")) {
+      showLogin();
+      throw new Error("Not signed in");
+    }
+
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+
+    return data;
+  }
+
+  function pillClass(value) {
+    const v = String(value).toLowerCase();
+
+    if (/paid|delivered|fulfilled|solved|completed|confirmed|low/.test(v)) return "good";
+    if (/cancel|expired|failed|error|troubled|denied|missing|high|lost/.test(v)) return "bad";
+    if (/shipped|ready|allocated|label|processing/.test(v)) return "move";
+    if (/pending|awaiting|outsource|requested|trusted|medium|to pay/.test(v)) return "wait";
+
+    return "";
+  }
+
+  // One value drawn by its type. Everything from Airtable is escaped.
+  function render(type, cell) {
+    const value = cell?.value;
+    const empty = value === null || value === undefined || value === "";
+
+    if (type === "url") {
+      return cell?.href ? `<a href="${esc(cell.href)}" target="_blank" rel="noopener noreferrer">Open ↗</a>` : `<span class="dash">—</span>`;
+    }
+
+    if (empty) return `<span class="dash">—</span>`;
+
+    switch (type) {
+      case "money": return esc(money.format(value));
+      case "hours": return esc(Math.round(Number(value)));
+      case "date": {
+        const d = new Date(value);
+        return isNaN(d) ? esc(value) : esc(dateFmt.format(d));
+      }
+      case "image": return `<img class="thumb" src="${esc(value)}" alt="" loading="lazy">`;
+      case "status": return `<span class="pill ${pillClass(value)}">${esc(value)}</span>`;
+      case "id": return `<span class="id">${esc(value)}</span>`;
+      default: {
+        const inner = type === "mono" ? `<span class="mono">${esc(value)}</span>` : esc(value);
+        return cell.href ? `<a href="${esc(cell.href)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${inner}</a>` : inner;
+      }
+    }
+  }
+
+  const currentView = () => state.views.find((v) => v.section === state.section && v.key === state.view);
+
+  /* ---------------- routing ---------------- */
+
+  // #/store/open?store=X&q=Y&open=store:recXXX
+  function readHash() {
+    const [pathPart, queryPart = ""] = location.hash.replace(/^#\/?/, "").split("?");
+    const [section, view] = pathPart.split("/");
+    const params = new URLSearchParams(queryPart);
+
+    const exists = state.views.some((v) => v.section === section && v.key === view);
+
+    state.section = exists ? section : "store";
+    state.view = exists ? view : "open";
+    state.store = params.get("store") || "";
+    state.buyer = params.get("buyer") || "";
+    state.q = params.get("q") || "";
+
+    return params.get("open") || "";
+  }
+
+  function writeHash(open = state.selected) {
+    const params = new URLSearchParams();
+
+    if (state.store && state.section === "store") params.set("store", state.store);
+    if (state.buyer && state.section === "mwtb") params.set("buyer", state.buyer);
+    if (state.q) params.set("q", state.q);
+    if (open) params.set("open", open);
+
+    const query = params.toString();
+    const next = `#/${state.section}/${state.view}${query ? `?${query}` : ""}`;
+
+    if (location.hash !== next) history.replaceState(null, "", next);
+  }
+
+  /* ---------------- navigation ---------------- */
+
+  function drawNav() {
+    for (const section of ["store", "mwtb"]) {
+      $(section === "store" ? "navStore" : "navMwtb").innerHTML = state.views
+        .filter((v) => v.section === section)
+        .map((v) => `<a class="nav-item${v.section === state.section && v.key === state.view ? " active" : ""}" href="#/${v.section}/${v.key}" data-section="${v.section}" data-view="${v.key}">${esc(v.label)}</a>`)
+        .join("");
+    }
+  }
+
+  function openTab(section, view) {
+    state.section = section;
+    state.view = view;
+    state.q = "";
+    state.selected = "";
+    $("sidebar").classList.remove("open");
+    closePanel(false);
+    syncFilters();
+    writeHash("");
+    drawNav();
+    loadList();
+  }
+
+  $("sidebar").addEventListener("click", (event) => {
+    const link = event.target.closest("a.nav-item");
+    if (!link) return;
+    event.preventDefault();
+    openTab(link.dataset.section, link.dataset.view);
+  });
+
+  $("navToggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
+
+  /* ---------------- filters ---------------- */
+
+  function syncFilters() {
+    const isStore = state.section === "store";
+
+    $("storeFilter").hidden = !isStore;
+    $("buyerFilter").hidden = isStore;
+    $("storeFilter").value = state.store;
+    $("buyerFilter").value = state.buyer;
+    $("listSearch").value = state.q;
+  }
+
+  async function loadStores() {
+    try {
+      const { stores } = await api("/api/admin/stores");
+      $("storeFilter").innerHTML = `<option value="">All stores</option>` + stores.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+
+      // A store from the address bar that is not in the list still filters.
+      if (state.store && !stores.includes(state.store)) {
+        $("storeFilter").insertAdjacentHTML("beforeend", `<option value="${esc(state.store)}">${esc(state.store)}</option>`);
+      }
+
+      $("storeFilter").value = state.store;
+    } catch {
+      /* The filter stays on "All stores"; the lists still work. */
+    }
+  }
+
+  let typing;
+  const debounce = (fn) => {
+    clearTimeout(typing);
+    typing = setTimeout(fn, 350);
+  };
+
+  $("storeFilter").addEventListener("change", () => {
+    state.store = $("storeFilter").value;
+    writeHash("");
+    loadList();
+  });
+
+  $("buyerFilter").addEventListener("input", () => debounce(() => {
+    state.buyer = $("buyerFilter").value.trim();
+    writeHash("");
+    loadList();
+  }));
+
+  $("listSearch").addEventListener("input", () => debounce(() => {
+    state.q = $("listSearch").value.trim();
+    writeHash("");
+    loadList();
+  }));
+
+  $("refreshButton").addEventListener("click", () => loadList({ fresh: true }));
+
+  /* ---------------- list ---------------- */
+
+  function drawHead(view) {
+    $("tableHead").innerHTML = `<tr>${view.columns.map((c) => `<th class="${c.type}">${esc(c.label)}</th>`).join("")}</tr>`;
+  }
+
+  function drawRows(view, rows, append) {
+    const html = rows
+      .map((row) => `<tr data-id="${esc(row.id)}"${state.selected.endsWith(row.id) ? ' class="selected"' : ""}>${view.columns
+        .map((c) => `<td class="${c.type}">${render(c.type, row.cells[c.key])}</td>`)
+        .join("")}</tr>`)
+      .join("");
+
+    if (append) $("tableBody").insertAdjacentHTML("beforeend", html);
+    else $("tableBody").innerHTML = html;
+  }
+
+  function setState(message, isError = false) {
+    $("tableState").hidden = !message;
+    $("tableState").textContent = message || "";
+    $("tableState").classList.toggle("error-state", isError);
+  }
+
+  async function loadList({ more = false, fresh = false } = {}) {
+    const view = currentView();
+    if (!view) return;
+
+    const ticket = ++state.request;
+
+    $("crumb").textContent = SECTION_LABEL[view.section];
+    $("viewTitle").textContent = view.label;
+    document.title = `${view.label} · ${SECTION_LABEL[view.section]} · Lojiq Admin`;
+
+    if (!more) {
+      drawHead(view);
+      $("tableBody").innerHTML = "";
+      state.rows = [];
+      state.nextOffset = "";
+      $("rowCount").textContent = "";
+      setState("Loading…");
+    }
+
+    $("moreButton").hidden = true;
+
+    const params = new URLSearchParams({ section: view.section, view: view.key });
+    if (state.section === "store" && state.store) params.set("store", state.store);
+    if (state.section === "mwtb" && state.buyer) params.set("buyer", state.buyer);
+    if (state.q) params.set("q", state.q);
+    if (more && state.nextOffset) params.set("offset", state.nextOffset);
+    if (fresh) params.set("_", Date.now());
+
+    try {
+      const data = await api(`/api/admin/list?${params}`);
+
+      // A newer tab or filter was chosen while this one loaded.
+      if (ticket !== state.request) return;
+
+      state.rows = more ? state.rows.concat(data.rows) : data.rows;
+      state.nextOffset = data.next_offset || "";
+
+      drawRows(view, data.rows, more);
+      setState(state.rows.length ? "" : "Nothing here.");
+
+      $("rowCount").textContent = state.rows.length
+        ? `${state.rows.length}${state.nextOffset ? "+" : ""} ${state.rows.length === 1 ? "row" : "rows"}`
+        : "";
+      $("moreButton").hidden = !state.nextOffset;
+    } catch (err) {
+      if (ticket !== state.request) return;
+      if (!more) setState(err.message, true);
+      else $("moreButton").hidden = false;
+    }
+  }
+
+  $("moreButton").addEventListener("click", () => loadList({ more: true }));
+
+  $("tableBody").addEventListener("click", (event) => {
+    if (event.target.closest("a")) return;
+    const row = event.target.closest("tr[data-id]");
+    if (!row) return;
+
+    const view = currentView();
+    openRecord(view.source, row.dataset.id);
+  });
+
+  /* ---------------- side panel ---------------- */
+
+  function markSelected() {
+    for (const row of $("tableBody").querySelectorAll("tr[data-id]")) {
+      row.classList.toggle("selected", state.selected.endsWith(row.dataset.id));
+    }
+  }
+
+  async function openRecord(source, id) {
+    state.selected = `${source}:${id}`;
+    writeHash();
+    markSelected();
+
+    $("panel").hidden = false;
+    $("panelTitle").textContent = "Loading…";
+    $("panelBody").innerHTML = "";
+
+    try {
+      const data = await api(`/api/admin/record?source=${encodeURIComponent(source)}&id=${encodeURIComponent(id)}`);
+
+      if (state.selected !== `${source}:${id}`) return;
+
+      $("panelTitle").textContent = data.label || "Record";
+
+      const groups = data.groups
+        .map((group) => {
+          const rows = group.fields
+            .filter((field) => field.type === "url" ? field.href : field.value !== null && field.value !== "")
+            .map((field) => `<dt>${esc(field.label)}</dt><dd>${render(field.type === "long" ? "text" : field.type, field)}</dd>`)
+            .join("");
+
+          return rows ? `<section class="group"><h3>${esc(group.title)}</h3><dl>${rows}</dl></section>` : "";
+        })
+        .join("");
+
+      const timeline = data.timeline?.length
+        ? `<ul class="timeline">${data.timeline.map((item) => `<li><span><strong>${esc(item.actor_name)}</strong> · ${esc(item.action)}</span><small>${esc(dateFmt.format(new Date(item.created_at)))}</small></li>`).join("")}</ul>`
+        : `<p class="dash">No admin actions on this record yet.</p>`;
+
+      $("panelBody").innerHTML = `${groups}<section class="group"><h3>History</h3>${timeline}</section>`;
+    } catch (err) {
+      if (state.selected !== `${source}:${id}`) return;
+      $("panelTitle").textContent = "Could not open";
+      $("panelBody").innerHTML = `<p class="error">${esc(err.message)}</p>`;
+    }
+  }
+
+  function closePanel(updateHash = true) {
+    $("panel").hidden = true;
+    state.selected = "";
+    markSelected();
+    if (updateHash) writeHash("");
+  }
+
+  $("panelClose").addEventListener("click", () => closePanel());
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (!$("searchResults").hidden) hideResults();
+      else if (!$("panel").hidden) closePanel();
+    }
+  });
+
+  /* ---------------- global search ---------------- */
+
+  let searchTicket = 0;
+  let results = [];
+
+  function hideResults() {
+    $("searchResults").hidden = true;
+  }
+
+  $("globalSearch").addEventListener("input", () => {
+    const query = $("globalSearch").value.trim();
+    const ticket = ++searchTicket;
+
+    if (query.length < 2) return hideResults();
+
+    clearTimeout(typing);
+    typing = setTimeout(async () => {
+      $("searchResults").hidden = false;
+      $("searchResults").innerHTML = `<div class="results-empty">Searching…</div>`;
+
+      try {
+        const data = await api(`/api/admin/search?q=${encodeURIComponent(query)}`);
+        if (ticket !== searchTicket) return;
+
+        results = data.results;
+        $("searchResults").innerHTML = results.length
+          ? results.map((r, i) => `<button class="result" type="button" data-index="${i}"><span class="kind">${r.section === "store" ? "Order" : "WTB"}</span><span class="line">${esc(r.label)} · ${esc(r.title)}</span><span class="sub">${esc(r.sub)}</span></button>`).join("")
+          : `<div class="results-empty">Nothing found for “${esc(query)}”.</div>`;
+      } catch (err) {
+        if (ticket !== searchTicket) return;
+        $("searchResults").innerHTML = `<div class="results-empty error">${esc(err.message)}</div>`;
+      }
+    }, 300);
+  });
+
+  $("searchResults").addEventListener("click", (event) => {
+    const button = event.target.closest(".result");
+    if (!button) return;
+
+    const result = results[Number(button.dataset.index)];
+    hideResults();
+
+    // Open it where every record of its kind is listed, with the panel on it.
+    state.section = result.section;
+    state.view = "general";
+    state.store = "";
+    state.buyer = "";
+    state.q = result.label;
+    syncFilters();
+    drawNav();
+    loadList();
+    openRecord(result.section, result.id);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".search")) hideResults();
+  });
+
+  /* ---------------- session ---------------- */
+
+  function showLogin() {
+    $("appView").hidden = true;
+    $("loginView").hidden = false;
+    $("loginPassword").value = "";
+    $("loginEmail").focus();
+  }
+
+  async function start() {
+    try {
+      const me = await api("/api/admin/me");
+      state.user = me.user;
+      state.views = me.views;
+    } catch {
+      return;
+    }
+
+    $("loginView").hidden = true;
+    $("appView").hidden = false;
+    $("userName").textContent = state.user.name;
+
+    const open = readHash();
+    syncFilters();
+    drawNav();
+    writeHash(open);
+    loadStores();
+    loadList();
+
+    const [source, id] = open.split(":");
+    if (source && id) openRecord(source, id);
+  }
+
+  $("loginForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const email = $("loginEmail").value.trim();
+    const password = $("loginPassword").value;
+
+    if (!email || !password) {
+      $("loginError").textContent = "Fill in your e-mail and password.";
+      return;
+    }
+
+    $("loginButton").disabled = true;
+    $("loginError").textContent = "";
+
+    try {
+      await api("/api/admin/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      $("loginPassword").value = "";
+      await start();
+    } catch (err) {
+      $("loginError").textContent = err.message;
+    } finally {
+      $("loginButton").disabled = false;
+    }
+  });
+
+  $("logoutButton").addEventListener("click", async () => {
+    await api("/api/admin/logout", { method: "POST", body: "{}" }).catch(() => {});
+    location.hash = "";
+    showLogin();
+  });
+
+  window.addEventListener("hashchange", () => {
+    if ($("appView").hidden) return;
+
+    const listKey = () => [state.section, state.view, state.store, state.buyer, state.q].join("|");
+    const before = listKey();
+    const open = readHash();
+
+    if (listKey() !== before) {
+      syncFilters();
+      drawNav();
+      loadList();
+    }
+
+    const [source, id] = open.split(":");
+    if (source && id && state.selected !== open) openRecord(source, id);
+    else if (!open && !$("panel").hidden) closePanel(false);
+  });
+
+  start().then(() => {
+    if ($("appView").hidden) showLogin();
+  });
+})();
+</script>
+</body>
+</html>

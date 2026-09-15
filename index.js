@@ -8,6 +8,8 @@ import Airtable from "airtable";
 import compression from "compression";
 import cron from "node-cron";
 import { apiAccessPagePath, createApiAccess } from "./apiAccess.js";
+import { adminPagePath, createAdminPortal } from "./admin/adminRouter.js";
+import { createAuditLog } from "./admin/adminAudit.js";
 
 dotenv.config();
 
@@ -82,7 +84,13 @@ const {
 
   // API Access. Without a session secret the page and its routes stay off.
   LOJIQ_SESSION_SECRET,
-  LOJIQ_PUBLIC_ORIGIN = "https://portal.lojiq.io"
+  LOJIQ_PUBLIC_ORIGIN = "https://portal.lojiq.io",
+
+  // Admin portal. Stays off until both the secret and the accounts are set.
+  LOJIQ_ADMIN_SECRET,
+  LOJIQ_ADMIN_USERS,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -111,6 +119,22 @@ const apiAccess = createApiAccess({
 
 app.use(apiAccess.router);
 app.use(apiAccess.errorHandler);
+
+/*
+ * Lojiq Admin: /admin and /api/admin, for Dario and his partner. Its own
+ * accounts and its own signed cookie; nothing in it trusts a merchant id from
+ * the browser. See admin/adminRouter.js.
+ */
+const adminPortal = createAdminPortal({
+  usersJson: LOJIQ_ADMIN_USERS,
+  sessionSecret: LOJIQ_ADMIN_SECRET,
+  airtableToken: AIRTABLE_TOKEN,
+  airtableBaseId: AIRTABLE_BASE_ID,
+  audit: createAuditLog({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY }),
+  pageFile: adminPagePath(__dirname)
+});
+
+app.use(adminPortal.router);
 
 function asText(value) {
   if (value === null || value === undefined) return "";
