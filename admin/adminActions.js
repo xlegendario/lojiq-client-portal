@@ -128,9 +128,13 @@ export const ACTIONS = {
   custom_price: {
     label: "Custom Price",
     sources: ["store", "mwtb"],
-    needs: { store: ["Fulfillment Status", "Custom Offer", "Offer Sent?", "Offer VAT Type"], mwtb: ["Fulfillment Status", "Custom Offer", "Offer Sent?"] },
-    inputs: [{ name: "price", label: "Offer price (€), empty to remove the custom price", type: "money", required: false, prefill: "Custom Offer" }],
-    note: "An offer that was already sent is sent again at this price. Not sent yet? Press Send Offer afterwards.",
+    needs: { store: ["Fulfillment Status", "Custom Offer", "Offer Sent?", "Offer VAT Type", "Offer Accepted?", "Store Name"], mwtb: ["Fulfillment Status", "Custom Offer", "Offer Sent?"] },
+    inputs: [
+      { name: "price", label: "Offer price (€), empty to remove the custom price", type: "money", required: false, prefill: "Custom Offer" },
+      // For orders where we set the price ourselves: the Order Processing Form then always uses it.
+      { name: "accepted", label: "Also tick Offer Accepted? (we set this price ourselves)", type: "checkbox", required: false, sources: ["store"] }
+    ],
+    note: "An offer that was already sent is sent again at this price, unless you tick Offer Accepted?. Not sent yet? Press Send Offer afterwards.",
     why: (source, f) => (OPEN.includes(status(f)) ? "" : "Only open orders (Pending or Outsource) can get a custom price."),
     async run({ source, record, input, deps }) {
       const raw = text(input.price).replace(",", ".");
@@ -142,6 +146,36 @@ export const ACTIONS = {
 
       const before = record.fields["Custom Offer"] ?? null;
       const wasSent = Boolean(record.fields["Offer Sent?"]);
+
+      if (source === "store" && input.accepted === true) {
+        if (price === null) throw new ActionError("Enter the price you agreed before ticking Offer Accepted?.", 400);
+
+        // What Dario and his partner tick by hand in Airtable: the price and
+        // Offer Accepted?, nothing else.
+        const fields = { "Custom Offer": price, "Offer Accepted?": true };
+
+        // Only when an offer already went to the store: the engine posts a new
+        // one whenever the price changes while Offer Sent? is on, so it goes
+        // off, and the old offer messages stop being clickable.
+        if (wasSent) fields["Offer Sent?"] = false;
+
+        await deps.airtable.update(TABLES.store, record.id, fields);
+
+        const note = wasSent
+          ? await deps.notify(deps.discordUpdatesUrl, {
+              trigger_type: "disable-offer-messages",
+              store_name: text(first(record.fields["Store Name"])),
+              record_id: record.id,
+              content: "✅ **Price agreed.** This offer is closed.",
+              disable_edit: true
+            }, "update to the store's offer messages")
+          : "";
+
+        return {
+          message: `Custom price set to € ${price} and Offer Accepted? ticked.${note ? ` ${note}` : ""}`,
+          changed: { "Custom Offer": { from: before, to: price }, "Offer Accepted?": { from: Boolean(record.fields["Offer Accepted?"]), to: true }, ...(wasSent ? { "Offer Sent?": false } : {}) }
+        };
+      }
 
       if (source === "store") {
         const fields = { "Custom Offer": price };
@@ -378,6 +412,58 @@ export const ACTIONS = {
       }
 
       return { message: `Counter of € ${price} sent to the seller.`, changed: { counter: price, on: option.summary } };
+    }
+  },
+
+  manual_deal: {
+    label: "Manual Deal",
+    sources: ["store"],
+    needs: { store: ["Fulfillment Status", "Order ID", "Custom Offer", "Offer Accepted?"] },
+    inputs: [
+      { name: "seller", label: "Seller ID (e.g. SE-00035)", type: "text", required: true, max: 20 },
+      { name: "payout", label: "Payout (€)", type: "money", required: true },
+      { name: "vat", label: "VAT Type", type: "select", required: true, options: ["Margin", "VAT0", "VAT21"] }
+    ],
+    note: "Creates an Order Processing Form record for this order, approved straight away, as when you fill it in yourself.",
+    why: (source, f) => (OPEN.includes(status(f)) ? "" : "A manual deal is made on an open order (Pending or Outsource)."),
+    async run({ record, input, deps }) {
+      const sellerCode = text(input.seller).toUpperCase().replace(/\s+/g, "");
+      if (!/^SE-\d{3,6}$/.test(sellerCode)) throw new ActionError("Enter the Seller ID as SE- followed by its number, e.g. SE-00035.", 400);
+
+      const payout = Number(text(input.payout).replace(",", "."));
+      if (!(Number.isFinite(payout) && payout > 0 && payout < 100000)) throw new ActionError("Enter the payout above € 0.", 400);
+
+      const vat = text(input.vat);
+      if (!["Margin", "VAT0", "VAT21"].includes(vat)) throw new ActionError("Choose the VAT type: Margin, VAT0 or VAT21.", 400);
+
+      // Seller ID is a formula, so the form links the seller's record.
+      const { records } = await deps.airtable.select("Sellers Database", {
+        formula: `TRIM({Seller ID} & '') = '${sellerCode}'`,
+        fields: ["Seller ID", "Full Name", "Company Name"],
+        pageSize: 2,
+        maxRecords: 2
+      });
+
+      if (!records.length) throw new ActionError(`No seller found with Seller ID ${sellerCode}.`, 404);
+
+      const seller = records[0];
+      const sellerName = text(seller.fields?.["Company Name"]) || text(seller.fields?.["Full Name"]) || sellerCode;
+
+      const created = await deps.airtable.create("Order Processing Form", {
+        "Linked Order ID": [record.id],
+        "Linked Seller ID": [seller.id],
+        "Payout (€)": payout,
+        "VAT Type": vat,
+        Agreement: true
+      });
+
+      // Approved in its own write, so anything watching for the change sees one.
+      await deps.airtable.update("Order Processing Form", created.id, { "Approved?": true });
+
+      return {
+        message: `Order Processing Form made for ${text(record.fields["Order ID"])}: ${sellerName} (${sellerCode}), € ${payout} ${vat}, approved.`,
+        changed: { order_processing_form: created.id, seller: sellerCode, payout, vat }
+      };
     }
   },
 
@@ -634,7 +720,7 @@ export function publicActions() {
         kind: a.kind || (a.inputs ? "form" : "confirm"),
         upload: Boolean(a.upload),
         note: a.note || "",
-        inputs: (a.inputs || []).map(({ name, label, type, required, accept, max }) => ({ name, label, type, required: Boolean(required), accept, max }))
+        inputs: (a.inputs || []).map(({ name, label, type, required, accept, max, sources, options }) => ({ name, label, type, required: Boolean(required), accept, max, sources, options }))
       }
     ])
   );

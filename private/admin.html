@@ -1543,6 +1543,14 @@
     const id = `action-${spec.name}`;
     const value = prefill === null || prefill === undefined ? "" : prefill;
 
+    if (spec.type === "select") {
+      return `<div class="field"><label for="${id}">${esc(spec.label)}</label><select class="select" id="${id}" name="${esc(spec.name)}">${(spec.options || []).map((option) => `<option value="${esc(option)}"${option === value ? " selected" : ""}>${esc(option)}</option>`).join("")}</select></div>`;
+    }
+
+    if (spec.type === "checkbox") {
+      return `<label class="choice" for="${id}"><input type="checkbox" id="${id}" name="${esc(spec.name)}"> <span>${esc(spec.label)}</span></label>`;
+    }
+
     // Which offer: one line per open offer, the only one already chosen.
     if (spec.type === "choice") {
       return `<fieldset class="choices" id="${id}"><legend>${esc(spec.label)}</legend>${options
@@ -1589,7 +1597,7 @@
       }
 
       $("actionText").textContent = info.confirm || def.note || "";
-      $("actionInputs").innerHTML = def.inputs.map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [])).join("");
+      $("actionInputs").innerHTML = def.inputs.filter((spec) => !spec.sources || spec.sources.includes(source)).map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [])).join("");
       $("actionConfirm").disabled = false;
       ($("actionInputs").querySelector("input.input") || $("actionInputs").querySelector("input") || $("actionConfirm")).focus();
     } catch (err) {
@@ -1657,6 +1665,8 @@
 
     for (const spec of def.inputs) {
       const el = $(`action-${spec.name}`);
+      if (!el) continue;
+      if (spec.type === "checkbox") { input[spec.name] = el.checked; continue; }
       if (spec.type === "file") file = el.files[0] || null;
       else if (spec.type === "choice") input[spec.name] = el.querySelector("input:checked")?.value || "";
       else input[spec.name] = el.value.trim();

@@ -260,3 +260,58 @@ test("member WTB Counter on a fresh offer starts a round from it", async () => {
   assert.equal(post.path, "/api/dashboard/buying-counter-offers/create-from-fresh");
   assert.deepEqual(post.body, { member_wtb_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER003", price: 80, seller_record_id: "recBUYER000000001" });
 });
+
+test("Custom Price with Offer Accepted?: price, accepted, not sent again, old offer embeds closed", async () => {
+  const deps = fakeDeps();
+  deps.discordUpdatesUrl = "https://updates.test/";
+  const order = record({ "Fulfillment Status": "Outsource", "Offer Sent?": true, "Store Name": ["Genky"] });
+
+  await assert.rejects(runAction({ key: "custom_price", source: "store", record: order, input: { price: "", accepted: true }, deps }), /Enter the price/);
+
+  const result = await runAction({ key: "custom_price", source: "store", record: order, input: { price: "250", accepted: true }, deps });
+
+  assert.deepEqual(deps.calls[0].fields, { "Custom Offer": 250, "Offer Accepted?": true, "Offer Sent?": false });
+  assert.equal(deps.calls[1].kind, "notify");
+  assert.equal(deps.calls[1].body.trigger_type, "disable-offer-messages");
+  assert.equal(deps.calls[1].body.record_id, "recAAAAAAAAAAAAAA");
+  assert.match(result.message, /Offer Accepted\? ticked/);
+
+  // Never sent: exactly the two fields ticked by hand in Airtable, nothing posted.
+  const quiet = fakeDeps();
+  quiet.discordUpdatesUrl = "https://updates.test/";
+  await runAction({ key: "custom_price", source: "store", record: record({ "Fulfillment Status": "Pending", "Store Name": ["Genky"] }), input: { price: "180", accepted: true }, deps: quiet });
+  assert.deepEqual(quiet.calls, [{ kind: "airtable", table: "Unfulfilled Orders Log", id: "recAAAAAAAAAAAAAA", fields: { "Custom Offer": 180, "Offer Accepted?": true } }]);
+
+  // Without the tick nothing about acceptance is written.
+  const plain = fakeDeps();
+  await runAction({ key: "custom_price", source: "store", record: order, input: { price: "250", accepted: false }, deps: plain });
+  assert.deepEqual(plain.calls[0].fields, { "Custom Offer": 250, offer_request_webhook_key: "" });
+});
+
+test("Manual Deal creates an approved Order Processing Form for the order and the seller", async () => {
+  const deps = fakeDeps();
+  deps.airtable.select = async (table, { formula }) => {
+    deps.calls.push({ kind: "select", table, formula });
+    return { records: /SE-00035/.test(formula) ? [{ id: "recSELLER00000035", fields: { "Company Name": "Dominicks" } }] : [] };
+  };
+  deps.airtable.create = async (table, fields) => {
+    deps.calls.push({ kind: "create", table, fields });
+    return { id: "recOPF00000000001" };
+  };
+
+  const order = record({ "Fulfillment Status": "Outsource", "Order ID": "ORD-1" });
+
+  await assert.rejects(runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "35", payout: "150", vat: "Margin" }, deps }), /SE- followed/);
+  await assert.rejects(runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "SE-00001", payout: "150", vat: "Margin" }, deps }), /No seller found/);
+  await assert.rejects(runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "SE-00035", payout: "150", vat: "VAT9" }, deps }), /VAT type/);
+
+  const result = await runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "se-00035", payout: "150,5", vat: "VAT0" }, deps });
+
+  const create = deps.calls.find((c) => c.kind === "create");
+  assert.equal(create.table, "Order Processing Form");
+  assert.deepEqual(create.fields, { "Linked Order ID": ["recAAAAAAAAAAAAAA"], "Linked Seller ID": ["recSELLER00000035"], "Payout (€)": 150.5, "VAT Type": "VAT0", Agreement: true });
+  assert.deepEqual(deps.calls.at(-1), { kind: "airtable", table: "Order Processing Form", id: "recOPF00000000001", fields: { "Approved?": true } });
+  assert.match(result.message, /Dominicks \(SE-00035\), € 150.5 VAT0, approved/);
+
+  await assert.rejects(runAction({ key: "manual_deal", source: "store", record: record({ "Fulfillment Status": "Allocated" }), input: { seller: "SE-00035", payout: "1", vat: "Margin" }, deps }), /open order/);
+});

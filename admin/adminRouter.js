@@ -676,6 +676,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       return service(services.discordUpdatesBaseUrl) ? `${service(services.discordUpdatesBaseUrl)}/` : "";
     },
 
+    get discordUpdatesUrl() {
+      return service(services.discordUpdatesBaseUrl) ? `${service(services.discordUpdatesBaseUrl)}/` : "";
+    },
+
     get deliveredWebhookUrl() {
       return text(services.deliveredWebhookUrl);
     },
