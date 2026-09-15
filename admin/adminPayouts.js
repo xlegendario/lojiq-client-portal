@@ -61,17 +61,19 @@ async function selectAll(airtable, table, options) {
   return records;
 }
 
-function unitRow(record, sellers) {
+function unitRow(record, sellers, orderIds = new Map()) {
   const f = record.fields || {};
   const sellerId = first(f["Seller ID"]);
   const seller = sellers.get(sellerId) || {};
 
   const onOrder = Boolean(first(f["Unfulfilled Orders Log"]));
-  const onWtb = Boolean(first(f["Member WTBs"]));
+  const onWtb = Boolean(first(f["Member WTBs"])) || Boolean(first(f["Member WTB ID"]));
   const picture = Array.isArray(f.Picture) && f.Picture[0] ? f.Picture[0].thumbnails?.small?.url || f.Picture[0].url || "" : "";
 
   let reference = "";
-  if (onOrder) reference = [text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ");
+  // The unit has no Order ID lookup; it is read from the linked order.
+  const orderId = onOrder ? text(orderIds.get(first(f["Unfulfilled Orders Log"]))) : "";
+  if (onOrder) reference = [orderId, text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ");
   else if (onWtb) reference = text(first(f["Member WTB ID"]));
 
   return {
@@ -127,13 +129,26 @@ async function loadSellers(airtable, ids) {
   return sellers;
 }
 
+async function loadOrderIds(airtable, ids) {
+  const out = new Map();
+  const unique = [...new Set(ids.filter(Boolean))];
+
+  for (let i = 0; i < unique.length; i += 50) {
+    const found = await airtable.byIds("Unfulfilled Orders Log", unique.slice(i, i + 50), ["Order ID"]);
+    for (const [id, fields] of found) out.set(id, fields["Order ID"]);
+  }
+
+  return out;
+}
+
 // Every unit on To Pay, grouped per seller: the seller owed the most on top.
 export async function loadPayouts(airtable, { shipping = "all", type = "", search = "" } = {}) {
   const records = await selectAll(airtable, UNIT_TABLE, { formula: `{Payment Status} = 'To Pay'`, fields: PAYOUT_FIELDS });
   const sellers = await loadSellers(airtable, records.map((record) => first(record.fields?.["Seller ID"])));
 
   const needle = text(search).toLowerCase();
-  const allRows = records.map((record) => unitRow(record, sellers));
+  const orderIds = await loadOrderIds(airtable, records.map((record) => first(record.fields?.["Unfulfilled Orders Log"])));
+  const allRows = records.map((record) => unitRow(record, sellers, orderIds));
 
   const rows = allRows.filter((row) => {
     if (!matchesShipping(row, shipping)) return false;
