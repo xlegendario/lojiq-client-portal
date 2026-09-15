@@ -35,6 +35,11 @@ export function formulaString(value) {
   return `'${text.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 }
 
+const anyOfStores = (stores) =>
+  stores.length === 1
+    ? `TRIM({Store Name} & '') = ${formulaString(stores[0])}`
+    : `OR(${stores.map((store) => `TRIM({Store Name} & '') = ${formulaString(store)}`).join(",")})`;
+
 const anyOf = (field, values) =>
   `OR(${values.map((value) => `{${field}} = ${formulaString(value)}`).join(",")})`;
 
@@ -158,7 +163,8 @@ const TABS = [
   {
     key: "open", section: "store", source: "store", label: "Open Orders",
     formula: anyOf("Fulfillment Status", OPEN),
-    columns: [...storeBase, ...storePrices]
+    // Pending or Outsource is the first thing to read on this tab.
+    columns: [...storeBase, STORE.fulfillment, ...storePrices]
   },
   {
     key: "offers", section: "store", source: "store", label: "Offers",
@@ -226,7 +232,7 @@ const TABS = [
   {
     key: "open", section: "mwtb", source: "mwtb", label: "Open WTBs",
     formula: anyOf("Fulfillment Status", OPEN),
-    columns: [...mwtbBase, ...mwtbPrices]
+    columns: [...mwtbBase, MWTB.fulfillment, ...mwtbPrices]
   },
   {
     key: "offers", section: "mwtb", source: "mwtb", label: "Offers",
@@ -305,13 +311,23 @@ export function searchFormula(source, query) {
 }
 
 // The whole filterByFormula for one request: the tab, then the filters.
-export function buildListFormula(view, { store = "", buyer = "", search = "" } = {}) {
+// Stores to show, or with storeMode "exclude" the stores to leave out.
+export function normalizeStores(stores) {
+  const list = Array.isArray(stores) ? stores : stores ? [stores] : [];
+
+  return [...new Set(list.map((store) => String(store ?? "").trim()).filter(Boolean))].slice(0, 100);
+}
+
+export function buildListFormula(view, { stores = [], storeMode = "include", buyer = "", search = "" } = {}) {
   const parts = [];
 
   if (view.formula) parts.push(view.formula);
 
-  if (store && (view.source === "store" || view.source === "queue")) {
-    parts.push(`TRIM({Store Name} & '') = ${formulaString(String(store).trim())}`);
+  const storeList = normalizeStores(stores);
+
+  if (storeList.length && (view.source === "store" || view.source === "queue")) {
+    const match = anyOfStores(storeList);
+    parts.push(storeMode === "exclude" ? `NOT(${match})` : match);
   }
 
   if (buyer && view.source === "mwtb") {

@@ -228,6 +228,43 @@
     .filters .select { max-width: 240px; }
     .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 
+    .picker { position: relative; }
+    .picker-button { position: relative; min-width: 180px; max-width: 280px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 26px; }
+    .picker-button::after { content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 11px; }
+    .picker-button.active { border-color: var(--primary); color: #fff; }
+
+    .popover {
+      position: absolute;
+      top: 42px;
+      left: 0;
+      z-index: 30;
+      width: 300px;
+      max-width: calc(100vw - 32px);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--panel-2); border-radius: 8px; padding: 3px; }
+    .mode label { position: relative; display: flex; align-items: center; justify-content: center; height: 28px; border-radius: 6px; cursor: pointer; color: var(--muted); font-weight: 700; }
+    .mode input { position: absolute; opacity: 0; pointer-events: none; }
+    .mode label:has(input:checked) { background: var(--primary-tint); color: #fff; }
+    .mode label:has(input:focus-visible) { outline: 2px solid var(--primary-soft); }
+
+    .store-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; }
+    .store-list label { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 6px; border-radius: 6px; cursor: pointer; }
+    .store-list label:hover { background: var(--primary-tint); }
+    .store-list input { accent-color: var(--primary); }
+    .popover-foot { display: flex; justify-content: space-between; gap: 8px; }
+
+    .save-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .save-row .input { width: 260px; }
+
     /* ---------- table ---------- */
 
     .table-wrap {
@@ -273,7 +310,8 @@
 
     td.money, td.hours { text-align: right; font-variant-numeric: tabular-nums; }
     th.money, th.hours { text-align: right; }
-    .mono { font-family: Consolas, "SFMono-Regular", Menlo, monospace; font-size: 12px; }
+    /* Same face and size as the rest of the row; a monospace SKU read as smaller. */
+    .mono { font-variant-numeric: tabular-nums; }
     .id { font-weight: 700; color: #fff; }
     .dash { color: #55555d; }
     .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
@@ -344,7 +382,7 @@
       .nav-toggle { display: inline-flex; align-items: center; }
       .topbar { padding: 0 16px; }
       .content { padding: 16px; }
-      .filters .input, .filters .select { width: 100%; max-width: none; }
+      .filters .input, .filters .select, .picker, .picker-button, .save-row .input { width: 100%; max-width: none; }
       .count { margin-left: 0; }
       .group dl { grid-template-columns: 1fr; gap: 2px; }
       .group dd { margin-bottom: 6px; }
@@ -413,14 +451,38 @@
         </div>
 
         <div class="filters">
-          <select class="select" id="storeFilter" aria-label="Store Name">
-            <option value="">All stores</option>
+          <select class="select" id="savedFilter" aria-label="Saved filters" hidden>
+            <option value="">Saved filters</option>
           </select>
+          <div class="picker" id="storePicker">
+            <button class="select picker-button" id="storeButton" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="storePopover">All stores</button>
+            <div class="popover" id="storePopover" hidden>
+              <div class="mode" role="radiogroup" aria-label="Show">
+                <label><input type="radio" name="storeMode" id="storeModeInclude" value="include" checked> Only these</label>
+                <label><input type="radio" name="storeMode" id="storeModeExclude" value="exclude"> All except</label>
+              </div>
+              <input class="input" id="storeSearch" type="search" placeholder="Find a store" aria-label="Find a store" autocomplete="off">
+              <div class="store-list" id="storeList"></div>
+              <div class="popover-foot">
+                <button class="btn ghost" id="storeClear" type="button">Clear</button>
+                <button class="btn primary" id="storeDone" type="button">Done</button>
+              </div>
+            </div>
+          </div>
           <input class="input" id="buyerFilter" type="search" placeholder="Buyer" aria-label="Buyer" hidden>
           <input class="input" id="listSearch" type="search" placeholder="Search this list" aria-label="Search this list">
           <button class="btn" id="refreshButton" type="button">Refresh</button>
+          <button class="btn" id="saveFilterButton" type="button" hidden>Save filter</button>
+          <button class="btn ghost" id="deleteFilterButton" type="button" hidden>Delete filter</button>
           <span class="count" id="rowCount"></span>
         </div>
+
+        <form class="save-row" id="saveRow" hidden>
+          <input class="input" id="saveName" maxlength="60" placeholder="Name, e.g. No SneakerAsk" aria-label="Filter name" autocomplete="off">
+          <button class="btn primary" id="saveConfirm" type="submit">Save</button>
+          <button class="btn ghost" id="saveCancel" type="button">Cancel</button>
+          <span class="error" id="saveError" role="alert"></span>
+        </form>
 
         <div class="table-wrap" id="tableWrap">
           <table>
@@ -452,7 +514,11 @@
     views: [],
     section: "store",
     view: "open",
-    store: "",
+    stores: [],
+    storeMode: "include",
+    allStores: [],
+    savedFilters: [],
+    savedId: "",
     buyer: "",
     q: "",
     rows: [],
@@ -546,7 +612,8 @@
 
     state.section = exists ? section : "store";
     state.view = exists ? view : "open";
-    state.store = params.get("store") || "";
+    state.stores = params.getAll("store").filter(Boolean);
+    state.storeMode = params.get("mode") === "exclude" ? "exclude" : "include";
     state.buyer = params.get("buyer") || "";
     state.q = params.get("q") || "";
 
@@ -556,7 +623,10 @@
   function writeHash(open = state.selected) {
     const params = new URLSearchParams();
 
-    if (state.store && state.section === "store") params.set("store", state.store);
+    if (state.section === "store") {
+      for (const store of state.stores) params.append("store", store);
+      if (state.stores.length && state.storeMode === "exclude") params.set("mode", "exclude");
+    }
     if (state.buyer && state.section === "mwtb") params.set("buyer", state.buyer);
     if (state.q) params.set("q", state.q);
     if (open) params.set("open", open);
@@ -589,6 +659,7 @@
     writeHash("");
     drawNav();
     loadList();
+    loadSavedFilters();
   }
 
   $("sidebar").addEventListener("click", (event) => {
@@ -602,31 +673,229 @@
 
   /* ---------------- filters ---------------- */
 
+  function storeLabel() {
+    const n = state.stores.length;
+
+    if (!n) return "All stores";
+
+    const what = n === 1 ? state.stores[0] : n + " stores";
+
+    return state.storeMode === "exclude" ? "All except " + what : what;
+  }
+
   function syncFilters() {
     const isStore = state.section === "store";
 
-    $("storeFilter").hidden = !isStore;
+    $("storePicker").hidden = !isStore;
     $("buyerFilter").hidden = isStore;
-    $("storeFilter").value = state.store;
+    $("storeButton").textContent = storeLabel();
+    $("storeButton").classList.toggle("active", isStore && state.stores.length > 0);
+    $("storeModeInclude").checked = state.storeMode !== "exclude";
+    $("storeModeExclude").checked = state.storeMode === "exclude";
     $("buyerFilter").value = state.buyer;
     $("listSearch").value = state.q;
+    syncSaved();
+  }
+
+  // Something in the filters changed by hand: no saved filter is chosen anymore.
+  function filtersChanged() {
+    state.savedId = "";
+    syncFilters();
+    writeHash("");
+    loadList();
+  }
+
+  /* ----- stores ----- */
+
+  function drawStoreList() {
+    const needle = $("storeSearch").value.trim().toLowerCase();
+
+    // A store from a saved filter or the address bar still shows, even when
+    // it has no Merchants row anymore.
+    const names = [...new Set([...state.stores, ...state.allStores])].sort((a, b) => a.localeCompare(b));
+    const shown = names.filter((name) => !needle || name.toLowerCase().includes(needle));
+
+    $("storeList").innerHTML = shown.length
+      ? shown.map((name, i) => '<label><input type="checkbox" id="store-opt-' + i + '" value="' + esc(name) + '"' + (state.stores.includes(name) ? " checked" : "") + "> <span>" + esc(name) + "</span></label>").join("")
+      : '<div class="results-empty">No store matches.</div>';
   }
 
   async function loadStores() {
     try {
       const { stores } = await api("/api/admin/stores");
-      $("storeFilter").innerHTML = `<option value="">All stores</option>` + stores.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
-
-      // A store from the address bar that is not in the list still filters.
-      if (state.store && !stores.includes(state.store)) {
-        $("storeFilter").insertAdjacentHTML("beforeend", `<option value="${esc(state.store)}">${esc(state.store)}</option>`);
-      }
-
-      $("storeFilter").value = state.store;
+      state.allStores = stores;
     } catch {
-      /* The filter stays on "All stores"; the lists still work. */
+      /* The picker still shows the stores already chosen; the lists still work. */
+    }
+
+    drawStoreList();
+  }
+
+  function toggleStorePopover(open) {
+    const show = open ?? $("storePopover").hidden;
+
+    $("storePopover").hidden = !show;
+    $("storeButton").setAttribute("aria-expanded", String(show));
+
+    if (show) {
+      $("storeSearch").value = "";
+      drawStoreList();
+      $("storeSearch").focus();
     }
   }
+
+  let storeTimer;
+  const storesChanged = () => {
+    clearTimeout(storeTimer);
+    storeTimer = setTimeout(filtersChanged, 400);
+  };
+
+  $("storeButton").addEventListener("click", () => toggleStorePopover());
+  $("storeDone").addEventListener("click", () => toggleStorePopover(false));
+  $("storeSearch").addEventListener("input", drawStoreList);
+
+  $("storeList").addEventListener("change", (event) => {
+    const box = event.target.closest("input[type=checkbox]");
+    if (!box) return;
+
+    state.stores = box.checked
+      ? [...new Set([...state.stores, box.value])]
+      : state.stores.filter((name) => name !== box.value);
+
+    $("storeButton").textContent = storeLabel();
+    storesChanged();
+  });
+
+  for (const radio of document.querySelectorAll('input[name="storeMode"]')) {
+    radio.addEventListener("change", () => {
+      state.storeMode = $("storeModeExclude").checked ? "exclude" : "include";
+      $("storeButton").textContent = storeLabel();
+      if (state.stores.length) storesChanged();
+    });
+  }
+
+  $("storeClear").addEventListener("click", () => {
+    state.stores = [];
+    state.storeMode = "include";
+    drawStoreList();
+    filtersChanged();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#storePicker") && !$("storePopover").hidden) toggleStorePopover(false);
+  });
+
+  /* ----- saved filters ----- */
+
+  function syncSaved() {
+    const own = state.savedFilters.filter((f) => f.mine);
+    const others = state.savedFilters.filter((f) => !f.mine);
+    const option = (f) => '<option value="' + esc(f.id) + '">' + esc(f.name) + " - " + esc(f.owner_name) + "</option>";
+
+    $("savedFilter").innerHTML = '<option value="">Saved filters</option>'
+      + (own.length ? '<optgroup label="Yours">' + own.map(option).join("") + "</optgroup>" : "")
+      + (others.length ? '<optgroup label="Others">' + others.map(option).join("") + "</optgroup>" : "");
+
+    const chosen = state.savedFilters.find((f) => f.id === state.savedId);
+
+    $("savedFilter").value = chosen ? chosen.id : "";
+    $("deleteFilterButton").hidden = !(chosen && chosen.mine);
+  }
+
+  async function loadSavedFilters() {
+    const section = state.section;
+
+    try {
+      const data = await api("/api/admin/filters?section=" + encodeURIComponent(section));
+      if (section !== state.section) return;
+
+      state.savedFilters = data.filters;
+      $("savedFilter").hidden = !data.available;
+      $("saveFilterButton").hidden = !data.available;
+    } catch {
+      state.savedFilters = [];
+      $("savedFilter").hidden = true;
+      $("saveFilterButton").hidden = true;
+    }
+
+    if (!state.savedFilters.some((f) => f.id === state.savedId)) state.savedId = "";
+    syncSaved();
+  }
+
+  $("savedFilter").addEventListener("change", () => {
+    const chosen = state.savedFilters.find((f) => f.id === $("savedFilter").value);
+    const f = (chosen && chosen.filters) || {};
+
+    state.savedId = chosen ? chosen.id : "";
+    state.stores = state.section === "store" ? (f.stores || []) : [];
+    state.storeMode = f.storeMode === "exclude" ? "exclude" : "include";
+    state.buyer = state.section === "mwtb" ? (f.buyer || "") : "";
+    state.q = f.q || "";
+
+    syncFilters();
+    writeHash("");
+    loadList();
+  });
+
+  $("saveFilterButton").addEventListener("click", () => {
+    const chosen = state.savedFilters.find((f) => f.id === state.savedId && f.mine);
+
+    $("saveRow").hidden = false;
+    $("saveError").textContent = "";
+    $("saveName").value = chosen ? chosen.name : "";
+    $("saveName").focus();
+  });
+
+  $("saveCancel").addEventListener("click", () => {
+    $("saveRow").hidden = true;
+  });
+
+  $("saveRow").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const name = $("saveName").value.trim();
+
+    if (!name) {
+      $("saveError").textContent = "Give the filter a name.";
+      return;
+    }
+
+    $("saveConfirm").disabled = true;
+
+    try {
+      const { filter } = await api("/api/admin/filters", {
+        method: "POST",
+        body: JSON.stringify({
+          section: state.section,
+          name,
+          filters: { stores: state.stores, storeMode: state.storeMode, buyer: state.buyer, q: state.q }
+        })
+      });
+
+      $("saveRow").hidden = true;
+      state.savedId = filter.id;
+      await loadSavedFilters();
+    } catch (err) {
+      $("saveError").textContent = err.message;
+    } finally {
+      $("saveConfirm").disabled = false;
+    }
+  });
+
+  $("deleteFilterButton").addEventListener("click", async () => {
+    const chosen = state.savedFilters.find((f) => f.id === state.savedId && f.mine);
+    if (!chosen || !confirm('Delete the saved filter "' + chosen.name + '"? The list itself stays as it is.')) return;
+
+    try {
+      await api("/api/admin/filters/" + encodeURIComponent(chosen.id), { method: "DELETE" });
+      state.savedId = "";
+      await loadSavedFilters();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  /* ----- buyer and search ----- */
 
   let typing;
   const debounce = (fn) => {
@@ -634,22 +903,14 @@
     typing = setTimeout(fn, 350);
   };
 
-  $("storeFilter").addEventListener("change", () => {
-    state.store = $("storeFilter").value;
-    writeHash("");
-    loadList();
-  });
-
   $("buyerFilter").addEventListener("input", () => debounce(() => {
     state.buyer = $("buyerFilter").value.trim();
-    writeHash("");
-    loadList();
+    filtersChanged();
   }));
 
   $("listSearch").addEventListener("input", () => debounce(() => {
     state.q = $("listSearch").value.trim();
-    writeHash("");
-    loadList();
+    filtersChanged();
   }));
 
   $("refreshButton").addEventListener("click", () => loadList({ fresh: true }));
@@ -699,7 +960,10 @@
     $("moreButton").hidden = true;
 
     const params = new URLSearchParams({ section: view.section, view: view.key });
-    if (state.section === "store" && state.store) params.set("store", state.store);
+    if (state.section === "store" && state.stores.length) {
+      for (const store of state.stores) params.append("store", store);
+      if (state.storeMode === "exclude") params.set("store_mode", "exclude");
+    }
     if (state.section === "mwtb" && state.buyer) params.set("buyer", state.buyer);
     if (state.q) params.set("q", state.q);
     if (more && state.nextOffset) params.set("offset", state.nextOffset);
@@ -797,7 +1061,8 @@
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      if (!$("searchResults").hidden) hideResults();
+      if (!$("storePopover").hidden) toggleStorePopover(false);
+      else if (!$("searchResults").hidden) hideResults();
       else if (!$("panel").hidden) closePanel();
     }
   });
@@ -847,12 +1112,15 @@
     // Open it where every record of its kind is listed, with the panel on it.
     state.section = result.section;
     state.view = "general";
-    state.store = "";
+    state.stores = [];
+    state.storeMode = "include";
+    state.savedId = "";
     state.buyer = "";
     state.q = result.label;
     syncFilters();
     drawNav();
     loadList();
+    loadSavedFilters();
     openRecord(result.section, result.id);
   });
 
@@ -887,6 +1155,7 @@
     drawNav();
     writeHash(open);
     loadStores();
+    loadSavedFilters();
     loadList();
 
     const [source, id] = open.split(":");
@@ -927,7 +1196,8 @@
   window.addEventListener("hashchange", () => {
     if ($("appView").hidden) return;
 
-    const listKey = () => [state.section, state.view, state.store, state.buyer, state.q].join("|");
+    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q].join("|");
+    const sectionBefore = state.section;
     const before = listKey();
     const open = readHash();
 
@@ -935,6 +1205,7 @@
       syncFilters();
       drawNav();
       loadList();
+      if (state.section !== sectionBefore) loadSavedFilters();
     }
 
     const [source, id] = open.split(":");

@@ -38,6 +38,7 @@ import {
   searchFormula,
   sortFieldFor
 } from "./adminViews.js";
+import { NAME_MAX, SECTIONS, cleanFilters } from "./adminFilters.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -192,9 +193,10 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   sessionSecret   LOJIQ_ADMIN_SECRET; without it and the users the portal stays off
  *   airtableToken, airtableBaseId
  *   audit           createAuditLog(...)
+ *   savedFilters    createSavedFilters(...)
  *   pageFile        private/admin.html
  */
-export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, pageFile, fetchImpl = fetch }) {
+export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, pageFile, fetchImpl = fetch }) {
   const router = express.Router();
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
@@ -367,8 +369,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
     if (!view) return res.status(404).json({ error: "Unknown tab" });
 
+    // ?store=A&store=B, with store_mode=exclude to leave those out instead.
     const filters = {
-      store: text(req.query.store),
+      stores: [].concat(req.query.store || []).map(text),
+      storeMode: req.query.store_mode === "exclude" ? "exclude" : "include",
       buyer: text(req.query.buyer),
       search: text(req.query.q)
     };
@@ -411,6 +415,78 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       }
 
       res.status(502).json({ error: "Could not load this list from Airtable.", details: err.message });
+    }
+  });
+
+  /* ----- saved filters ----- */
+
+  router.get("/api/admin/filters", async (req, res) => {
+    const section = text(req.query.section);
+
+    if (!SECTIONS.includes(section)) return res.status(400).json({ error: "Unknown section" });
+    if (!savedFilters?.configured) return res.json({ filters: [], available: false });
+
+    try {
+      const rows = await savedFilters.list(section);
+
+      // Your own first, then everyone else's; each alphabetical.
+      rows.sort((a, b) =>
+        Number(b.owner_email === req.admin.email) - Number(a.owner_email === req.admin.email) ||
+        a.name.localeCompare(b.name)
+      );
+
+      res.json({
+        available: true,
+        filters: rows.map(({ owner_email: ownerEmail, ...row }) => ({ ...row, mine: ownerEmail === req.admin.email }))
+      });
+    } catch (err) {
+      console.error("[admin] filters failed:", err.message);
+      res.status(502).json({ error: "Could not load the saved filters." });
+    }
+  });
+
+  router.post("/api/admin/filters", async (req, res) => {
+    const section = text(req.body?.section);
+    const name = text(req.body?.name).replace(/\s+/g, " ");
+
+    if (!SECTIONS.includes(section)) return res.status(400).json({ error: "Unknown section" });
+    if (!name) return res.status(400).json({ error: "Give the filter a name." });
+    if (name.length > NAME_MAX) return res.status(400).json({ error: `Keep the name under ${NAME_MAX} characters.` });
+    if (!savedFilters?.configured) return res.status(503).json({ error: "Saved filters are not available yet." });
+
+    try {
+      const saved = await savedFilters.save({
+        owner: req.admin,
+        section,
+        name,
+        filters: cleanFilters(section, req.body?.filters)
+      });
+
+      audit.record({ actor: req.admin, action: "save filter", source: section, label: name, details: saved.filters });
+
+      res.json({ filter: { ...saved, mine: true } });
+    } catch (err) {
+      console.error("[admin] save filter failed:", err.message);
+      res.status(502).json({ error: "Could not save the filter." });
+    }
+  });
+
+  router.delete("/api/admin/filters/:id", async (req, res) => {
+    const id = text(req.params.id);
+
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: "Unknown filter" });
+    if (!savedFilters?.configured) return res.status(503).json({ error: "Saved filters are not available yet." });
+
+    try {
+      const deleted = await savedFilters.remove({ owner: req.admin, id });
+
+      if (!deleted) return res.status(403).json({ error: "You can only delete your own filters." });
+
+      audit.record({ actor: req.admin, action: "delete filter", details: { id } });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[admin] delete filter failed:", err.message);
+      res.status(502).json({ error: "Could not delete the filter." });
     }
   });
 

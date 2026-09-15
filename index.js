@@ -10,6 +10,7 @@ import cron from "node-cron";
 import { apiAccessPagePath, createApiAccess } from "./apiAccess.js";
 import { adminPagePath, createAdminPortal } from "./admin/adminRouter.js";
 import { createAuditLog } from "./admin/adminAudit.js";
+import { createSavedFilters } from "./admin/adminFilters.js";
 
 dotenv.config();
 
@@ -131,6 +132,7 @@ const adminPortal = createAdminPortal({
   airtableToken: AIRTABLE_TOKEN,
   airtableBaseId: AIRTABLE_BASE_ID,
   audit: createAuditLog({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY }),
+  savedFilters: createSavedFilters({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY }),
   pageFile: adminPagePath(__dirname)
 });
 

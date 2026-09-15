@@ -16,6 +16,7 @@ import {
 } from "../admin/adminAuth.js";
 import { VIEWS, buildListFormula, fieldsFor, findView, formulaString, panelFields } from "../admin/adminViews.js";
 import { cellValue, createAdminPortal } from "../admin/adminRouter.js";
+import { cleanFilters } from "../admin/adminFilters.js";
 
 const SECRET = "test-secret-for-admin";
 const dario = { email: "dario@example.com", name: "Dario", hash: hashPassword("correct horse battery") };
@@ -93,7 +94,7 @@ test("every tab has a unique key per section and a column for each id", () => {
 
 test("filters combine with the tab and only apply where they exist", () => {
   const open = findView("store", "open");
-  const formula = buildListFormula(open, { store: "O'Neill Store", buyer: "ignored", search: "DD1391" });
+  const formula = buildListFormula(open, { stores: ["O'Neill Store"], buyer: "ignored", search: "DD1391" });
 
   assert.match(formula, /^AND\(/);
   assert.match(formula, /\{Fulfillment Status\} = 'Pending'/);
@@ -103,11 +104,16 @@ test("filters combine with the tab and only apply where they exist", () => {
 
   const general = findView("store", "general");
   assert.match(buildListFormula(general, {}), /^NOT\(AND\(TRIM\(\{Store Name\} & ''\) = 'SneakerAsk'/);
-  assert.match(buildListFormula(general, { store: "SneakerAsk" }), /^AND\(NOT\(/);
+  assert.match(buildListFormula(general, { stores: ["SneakerAsk"] }), /^AND\(NOT\(/);
+
+  // Several stores, left out; duplicates and blanks ignored.
+  const excluded = buildListFormula(open, { stores: ["A", "B", "A", " "], storeMode: "exclude" });
+  assert.match(excluded, /NOT\(OR\(TRIM\(\{Store Name\} & ''\) = 'A',TRIM\(\{Store Name\} & ''\) = 'B'\)\)/);
+  assert.equal((excluded.match(/= 'A'/g) || []).length, 1);
 
   const mwtb = findView("mwtb", "offers");
-  assert.match(buildListFormula(mwtb, { store: "x", buyer: "Jan" }), /SEARCH\('jan', LOWER\(\{Buyer Name\}/);
-  assert.doesNotMatch(buildListFormula(mwtb, { store: "x" }), /Store Name/);
+  assert.match(buildListFormula(mwtb, { stores: ["x"], buyer: "Jan" }), /SEARCH\('jan', LOWER\(\{Buyer Name\}/);
+  assert.doesNotMatch(buildListFormula(mwtb, { stores: ["x"] }), /Store Name/);
 });
 
 test("every tab opens with the picture, once", () => {
@@ -139,6 +145,19 @@ test("cells: money from lookups, safe links only, seller from the unit", () => {
     cellValue({ type: "seller" }, {}, { "Seller Name": ["Jan"], "Seller ID (Lookup)": ["SE-00001"] }),
     { value: "Jan (SE-00001)" }
   );
+});
+
+test("saved filters keep only what a section understands", () => {
+  assert.deepEqual(
+    cleanFilters("store", { stores: ["A", "A", ""], storeMode: "weird", buyer: "x", q: " dunk ", evil: 1 }),
+    { q: "dunk", stores: ["A"], storeMode: "include" }
+  );
+  assert.deepEqual(cleanFilters("mwtb", { stores: ["A"], buyer: " Jan ", q: "" }), { q: "", buyer: "Jan" });
+});
+
+test("Open Orders shows whether an order is Pending or Outsource", () => {
+  assert.ok(findView("store", "open").columns.some((c) => c.key === "fulfillment"));
+  assert.ok(findView("mwtb", "open").columns.some((c) => c.key === "fulfillment"));
 });
 
 /* ---------------- router ---------------- */
@@ -238,7 +257,7 @@ test("router: login, guard, list, logout", async () => {
     assert.equal(me.user.name, "Dario");
     assert.ok(me.views.some((v) => v.section === "mwtb" && v.key === "offers"));
 
-    const list = await fetch(`${base}/api/admin/list?section=store&view=open&store=Test%20Store`, { headers: { cookie } });
+    const list = await fetch(`${base}/api/admin/list?section=store&view=open&store=Test%20Store&store=Other&store_mode=exclude`, { headers: { cookie } });
     assert.equal(list.status, 200);
     const data = await list.json();
     assert.equal(data.next_offset, "next-page");
@@ -246,7 +265,7 @@ test("router: login, guard, list, logout", async () => {
     assert.equal(data.rows[0].cells.selling.value, 200);
 
     const orderCall = air.calls.find((u) => u.pathname.endsWith(encodeURIComponent("Unfulfilled Orders Log")));
-    assert.match(orderCall.searchParams.get("filterByFormula"), /Test Store/);
+    assert.match(orderCall.searchParams.get("filterByFormula"), /NOT\(OR\(TRIM\(\{Store Name\} & ''\) = 'Test Store',TRIM\(\{Store Name\} & ''\) = 'Other'\)\)/);
     assert.ok(orderCall.searchParams.getAll("fields[]").includes("Target Buying Price"));
 
     assert.equal((await fetch(`${base}/api/admin/list?section=store&view=nope`, { headers: { cookie } })).status, 404);
@@ -261,6 +280,44 @@ test("router: login, guard, list, logout", async () => {
 
     const out = await fetch(`${base}/api/admin/logout`, { method: "POST", headers: { cookie } });
     assert.match(out.headers.get("set-cookie"), /Max-Age=0/);
+  });
+});
+
+test("router: saved filters are shared, only the owner deletes", async () => {
+  const rows = [];
+  const savedFilters = {
+    configured: true,
+    list: async (section) => rows.filter((r) => r.section === section),
+    save: async ({ owner, section, name, filters }) => {
+      const row = { id: "11111111-1111-1111-1111-111111111111", section, name, owner_name: owner.name, owner_email: owner.email, filters };
+      rows.push(row);
+      return row;
+    },
+    remove: async ({ owner, id }) => rows.some((r) => r.id === id && r.owner_email === owner.email)
+  };
+
+  await withServer({ savedFilters }, async (base) => {
+    const asDario = await login(base);
+    const post = await fetch(`${base}/api/admin/filters`, {
+      method: "POST",
+      headers: { cookie: asDario.cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ section: "store", name: "No SneakerAsk", filters: { stores: ["SneakerAsk"], storeMode: "exclude" } })
+    });
+    assert.equal(post.status, 200);
+    assert.deepEqual(rows[0].filters, { q: "", stores: ["SneakerAsk"], storeMode: "exclude" });
+
+    const asPartner = await login(base, partner.email, "another long password");
+    const seen = await (await fetch(`${base}/api/admin/filters?section=store`, { headers: { cookie: asPartner.cookie } })).json();
+    assert.equal(seen.filters[0].name, "No SneakerAsk");
+    assert.equal(seen.filters[0].owner_name, "Dario");
+    assert.equal(seen.filters[0].mine, false);
+    assert.equal("owner_email" in seen.filters[0], false);
+
+    const denied = await fetch(`${base}/api/admin/filters/11111111-1111-1111-1111-111111111111`, { method: "DELETE", headers: { cookie: asPartner.cookie } });
+    assert.equal(denied.status, 403);
+
+    const own = await fetch(`${base}/api/admin/filters/11111111-1111-1111-1111-111111111111`, { method: "DELETE", headers: { cookie: asDario.cookie } });
+    assert.equal(own.status, 200);
   });
 });
 
