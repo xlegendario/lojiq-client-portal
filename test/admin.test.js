@@ -109,6 +109,13 @@ test("filters combine with the tab and only apply where they exist", () => {
   assert.doesNotMatch(buildListFormula(mwtb, { store: "x" }), /Store Name/);
 });
 
+test("every tab opens with the picture, once", () => {
+  for (const view of VIEWS) {
+    assert.equal(view.columns[0].key, "picture", `${view.section}/${view.key}`);
+    assert.equal(view.columns.filter((c) => c.type === "image").length, 1, `${view.section}/${view.key}`);
+  }
+});
+
 test("completed means paid, and Trusted does not count", () => {
   assert.match(findView("store", "completed").formula, /\{Invoice Status\} = 'Paid'/);
   assert.match(findView("mwtb", "completed").formula, /\{Payment Status\} = 'Paid'/);

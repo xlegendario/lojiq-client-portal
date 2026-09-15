@@ -59,7 +59,6 @@ const STORE = {
   maximum: col("maximum", "Maximum Price", "Maximum Buying Price", "money"),
   maxBuying: col("max_buying", "Max Buying Price", "Final Outsource Buying Price", "money"),
   maxBuyingVat0: col("max_buying_vat0", "Max Buying Price (VAT0)", "Final Outsource Buying Price (VAT 0%)", "money"),
-  picture: col("picture", "Picture", "Picture", "image"),
   offer: col("offer", "Offer to Store", "Offer To Store", "money"),
   eta: col("eta", "Offer ETA", "Estimated Time"),
   offerVat: col("offer_vat", "Offer VAT Type", "Offer VAT Type"),
@@ -102,7 +101,6 @@ const MWTB = {
   fulfillment: col("fulfillment", "Fulfillment Status", "Fulfillment Status", "status"),
 
   lowest: col("lowest", "Current Lowest Offer", "Current Lowest Offer", "money"),
-  picture: col("picture", "Picture", "Picture", "image"),
   offer: col("offer", "Offer to Buyer", "Offer To Buyer", "money"),
   eta: col("eta", "Offer ETA", "", "fixed", { value: "24 - 72 hours" }),
   offerVat: col("offer_vat", "Offer VAT Type", "Lowest Offer VAT Type"),
@@ -142,7 +140,7 @@ const mwtbShip = [MWTB.shipping, MWTB.label, MWTB.tracking];
 
 const delivered = `{Shipping Status} = 'Delivered'`;
 
-export const VIEWS = [
+const TABS = [
   // ----- Store Orders -----
   {
     key: "queued", section: "store", source: "queue", label: "Queued Orders",
@@ -158,13 +156,13 @@ export const VIEWS = [
   {
     key: "open", section: "store", source: "store", label: "Open Orders",
     formula: anyOf("Fulfillment Status", OPEN),
-    columns: [STORE.picture, ...storeBase, ...storePrices]
+    columns: [...storeBase, ...storePrices]
   },
   {
     key: "offers", section: "store", source: "store", label: "Offers",
     // Same rule as the store's own Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, {Offer To Store} != BLANK(), NOT({Offer Denied?}))`,
-    columns: [STORE.picture, ...storeBase, ...storePrices]
+    columns: [...storeBase, ...storePrices]
   },
   {
     key: "fulfilled", section: "store", source: "store", label: "Fulfilled",
@@ -226,13 +224,13 @@ export const VIEWS = [
   {
     key: "open", section: "mwtb", source: "mwtb", label: "Open WTBs",
     formula: anyOf("Fulfillment Status", OPEN),
-    columns: [MWTB.picture, ...mwtbBase, ...mwtbPrices]
+    columns: [...mwtbBase, ...mwtbPrices]
   },
   {
     key: "offers", section: "mwtb", source: "mwtb", label: "Offers",
     // Same rule as the Manual Orders Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, OR({Offer To Buyer} > 0, {Current Lowest Offer} > 0))`,
-    columns: [MWTB.picture, ...mwtbBase, ...mwtbPrices]
+    columns: [...mwtbBase, ...mwtbPrices]
   },
   {
     key: "fulfilled", section: "mwtb", source: "mwtb", label: "Fulfilled",
@@ -271,6 +269,14 @@ export const VIEWS = [
     columns: [...mwtbBase, ...mwtbDeal, MWTB.payment, ...mwtbShip]
   }
 ];
+
+// A picture is the quickest way to recognise a pair, so it opens every list.
+const PICTURE = col("picture", "Picture", "Picture", "image");
+
+export const VIEWS = TABS.map((view) => ({
+  ...view,
+  columns: [PICTURE, ...view.columns.filter((column) => column.type !== "image")]
+}));
 
 export function findView(section, key) {
   return VIEWS.find((view) => view.section === section && view.key === key) || null;
