@@ -131,12 +131,12 @@ const MWTB_FULFILLED = ["Allocated", "Requested Label", "Ready to Ship", "Fulfil
 /* ---------------- views ---------------- */
 
 const storeBase = [STORE.orderId, STORE.store, STORE.shopify, STORE.product, STORE.sku, STORE.size, STORE.selling, STORE.date];
-const storePrices = [STORE.target, STORE.maximum, STORE.maxBuying, STORE.maxBuyingVat0, STORE.picture, STORE.offer, STORE.eta, STORE.offerVat];
+const storePrices = [STORE.target, STORE.maximum, STORE.maxBuying, STORE.maxBuyingVat0, STORE.offer, STORE.eta, STORE.offerVat];
 const storeDeal = [STORE.finalPrice, STORE.fulfilmentDate, STORE.purchase, STORE.vat, STORE.seller];
 const storeShip = [STORE.shipping, STORE.label, STORE.tracking, STORE.notes];
 
 const mwtbBase = [MWTB.wtbId, MWTB.buyer, MWTB.product, MWTB.sku, MWTB.size, MWTB.maxPrice, MWTB.date];
-const mwtbPrices = [MWTB.lowest, MWTB.picture, MWTB.offer, MWTB.eta, MWTB.offerVat];
+const mwtbPrices = [MWTB.lowest, MWTB.offer, MWTB.eta, MWTB.offerVat];
 const mwtbDeal = [MWTB.finalPrice, MWTB.purchase, MWTB.vat, MWTB.seller];
 const mwtbShip = [MWTB.shipping, MWTB.label, MWTB.tracking];
 
@@ -158,13 +158,13 @@ export const VIEWS = [
   {
     key: "open", section: "store", source: "store", label: "Open Orders",
     formula: anyOf("Fulfillment Status", OPEN),
-    columns: [...storeBase, ...storePrices]
+    columns: [STORE.picture, ...storeBase, ...storePrices]
   },
   {
     key: "offers", section: "store", source: "store", label: "Offers",
     // Same rule as the store's own Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, {Offer To Store} != BLANK(), NOT({Offer Denied?}))`,
-    columns: [...storeBase, ...storePrices]
+    columns: [STORE.picture, ...storeBase, ...storePrices]
   },
   {
     key: "fulfilled", section: "store", source: "store", label: "Fulfilled",
@@ -226,13 +226,13 @@ export const VIEWS = [
   {
     key: "open", section: "mwtb", source: "mwtb", label: "Open WTBs",
     formula: anyOf("Fulfillment Status", OPEN),
-    columns: [...mwtbBase, ...mwtbPrices]
+    columns: [MWTB.picture, ...mwtbBase, ...mwtbPrices]
   },
   {
     key: "offers", section: "mwtb", source: "mwtb", label: "Offers",
     // Same rule as the Manual Orders Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, OR({Offer To Buyer} > 0, {Current Lowest Offer} > 0))`,
-    columns: [...mwtbBase, ...mwtbPrices]
+    columns: [MWTB.picture, ...mwtbBase, ...mwtbPrices]
   },
   {
     key: "fulfilled", section: "mwtb", source: "mwtb", label: "Fulfilled",

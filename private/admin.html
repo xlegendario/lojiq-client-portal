@@ -277,6 +277,7 @@
     .id { font-weight: 700; color: #fff; }
     .dash { color: #55555d; }
     .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
+    .thumb.empty { background: var(--panel-2); border: 1px dashed var(--border); }
 
     .pill {
       display: inline-flex;
@@ -508,6 +509,9 @@
     if (type === "url") {
       return cell?.href ? `<a href="${esc(cell.href)}" target="_blank" rel="noopener noreferrer">Open ↗</a>` : `<span class="dash">—</span>`;
     }
+
+    // Same footprint as a picture, so a row without one keeps its height.
+    if (type === "image" && empty) return `<span class="thumb empty" aria-hidden="true"></span>`;
 
     if (empty) return `<span class="dash">—</span>`;
 
