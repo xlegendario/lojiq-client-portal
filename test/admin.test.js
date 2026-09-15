@@ -102,7 +102,8 @@ test("filters combine with the tab and only apply where they exist", () => {
   assert.doesNotMatch(formula, /Buyer Name/);
 
   const general = findView("store", "general");
-  assert.equal(buildListFormula(general, {}), "");
+  assert.match(buildListFormula(general, {}), /^NOT\(AND\(TRIM\(\{Store Name\} & ''\) = 'SneakerAsk'/);
+  assert.match(buildListFormula(general, { store: "SneakerAsk" }), /^AND\(NOT\(/);
 
   const mwtb = findView("mwtb", "offers");
   assert.match(buildListFormula(mwtb, { store: "x", buyer: "Jan" }), /SEARCH\('jan', LOWER\(\{Buyer Name\}/);

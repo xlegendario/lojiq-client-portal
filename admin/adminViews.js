@@ -150,7 +150,9 @@ const TABS = [
   },
   {
     key: "general", section: "store", source: "store", label: "General",
-    formula: "",
+    // Everything, except SneakerAsk's Found and Found & Tracked orders:
+    // 2312 rows on 15-09-2026 that Dario does not want in this list.
+    formula: `NOT(AND(TRIM({Store Name} & '') = 'SneakerAsk', ${anyOf("Fulfillment Status", ["Found", "Found & Tracked"])}))`,
     columns: [...storeBase, STORE.fulfillment]
   },
   {
