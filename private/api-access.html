@@ -483,7 +483,7 @@
         {
           id: "consignment",
           title: "Consignment",
-          intro: "For selling. List the pairs you have, see which of them sold, and ship them with our label.",
+          intro: "For selling. List the pairs you have, see which of them sold, and ship them with our label. Your account needs to be approved as a consignor to list stock.",
           flow: [
             { title: "List your stock", text: "Send your pairs with a price. Update or remove them whenever your stock changes.", call: "POST /inventory" },
             { title: "A pair sells", text: "The sale appears in your feed. Take the pair off anywhere else you sell it.", event: "sale.created", status: "fulfillment_status: Allocated" },
@@ -675,8 +675,9 @@
           ],
           curl: `curl -X POST "${API}/inventory" \\\n${curlHeaders(` \\\n  -H "Content-Type: application/json"`)} \\\n  -d '${JSON.stringify({ items: [{ sku: "DZ5485-612", size: "42", vat_type: "Margin", price: 180, quantity: 1 }] })}'`,
           success: { success: true, data: { created_count: 1, updated_count: 0, skipped_count: 1, items: [{ index: 0, status: "created", id: "4f1c2a9e-8b1d-4c1e-9a3f-2b7d5e6f8a01", sku: "DZ5485-612", size: "42" }, { index: 1, status: "skipped", reason: "SKU not recognised in our catalogue", sku: "XX0000-000", size: "42" }] } },
-          error: { success: false, message: "At most 200 items per request" },
+          error: { success: false, message: "Consignment is not enabled for your account. Contact support to become a consignor.", code: "not_consignor" },
           notes: [
+            "Listing stock requires an account approved as a consignor. Without it the whole request is refused with 403 and code not_consignor, for test keys too. Reading, updating and deleting your existing listings keeps working.",
             "Every item gets its own result. One bad item never fails the rest.",
             "Sizes are EU and written as 42, 42.5 or 37 1/3. \"EU 42\" and \"42,5\" are accepted and corrected; anything else is skipped with a suggestion.",
             "The SKU is stored the way our catalogue writes it, so \"DD1503 101\" becomes \"DD1503-101\". Use the sku in the response from then on.",
@@ -1081,6 +1082,7 @@ function isGenuineWebhook(rawBody, headers, secret) {
                 ["200", "It worked.", ""],
                 ["400", "Something in your request is invalid. message says what.", "Fix the request."],
                 ["401", "No key, a malformed key, or a revoked key.", "Check the Authorization header."],
+                ["403", "Your account may not do this, for example listing stock without consignor approval.", "Contact support."],
                 ["404", "Not found, or not yours.", "Check the id."],
                 ["409", "Not possible right now, for example a label for a cancelled sale.", "Read message and code."],
                 ["429", "Too many requests.", "Wait Retry-After seconds."],
