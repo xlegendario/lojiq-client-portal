@@ -275,6 +275,112 @@ export const ACTIONS = {
     }
   },
 
+  accept: {
+    label: "Accept",
+    sources: ["store", "mwtb"],
+    negotiation: true,
+    needs: { store: ["Fulfillment Status", "Store Name", "Order ID"], mwtb: ["Fulfillment Status", "Buyer Seller ID", "Member WTB ID"] },
+    inputs: [{ name: "choice", label: "Offer", type: "choice", required: true }],
+    why(source, f) {
+      // Kickz Caviar's store-accept only takes an order in Outsource.
+      if (source === "store") return status(f) === "Outsource" ? "" : "An offer can be accepted once the order is in Outsource.";
+      if (!first(f["Buyer Seller ID"])) return "This want-to-buy has no buyer.";
+      return OPEN.includes(status(f)) ? "" : "Only open want-to-buys (Pending or Outsource) have offers.";
+    },
+    options: (ctx) => negotiationOptions(ctx, "accept"),
+    async run(ctx) {
+      const option = await chosenOption(ctx, "accept");
+      const { source, record, deps } = ctx;
+      let data;
+
+      if (source === "store") {
+        const storeName = text(first(record.fields["Store Name"]));
+        let roundId = option.roundId;
+
+        // A fresh offer first becomes a round, then that round is accepted:
+        // the same two calls as the store's Accept.
+        if (!roundId) {
+          const created = await deps.callKc("/api/counter-offers/create-fresh-round", {
+            order_record_id: record.id,
+            seller_offer_record_id: option.sellerOfferId,
+            store_name: storeName
+          });
+          roundId = text(created.counter_offer_record_id);
+          if (!roundId) throw new ActionError("Kickz Caviar did not open a round for this offer. Nothing was accepted.", 502);
+        }
+
+        data = await deps.callKc(`/api/counter-offers/${encodeURIComponent(roundId)}/store-accept`, { store_name: storeName });
+      } else {
+        data = await deps.callKc("/api/dashboard/buying/accept-offer", {
+          member_wtb_record_id: record.id,
+          seller_record_id: first(record.fields["Buyer Seller ID"]),
+          ...(option.roundId ? { counter_offer_record_id: option.roundId } : {}),
+          ...(option.sellerOfferId ? { seller_offer_record_id: option.sellerOfferId } : {}),
+          // The negotiated amount travels with the accept, as the buyer's button sends it.
+          ...(option.roundId && Number.isFinite(option.payout) ? { override_price: option.payout, override_vat_type: option.vatType } : {})
+        });
+      }
+
+      const message = data?.awaiting_consignor_confirmation
+        ? data.already_asked
+          ? "The consignor was already asked to confirm this sale. Nothing else happens until they do."
+          : "Accepted. This is a consignment pair: the consignor is asked to confirm first."
+        : "Offer accepted. The deal goes ahead as when the " + (source === "store" ? "store" : "buyer") + " accepts.";
+
+      return { message, changed: { accepted: option.summary } };
+    }
+  },
+
+  counter: {
+    label: "Counter",
+    sources: ["store", "mwtb"],
+    negotiation: true,
+    needs: { store: ["Fulfillment Status", "Store Name", "Order ID"], mwtb: ["Fulfillment Status", "Buyer Seller ID", "Member WTB ID"] },
+    inputs: [
+      { name: "choice", label: "Offer", type: "choice", required: true },
+      { name: "price", label: "Counter price (€, whole euros)", type: "money", required: true }
+    ],
+    why(source, f) {
+      if (source === "mwtb" && !first(f["Buyer Seller ID"])) return "This want-to-buy has no buyer.";
+      return OPEN.includes(status(f)) ? "" : "Only open orders (Pending or Outsource) can be countered.";
+    },
+    options: (ctx) => negotiationOptions(ctx, "counter"),
+    async run(ctx) {
+      const price = Number(text(ctx.input.price).replace(",", "."));
+
+      if (!Number.isInteger(price) || price <= 0) throw new ActionError("Enter the counter in whole euros, above € 0.", 400);
+
+      const option = await chosenOption(ctx, "counter");
+      const { source, record, deps } = ctx;
+
+      if (source === "store") {
+        const storeName = text(first(record.fields["Store Name"]));
+
+        if (option.roundId) {
+          await deps.callKc(`/api/counter-offers/${encodeURIComponent(option.roundId)}/store-counter`, { store_name: storeName, price });
+        } else {
+          // Round one goes to every seller who offered, as the store's own Counter does.
+          await deps.callKc("/api/counter-offers/create", { order_record_id: record.id, store_counter_price: price });
+        }
+      } else {
+        const buyer = first(record.fields["Buyer Seller ID"]);
+
+        if (option.roundId) {
+          await deps.callKc(`/api/dashboard/buying-counter-offers/${encodeURIComponent(option.roundId)}/buyer-counter`, { price, seller_record_id: buyer });
+        } else {
+          await deps.callKc("/api/dashboard/buying-counter-offers/create-from-fresh", {
+            member_wtb_record_id: record.id,
+            seller_offer_record_id: option.sellerOfferId,
+            price,
+            seller_record_id: buyer
+          });
+        }
+      }
+
+      return { message: `Counter of € ${price} sent to the seller.`, changed: { counter: price, on: option.summary } };
+    }
+  },
+
   add_note: {
     label: "Add Note",
     sources: ["store"],
@@ -304,6 +410,133 @@ export const ACTIONS = {
     }
   }
 };
+
+/* ---------------- negotiation ---------------- */
+
+// The offers a store or buyer sees on their own Offers tab for this record,
+// read from the same Kickz Caviar lists the client portal reads:
+//   fresh     an offer nobody has answered yet        -> Accept, Counter (round one)
+//   round     the seller countered, it is our turn    -> Accept, Counter (next round)
+//   waiting   our counter, waiting for the seller     -> shown, no button
+async function loadNegotiation({ source, record, deps }) {
+  if (source === "store") {
+    const storeName = text(first(record.fields["Store Name"]));
+    if (!storeName) throw new ActionError("This order has no store.");
+
+    const [fresh, open, countered] = await Promise.all([
+      deps.getKc("/api/dashboard/store-offers", { store_name: storeName }),
+      deps.getKc("/api/dashboard/store-counter-offers", { store_name: storeName, filter: "open" }),
+      deps.getKc("/api/dashboard/store-counter-offers", { store_name: storeName, filter: "countered" })
+    ]);
+
+    const mine = (list) => (list?.items || []).filter((item) => item.order_record_id === record.id);
+
+    return {
+      fresh: mine(fresh).map((item) => ({
+        id: `fresh:${item.seller_offer_record_id}`,
+        kind: "fresh",
+        sellerOfferId: text(item.seller_offer_record_id),
+        amount: item.offer,
+        vatType: text(item.vat_type),
+        myOffer: item.my_offer,
+        noRoom: Boolean(item.no_room_to_counter)
+      })),
+      rounds: mine(open).map((item) => ({
+        id: `round:${item.id}`,
+        kind: "round",
+        roundId: text(item.id),
+        sellerOfferId: text(item.seller_offer_record_id),
+        amount: item.sellers_offer,
+        payout: Number(item.sellers_offer_payout),
+        vatType: text(item.vat_type),
+        myOffer: item.my_offer
+      })),
+      waiting: mine(countered).map((item) => ({ amount: item.my_offer, sellerAmount: item.sellers_offer }))
+    };
+  }
+
+  const buyer = first(record.fields["Buyer Seller ID"]);
+  if (!buyer) throw new ActionError("This want-to-buy has no buyer.");
+
+  const [fresh, open, countered] = await Promise.all([
+    deps.getKc("/api/dashboard/buying-offers", { seller_record_id: buyer }),
+    deps.getKc("/api/dashboard/buying-counter-offers", { seller_record_id: buyer, filter: "open" }),
+    deps.getKc("/api/dashboard/buying-counter-offers", { seller_record_id: buyer, filter: "countered" })
+  ]);
+
+  const mine = (list, key) => (list?.items || []).filter((item) => (item[key] || item.member_wtb_record_id) === record.id);
+
+  return {
+    fresh: mine(fresh, "id").map((item) => ({
+      id: `fresh:${item.seller_offer_record_id}`,
+      kind: "fresh",
+      sellerOfferId: text(item.seller_offer_record_id),
+      amount: item.offer,
+      vatType: text(item.vat_type),
+      myOffer: item.my_offer,
+      noRoom: Boolean(item.no_room_to_counter)
+    })),
+    rounds: mine(open, "member_wtb_record_id").map((item) => ({
+      id: `round:${item.id}`,
+      kind: "round",
+      roundId: text(item.id),
+      sellerOfferId: text(item.seller_offer_record_id),
+      amount: item.sellers_offer,
+      payout: Number(item.sellers_offer_payout),
+      vatType: text(item.vat_type),
+      myOffer: item.my_offer
+    })),
+    waiting: mine(countered, "member_wtb_record_id").map((item) => ({ amount: item.my_offer, sellerAmount: item.sellers_offer }))
+  };
+}
+
+// Kickz Caviar sends these amounts already formatted, usually with the sign.
+const euro = (value) => {
+  const raw = text(value);
+  if (!raw || raw === "-") return "";
+  return raw.startsWith("€") ? raw : `€ ${raw}`;
+};
+
+function describeOption(option, who) {
+  const vat = option.vatType ? ` (${option.vatType})` : "";
+  const mine = euro(option.myOffer) ? ` · last ${who} offer ${euro(option.myOffer)}` : "";
+
+  return option.kind === "fresh"
+    ? `Offer ${euro(option.amount)}${vat}${mine}`
+    : `Seller countered ${euro(option.amount)}${vat}${mine}`;
+}
+
+async function negotiationOptions(ctx, mode) {
+  const who = ctx.source === "store" ? "store" : "buyer";
+  const { fresh, rounds, waiting } = await loadNegotiation(ctx);
+
+  const options = [...rounds, ...fresh]
+    .filter((option) => mode !== "counter" || !option.noRoom)
+    .map((option) => ({ ...option, summary: describeOption(option, who) }));
+
+  if (options.length) return { options };
+
+  const waitingText = waiting.length
+    ? `The ${who}'s counter of ${euro(waiting[0].amount) || "an amount"} is waiting for the seller.`
+    : "";
+
+  if (mode === "counter" && fresh.some((option) => option.noRoom)) {
+    return { options: [], blocked: `There is no room left to counter: the offer is within € 2.50 of the ${who}'s highest counter. Accept or wait for a better offer.` };
+  }
+
+  return { options: [], blocked: waitingText || `There is no open offer to ${mode === "accept" ? "accept" : "counter"} right now.` };
+}
+
+// The option picked in the dialog, looked up again: an offer that moved on
+// in the meantime is refused rather than acted on.
+async function chosenOption(ctx, mode) {
+  const { options } = await negotiationOptions(ctx, mode);
+  const option = options.find((candidate) => candidate.id === text(ctx.input.choice)) || (options.length === 1 && !text(ctx.input.choice) ? options[0] : null);
+
+  if (!option) throw new ActionError("This offer changed in the meantime. Open the button again to see the current one.");
+
+  return option;
+}
 
 /* ---------------- notification bodies (as the tracking job sends them) ---------------- */
 
@@ -408,15 +641,26 @@ export function publicActions() {
 }
 
 // The dialog text for one record, filled in with its own values.
-export function describeAction(key, source, record) {
+export async function describeAction(key, source, record, deps) {
   const action = ACTIONS[key];
   const f = record.fields;
 
-  return {
+  const described = {
     confirm: action.confirm ? action.confirm(source, f) : "",
     prefill: Object.fromEntries((action.inputs || []).filter((i) => i.prefill).map((i) => [i.name, f[i.prefill] ?? ""])),
-    blocked: action.why(source, f)
+    blocked: action.why(source, f),
+    options: []
   };
+
+  // Accept and Counter: the offers to choose from, as the store or buyer sees them.
+  if (!described.blocked && action.options) {
+    const { options, blocked } = await action.options({ source, record, deps });
+
+    described.options = options.map(({ id, summary }) => ({ id, label: summary }));
+    described.blocked = blocked || "";
+  }
+
+  return described;
 }
 
 export async function runAction({ key, source, record, input = {}, file = null, deps }) {
@@ -428,7 +672,8 @@ export async function runAction({ key, source, record, input = {}, file = null, 
   if (blocked) throw new ActionError(blocked);
 
   for (const spec of action.inputs || []) {
-    if (spec.type === "file") continue;
+    // A file is checked by the action itself, a choice against the live offers.
+    if (spec.type === "file" || spec.type === "choice") continue;
     if (spec.required && !text(input[spec.name])) throw new ActionError(`Fill in: ${spec.label}.`, 400);
   }
 

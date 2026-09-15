@@ -386,6 +386,13 @@
     .action-form .blocked { color: var(--warning); }
     .action-form .input { width: 100%; }
     .action-form input[type=file] { color: var(--muted); }
+    .action-inputs { display: flex; flex-direction: column; gap: 14px; }
+    .action-inputs:empty { display: none; }
+    .choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .choices legend { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+    .choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); cursor: pointer; line-height: 1.4; }
+    .choice:has(input:checked) { border-color: var(--primary); background: rgba(47, 128, 237, 0.1); }
+    .choice input { margin-top: 3px; accent-color: var(--primary); }
     .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
     .toast {
@@ -1188,9 +1195,16 @@
     toastTimer = setTimeout(() => { $("toast").hidden = true; }, 7000);
   }
 
-  function inputHtml(spec, prefill) {
+  function inputHtml(spec, prefill, options = []) {
     const id = `action-${spec.name}`;
     const value = prefill === null || prefill === undefined ? "" : prefill;
+
+    // Which offer: one line per open offer, the only one already chosen.
+    if (spec.type === "choice") {
+      return `<fieldset class="choices" id="${id}"><legend>${esc(spec.label)}</legend>${options
+        .map((option, i) => `<label class="choice"><input type="radio" name="${esc(spec.name)}" id="${id}-${i}" value="${esc(option.id)}"${options.length === 1 ? " checked" : ""}> <span>${esc(option.label)}</span></label>`)
+        .join("")}</fieldset>`;
+    }
 
     if (spec.type === "file") {
       return `<div class="field"><label for="${id}">${esc(spec.label)}</label><input id="${id}" name="${esc(spec.name)}" type="file" accept="${esc(spec.accept || "")}"></div>`;
@@ -1209,7 +1223,8 @@
     pending = { key, source, id, def };
 
     $("actionTitle").textContent = def.label;
-    $("actionText").textContent = "Loading…";
+    // Accept and Counter read the live offers from Kickz Caviar, which takes a few seconds.
+    $("actionText").textContent = def.inputs.some((spec) => spec.type === "choice") ? "Loading the current offers…" : "Loading…";
     $("actionText").classList.remove("blocked");
     $("actionInputs").innerHTML = "";
     $("actionError").textContent = "";
@@ -1230,9 +1245,9 @@
       }
 
       $("actionText").textContent = info.confirm || def.note || "";
-      $("actionInputs").innerHTML = def.inputs.map((spec) => inputHtml(spec, info.prefill?.[spec.name])).join("");
+      $("actionInputs").innerHTML = def.inputs.map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [])).join("");
       $("actionConfirm").disabled = false;
-      ($("actionInputs").querySelector("input") || $("actionConfirm")).focus();
+      ($("actionInputs").querySelector("input.input") || $("actionInputs").querySelector("input") || $("actionConfirm")).focus();
     } catch (err) {
       $("actionText").textContent = "";
       $("actionError").textContent = err.message;
@@ -1263,6 +1278,7 @@
     for (const spec of def.inputs) {
       const el = $(`action-${spec.name}`);
       if (spec.type === "file") file = el.files[0] || null;
+      else if (spec.type === "choice") input[spec.name] = el.querySelector("input:checked")?.value || "";
       else input[spec.name] = el.value.trim();
 
       if (spec.required && (spec.type === "file" ? !file : !input[spec.name])) {

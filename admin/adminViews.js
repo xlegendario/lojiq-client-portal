@@ -285,6 +285,7 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 // adminActions.js; a button only shows on a row where it can run.
 const TAB_ACTIONS = {
   "store/open": ["send_offer", "custom_price"],
+  "store/offers": ["accept", "counter"],
   "store/fulfilled": ["track", "discord"],
   "store/allocated": ["discord"],
   "store/labels": ["upload_label", "discord"],
@@ -296,6 +297,7 @@ const TAB_ACTIONS = {
   "store/issues": ["solved", "discord"],
 
   "mwtb/open": ["send_offer", "custom_price"],
+  "mwtb/offers": ["accept", "counter"],
   "mwtb/fulfilled": ["track", "discord"],
   "mwtb/allocated": ["discord"],
   "mwtb/labels": ["upload_label", "discord"],

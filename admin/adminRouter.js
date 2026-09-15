@@ -629,6 +629,29 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   const deps = {
     airtable,
 
+    // The lists behind the store's and buyer's own Offers tabs.
+    async getKc(pathName, params) {
+      if (!service(services.kickzBaseUrl) || !text(services.counterOffersSecret)) {
+        throw new ActionError("This button needs COUNTER_OFFERS_SECRET on this service.", 503);
+      }
+
+      const url = new URL(`${service(services.kickzBaseUrl)}${pathName}`);
+      for (const [name, value] of Object.entries(params || {})) url.searchParams.set(name, value);
+
+      const response = await fetchImpl(url, {
+        headers: { Accept: "application/json", "x-kc-secret": services.counterOffersSecret },
+        signal: AbortSignal.timeout(60_000)
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new ActionError(text(data.error || data.details) || `Kickz Caviar answered ${response.status}.`, 502);
+      }
+
+      return data;
+    },
+
     callKc(pathName, body, which = "counter") {
       const secret = which === "portal" ? services.kcPortalSecret : services.counterOffersSecret;
       if (!service(services.kickzBaseUrl) || !text(secret)) {
@@ -719,7 +742,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     try {
       if (!publicActions()[key]) throw new ActionError("This button does not exist.", 404);
       const record = await freshRecord(source, text(req.query.id), key);
-      res.json({ label: record.label, ...describeAction(key, source, record) });
+      res.json({ label: record.label, ...(await describeAction(key, source, record, deps)) });
     } catch (err) {
       actionError(res, err, key);
     }

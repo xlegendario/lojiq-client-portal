@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ACTIONS, availableActions, discordLink, runAction } from "../admin/adminActions.js";
+import { ACTIONS, availableActions, describeAction, discordLink, runAction } from "../admin/adminActions.js";
 
 function fakeDeps() {
   const calls = [];
@@ -156,4 +156,107 @@ test("Solved only on an open issue; links are never run on the server", async ()
 
   await assert.rejects(runAction({ key: "track", source: "store", record: record({}), deps }), /does not exist/);
   assert.equal(ACTIONS.add_note.sources.includes("mwtb"), false);
+});
+
+/* ---------------- Accept and Counter ---------------- */
+
+// Kickz Caviar's offer lists, as the client portal reads them.
+function negotiationDeps(lists) {
+  const deps = fakeDeps();
+
+  deps.getKc = async (path, params) => {
+    deps.calls.push({ kind: "kc-get", path, params });
+    const key = `${path}${params.filter ? `?${params.filter}` : ""}`;
+    return { items: lists[key] || [] };
+  };
+
+  deps.callKc = async (path, body, which) => {
+    deps.calls.push({ kind: "kc", path, body, which });
+    return path.endsWith("create-fresh-round") ? { counter_offer_record_id: "recROUND000000001" } : { ok: true };
+  };
+
+  return deps;
+}
+
+const storeOrder = record({ "Fulfillment Status": "Outsource", "Store Name": ["SneakerAsk"], "Order ID": "ORD-1" });
+
+test("store Accept on a fresh offer: create-fresh-round, then store-accept", async () => {
+  const deps = negotiationDeps({
+    "/api/dashboard/store-offers": [
+      { order_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER001", offer: "€ 155", vat_type: "Margin" },
+      { order_record_id: "recOTHERORDER0001", seller_offer_record_id: "recSELLEROFFER999", offer: "€ 90" }
+    ]
+  });
+
+  const described = await describeAction("accept", "store", storeOrder, deps);
+  assert.deepEqual(described.options, [{ id: "fresh:recSELLEROFFER001", label: "Offer € 155 (Margin)" }]);
+
+  await runAction({ key: "accept", source: "store", record: storeOrder, input: { choice: "fresh:recSELLEROFFER001" }, deps });
+
+  const posts = deps.calls.filter((c) => c.kind === "kc");
+  assert.deepEqual(posts.map((c) => c.path), ["/api/counter-offers/create-fresh-round", "/api/counter-offers/recROUND000000001/store-accept"]);
+  assert.deepEqual(posts[0].body, { order_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER001", store_name: "SneakerAsk" });
+  assert.deepEqual(posts[1].body, { store_name: "SneakerAsk" });
+});
+
+test("store Accept only in Outsource, and refuses an offer that moved on", async () => {
+  const deps = negotiationDeps({ "/api/dashboard/store-offers": [{ order_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER001", offer: "155" }] });
+  const pending = record({ ...storeOrder.fields, "Fulfillment Status": "Pending" });
+
+  assert.match((await describeAction("accept", "store", pending, deps)).blocked, /Outsource/);
+  await assert.rejects(runAction({ key: "accept", source: "store", record: storeOrder, input: { choice: "fresh:recGONE" }, deps }), /changed in the meantime/);
+  assert.equal(deps.calls.some((c) => c.kind === "kc"), false);
+});
+
+test("store Counter: round one through create, a seller's counter through store-counter", async () => {
+  const fresh = negotiationDeps({ "/api/dashboard/store-offers": [{ order_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER001", offer: "155" }] });
+
+  await assert.rejects(runAction({ key: "counter", source: "store", record: storeOrder, input: { choice: "fresh:recSELLEROFFER001", price: "140.5" }, deps: fresh }), /whole euros/);
+  await runAction({ key: "counter", source: "store", record: storeOrder, input: { choice: "fresh:recSELLEROFFER001", price: "140" }, deps: fresh });
+  assert.deepEqual(fresh.calls.filter((c) => c.kind === "kc"), [{ kind: "kc", path: "/api/counter-offers/create", body: { order_record_id: "recAAAAAAAAAAAAAA", store_counter_price: 140 }, which: undefined }]);
+
+  const round = negotiationDeps({ "/api/dashboard/store-counter-offers?open": [{ id: "recROUND000000002", order_record_id: "recAAAAAAAAAAAAAA", sellers_offer: "€ 150", sellers_offer_payout: 130, vat_type: "Margin", my_offer: "€ 140" }] });
+  await runAction({ key: "counter", source: "store", record: storeOrder, input: { choice: "round:recROUND000000002", price: "145" }, deps: round });
+  assert.deepEqual(round.calls.filter((c) => c.kind === "kc")[0].body, { store_name: "SneakerAsk", price: 145 });
+  assert.equal(round.calls.filter((c) => c.kind === "kc")[0].path, "/api/counter-offers/recROUND000000002/store-counter");
+});
+
+test("nothing to act on: says the counter is waiting for the seller", async () => {
+  const deps = negotiationDeps({ "/api/dashboard/store-counter-offers?countered": [{ order_record_id: "recAAAAAAAAAAAAAA", my_offer: "€ 140" }] });
+  const described = await describeAction("counter", "store", storeOrder, deps);
+
+  assert.equal(described.options.length, 0);
+  assert.match(described.blocked, /counter of € 140 is waiting for the seller/);
+});
+
+test("member WTB Accept on a round sends the negotiated payout, as the buyer's button does", async () => {
+  const wtb = record({ "Fulfillment Status": "Outsource", "Buyer Seller ID": ["recBUYER000000001"], "Member WTB ID": "MWTB-1" });
+  const deps = negotiationDeps({
+    "/api/dashboard/buying-counter-offers?open": [{ id: "recROUND000000003", member_wtb_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER002", sellers_offer: "€ 139,10", sellers_offer_payout: 127, vat_type: "VAT21" }]
+  });
+
+  await runAction({ key: "accept", source: "mwtb", record: wtb, input: { choice: "round:recROUND000000003" }, deps });
+
+  const post = deps.calls.find((c) => c.kind === "kc");
+  assert.equal(post.path, "/api/dashboard/buying/accept-offer");
+  assert.deepEqual(post.body, {
+    member_wtb_record_id: "recAAAAAAAAAAAAAA",
+    seller_record_id: "recBUYER000000001",
+    counter_offer_record_id: "recROUND000000003",
+    seller_offer_record_id: "recSELLEROFFER002",
+    override_price: 127,
+    override_vat_type: "VAT21"
+  });
+  assert.deepEqual(deps.calls.find((c) => c.kind === "kc-get").params, { seller_record_id: "recBUYER000000001" });
+});
+
+test("member WTB Counter on a fresh offer starts a round from it", async () => {
+  const wtb = record({ "Fulfillment Status": "Pending", "Buyer Seller ID": ["recBUYER000000001"] });
+  const deps = negotiationDeps({ "/api/dashboard/buying-offers": [{ id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER003", offer: "€ 90", vat_type: "Margin" }] });
+
+  await runAction({ key: "counter", source: "mwtb", record: wtb, input: { choice: "fresh:recSELLEROFFER003", price: "80" }, deps });
+
+  const post = deps.calls.find((c) => c.kind === "kc");
+  assert.equal(post.path, "/api/dashboard/buying-counter-offers/create-from-fresh");
+  assert.deepEqual(post.body, { member_wtb_record_id: "recAAAAAAAAAAAAAA", seller_offer_record_id: "recSELLEROFFER003", price: 80, seller_record_id: "recBUYER000000001" });
 });
