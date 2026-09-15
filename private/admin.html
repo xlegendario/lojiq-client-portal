@@ -1320,7 +1320,7 @@
           <input type="checkbox" id="unit-all-${g}" data-unit-all="${g}" aria-label="Select all of ${esc(group.seller.name)}">
           <strong>${esc(group.seller.name)}</strong>
           ${group.seller.id ? `<span class="meta">${esc(group.seller.id)}</span>` : ""}
-          ${group.seller.person && group.seller.person !== group.seller.name ? `<span class="meta">${esc(group.seller.person)}</span>` : ""}
+          ${group.seller.discord ? `<span class="meta">@${esc(group.seller.discord.replace(/^@/, ""))}</span>` : ""}
           <span class="meta">${group.rows.length} unit${group.rows.length === 1 ? "" : "s"}</span>
           <span class="total">${esc(money.format(group.total))}</span>
           <span class="payout-info${info ? "" : " missing"}">${info ? esc(info) : "No Payout Info"}${info ? `<button class="act" type="button" data-copy="${esc(info)}">Copy</button>` : ""}</span>

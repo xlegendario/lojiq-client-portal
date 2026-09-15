@@ -27,7 +27,7 @@ export const PAYOUT_FIELDS = [
   "Member WTBs", "Member WTB ID", "Shipping Status (MWTB)", "Tracking URL (MWTB)"
 ];
 
-export const SELLER_FIELDS = ["Seller ID", "Full Name", "Company Name", "Payout Info"];
+export const SELLER_FIELDS = ["Seller ID", "Full Name", "Company Name", "Discord", "Payout Info"];
 
 export const SHIPPING_FILTERS = ["all", "shipped", "delivered", "shipped_or_delivered", "not_shipped"];
 
@@ -95,8 +95,11 @@ function unitRow(record, sellers) {
     date: text(f["Purchase Date"]),
     seller: {
       id: text(seller["Seller ID"]) || text(first(f["Seller ID (Lookup)"])),
+      // Company Name when there is one, otherwise the person.
       name: text(seller["Company Name"]) || text(seller["Full Name"]) || text(first(f["Seller Company Name"])) || text(first(f["Seller Name"])) || "Unknown seller",
       person: text(seller["Full Name"]) || text(first(f["Seller Name"])),
+      // The Discord name is how most sellers are recognised.
+      discord: text(seller.Discord),
       payout_info: text(seller["Payout Info"])
     }
   };
@@ -135,7 +138,7 @@ export async function loadPayouts(airtable, { shipping = "all", type = "", searc
   const rows = allRows.filter((row) => {
     if (!matchesShipping(row, shipping)) return false;
     if (type && row.type !== type) return false;
-    if (needle && ![row.seller.name, row.seller.person, row.seller.id, row.item, row.reference, row.product, row.sku].join(" ").toLowerCase().includes(needle)) return false;
+    if (needle && ![row.seller.name, row.seller.person, row.seller.discord, row.seller.id, row.item, row.reference, row.product, row.sku].join(" ").toLowerCase().includes(needle)) return false;
     return true;
   });
 
