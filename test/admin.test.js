@@ -89,7 +89,7 @@ test("every tab has a unique key per section and a column for each id", () => {
 
   // The tabs from the Whimsical, minus Unpaid (that became Payouts).
   const store = VIEWS.filter((v) => v.section === "store").map((v) => v.label);
-  assert.deepEqual(store, ["Queued Orders", "General", "Open Orders", "Offers", "Fulfilled", "Allocated", "Labels Requested", "Ready To Ship", "Shipment Delayed", "Shipped", "Delivered", "Completed", "Issues"]);
+  assert.deepEqual(store, ["Queued Orders", "General", "Open Orders", "Offers", "Processing", "Fulfilled", "Allocated", "Labels Requested", "Ready To Ship", "Shipment Delayed", "Shipped", "Delivered", "Completed", "Issues"]);
 });
 
 test("filters combine with the tab and only apply where they exist", () => {

@@ -125,6 +125,7 @@ const MWTB = {
 /* ---------------- statuses ---------------- */
 
 const OPEN = ["Pending", "Outsource"];
+const PROCESSING = ["Confirmed", "Claim Processing", "Need Confirmation", "StockX Processing", "GOAT Processing", "SneakerAsk Processing", "Woovin Processing", "bol Processing"];
 
 // "Fulfilled" to Dario and his partner means: we have a unit for it. From
 // Allocated on, whatever happens after.
@@ -178,6 +179,14 @@ const TABS = [
     // Same rule as the store's own Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, {Offer To Store} != BLANK(), NOT({Offer Denied?}))`,
     columns: [...storeBase, ...storePrices]
+  },
+  {
+    key: "processing", section: "store", source: "store", label: "Processing",
+    // Between "the deal is agreed" and "a unit is ours": the client portal's
+    // Processing tab, plus the marketplace and confirmation statuses of the
+    // same stage so nothing drops out of sight until it is Allocated.
+    formula: anyOf("Fulfillment Status", PROCESSING),
+    columns: [...storeBase, STORE.fulfillment, STORE.offer, STORE.offerVat, STORE.seller]
   },
   {
     key: "fulfilled", section: "store", source: "store", label: "Fulfilled",
@@ -248,6 +257,12 @@ const TABS = [
     columns: [...mwtbBase, ...mwtbPrices]
   },
   {
+    key: "processing", section: "mwtb", source: "mwtb", label: "Processing",
+    // Same stage for a want-to-buy, as the Manual Orders Processing tab.
+    formula: anyOf("Fulfillment Status", ["Confirmed", "Claim Processing"]),
+    columns: [...mwtbBase, MWTB.fulfillment, MWTB.offer, MWTB.offerVat]
+  },
+  {
     key: "fulfilled", section: "mwtb", source: "mwtb", label: "Fulfilled",
     formula: anyOf("Fulfillment Status", MWTB_FULFILLED),
     columns: [...mwtbBase, MWTB.fulfillment, ...mwtbDeal, MWTB.payment, ...mwtbShip]
@@ -292,6 +307,8 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 // adminActions.js; a button only shows on a row where it can run.
 const TAB_ACTIONS = {
   "store/open": ["send_offer", "custom_price", "manual_deal"],
+  "store/processing": ["discord"],
+  "mwtb/processing": ["discord"],
   "store/offers": ["accept", "counter"],
   "store/fulfilled": ["track", "discord"],
   "store/allocated": ["discord"],
