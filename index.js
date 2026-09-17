@@ -147,7 +147,9 @@ const adminPortal = createAdminPortal({
     deliveredWebhookUrl: DELIVERED_DISCORD_WEBHOOK_URL,
     mollieApiKey: MOLLIE_API_KEY
   },
-  pageFile: adminPagePath(__dirname)
+  pageFile: adminPagePath(__dirname),
+  supabaseUrl: SUPABASE_URL,
+  serviceKey: SUPABASE_SERVICE_ROLE_KEY
 });
 
 app.use(adminPortal.router);

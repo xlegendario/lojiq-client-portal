@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Forwards · Lojiq Admin</title>
+  <link rel="icon" href="/favicon.png">
+  <script>
+    try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
+  </script>
+  <style>
+    /* Same palette and components as admin.html, so Forward Service reads as
+       part of the same portal. */
+    :root {
+      --bg: #08080A;
+      --panel: #121215;
+      --panel-2: #17171B;
+      --border: #26262B;
+      --text: #E9E9EE;
+      --muted: #8B8B95;
+      --nav-item: #A8A8AF;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --primary-tint: rgba(102, 179, 255, 0.16);
+      --red: #F04438;
+      --warning: #F59E0B;
+      --strong: #FFFFFF;
+      --faint: #55555D;
+      --nav-title: #5F5F68;
+      --hover-border: #3A3A41;
+      --strip: #1B1C21;
+      --row-hover: rgba(102, 179, 255, 0.06);
+      --pill-bg: rgba(139, 139, 149, 0.16);
+      --pill-text: #CFCFD7;
+      --good-bg: rgba(22, 179, 100, 0.16);
+      --good-text: #4ADE9A;
+      --wait-bg: rgba(245, 158, 11, 0.16);
+      --wait-text: #FBBF4C;
+      --move-bg: rgba(47, 128, 237, 0.18);
+      --bad-bg: rgba(240, 68, 56, 0.16);
+      --bad-text: #FF7A70;
+      --toast-bg: #0F2A1E;
+      --toast-border: rgba(22, 179, 100, 0.5);
+      --toast-text: #D6F5E6;
+      --shadow: rgba(0, 0, 0, 0.5);
+      --backdrop: rgba(0, 0, 0, 0.6);
+      --logo-plate: transparent;
+      color-scheme: dark;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #F3F5F8;
+      --panel: #FFFFFF;
+      --panel-2: #F0F2F6;
+      --border: #DCE0E7;
+      --text: #1A1D23;
+      --muted: #616875;
+      --nav-item: #3E4450;
+      --primary-soft: #1B64C8;
+      --primary-tint: rgba(47, 128, 237, 0.12);
+      --red: #D63B30;
+      --warning: #B86E00;
+      --strong: #0C0E13;
+      --faint: #A2A8B2;
+      --nav-title: #8A909B;
+      --hover-border: #C3C9D3;
+      --strip: #F1F3F7;
+      --row-hover: rgba(47, 128, 237, 0.05);
+      --pill-bg: rgba(97, 104, 117, 0.12);
+      --pill-text: #3E4450;
+      --good-bg: rgba(18, 151, 90, 0.12);
+      --good-text: #0C7446;
+      --wait-bg: rgba(214, 139, 0, 0.14);
+      --wait-text: #8F5500;
+      --move-bg: rgba(47, 128, 237, 0.12);
+      --bad-bg: rgba(214, 59, 48, 0.1);
+      --bad-text: #B42E24;
+      --toast-bg: #E6F5EC;
+      --toast-border: rgba(18, 151, 90, 0.45);
+      --toast-text: #0E4F31;
+      --shadow: rgba(20, 28, 40, 0.14);
+      --backdrop: rgba(20, 28, 40, 0.35);
+      --logo-plate: #121215;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: var(--primary-soft); }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--primary-soft); outline-offset: 2px; }
+
+    .input, .select { height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); min-width: 0; }
+    textarea.input { height: auto; min-height: 70px; padding: 9px 11px; resize: vertical; }
+    .input:focus, .select:focus { border-color: var(--primary); outline: none; }
+    .btn { height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; font-weight: 700; white-space: nowrap; }
+    .btn:hover { border-color: var(--hover-border); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+
+    .app { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; }
+    .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
+    .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
+    .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
+    .nav-title { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nav-title); margin: 14px 8px 5px; }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav-item); text-decoration: none; font-size: 12px; border: 0; background: none; cursor: pointer; text-align: left; width: 100%; }
+    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
+    .nav-item.active { font-weight: 700; }
+    .nav-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .content { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .heading { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .heading h1 { margin: 0; font-size: 20px; }
+    .crumb { color: var(--muted); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    .totals { display: flex; flex-wrap: wrap; gap: 8px; }
+    .total { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 130px; }
+    .total span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .total strong { font-size: 16px; color: var(--strong); font-variant-numeric: tabular-nums; }
+
+    .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto; background: var(--panel); max-height: calc(100vh - 260px); }
+    table { border-collapse: collapse; width: max-content; min-width: 100%; }
+    th { position: sticky; top: 0; z-index: 4; background: var(--panel-2); text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+    tbody tr:hover td { background: var(--row-hover); }
+    td.money, th.money { text-align: right; font-variant-numeric: tabular-nums; }
+    td.check, th.check { width: 34px; text-align: center; }
+    td.check input, th.check input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+    .id { font-weight: 700; color: var(--strong); }
+    .dash { color: var(--faint); }
+    .sub { color: var(--muted); font-size: 12px; }
+    .pairs { display: flex; flex-direction: column; gap: 2px; white-space: normal; min-width: 220px; max-width: 320px; }
+    .tracking { display: flex; flex-direction: column; gap: 2px; }
+    .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--pill-bg); color: var(--pill-text); }
+    .pill.good { background: var(--good-bg); color: var(--good-text); }
+    .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
+    .pill.move { background: var(--move-bg); color: var(--primary-soft); }
+    .pill.bad { background: var(--bad-bg); color: var(--bad-text); }
+    .row-actions { display: inline-flex; gap: 6px; }
+    .act { height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel-2); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .act:hover { border-color: var(--primary); color: var(--strong); }
+    .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+
+    .actionbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .actionbar[hidden] { display: none !important; }
+
+    dialog { width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 0; box-shadow: 0 30px 80px var(--shadow); }
+    dialog::backdrop { background: var(--backdrop); }
+    .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .dialog-body h2 { margin: 0; font-size: 17px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .field .hint { color: var(--muted); font-size: 12px; }
+    .label-list { display: flex; flex-direction: column; gap: 6px; }
+    .label-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .label-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+    .label-add input[type=file] { color: var(--muted); min-width: 0; }
+    .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; max-width: min(560px, calc(100vw - 32px)); background: var(--toast-bg); border: 1px solid var(--toast-border); color: var(--toast-text); padding: 12px 16px; border-radius: 10px; box-shadow: 0 16px 40px var(--shadow); }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
+      .label-add { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" aria-label="Admin navigation">
+      <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
+      <a class="nav-item" href="/admin">← Store Orders &amp; Member WTBs</a>
+
+      <div class="nav-title">Forward Service</div>
+      <button class="nav-item" type="button" data-shipping="awaiting_label">Awaiting label <small data-count="awaiting_label"></small></button>
+      <button class="nav-item" type="button" data-shipping="ready_to_ship">Ready to Ship <small data-count="ready_to_ship"></small></button>
+      <button class="nav-item" type="button" data-shipping="shipped">Shipped <small data-count="shipped"></small></button>
+      <button class="nav-item" type="button" data-shipping="all">All forwards</button>
+    </nav>
+
+    <main class="content">
+      <div class="heading">
+        <span class="crumb">Forward Service</span>
+        <h1 id="viewTitle">Forwards</h1>
+      </div>
+
+      <div class="filters">
+        <select class="select" id="paymentFilter" aria-label="Payment">
+          <option value="all">Paid and unpaid</option>
+          <option value="pending" selected>Not paid yet</option>
+          <option value="paid">Paid</option>
+        </select>
+        <select class="select" id="sellerFilter" aria-label="Partner">
+          <option value="">Every partner</option>
+        </select>
+        <input class="input" id="searchInput" type="search" placeholder="Search FWD, buyer, SKU, tracking…" style="width:260px">
+        <span class="count" id="count"></span>
+      </div>
+
+      <div class="totals" id="totals"></div>
+
+      <div class="actionbar" id="actionbar" hidden>
+        <span id="pickedText"></span>
+        <button class="btn primary" id="markPaidBtn" type="button">Mark selected paid</button>
+        <button class="btn" id="markUnpaidBtn" type="button">Mark selected unpaid</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="check"><input type="checkbox" id="pickAll" aria-label="Select everything shown"></th>
+              <th>Forward</th>
+              <th>Partner</th>
+              <th>Buyer</th>
+              <th>Pairs</th>
+              <th class="money">Fee</th>
+              <th class="money">Shipping</th>
+              <th class="money">Payable</th>
+              <th class="money">Profit ex VAT</th>
+              <th>Tracking &amp; labels</th>
+              <th>Shipping</th>
+              <th>Payment</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="13" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="editDialog">
+    <form class="dialog-body" id="editForm" method="dialog">
+      <h2 id="editTitle">Forward</h2>
+
+      <div class="field">
+        <label for="editShipping">Shipping costs (€)</label>
+        <input class="input" id="editShipping" type="text" inputmode="decimal">
+      </div>
+
+      <div class="field">
+        <label for="editTracking">Tracking numbers</label>
+        <textarea class="input" id="editTracking"></textarea>
+        <span class="hint">One per line or separated by commas. Leaving it empty with no labels puts the forward back on Awaiting label.</span>
+      </div>
+
+      <div class="field">
+        <label>Labels</label>
+        <div class="label-list" id="editLabels"></div>
+        <div class="label-add">
+          <input class="input" id="newLabelTracking" type="text" placeholder="Tracking on this label">
+          <input id="newLabelFile" type="file" accept="application/pdf" aria-label="Label PDF">
+          <button class="btn" id="uploadLabelBtn" type="button">Upload</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="editNotes">Notes</label>
+        <textarea class="input" id="editNotes"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="editStatus">Shipping status</label>
+        <select class="select" id="editStatus">
+          <option value="">Follows the labels and tracking</option>
+          <option value="awaiting_label">Awaiting label</option>
+          <option value="ready_to_ship">Ready to Ship</option>
+          <option value="shipped">Shipped</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="editCancel">Close</button>
+        <button class="btn primary" type="button" id="editSave">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" hidden role="status"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const STATUS = {
+      awaiting_label: ["Awaiting label", "wait"],
+      ready_to_ship: ["Ready to Ship", "move"],
+      shipped: ["Shipped", "good"],
+      cancelled: ["Cancelled", "bad"]
+    };
+
+    const state = {
+      shipping: "awaiting_label",
+      forwards: [],
+      picked: new Set(),
+      editing: null
+    };
+
+    try {
+      const remembered = localStorage.getItem("lojiq-admin-forwarding-tab");
+      if (remembered) state.shipping = remembered;
+    } catch {}
+
+    const esc = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const euro = (value) => `€ ${Number(value || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    let toastTimer = null;
+    function toast(message) {
+      $("toast").textContent = message;
+      $("toast").hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { $("toast").hidden = true; }, 5000);
+    }
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, { credentials: "same-origin", ...options });
+
+      if (response.status === 401) {
+        location.href = "/admin";
+        throw new Error("Not signed in");
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `The server answered ${response.status}.`);
+      return data;
+    }
+
+    function pairsSummary(pairs) {
+      const bySku = new Map();
+
+      for (const pair of pairs) {
+        if (!bySku.has(pair.sku)) bySku.set(pair.sku, { name: pair.product_name, sizes: new Map() });
+        const sizes = bySku.get(pair.sku).sizes;
+        sizes.set(pair.size, (sizes.get(pair.size) || 0) + 1);
+      }
+
+      return [...bySku.entries()].map(([sku, entry]) => {
+        const sizes = [...entry.sizes.entries()].map(([size, n]) => n > 1 ? `${size} ×${n}` : size).join(", ");
+        return `<span><strong>${esc(sku)}</strong> ${esc(sizes)}</span><span class="sub">${esc(entry.name || "")}</span>`;
+      }).join("");
+    }
+
+    function visibleForwards() {
+      const query = $("searchInput").value.trim().toLowerCase();
+      if (!query) return state.forwards;
+
+      return state.forwards.filter((row) => [
+        row.display_id, row.buyer_name, row.buyer_id, row.seller_id, row.seller_name,
+        ...(row.tracking_numbers || []),
+        ...row.pairs.map((pair) => `${pair.sku} ${pair.size} ${pair.product_name || ""}`)
+      ].join(" ").toLowerCase().includes(query));
+    }
+
+    function render() {
+      const rows = visibleForwards();
+
+      document.querySelectorAll("[data-shipping]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.shipping === state.shipping);
+      });
+
+      $("viewTitle").textContent = state.shipping === "all" ? "All forwards" : STATUS[state.shipping][0];
+      document.title = `${$("viewTitle").textContent} · Forward Service · Lojiq Admin`;
+      $("count").textContent = `${rows.length} forward${rows.length === 1 ? "" : "s"}`;
+
+      if (!rows.length) {
+        $("rows").innerHTML = `<tr><td colspan="13" class="empty">No forwards here.</td></tr>`;
+      } else {
+        $("rows").innerHTML = rows.map((row) => {
+          const [statusLabel, statusClass] = STATUS[row.shipping_status] || [row.shipping_status, ""];
+          const labels = (row.labels || []).map((label, index) =>
+            `<a href="${esc(label.url)}" target="_blank" rel="noopener">Label ${index + 1}${label.tracking ? ` · ${esc(label.tracking)}` : ""}</a>`
+          );
+          const tracking = (row.tracking_numbers || []).filter((number) =>
+            !(row.labels || []).some((label) => label.tracking === number)
+          ).map((number) => `<span>${esc(number)}</span>`);
+
+          return `
+            <tr>
+              <td class="check"><input type="checkbox" data-pick="${esc(row.id)}"${state.picked.has(row.id) ? " checked" : ""} aria-label="Select ${esc(row.display_id)}"></td>
+              <td><span class="id">${esc(row.display_id)}</span><div class="sub">${esc(new Date(row.forwarding_date).toLocaleDateString("nl-NL"))}</div></td>
+              <td>${esc(row.seller_name || row.seller_id)}<div class="sub">${esc(row.seller_id)}</div></td>
+              <td>${row.buyer_name ? esc(row.buyer_name) : '<span class="dash">—</span>'}<div class="sub">${esc(row.buyer_country || row.buyer_id || "")}</div></td>
+              <td><div class="pairs">${row.pairs.length ? pairsSummary(row.pairs) : '<span class="dash">—</span>'}</div><div class="sub">${row.pair_count} pair${row.pair_count === 1 ? "" : "s"} × ${euro(row.unit_forwarding_fee)}</div></td>
+              <td class="money">${euro(row.money.fee)}</td>
+              <td class="money">${euro(row.money.shipping)}</td>
+              <td class="money"><strong>${euro(row.money.payable)}</strong></td>
+              <td class="money">${euro(row.money.profit_ex_vat)}</td>
+              <td><div class="tracking">${[...labels, ...tracking].join("") || '<span class="dash">—</span>'}</div>${row.labels_needed ? `<div class="sub">${row.labels_needed} label${row.labels_needed === 1 ? "" : "s"} needed</div>` : ""}</td>
+              <td><span class="pill ${statusClass}">${esc(statusLabel)}</span></td>
+              <td>${row.payment_status === "paid" ? `<span class="pill good">Paid</span><div class="sub">${row.paid_at ? esc(new Date(row.paid_at).toLocaleDateString("nl-NL")) : ""}</div>` : '<span class="pill wait">Not paid</span>'}</td>
+              <td><div class="row-actions"><button class="act" type="button" data-edit="${esc(row.id)}">Labels &amp; costs</button></div></td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      const picked = rows.filter((row) => state.picked.has(row.id));
+      $("actionbar").hidden = !picked.length;
+      $("pickedText").textContent = `${picked.length} selected · ${euro(picked.reduce((sum, row) => sum + row.money.payable, 0))} payable`;
+      $("pickAll").checked = rows.length > 0 && picked.length === rows.length;
+    }
+
+    function renderTotals(totals) {
+      $("totals").innerHTML = [
+        ["Forwards", totals.forwards],
+        ["Pairs", totals.pairs],
+        ["Fees", euro(totals.fee)],
+        ["Shipping", euro(totals.shipping)],
+        ["Payable", euro(totals.payable)],
+        ["Still unpaid", euro(totals.unpaid)],
+        ["Profit ex VAT", euro(totals.profit_ex_vat)]
+      ].map(([label, value]) => `<div class="total"><span>${label}</span><strong>${value}</strong></div>`).join("");
+    }
+
+    async function load() {
+      const params = new URLSearchParams({
+        shipping: state.shipping,
+        payment: $("paymentFilter").value,
+        seller: $("sellerFilter").value
+      });
+
+      try {
+        const data = await api(`/api/admin/forwarding?${params}`);
+        state.forwards = data.forwards;
+        state.picked = new Set([...state.picked].filter((id) => data.forwards.some((row) => row.id === id)));
+        renderTotals(data.totals);
+        render();
+      } catch (err) {
+        $("rows").innerHTML = `<tr><td colspan="13" class="empty">${esc(err.message)}</td></tr>`;
+      }
+    }
+
+    // Counts per tab and the partner list come from one unfiltered load.
+    async function loadCounts() {
+      try {
+        const data = await api("/api/admin/forwarding?shipping=all&payment=all");
+        const counts = {};
+        const partners = new Map();
+
+        for (const row of data.forwards) {
+          counts[row.shipping_status] = (counts[row.shipping_status] || 0) + 1;
+          partners.set(row.seller_record_id, `${row.seller_name || row.seller_id} (${row.seller_id})`);
+        }
+
+        document.querySelectorAll("[data-count]").forEach((el) => {
+          el.textContent = counts[el.dataset.count] || "";
+        });
+
+        const current = $("sellerFilter").value;
+        $("sellerFilter").innerHTML = `<option value="">Every partner</option>` +
+          [...partners.entries()].map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join("");
+        $("sellerFilter").value = current;
+      } catch {}
+    }
+
+    function openEdit(id) {
+      const row = state.forwards.find((forward) => forward.id === id);
+      if (!row) return;
+
+      state.editing = row;
+      $("editTitle").textContent = `${row.display_id} · ${row.seller_name || row.seller_id}`;
+      $("editShipping").value = String(row.shipping_costs ?? "").replace(".", ",");
+      $("editTracking").value = (row.tracking_numbers || []).join("\n");
+      $("editNotes").value = row.notes || "";
+      $("editStatus").value = "";
+      $("newLabelTracking").value = "";
+      $("newLabelFile").value = "";
+      renderEditLabels();
+      $("editDialog").showModal();
+    }
+
+    function renderEditLabels() {
+      const labels = state.editing?.labels || [];
+
+      $("editLabels").innerHTML = labels.length
+        ? labels.map((label, index) => `
+            <div class="label-item">
+              <a href="${esc(label.url)}" target="_blank" rel="noopener">Label ${index + 1}${label.tracking ? ` · ${esc(label.tracking)}` : ""}</a>
+              <button class="act" type="button" data-remove-label="${esc(label.url)}">Remove</button>
+            </div>
+          `).join("")
+        : `<span class="sub">No labels yet.</span>`;
+    }
+
+    function replaceForward(forward) {
+      const pairs = state.editing?.id === forward.id ? state.editing.pairs : (state.forwards.find((row) => row.id === forward.id)?.pairs || []);
+      const merged = { ...forward, pairs };
+
+      state.forwards = state.forwards.map((row) => row.id === forward.id ? merged : row);
+      if (state.editing?.id === forward.id) state.editing = merged;
+      render();
+    }
+
+    $("editSave").addEventListener("click", async () => {
+      const row = state.editing;
+      if (!row) return;
+
+      const body = {
+        id: row.id,
+        shipping_costs: $("editShipping").value.trim().replace(",", ".") || "0",
+        tracking_numbers: $("editTracking").value,
+        notes: $("editNotes").value
+      };
+
+      if ($("editStatus").value) body.shipping_status = $("editStatus").value;
+
+      $("editSave").disabled = true;
+
+      try {
+        const data = await api("/api/admin/forwarding/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        replaceForward(data.forward);
+        $("editDialog").close();
+        toast(`${data.forward.display_id} saved.`);
+        load();
+        loadCounts();
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        $("editSave").disabled = false;
+      }
+    });
+
+    $("uploadLabelBtn").addEventListener("click", async () => {
+      const row = state.editing;
+      const file = $("newLabelFile").files[0];
+
+      if (!row) return;
+      if (!file) { toast("Choose the label PDF first."); return; }
+
+      $("uploadLabelBtn").disabled = true;
+
+      try {
+        const params = new URLSearchParams({ id: row.id, tracking: $("newLabelTracking").value.trim() });
+        const data = await api(`/api/admin/forwarding/label?${params}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: file
+        });
+
+        replaceForward(data.forward);
+        $("editTracking").value = (data.forward.tracking_numbers || []).join("\n");
+        $("newLabelTracking").value = "";
+        $("newLabelFile").value = "";
+        renderEditLabels();
+        toast("Label added.");
+        loadCounts();
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        $("uploadLabelBtn").disabled = false;
+      }
+    });
+
+    $("editLabels").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-remove-label]");
+      if (!button || !state.editing) return;
+      if (!confirm("Remove this label from the forward? The PDF itself stays stored.")) return;
+
+      try {
+        const data = await api("/api/admin/forwarding/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: state.editing.id, remove_label_url: button.dataset.removeLabel })
+        });
+
+        replaceForward(data.forward);
+        renderEditLabels();
+        toast("Label removed.");
+        loadCounts();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+
+    $("editCancel").addEventListener("click", () => {
+      $("editDialog").close();
+      load();
+    });
+
+    async function setPaid(paid) {
+      const ids = visibleForwards().filter((row) => state.picked.has(row.id)).map((row) => row.id);
+      if (!ids.length) { toast("Tick the forwards first."); return; }
+
+      const total = state.forwards.filter((row) => ids.includes(row.id)).reduce((sum, row) => sum + row.money.payable, 0);
+      if (!confirm(`${paid ? "Mark" : "Unmark"} ${ids.length} forward(s) ${paid ? "as paid" : "as unpaid"} (${euro(total)})?`)) return;
+
+      try {
+        await api("/api/admin/forwarding/payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, paid })
+        });
+
+        state.picked.clear();
+        toast(`${ids.length} forward(s) marked ${paid ? "paid" : "unpaid"}.`);
+        load();
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    $("markPaidBtn").addEventListener("click", () => setPaid(true));
+    $("markUnpaidBtn").addEventListener("click", () => setPaid(false));
+
+    $("rows").addEventListener("click", (event) => {
+      const edit = event.target.closest("[data-edit]");
+      if (edit) openEdit(edit.dataset.edit);
+    });
+
+    $("rows").addEventListener("change", (event) => {
+      const box = event.target.closest("[data-pick]");
+      if (!box) return;
+      if (box.checked) state.picked.add(box.dataset.pick);
+      else state.picked.delete(box.dataset.pick);
+      render();
+    });
+
+    $("pickAll").addEventListener("change", () => {
+      for (const row of visibleForwards()) {
+        if ($("pickAll").checked) state.picked.add(row.id);
+        else state.picked.delete(row.id);
+      }
+      render();
+    });
+
+    document.querySelectorAll("[data-shipping]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.shipping = button.dataset.shipping;
+        try { localStorage.setItem("lojiq-admin-forwarding-tab", state.shipping); } catch {}
+        load();
+      });
+    });
+
+    $("paymentFilter").addEventListener("change", load);
+    $("sellerFilter").addEventListener("change", load);
+    $("searchInput").addEventListener("input", render);
+
+    api("/api/admin/me")
+      .then(() => {
+        load();
+        loadCounts();
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>

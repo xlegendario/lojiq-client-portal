@@ -53,6 +53,7 @@ import {
 } from "./adminActions.js";
 import { PaymentError, loadOpenPayments, markPaidByBankTransfer } from "./adminPayments.js";
 import { PayoutError, SHIPPING_FILTERS, loadPayouts, markUnitsPaid } from "./adminPayouts.js";
+import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -247,8 +248,9 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   services        { wmsBaseUrl, kickzBaseUrl, counterOffersSecret, kcPortalSecret,
  *                     discordUpdatesBaseUrl, deliveredWebhookUrl, mollieApiKey } for the buttons
  *   pageFile        private/admin.html
+ *   supabaseUrl, serviceKey  for Forward Service (forwarding_log)
  */
-export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, fetchImpl = fetch }) {
+export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch }) {
   const router = express.Router();
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
@@ -369,6 +371,15 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
     req.admin = user;
     next();
+  });
+
+  // Forward Service: partner forwards in Supabase. Its own module and page
+  // (admin/adminForwarding.js, private/admin-forwarding.html).
+  mountForwarding(router, {
+    store: createForwardingStore({ supabaseUrl, serviceKey, fetchImpl }),
+    audit,
+    callWms: (pathName, body) => deps.callWms(pathName, body),
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-forwarding.html") : ""
   });
 
   router.get("/api/admin/me", (req, res) => {
