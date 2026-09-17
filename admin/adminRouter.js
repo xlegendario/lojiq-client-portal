@@ -390,12 +390,22 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
    * 126 calls, 32 s), Fulfilled (3,600) and Delivered (3,100) are archives
    * that only grow, so they get no count rather than slowing everything down.
    *
-   * Computed at most every two minutes and only while someone has the admin
+   * Computed at most every five minutes and only while someone has the admin
    * open; the page asks after it has drawn, so it never waits on this.
-   * Open Payments and Payouts reuse what their own tabs load.
+   *
+   * CHANGED - Airtable allows five requests a second per base, shared with
+   * the portal, the WMS and every sync. The first version counted Open
+   * Payments and Payouts by loading them in full and fired its calls as fast
+   * as they came back: 81 calls in 11 seconds, peaking at 13 a second, every
+   * two minutes. Now the tabs are counted at two calls a second at most, and
+   * Open Payments and Payouts show the count from the last time their own tab
+   * was loaded (not loaded yet means no count yet).
    */
   const UNCOUNTED = new Set(["store/general", "store/fulfilled", "store/delivered"]);
-  const COUNTS_MS = 120_000;
+  const COUNTS_MS = 300_000;
+  const COUNT_CALL_GAP_MS = 500;
+  const lastMoneyCounts = {};
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const forwardingCounts = createForwardingStore({ supabaseUrl, serviceKey, fetchImpl });
   let countsCache = { at: 0, promise: null };
 
@@ -415,6 +425,8 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       total += view.exclude ? page.records.filter((record) => !view.exclude(record.fields || {})).length : page.records.length;
       offset = page.offset;
       calls += 1;
+
+      await pause(COUNT_CALL_GAP_MS);
     } while (offset && calls < 20);
 
     return offset ? null : total;
@@ -436,15 +448,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       }
     }
 
-    const money = await Promise.allSettled([
-      cached(JSON.stringify(["payments", { stores: [], storeMode: "include", search: "", kind: "all" }, 0]), () =>
-        loadOpenPayments(airtable, { stores: [], storeMode: "include", search: "", kind: "all" })),
-      cached(JSON.stringify(["payouts", { shipping: "all", type: "", search: "" }, 0]), () =>
-        loadPayouts(airtable, { shipping: "all", type: "", search: "" }))
-    ]);
-
-    if (money[0].status === "fulfilled") tabs["money/payments"] = money[0].value.count;
-    if (money[1].status === "fulfilled") tabs["money/payouts"] = money[1].value.count;
+    Object.assign(tabs, lastMoneyCounts);
 
     if (forwardingCounts.configured) {
       try {
@@ -925,6 +929,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
     try {
       const data = await cached(JSON.stringify(["payments", filters, req.query._ ? Date.now() : 0]), () => loadOpenPayments(airtable, filters));
+
+      // Unfiltered, this is the number behind the tab in the sidebar.
+      if (!filters.stores.length && !filters.search && filters.kind === "all") lastMoneyCounts["money/payments"] = data.count;
+
       res.json(data);
     } catch (err) {
       console.error("[admin] open payments failed:", err.message);
@@ -1021,6 +1029,9 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
     try {
       const data = await cached(JSON.stringify(["payouts", filters, req.query._ ? Date.now() : 0]), () => loadPayouts(airtable, filters));
+
+      if (filters.shipping === "all" && !filters.type && !filters.search) lastMoneyCounts["money/payouts"] = data.count;
+
       res.json(data);
     } catch (err) {
       console.error("[admin] payouts failed:", err.message);

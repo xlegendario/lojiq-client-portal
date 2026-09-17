@@ -921,7 +921,7 @@
 
   /*
    * Counts behind each tab, fetched after the page has drawn and again every
-   * two minutes. The server keeps them for two minutes too, so this costs
+   * five minutes. The server keeps them for five minutes too, so this costs
    * Airtable nothing extra however often the sidebar redraws.
    */
   let navCounts = {};
@@ -2152,9 +2152,9 @@
     loadSavedFilters();
     loadList();
 
-    // Counts after the page is up, then every two minutes.
+    // Counts after the page is up, then every five minutes.
     setTimeout(loadNavCounts, 500);
-    if (!window.__navCountsTimer) window.__navCountsTimer = setInterval(loadNavCounts, 120_000);
+    if (!window.__navCountsTimer) window.__navCountsTimer = setInterval(loadNavCounts, 300_000);
 
     const [source, id] = open.split(":");
     if (source && id) openRecord(source, id);
