@@ -918,15 +918,30 @@
 
   const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
 
-  // Which section is unfolded. Follows the tab that is open, until another
-  // section header is clicked.
-  let openNavSection = null;
+  /*
+   * Which sections are unfolded. Each header folds its own section only, so
+   * any number can stay open; the sidebar scrolls when they do not fit. The
+   * section of the open tab is always unfolded when you land on it. Kept per
+   * browser and shared with the Forward Service page.
+   */
+  const NAV_OPEN_KEY = "lojiq-admin-nav-open";
+  const openNavSections = new Set(["store"]);
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || "null");
+    if (Array.isArray(saved)) {
+      openNavSections.clear();
+      saved.forEach((section) => openNavSections.add(section));
+    }
+  } catch {}
+
+  function saveNavSections() {
+    try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
+  }
 
   function drawNavSections() {
-    const open = openNavSection ?? state.section;
-
     for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
-      const expanded = section === open;
+      const expanded = openNavSections.has(section);
       const header = document.querySelector(`[data-nav-section="${section}"]`);
 
       $(groupId).hidden = !expanded;
@@ -936,6 +951,11 @@
   }
 
   function drawNav() {
+    if (!openNavSections.has(state.section)) {
+      openNavSections.add(state.section);
+      saveNavSections();
+    }
+
     for (const section of ["store", "mwtb", "money"]) {
       $(NAV_GROUPS[section]).innerHTML = state.views
         .filter((v) => v.section === section)
@@ -949,7 +969,8 @@
   function openTab(section, view) {
     state.section = section;
     state.view = view;
-    openNavSection = null;
+    openNavSections.add(section);
+    saveNavSections();
     state.q = "";
     state.selected = "";
     $("sidebar").classList.remove("open");
@@ -963,15 +984,16 @@
   }
 
   $("sidebar").addEventListener("click", (event) => {
-    // A section header: unfold it and fold the rest; clicking the open one
-    // folds it.
+    // A section header folds or unfolds that section only.
     const header = event.target.closest("[data-nav-section]");
 
     if (header) {
       const section = header.dataset.navSection;
-      const open = openNavSection ?? state.section;
 
-      openNavSection = open === section ? "" : section;
+      if (openNavSections.has(section)) openNavSections.delete(section);
+      else openNavSections.add(section);
+
+      saveNavSections();
       drawNavSections();
       return;
     }

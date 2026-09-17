@@ -102,7 +102,7 @@
     .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
 
     .app { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
-    .sidebar { border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; }
+    .sidebar { border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
     .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
     .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
     .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
@@ -141,8 +141,28 @@
     .id { font-weight: 700; color: var(--strong); }
     .dash { color: var(--faint); }
     .sub { color: var(--muted); font-size: 12px; }
-    .pairs { display: flex; flex-direction: column; gap: 2px; white-space: normal; min-width: 220px; max-width: 320px; }
-    .tracking { display: flex; flex-direction: column; gap: 2px; }
+    tbody tr[data-id] { cursor: pointer; }
+    tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
+
+    /* Side panel, as on the Store Orders and Member WTBs tabs. */
+    .panel { position: fixed; top: 0; right: 0; width: min(480px, 100%); height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -20px 0 50px var(--shadow); z-index: 40; display: flex; flex-direction: column; }
+    .panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .panel-head h2 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+    .panel-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .panel-body { overflow-y: auto; padding: 14px 16px 30px; display: flex; flex-direction: column; gap: 18px; }
+    .group h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .group dl { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 12px; }
+    .group dt { color: var(--muted); }
+    .group dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .pair-list li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .pair-list img, .pair-list .no-img { width: 44px; height: 44px; object-fit: contain; background: #fff; border-radius: 6px; }
+    .pair-list .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
+    .pair-list strong { color: var(--strong); }
+    .link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+    .timeline small { color: var(--muted); }
     .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--pill-bg); color: var(--pill-text); }
     .pill.good { background: var(--good-bg); color: var(--good-text); }
     .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
@@ -233,26 +253,36 @@
             <tr>
               <th class="check"><input type="checkbox" id="pickAll" aria-label="Select everything shown"></th>
               <th>Forward</th>
+              <th>Created</th>
               <th>Partner</th>
               <th>Buyer</th>
-              <th>Pairs</th>
+              <th class="money">Pairs</th>
               <th class="money">Fee</th>
               <th class="money">Shipping</th>
               <th class="money">Payable</th>
               <th class="money">Profit ex VAT</th>
-              <th>Tracking &amp; labels</th>
+              <th class="money">Tracking</th>
+              <th class="money">Labels</th>
               <th>Shipping</th>
               <th>Payment</th>
-              <th></th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td colspan="13" class="empty">Loading…</td></tr>
+            <tr><td colspan="14" class="empty">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </main>
   </div>
+
+  <aside class="panel" id="panel" hidden aria-label="Forward details">
+    <div class="panel-head">
+      <h2 id="panelTitle"></h2>
+      <button class="btn ghost" id="panelClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="panel-actions" id="panelActions"></div>
+    <div class="panel-body" id="panelBody"></div>
+  </aside>
 
   <dialog id="editDialog">
     <form class="dialog-body" id="editForm" method="dialog">
@@ -318,7 +348,8 @@
       shipping: "awaiting_label",
       forwards: [],
       picked: new Set(),
-      editing: null
+      editing: null,
+      selected: ""
     };
 
     try {
@@ -335,11 +366,27 @@
      * same list that page uses, and lead back there.
      */
     const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
-    let openNavSection = "forwarding";
+
+    // Same folding as the main admin page, and the same remembered sections.
+    const NAV_OPEN_KEY = "lojiq-admin-nav-open";
+    const openNavSections = new Set();
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || "null");
+      if (Array.isArray(saved)) saved.forEach((section) => openNavSections.add(section));
+    } catch {}
+
+    openNavSections.add("forwarding");
+
+    function saveNavSections() {
+      try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
+    }
+
+    saveNavSections();
 
     function drawNavSections() {
       for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
-        const expanded = section === openNavSection;
+        const expanded = openNavSections.has(section);
         const header = document.querySelector(`[data-nav-section="${section}"]`);
         $(groupId).hidden = !expanded;
         header.setAttribute("aria-expanded", String(expanded));
@@ -350,7 +397,12 @@
       const header = event.target.closest("[data-nav-section]");
       if (!header) return;
 
-      openNavSection = openNavSection === header.dataset.navSection ? "" : header.dataset.navSection;
+      const section = header.dataset.navSection;
+
+      if (openNavSections.has(section)) openNavSections.delete(section);
+      else openNavSections.add(section);
+
+      saveNavSections();
       drawNavSections();
     });
 
@@ -392,20 +444,8 @@
       return data;
     }
 
-    function pairsSummary(pairs) {
-      const bySku = new Map();
-
-      for (const pair of pairs) {
-        if (!bySku.has(pair.sku)) bySku.set(pair.sku, { name: pair.product_name, sizes: new Map() });
-        const sizes = bySku.get(pair.sku).sizes;
-        sizes.set(pair.size, (sizes.get(pair.size) || 0) + 1);
-      }
-
-      return [...bySku.entries()].map(([sku, entry]) => {
-        const sizes = [...entry.sizes.entries()].map(([size, n]) => n > 1 ? `${size} ×${n}` : size).join(", ");
-        return `<span><strong>${esc(sku)}</strong> ${esc(sizes)}</span><span class="sub">${esc(entry.name || "")}</span>`;
-      }).join("");
-    }
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const dateFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     function visibleForwards() {
       const query = $("searchInput").value.trim().toLowerCase();
@@ -430,32 +470,28 @@
       $("count").textContent = `${rows.length} forward${rows.length === 1 ? "" : "s"}`;
 
       if (!rows.length) {
-        $("rows").innerHTML = `<tr><td colspan="13" class="empty">No forwards here.</td></tr>`;
+        $("rows").innerHTML = `<tr><td colspan="14" class="empty">No forwards here.</td></tr>`;
       } else {
         $("rows").innerHTML = rows.map((row) => {
           const [statusLabel, statusClass] = STATUS[row.shipping_status] || [row.shipping_status, ""];
-          const labels = (row.labels || []).map((label, index) =>
-            `<a href="${esc(label.url)}" target="_blank" rel="noopener">Label ${index + 1}${label.tracking ? ` · ${esc(label.tracking)}` : ""}</a>`
-          );
-          const tracking = (row.tracking_numbers || []).filter((number) =>
-            !(row.labels || []).some((label) => label.tracking === number)
-          ).map((number) => `<span>${esc(number)}</span>`);
+          const count = (n) => n ? String(n) : '<span class="dash">—</span>';
 
           return `
-            <tr>
+            <tr data-id="${esc(row.id)}"${state.selected === row.id ? ' class="selected"' : ""}>
               <td class="check"><input type="checkbox" data-pick="${esc(row.id)}"${state.picked.has(row.id) ? " checked" : ""} aria-label="Select ${esc(row.display_id)}"></td>
-              <td><span class="id">${esc(row.display_id)}</span><div class="sub">${esc(new Date(row.forwarding_date).toLocaleDateString("nl-NL"))}</div></td>
-              <td>${esc(row.seller_name || row.seller_id)}<div class="sub">${esc(row.seller_id)}</div></td>
-              <td>${row.buyer_name ? esc(row.buyer_name) : '<span class="dash">—</span>'}<div class="sub">${esc(row.buyer_country || row.buyer_id || "")}</div></td>
-              <td><div class="pairs">${row.pairs.length ? pairsSummary(row.pairs) : '<span class="dash">—</span>'}</div><div class="sub">${row.pair_count} pair${row.pair_count === 1 ? "" : "s"} × ${euro(row.unit_forwarding_fee)}</div></td>
+              <td><span class="id">${esc(row.display_id)}</span></td>
+              <td>${esc(dayFmt.format(new Date(row.forwarding_date)))}</td>
+              <td>${esc(row.seller_name || row.seller_id)}</td>
+              <td>${row.buyer_name ? esc(row.buyer_name) : '<span class="dash">—</span>'}</td>
+              <td class="money">${row.pair_count}</td>
               <td class="money">${euro(row.money.fee)}</td>
               <td class="money">${euro(row.money.shipping)}</td>
               <td class="money"><strong>${euro(row.money.payable)}</strong></td>
               <td class="money">${euro(row.money.profit_ex_vat)}</td>
-              <td><div class="tracking">${[...labels, ...tracking].join("") || '<span class="dash">—</span>'}</div>${row.labels_needed ? `<div class="sub">${row.labels_needed} label${row.labels_needed === 1 ? "" : "s"} needed</div>` : ""}</td>
+              <td class="money">${count((row.tracking_numbers || []).length)}</td>
+              <td class="money">${count((row.labels || []).length)}</td>
               <td><span class="pill ${statusClass}">${esc(statusLabel)}</span></td>
-              <td>${row.payment_status === "paid" ? `<span class="pill good">Paid</span><div class="sub">${row.paid_at ? esc(new Date(row.paid_at).toLocaleDateString("nl-NL")) : ""}</div>` : '<span class="pill wait">Not paid</span>'}</td>
-              <td><div class="row-actions"><button class="act" type="button" data-edit="${esc(row.id)}">Labels &amp; costs</button></div></td>
+              <td>${row.payment_status === "paid" ? '<span class="pill good">Paid</span>' : '<span class="pill wait">Not paid</span>'}</td>
             </tr>
           `;
         }).join("");
@@ -466,6 +502,132 @@
       $("pickedText").textContent = `${picked.length} selected · ${euro(picked.reduce((sum, row) => sum + row.money.payable, 0))} payable`;
       $("pickAll").checked = rows.length > 0 && picked.length === rows.length;
     }
+
+    /*
+     * Everything about one forward, in the side panel: who and when, the
+     * money, every pair, tracking and labels, notes and the action history.
+     */
+    function panelGroup(title, rows) {
+      const body = rows
+        .filter(([, value]) => value !== null && value !== undefined && value !== "")
+        .map(([label, value]) => `<dt>${esc(label)}</dt><dd>${value}</dd>`)
+        .join("");
+
+      return body ? `<section class="group"><h3>${esc(title)}</h3><dl>${body}</dl></section>` : "";
+    }
+
+    function drawPanel(row, history = null) {
+      const [statusLabel, statusClass] = STATUS[row.shipping_status] || [row.shipping_status, ""];
+
+      $("panelTitle").textContent = `${row.display_id} · ${row.seller_name || row.seller_id}`;
+
+      $("panelActions").innerHTML = [
+        `<button class="act" type="button" data-panel-edit>Labels &amp; costs</button>`,
+        row.payment_status === "paid"
+          ? `<button class="act" type="button" data-panel-paid="false">Mark unpaid</button>`
+          : `<button class="act" type="button" data-panel-paid="true">Mark paid</button>`
+      ].join("");
+
+      const pairs = row.pairs.length
+        ? `<ul class="pair-list">${row.pairs.map((pair) => `
+            <li>
+              ${pair.image_url ? `<img src="${esc(pair.image_url)}" alt="" loading="lazy">` : '<span class="no-img"></span>'}
+              <span><strong>${esc(pair.sku)}</strong> · ${esc(pair.size)}<br><span class="sub">${esc(pair.product_name || "")}</span></span>
+              <span class="sub">${esc(pair.barcode || "")}</span>
+            </li>`).join("")}</ul>`
+        : `<p class="dash">${row.shipping_status === "cancelled" ? "The pairs went back on the shelf when this forward was cancelled." : "No pairs linked."}</p>`;
+
+      const tracking = (row.tracking_numbers || []).length
+        ? `<ul class="link-list">${row.tracking_numbers.map((number) => `<li>${esc(number)}</li>`).join("")}</ul>`
+        : "";
+
+      const labels = (row.labels || []).length
+        ? `<ul class="link-list">${row.labels.map((label, index) => `<li><a href="${esc(label.url)}" target="_blank" rel="noopener">Label ${index + 1}${label.tracking ? ` · ${esc(label.tracking)}` : ""}</a></li>`).join("")}</ul>`
+        : "";
+
+      const timeline = history === null
+        ? `<p class="dash">Loading…</p>`
+        : history.length
+          ? `<ul class="timeline">${history.map((item) => `<li><span><strong>${esc(item.actor_name)}</strong> · ${esc(item.action)}</span><small>${esc(dateFmt.format(new Date(item.created_at)))}</small></li>`).join("")}</ul>`
+          : `<p class="dash">No admin actions on this forward yet.</p>`;
+
+      $("panelBody").innerHTML = [
+        panelGroup("Forward", [
+          ["Forward", `<strong>${esc(row.display_id)}</strong>`],
+          ["Created", esc(dateFmt.format(new Date(row.created_at)))],
+          ["Partner", `${esc(row.seller_name || "")} (${esc(row.seller_id)})`],
+          ["Buyer", row.buyer_name ? `${esc(row.buyer_name)}${row.buyer_country ? ` · ${esc(row.buyer_country)}` : ""}` : ""],
+          ["Buyer ID", esc(row.buyer_id || "")],
+          ["Shipping", `<span class="pill ${statusClass}">${esc(statusLabel)}</span>`],
+          ["Shipped", row.shipped_at ? esc(dateFmt.format(new Date(row.shipped_at))) : ""],
+          ["Labels needed", row.labels_needed ? String(row.labels_needed) : ""],
+          ["Items per parcel", esc(row.items_per_parcel || "")]
+        ]),
+        panelGroup("Money", [
+          ["Pairs × fee", `${row.pair_count} × ${euro(row.unit_forwarding_fee)}`],
+          ["Fee", euro(row.money.fee)],
+          ["Shipping costs", euro(row.money.shipping)],
+          ["Payable by partner", `<strong>${euro(row.money.payable)}</strong>`],
+          ["Profit ex VAT", euro(row.money.profit_ex_vat)],
+          ["Payment", row.payment_status === "paid" ? '<span class="pill good">Paid</span>' : '<span class="pill wait">Not paid</span>'],
+          ["Paid on", row.paid_at ? esc(dateFmt.format(new Date(row.paid_at))) : ""],
+          ["Payment note", esc(row.payment_note || "")]
+        ]),
+        `<section class="group"><h3>Pairs (${row.pair_count})</h3>${pairs}</section>`,
+        panelGroup("Tracking & labels", [
+          ["Tracking", tracking || '<span class="dash">None yet</span>'],
+          ["Labels", labels || '<span class="dash">None yet</span>']
+        ]),
+        row.notes ? panelGroup("Notes", [["Notes", esc(row.notes)]]) : "",
+        `<section class="group"><h3>History</h3>${timeline}</section>`
+      ].join("");
+    }
+
+    async function openPanel(id) {
+      const row = state.forwards.find((forward) => forward.id === id);
+      if (!row) return;
+
+      state.selected = id;
+      $("panel").hidden = false;
+      drawPanel(row);
+      render();
+
+      try {
+        const data = await api(`/api/admin/forwarding/history?id=${encodeURIComponent(id)}`);
+        if (state.selected === id) drawPanel(state.forwards.find((forward) => forward.id === id) || row, data.history);
+      } catch {
+        if (state.selected === id) drawPanel(row, []);
+      }
+    }
+
+    function closePanel() {
+      $("panel").hidden = true;
+      state.selected = "";
+      render();
+    }
+
+    $("panelClose").addEventListener("click", closePanel);
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("editDialog").open && !$("panel").hidden) closePanel();
+    });
+
+    $("panelActions").addEventListener("click", async (event) => {
+      if (!state.selected) return;
+
+      if (event.target.closest("[data-panel-edit]")) {
+        openEdit(state.selected);
+        return;
+      }
+
+      const paidButton = event.target.closest("[data-panel-paid]");
+      if (paidButton) {
+        const saved = new Set(state.picked);
+        state.picked = new Set([state.selected]);
+        await setPaid(paidButton.dataset.panelPaid === "true");
+        state.picked = saved;
+      }
+    });
 
     function renderTotals(totals) {
       $("totals").innerHTML = [
@@ -492,8 +654,14 @@
         state.picked = new Set([...state.picked].filter((id) => data.forwards.some((row) => row.id === id)));
         renderTotals(data.totals);
         render();
+
+        if (state.selected) {
+          const open = data.forwards.find((row) => row.id === state.selected);
+          if (open) openPanel(open.id);
+          else closePanel();
+        }
       } catch (err) {
-        $("rows").innerHTML = `<tr><td colspan="13" class="empty">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td colspan="14" class="empty">${esc(err.message)}</td></tr>`;
       }
     }
 
@@ -682,8 +850,10 @@
     $("markUnpaidBtn").addEventListener("click", () => setPaid(false));
 
     $("rows").addEventListener("click", (event) => {
-      const edit = event.target.closest("[data-edit]");
-      if (edit) openEdit(edit.dataset.edit);
+      if (event.target.closest("input, a, button")) return;
+
+      const row = event.target.closest("tr[data-id]");
+      if (row) openPanel(row.dataset.id);
     });
 
     $("rows").addEventListener("change", (event) => {

@@ -251,6 +251,16 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
     }
   });
 
+  // What was done to one forward here, newest first, for the side panel.
+  router.get("/api/admin/forwarding/history", async (req, res) => {
+    try {
+      const forward = await store.get(req.query.id);
+      res.json({ history: await audit.forRecord(forward.id) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
   // Shipping costs, tracking numbers, notes, or a status by hand.
   router.post("/api/admin/forwarding/update", express.json({ limit: "50kb" }), async (req, res) => {
     try {
