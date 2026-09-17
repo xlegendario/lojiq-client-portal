@@ -516,6 +516,11 @@
 
       if ($("editStatus").value) body.shipping_status = $("editStatus").value;
 
+      if (body.shipping_status === "cancelled" && row.shipping_status !== "cancelled" &&
+          !confirm(`Cancel ${row.display_id}? Its ${row.pair_count} pair(s) go back on the partner's shelf and can be sold or forwarded again.`)) {
+        return;
+      }
+
       $("editSave").disabled = true;
 
       try {
@@ -527,7 +532,9 @@
 
         replaceForward(data.forward);
         $("editDialog").close();
-        toast(`${data.forward.display_id} saved.`);
+        toast(data.released !== undefined
+          ? `${data.forward.display_id} cancelled. ${data.released} pair(s) back on the shelf.`
+          : `${data.forward.display_id} saved.`);
         load();
         loadCounts();
       } catch (err) {

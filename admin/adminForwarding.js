@@ -161,7 +161,35 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
     return { ...rows[0], display_id: displayId(rows[0]), money: forwardMoney(rows[0]) };
   }
 
-  return { configured, list, get, update };
+  /*
+   * A cancelled forward's pairs go back on the partner's shelf.
+   *
+   * Only pairs still marked forwarded by this forward: in stock again, no
+   * longer linked. The Supabase trigger lists them again straight away if
+   * they are on consignment, and the portal's five-minute job brings Stock
+   * Levels along.
+   */
+  async function releasePairs(forwardId) {
+    const params = new URLSearchParams({
+      forwarding_log_id: `eq.${text(forwardId)}`,
+      status: "eq.forwarded"
+    });
+
+    const released = await request(`partner_stock?${params}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        status: "in_stock",
+        forwarded_at: null,
+        forwarded_ref: null,
+        forwarding_log_id: null
+      })
+    });
+
+    return released || [];
+  }
+
+  return { configured, list, get, update, releasePairs };
 }
 
 /*
@@ -263,8 +291,25 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
       if (text(req.body?.shipping_status)) {
         const wanted = text(req.body.shipping_status);
         if (!SHIPPING_STATUSES.includes(wanted)) throw new ForwardingError("Unknown shipping status.");
+
+        // Its pairs went back on the shelf when it was cancelled and may be
+        // sold or forwarded again by now, so there is nothing to reopen.
+        if (before.shipping_status === "cancelled" && wanted !== "cancelled") {
+          throw new ForwardingError("A cancelled forward cannot be reopened. Create a new forward in the WMS.");
+        }
+
+        // Shipped pairs are gone; putting them back on the shelf would list
+        // shoes we no longer have.
+        if (wanted === "cancelled" && before.shipping_status === "shipped") {
+          throw new ForwardingError("This forward is already shipped, so it cannot be cancelled.");
+        }
+
         fields.shipping_status = wanted;
         if (wanted === "shipped" && !before.shipped_at) fields.shipped_at = new Date().toISOString();
+      }
+
+      if (before.shipping_status === "cancelled" && (fields.tracking_numbers || fields.labels)) {
+        delete fields.shipping_status;
       }
 
       if (fields.shipping_status && fields.shipping_status !== before.shipping_status) {
@@ -273,7 +318,22 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
 
       if (!Object.keys(fields).length) throw new ForwardingError("Nothing to change.");
 
-      const row = await store.update(before.id, fields);
+      const cancelling = fields.shipping_status === "cancelled" && before.shipping_status !== "cancelled";
+      let row = await store.update(before.id, fields);
+
+      if (cancelling) {
+        const released = await store.releasePairs(before.id);
+
+        changed.pairs_back_on_shelf = released.map((pair) => `${pair.sku} / ${pair.size}`);
+
+        const note = `Cancelled: ${released.length} pair(s) back on the shelf.`;
+        row = await store.update(before.id, { notes: [row.notes, note].filter(Boolean).join("\n") });
+
+        await log(req, "forwarding_cancel", row, changed);
+
+        return res.json({ forward: row, released: released.length });
+      }
+
       await log(req, "forwarding_update", row, changed);
 
       res.json({ forward: row });
