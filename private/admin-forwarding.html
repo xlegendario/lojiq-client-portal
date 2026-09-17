@@ -106,7 +106,13 @@
     .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
     .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
     .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
-    .nav-title { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nav-title); margin: 14px 8px 5px; }
+    .nav-section { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 10px 0 2px; padding: 6px 8px; border: 0; border-radius: 7px; background: none; cursor: pointer; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nav-title); text-align: left; }
+    .nav-section::after { content: "▸"; font-size: 11px; letter-spacing: 0; transition: transform 0.15s ease; }
+    .nav-section[aria-expanded="true"]::after { transform: rotate(90deg); }
+    .nav-section:hover { color: var(--text); background: var(--primary-tint); }
+    .nav-section.current { color: var(--primary-soft); }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    @media (prefers-reduced-motion: reduce) { .nav-section::after { transition: none; } }
     .nav-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav-item); text-decoration: none; font-size: 12px; border: 0; background: none; cursor: pointer; text-align: left; width: 100%; }
     .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
     .nav-item.active { font-weight: 700; }
@@ -176,13 +182,22 @@
   <div class="app">
     <nav class="sidebar" aria-label="Admin navigation">
       <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
-      <a class="nav-item" href="/admin">← Store Orders &amp; Member WTBs</a>
+      <button class="nav-section" type="button" data-nav-section="store" aria-controls="navStore" aria-expanded="false">Store Orders</button>
+      <div class="nav-group" id="navStore" hidden></div>
 
-      <div class="nav-title">Forward Service</div>
-      <button class="nav-item" type="button" data-shipping="awaiting_label">Awaiting label <small data-count="awaiting_label"></small></button>
-      <button class="nav-item" type="button" data-shipping="ready_to_ship">Ready to Ship <small data-count="ready_to_ship"></small></button>
-      <button class="nav-item" type="button" data-shipping="shipped">Shipped <small data-count="shipped"></small></button>
-      <button class="nav-item" type="button" data-shipping="all">All forwards</button>
+      <button class="nav-section" type="button" data-nav-section="mwtb" aria-controls="navMwtb" aria-expanded="false">Member WTBs</button>
+      <div class="nav-group" id="navMwtb" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Money</button>
+      <div class="nav-group" id="navMoney" hidden></div>
+
+      <button class="nav-section current" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="true">Forward Service</button>
+      <div class="nav-group" id="navForwarding">
+        <button class="nav-item" type="button" data-shipping="awaiting_label">Awaiting label <small data-count="awaiting_label"></small></button>
+        <button class="nav-item" type="button" data-shipping="ready_to_ship">Ready to Ship <small data-count="ready_to_ship"></small></button>
+        <button class="nav-item" type="button" data-shipping="shipped">Shipped <small data-count="shipped"></small></button>
+        <button class="nav-item" type="button" data-shipping="all">All forwards</button>
+      </div>
     </nav>
 
     <main class="content">
@@ -310,6 +325,46 @@
       const remembered = localStorage.getItem("lojiq-admin-forwarding-tab");
       if (remembered) state.shipping = remembered;
     } catch {}
+
+    // A link from the main admin page names the tab.
+    const linkedTab = new URLSearchParams(location.search).get("tab");
+    if (["awaiting_label", "ready_to_ship", "shipped", "all"].includes(linkedTab)) state.shipping = linkedTab;
+
+    /*
+     * The other sections, as in the main admin page. Their tabs come from the
+     * same list that page uses, and lead back there.
+     */
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
+    let openNavSection = "forwarding";
+
+    function drawNavSections() {
+      for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
+        const expanded = section === openNavSection;
+        const header = document.querySelector(`[data-nav-section="${section}"]`);
+        $(groupId).hidden = !expanded;
+        header.setAttribute("aria-expanded", String(expanded));
+      }
+    }
+
+    document.querySelector(".sidebar").addEventListener("click", (event) => {
+      const header = event.target.closest("[data-nav-section]");
+      if (!header) return;
+
+      openNavSection = openNavSection === header.dataset.navSection ? "" : header.dataset.navSection;
+      drawNavSections();
+    });
+
+    function drawOtherSections(views) {
+      const money = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Payouts" }];
+
+      for (const section of ["store", "mwtb", "money"]) {
+        const list = section === "money" ? money : (views || []).filter((view) => view.section === section);
+
+        $(NAV_GROUPS[section]).innerHTML = list
+          .map((view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)}</a>`)
+          .join("");
+      }
+    }
 
     const esc = (value) => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -660,7 +715,9 @@
     $("searchInput").addEventListener("input", render);
 
     api("/api/admin/me")
-      .then(() => {
+      .then((me) => {
+        drawOtherSections(me.views);
+        drawNavSections();
         load();
         loadCounts();
       })

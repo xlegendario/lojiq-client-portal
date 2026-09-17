@@ -220,6 +220,33 @@
       margin: 14px 8px 5px;
     }
 
+    /* A main section in the sidebar. Only the open one shows its tabs, so the
+       sidebar stays short however many sections there are. */
+    .nav-section {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      margin: 10px 0 2px;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 7px;
+      background: none;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--nav-title);
+      text-align: left;
+    }
+    .nav-section::after { content: "▸"; font-size: 11px; letter-spacing: 0; transition: transform 0.15s ease; }
+    .nav-section[aria-expanded="true"]::after { transform: rotate(90deg); }
+    .nav-section:hover { color: var(--text); background: var(--primary-tint); }
+    .nav-section.current { color: var(--primary-soft); }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    @media (prefers-reduced-motion: reduce) { .nav-section::after { transition: none; } }
+
     .nav-item {
       display: flex;
       align-items: center;
@@ -606,17 +633,23 @@
     <nav class="sidebar" id="sidebar" aria-label="Admin navigation">
       <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
 
-      <div class="nav-title">Store Orders</div>
-      <div id="navStore"></div>
+      <button class="nav-section" type="button" data-nav-section="store" aria-controls="navStore" aria-expanded="true">Store Orders</button>
+      <div class="nav-group" id="navStore"></div>
 
-      <div class="nav-title">Member WTBs</div>
-      <div id="navMwtb"></div>
+      <button class="nav-section" type="button" data-nav-section="mwtb" aria-controls="navMwtb" aria-expanded="false">Member WTBs</button>
+      <div class="nav-group" id="navMwtb" hidden></div>
 
-      <div class="nav-title">Money</div>
-      <div id="navMoney"></div>
+      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Money</button>
+      <div class="nav-group" id="navMoney" hidden></div>
 
-      <div class="nav-title">Forward Service</div>
-      <a class="nav-item" href="/admin/forwarding">Forwards</a>
+      <!-- Forward Service is its own page (/admin/forwarding); these are plain links. -->
+      <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
+      <div class="nav-group" id="navForwarding" hidden>
+        <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label</a>
+        <a class="nav-item" href="/admin/forwarding?tab=ready_to_ship">Ready to Ship</a>
+        <a class="nav-item" href="/admin/forwarding?tab=shipped">Shipped</a>
+        <a class="nav-item" href="/admin/forwarding?tab=all">All forwards</a>
+      </div>
 
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName"></strong></span>
@@ -883,18 +916,40 @@
 
   /* ---------------- navigation ---------------- */
 
+  const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
+
+  // Which section is unfolded. Follows the tab that is open, until another
+  // section header is clicked.
+  let openNavSection = null;
+
+  function drawNavSections() {
+    const open = openNavSection ?? state.section;
+
+    for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
+      const expanded = section === open;
+      const header = document.querySelector(`[data-nav-section="${section}"]`);
+
+      $(groupId).hidden = !expanded;
+      header.setAttribute("aria-expanded", String(expanded));
+      header.classList.toggle("current", section === state.section);
+    }
+  }
+
   function drawNav() {
     for (const section of ["store", "mwtb", "money"]) {
-      $(section === "store" ? "navStore" : section === "mwtb" ? "navMwtb" : "navMoney").innerHTML = state.views
+      $(NAV_GROUPS[section]).innerHTML = state.views
         .filter((v) => v.section === section)
         .map((v) => `<a class="nav-item${v.section === state.section && v.key === state.view ? " active" : ""}" href="#/${v.section}/${v.key}" data-section="${v.section}" data-view="${v.key}">${esc(v.label)}</a>`)
         .join("");
     }
+
+    drawNavSections();
   }
 
   function openTab(section, view) {
     state.section = section;
     state.view = view;
+    openNavSection = null;
     state.q = "";
     state.selected = "";
     $("sidebar").classList.remove("open");
@@ -908,7 +963,23 @@
   }
 
   $("sidebar").addEventListener("click", (event) => {
-    const link = event.target.closest("a.nav-item");
+    // A section header: unfold it and fold the rest; clicking the open one
+    // folds it.
+    const header = event.target.closest("[data-nav-section]");
+
+    if (header) {
+      const section = header.dataset.navSection;
+      const open = openNavSection ?? state.section;
+
+      openNavSection = open === section ? "" : section;
+      drawNavSections();
+      return;
+    }
+
+    // FIXED - every link was taken over as a Store Orders / Member WTBs tab,
+    // including links to other pages, which then did nothing. Only tabs of
+    // this page carry data-section; everything else is an ordinary link.
+    const link = event.target.closest("a.nav-item[data-section]");
     if (!link) return;
     event.preventDefault();
     openTab(link.dataset.section, link.dataset.view);
