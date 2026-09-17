@@ -263,6 +263,7 @@
     .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
     .nav-item.active { font-weight: 700; }
     .nav-item.soon { color: var(--faint); pointer-events: none; }
+    .nav-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
     .nav-item.soon small { font-size: 10px; }
 
     .sidebar-foot {
@@ -645,9 +646,9 @@
       <!-- Forward Service is its own page (/admin/forwarding); these are plain links. -->
       <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
       <div class="nav-group" id="navForwarding" hidden>
-        <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label</a>
-        <a class="nav-item" href="/admin/forwarding?tab=ready_to_ship">Ready to Ship</a>
-        <a class="nav-item" href="/admin/forwarding?tab=shipped">Shipped</a>
+        <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label <small class="nav-count" data-nav-count="forwarding/awaiting_label"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=ready_to_ship">Ready to Ship <small class="nav-count" data-nav-count="forwarding/ready_to_ship"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=shipped">Shipped <small class="nav-count" data-nav-count="forwarding/shipped"></small></a>
         <a class="nav-item" href="/admin/forwarding?tab=all">All forwards</a>
       </div>
 
@@ -919,6 +920,28 @@
   const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
 
   /*
+   * Counts behind each tab, fetched after the page has drawn and again every
+   * two minutes. The server keeps them for two minutes too, so this costs
+   * Airtable nothing extra however often the sidebar redraws.
+   */
+  let navCounts = {};
+
+  const navCountText = (key) => {
+    const n = navCounts[key];
+    return typeof n === "number" && n > 0 ? String(n) : "";
+  };
+
+  const navCount = (key) => `<small class="nav-count">${navCountText(key)}</small>`;
+
+  async function loadNavCounts() {
+    try {
+      const data = await api("/api/admin/counts");
+      navCounts = data.tabs || {};
+      drawNav();
+    } catch {}
+  }
+
+  /*
    * Which sections are unfolded. Each header folds its own section only, so
    * any number can stay open; the sidebar scrolls when they do not fit. The
    * section of the open tab is always unfolded when you land on it. Kept per
@@ -959,12 +982,16 @@
     for (const section of ["store", "mwtb", "money"]) {
       $(NAV_GROUPS[section]).innerHTML = state.views
         .filter((v) => v.section === section)
-        .map((v) => `<a class="nav-item${v.section === state.section && v.key === state.view ? " active" : ""}" href="#/${v.section}/${v.key}" data-section="${v.section}" data-view="${v.key}">${esc(v.label)}</a>`)
+        .map((v) => `<a class="nav-item${v.section === state.section && v.key === state.view ? " active" : ""}" href="#/${v.section}/${v.key}" data-section="${v.section}" data-view="${v.key}">${esc(v.label)}${navCount(`${v.section}/${v.key}`)}</a>`)
         .join("");
     }
 
     // Forwarding Payments lives on the Forward Service page; a plain link.
-    $("navMoney").insertAdjacentHTML("beforeend", `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments</a>`);
+    $("navMoney").insertAdjacentHTML("beforeend", `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments${navCount("money/forwarding_payments")}</a>`);
+
+    document.querySelectorAll("[data-nav-count]").forEach((el) => {
+      el.textContent = navCountText(el.dataset.navCount);
+    });
 
     drawNavSections();
   }
@@ -2124,6 +2151,10 @@
     loadStores();
     loadSavedFilters();
     loadList();
+
+    // Counts after the page is up, then every two minutes.
+    setTimeout(loadNavCounts, 500);
+    if (!window.__navCountsTimer) window.__navCountsTimer = setInterval(loadNavCounts, 120_000);
 
     const [source, id] = open.split(":");
     if (source && id) openRecord(source, id);

@@ -382,6 +382,99 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-forwarding.html") : ""
   });
 
+  /*
+   * Counts for the sidebar, every tab at once.
+   *
+   * Measured on 17-09-2026: counting a tab costs one Airtable call per 100
+   * rows. Most tabs are one to six calls. Store Orders General (12,500 rows,
+   * 126 calls, 32 s), Fulfilled (3,600) and Delivered (3,100) are archives
+   * that only grow, so they get no count rather than slowing everything down.
+   *
+   * Computed at most every two minutes and only while someone has the admin
+   * open; the page asks after it has drawn, so it never waits on this.
+   * Open Payments and Payouts reuse what their own tabs load.
+   */
+  const UNCOUNTED = new Set(["store/general", "store/fulfilled", "store/delivered"]);
+  const COUNTS_MS = 120_000;
+  const forwardingCounts = createForwardingStore({ supabaseUrl, serviceKey, fetchImpl });
+  let countsCache = { at: 0, promise: null };
+
+  async function countView(view) {
+    let offset = "";
+    let total = 0;
+    let calls = 0;
+
+    do {
+      const page = await airtable.select(TABLES[view.source], {
+        formula: buildListFormula(view, {}),
+        fields: view.exclude ? listFields(view) : ["Fulfillment Status"],
+        pageSize: 100,
+        offset
+      });
+
+      total += view.exclude ? page.records.filter((record) => !view.exclude(record.fields || {})).length : page.records.length;
+      offset = page.offset;
+      calls += 1;
+    } while (offset && calls < 20);
+
+    return offset ? null : total;
+  }
+
+  async function loadCounts() {
+    const tabs = {};
+
+    // One after another: a burst of parallel calls would eat into the
+    // Airtable rate limit everything else on this base shares.
+    for (const view of VIEWS) {
+      const key = `${view.section}/${view.key}`;
+      if (UNCOUNTED.has(key)) continue;
+
+      try {
+        tabs[key] = await countView(view);
+      } catch (err) {
+        console.error("[admin] count failed:", key, err.message);
+      }
+    }
+
+    const money = await Promise.allSettled([
+      cached(JSON.stringify(["payments", { stores: [], storeMode: "include", search: "", kind: "all" }, 0]), () =>
+        loadOpenPayments(airtable, { stores: [], storeMode: "include", search: "", kind: "all" })),
+      cached(JSON.stringify(["payouts", { shipping: "all", type: "", search: "" }, 0]), () =>
+        loadPayouts(airtable, { shipping: "all", type: "", search: "" }))
+    ]);
+
+    if (money[0].status === "fulfilled") tabs["money/payments"] = money[0].value.count;
+    if (money[1].status === "fulfilled") tabs["money/payouts"] = money[1].value.count;
+
+    if (forwardingCounts.configured) {
+      try {
+        const forwards = await forwardingCounts.counts();
+        tabs["forwarding/awaiting_label"] = forwards.awaiting_label;
+        tabs["forwarding/ready_to_ship"] = forwards.ready_to_ship;
+        tabs["forwarding/shipped"] = forwards.shipped;
+        tabs["money/forwarding_payments"] = forwards.unpaid;
+      } catch (err) {
+        console.error("[admin] forwarding counts failed:", err.message);
+      }
+    }
+
+    return { tabs, at: new Date().toISOString() };
+  }
+
+  router.get("/api/admin/counts", async (req, res) => {
+    if (!countsCache.promise || Date.now() - countsCache.at > COUNTS_MS || req.query.fresh) {
+      countsCache = { at: Date.now(), promise: loadCounts() };
+      countsCache.promise.catch(() => { countsCache = { at: 0, promise: null }; });
+    }
+
+    try {
+      res.json(await countsCache.promise);
+    } catch (err) {
+      console.error("[admin] counts failed:", err.message);
+      res.status(502).json({ error: "Could not count the tabs." });
+    }
+  });
+
   router.get("/api/admin/me", (req, res) => {
     res.json({ user: { email: req.admin.email, name: req.admin.name }, views: publicViews(), actions: publicActions() });
   });

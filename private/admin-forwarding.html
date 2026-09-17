@@ -403,9 +403,27 @@
       document.querySelector('[data-mode="payments"]').classList.toggle("active", state.mode === "payments");
     }
 
+    // Counts for every tab, from the same cached endpoint the main page uses.
+    let navCounts = {};
+    let navViews = [];
+
+    const navCount = (key) => {
+      const n = navCounts[key];
+      return `<small>${typeof n === "number" && n > 0 ? n : ""}</small>`;
+    };
+
+    async function loadNavCounts() {
+      try {
+        const data = await api("/api/admin/counts");
+        navCounts = data.tabs || {};
+        drawOtherSections(navViews);
+      } catch {}
+    }
+
     function drawOtherSections(views) {
+      navViews = views || [];
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Payouts" }];
-      const link = (view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)}</a>`;
+      const link = (view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)} ${navCount(`${view.section}/${view.key}`)}</a>`;
 
       $("navStore").innerHTML = (views || []).filter((view) => view.section === "store").map(link).join("");
       $("navMwtb").innerHTML = (views || []).filter((view) => view.section === "mwtb").map(link).join("");
@@ -1013,6 +1031,8 @@
         drawNavSections();
         load();
         loadCounts();
+        setTimeout(loadNavCounts, 500);
+        setInterval(loadNavCounts, 120_000);
       })
       .catch(() => {});
   </script>

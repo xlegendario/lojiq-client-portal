@@ -189,7 +189,20 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
     return released || [];
   }
 
-  return { configured, list, get, update, releasePairs };
+  // Only the two status columns, for the sidebar counts.
+  async function counts() {
+    const rows = await request("forwarding_log?select=shipping_status,payment_status&limit=10000");
+    const result = { awaiting_label: 0, ready_to_ship: 0, shipped: 0, unpaid: 0 };
+
+    for (const row of rows || []) {
+      if (row.shipping_status in result) result[row.shipping_status] += 1;
+      if (row.shipping_status !== "cancelled" && row.payment_status !== "paid") result.unpaid += 1;
+    }
+
+    return result;
+  }
+
+  return { configured, list, get, update, releasePairs, counts };
 }
 
 /*
