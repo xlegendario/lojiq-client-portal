@@ -639,7 +639,7 @@
       <button class="nav-section" type="button" data-nav-section="mwtb" aria-controls="navMwtb" aria-expanded="false">Member WTBs</button>
       <div class="nav-group" id="navMwtb" hidden></div>
 
-      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Money</button>
+      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Finance</button>
       <div class="nav-group" id="navMoney" hidden></div>
 
       <!-- Forward Service is its own page (/admin/forwarding); these are plain links. -->
@@ -792,7 +792,7 @@
     selected: ""
   };
 
-  const SECTION_LABEL = { store: "Store Orders", mwtb: "Member WTBs", money: "Money" };
+  const SECTION_LABEL = { store: "Store Orders", mwtb: "Member WTBs", money: "Finance" };
 
   // Open Payments is its own screen, not a list of one table, but it sits in
   // the navigation and the address bar like any tab.
@@ -962,6 +962,9 @@
         .map((v) => `<a class="nav-item${v.section === state.section && v.key === state.view ? " active" : ""}" href="#/${v.section}/${v.key}" data-section="${v.section}" data-view="${v.key}">${esc(v.label)}</a>`)
         .join("");
     }
+
+    // Forwarding Payments lives on the Forward Service page; a plain link.
+    $("navMoney").insertAdjacentHTML("beforeend", `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments</a>`);
 
     drawNavSections();
   }
@@ -1522,7 +1525,7 @@
     const m = MONEY[kind];
     const isPayouts = kind === "payouts";
 
-    $("crumb").textContent = "Money";
+    $("crumb").textContent = "Finance";
     $("viewTitle").textContent = isPayouts ? "Payouts" : "Open Payments";
     document.title = `${isPayouts ? "Payouts" : "Open Payments"} · Lojiq Admin`;
 
