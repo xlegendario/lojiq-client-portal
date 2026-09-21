@@ -65,6 +65,23 @@ export function trackingList(value) {
 // What a forward's shipping status becomes after its labels or tracking
 // changed: something to ship with means Ready to Ship, nothing means waiting.
 // Shipped and cancelled are never undone by an edit.
+/*
+ * What a label upload is, from its first bytes.
+ *
+ * PDF, or a JPEG or PNG - labels arrive as photos and screenshots as often as
+ * PDFs. The WMS turns an image into a one-page PDF before storing it, so
+ * everything after that still only ever sees PDFs.
+ */
+export const LABEL_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+
+export function labelUpload(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 100) return null;
+  if (buffer.subarray(0, 5).toString("latin1") === "%PDF-") return { mime: "application/pdf", ext: "pdf" };
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mime: "image/jpeg", ext: "jpg" };
+  if (buffer.subarray(0, 4).toString("hex") === "89504e47") return { mime: "image/png", ext: "png" };
+  return null;
+}
+
 export function nextShippingStatus(current, trackingNumbers, labels) {
   if (current === "shipped" || current === "cancelled") return current;
 
@@ -368,15 +385,14 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
   // A label PDF for a forward, stored through the WMS.
   router.post(
     "/api/admin/forwarding/label",
-    express.raw({ type: "application/pdf", limit: "10mb" }),
+    express.raw({ type: LABEL_TYPES, limit: "10mb" }),
     async (req, res) => {
       try {
         const before = await store.get(req.query.id);
         const tracking = text(req.query.tracking).replace(/\s+/g, "");
+        const kind = labelUpload(req.body);
 
-        if (!Buffer.isBuffer(req.body) || req.body.length < 100 || req.body.subarray(0, 5).toString("latin1") !== "%PDF-") {
-          throw new ForwardingError("The label must be a PDF file.");
-        }
+        if (!kind) throw new ForwardingError("The label must be a PDF, JPEG or PNG file.");
 
         if (tracking && !/^[A-Za-z0-9-]{6,40}$/.test(tracking)) {
           throw new ForwardingError("Enter the tracking number from the label.");
@@ -384,8 +400,8 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
 
         const stored = await callWms("/api/upload-label-file", {
           folder: "forwarding",
-          file_name: `${displayId(before)}${tracking ? `-${tracking}` : ""}.pdf`,
-          file_data_url: `data:application/pdf;base64,${req.body.toString("base64")}`,
+          file_name: `${displayId(before)}${tracking ? `-${tracking}` : ""}.${kind.ext}`,
+          file_data_url: `data:${kind.mime};base64,${req.body.toString("base64")}`,
           tracking
         });
 

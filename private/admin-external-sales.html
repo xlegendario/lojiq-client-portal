@@ -299,8 +299,8 @@
         <label>Labels</label>
         <div class="label-list" id="editLabels"></div>
         <div class="label-add">
-          <input class="input" id="newLabelTracking" type="text" placeholder="Tracking on this label">
-          <input id="newLabelFile" type="file" accept="application/pdf" aria-label="Label PDF">
+          <input class="input" id="newLabelTracking" type="text" placeholder="Tracking (one file only)">
+          <input id="newLabelFile" type="file" accept="application/pdf,image/jpeg,image/png" multiple aria-label="Label files">
           <button class="btn" id="uploadLabelBtn" type="button">Upload</button>
         </div>
       </div>
@@ -624,27 +624,57 @@
       }
     });
 
+    /*
+     * The tracking number a label file is named after, if it is one.
+     *
+     * Labels are usually saved as their tracking number
+     * ("1ZG223389130065859.jpeg"), so choosing three files is enough to add
+     * three labels with their tracking. A name that is not a tracking number
+     * gives none; the tracking field in the dialog still works for one file.
+     */
+    const trackingFromFileName = (name) => {
+      const base = String(name || "").replace(/\.[^.]+$/, "").trim();
+      return /^[A-Za-z0-9-]{6,40}$/.test(base) && /\d/.test(base) ? base : "";
+    };
+
+    const labelContentType = (file) =>
+      ["application/pdf", "image/jpeg", "image/png"].includes(file.type) ? file.type : "application/pdf";
+
     $("uploadLabelBtn").addEventListener("click", async () => {
-      const file = $("newLabelFile").files[0];
-      if (!file) return toast("Choose the label PDF first.");
+      const files = [...$("newLabelFile").files];
+      if (!files.length) return toast("Choose the label files first (PDF, JPEG or PNG).");
 
       $("uploadLabelBtn").disabled = true;
+      let added = 0;
+      let sale = null;
 
       try {
-        const tracking = $("newLabelTracking").value.trim();
-        const { sale } = await api(`/api/admin/external-sales/label?id=${encodeURIComponent(state.detail.sale.id)}&tracking=${encodeURIComponent(tracking)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/pdf" },
-          body: file
-        });
+        for (const file of files) {
+          const typed = files.length === 1 ? $("newLabelTracking").value.trim() : "";
+          const tracking = typed || trackingFromFileName(file.name);
+
+          $("uploadLabelBtn").textContent = `Uploading ${added + 1}/${files.length}…`;
+
+          ({ sale } = await api(`/api/admin/external-sales/label?id=${encodeURIComponent(state.detail.sale.id)}&tracking=${encodeURIComponent(tracking)}`, {
+            method: "POST",
+            headers: { "Content-Type": labelContentType(file) },
+            body: file
+          }));
+
+          state.detail.sale = sale;
+          added += 1;
+        }
+
         $("newLabelTracking").value = "";
         $("newLabelFile").value = "";
         $("editTracking").value = sale.tracking_numbers.join("\n");
-        await applySale(sale, `Label uploaded. Status: ${sale.shipping_status}.`);
+        await applySale(sale, `${added === 1 ? "Label" : `${added} labels`} uploaded. Status: ${sale.shipping_status}.`);
       } catch (err) {
-        toast(err.message);
+        if (sale) await applySale(sale, `${added} added, then: ${err.message}`);
+        else toast(err.message);
       } finally {
         $("uploadLabelBtn").disabled = false;
+        $("uploadLabelBtn").textContent = "Upload";
       }
     });
 

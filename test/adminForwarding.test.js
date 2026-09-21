@@ -33,3 +33,14 @@ test("an edit never undoes shipped or cancelled", () => {
   assert.equal(nextShippingStatus("shipped", [], []), "shipped");
   assert.equal(nextShippingStatus("cancelled", ["1Z"], []), "cancelled");
 });
+
+test("a label upload is recognised as PDF, JPEG or PNG by its first bytes", async () => {
+  const { labelUpload } = await import("../admin/adminForwarding.js");
+  const pad = (head) => Buffer.concat([head, Buffer.alloc(200)]);
+
+  assert.deepEqual(labelUpload(pad(Buffer.from("%PDF-1.4"))), { mime: "application/pdf", ext: "pdf" });
+  assert.deepEqual(labelUpload(pad(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))), { mime: "image/jpeg", ext: "jpg" });
+  assert.deepEqual(labelUpload(pad(Buffer.from([0x89, 0x50, 0x4e, 0x47]))), { mime: "image/png", ext: "png" });
+  assert.equal(labelUpload(pad(Buffer.from("GIF89a"))), null);
+  assert.equal(labelUpload(Buffer.from("%PDF-")), null);
+});

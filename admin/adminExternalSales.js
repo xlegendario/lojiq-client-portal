@@ -13,7 +13,7 @@
 
 import express from "express";
 import fs from "fs";
-import { trackingList } from "./adminForwarding.js";
+import { LABEL_TYPES, labelUpload, trackingList } from "./adminForwarding.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -250,15 +250,14 @@ export function mountExternalSales(router, { store, audit, callWms, pageFile }) 
   // One label PDF, with the tracking number printed on it if there is one.
   router.post(
     "/api/admin/external-sales/label",
-    express.raw({ type: "application/pdf", limit: "10mb" }),
+    express.raw({ type: LABEL_TYPES, limit: "10mb" }),
     async (req, res) => {
       try {
         const before = await store.get(req.query.id);
         const tracking = text(req.query.tracking).replace(/\s+/g, "");
+        const kind = labelUpload(req.body);
 
-        if (!Buffer.isBuffer(req.body) || req.body.length < 100 || req.body.subarray(0, 5).toString("latin1") !== "%PDF-") {
-          throw new ExternalSalesError("The label must be a PDF file.");
-        }
+        if (!kind) throw new ExternalSalesError("The label must be a PDF, JPEG or PNG file.");
 
         if (tracking && !/^[A-Za-z0-9-]{6,40}$/.test(tracking)) {
           throw new ExternalSalesError("Enter the tracking number from the label.");
@@ -266,12 +265,13 @@ export function mountExternalSales(router, { store, audit, callWms, pageFile }) 
 
         const stored = await callWms("/api/upload-label-file", {
           folder: "external-sales",
-          file_name: `${before.display_id}${tracking ? `-${tracking}` : ""}.pdf`,
-          file_data_url: `data:application/pdf;base64,${req.body.toString("base64")}`,
+          file_name: `${before.display_id}${tracking ? `-${tracking}` : ""}.${kind.ext}`,
+          file_data_url: `data:${kind.mime};base64,${req.body.toString("base64")}`,
           tracking
         });
 
         const labels = [...before.labels, { url: stored.url, filename: stored.filename }];
+        // (The WMS stored it as a PDF, whatever came in.)
         const trackingNumbers = trackingList([...before.tracking_numbers, tracking]);
 
         const sale = await store.update(before.id, {
