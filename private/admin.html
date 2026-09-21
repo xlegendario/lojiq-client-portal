@@ -869,6 +869,9 @@
       case "status": return `<span class="pill ${pillClass(value)}">${esc(value)}</span>`;
       case "id": return `<span class="id">${esc(value)}</span>`;
       case "flag": return value === true ? `<span class="pill wait">Allowed</span>` : `<span class="dash">—</span>`;
+      case "copy": return /^https?:\/\//i.test(String(value))
+        ? `<button class="act" type="button" data-copy="${esc(value)}" data-copy-label="Offer link">Copy</button>`
+        : `<span class="dash">—</span>`;
       default: {
         const inner = type === "mono" ? `<span class="mono">${esc(value)}</span>` : esc(value);
         return cell.href ? `<a href="${esc(cell.href)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${inner}</a>` : inner;

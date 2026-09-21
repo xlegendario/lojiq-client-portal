@@ -67,6 +67,8 @@ const STORE = {
   offer: col("offer", "Offer to Store", "Offer To Store", "money"),
   eta: col("eta", "Offer ETA", "Estimated Time"),
   aboveMax: col("above_max", "Above Max", "Allow Offers Above Max?", "flag"),
+  // The public page where any seller can make an offer: copied and passed on.
+  offerLink: col("offer_link", "Offer Link", "WTB Offer URL", "copy"),
   offerVat: col("offer_vat", "Offer VAT Type", "Offer VAT Type"),
 
   finalPrice: col("final_price", "Final Price", "Final Buying Price", "money"),
@@ -173,7 +175,7 @@ const TABS = [
     key: "open", section: "store", source: "store", label: "Open Orders",
     formula: anyOf("Fulfillment Status", OPEN),
     // Pending or Outsource is the first thing to read on this tab.
-    columns: [...storeBase, STORE.fulfillment, ...storePrices, STORE.aboveMax]
+    columns: [...storeBase, STORE.fulfillment, ...storePrices, STORE.aboveMax, STORE.offerLink]
   },
   {
     key: "offers", section: "store", source: "store", label: "Offers",
