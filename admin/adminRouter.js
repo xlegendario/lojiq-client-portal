@@ -54,6 +54,7 @@ import {
 import { PaymentError, loadOpenPayments, markPaidByBankTransfer } from "./adminPayments.js";
 import { PayoutError, SHIPPING_FILTERS, loadPayouts, markUnitsPaid } from "./adminPayouts.js";
 import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
+import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -382,6 +383,16 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-forwarding.html") : ""
   });
 
+  // bol pages: offers the bol sync refused because bol's page is another
+  // shoe or size (admin/adminBolPages.js, private/admin-bol-pages.html).
+  const bolPages = createBolPagesStore({ supabaseUrl, serviceKey, fetchImpl });
+
+  mountBolPages(router, {
+    store: bolPages,
+    audit,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-bol-pages.html") : ""
+  });
+
   /*
    * Counts for the sidebar, every tab at once.
    *
@@ -459,6 +470,12 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
         tabs["money/forwarding_payments"] = forwards.unpaid;
       } catch (err) {
         console.error("[admin] forwarding counts failed:", err.message);
+      }
+
+      try {
+        tabs["marketplaces/bol_pages"] = (await bolPages.counts()).blocked;
+      } catch (err) {
+        console.error("[admin] bol page counts failed:", err.message);
       }
     }
 

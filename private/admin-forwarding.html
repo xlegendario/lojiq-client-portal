@@ -226,6 +226,11 @@
         <button class="nav-item" type="button" data-shipping="shipped">Shipped <small data-count="shipped"></small></button>
         <button class="nav-item" type="button" data-shipping="all">All forwards</button>
       </div>
+
+      <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
+      <div class="nav-group" id="navMarketplaces" hidden>
+        <a class="nav-item" href="/admin/bol-pages">bol pages <small class="nav-count" data-nav-count="marketplaces/bol_pages"></small></a>
+      </div>
     </nav>
 
     <main class="content">
@@ -370,7 +375,7 @@
     /* ---------------- sidebar ---------------- */
 
     // Same folding as the main admin page, and the same remembered sections.
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", marketplaces: "navMarketplaces" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 
@@ -428,6 +433,11 @@
       $("navStore").innerHTML = (views || []).filter((view) => view.section === "store").map(link).join("");
       $("navMwtb").innerHTML = (views || []).filter((view) => view.section === "mwtb").map(link).join("");
       $("navMoneyLinks").innerHTML = finance.map(link).join("");
+
+      document.querySelectorAll("[data-nav-count]").forEach((el) => {
+        const n = navCounts[el.dataset.navCount];
+        el.textContent = typeof n === "number" && n > 0 ? String(n) : "";
+      });
     }
 
     document.querySelector(".sidebar").addEventListener("click", (event) => {

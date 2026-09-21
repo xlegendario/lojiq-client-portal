@@ -652,6 +652,11 @@
         <a class="nav-item" href="/admin/forwarding?tab=all">All forwards</a>
       </div>
 
+      <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
+      <div class="nav-group" id="navMarketplaces" hidden>
+        <a class="nav-item" href="/admin/bol-pages">bol pages <small class="nav-count" data-nav-count="marketplaces/bol_pages"></small></a>
+      </div>
+
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName"></strong></span>
         <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
@@ -917,7 +922,7 @@
 
   /* ---------------- navigation ---------------- */
 
-  const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding" };
+  const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", marketplaces: "navMarketplaces" };
 
   /*
    * Counts behind each tab, fetched after the page has drawn and again every
