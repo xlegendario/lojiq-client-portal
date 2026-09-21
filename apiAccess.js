@@ -272,7 +272,9 @@ export function createApiAccess({ sessionSecret, kickzBaseUrl, serviceSecret, pu
     return next(err);
   }
 
-  return { router, errorHandler, setSession, clearSession };
+  // merchantFor is also what the invoice download trusts: an invoice is a
+  // financial document, so it gets the signed session, not the browser's id.
+  return { router, errorHandler, setSession, clearSession, merchantFor };
 }
 
 export function apiAccessPagePath(dirname) {

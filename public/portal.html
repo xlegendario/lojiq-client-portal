@@ -3992,6 +3992,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
       issue_notes: 80,
       payment_link: 80,
       payment_action: 160,
+      invoice: 90,
     };
 
     const columnsByView = {
@@ -4140,7 +4141,8 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["vat_type", "VAT Type"],
         ["status", "Status"],
         ["supplier_shipping_status", "Shipping Status"],
-        ["warehouse_tracking", "Tracking Number"]
+        ["warehouse_tracking", "Tracking Number"],
+        ["invoice", "Invoice"]
       ],
     
       label_requests: [
@@ -4171,6 +4173,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["invoice_price", "Invoice Price"],
         ["status", "Status"],
         ["shipping_status", "Shipping Status"],
+        ["invoice", "Invoice"],
         ["payment_action", "Actions"]
       ],
 
@@ -4182,6 +4185,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["invoice_price", "Invoice Price"],
         ["invoice_status", "Invoice Status"],
         ["paid_at", "Paid At"],
+        ["invoice", "Invoice"],
         // CHANGED - was a Payment Link column with a PAY button on rows that
         // are already settled. "payment_action" only offers PAY when the row
         // can still be paid, so here it comes down to TRACK - useful for a
@@ -4200,7 +4204,8 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["invoice_price", "Invoice Price"],
         ["vat_type", "VAT Type"],
         ["status", "Status"],
-        ["tracking_number", "Tracking Number"]
+        ["tracking_number", "Tracking Number"],
+        ["invoice", "Invoice"]
       ],
     
       shipped: [
@@ -4215,6 +4220,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["vat_type", "VAT Type"],
         ["status", "Status"],
         ["tracking_number", "Tracking Number"],
+        ["invoice", "Invoice"],
         ["actions", "Actions"]
       ],
     
@@ -4230,6 +4236,7 @@ async function consignmentCounter(offerId, isMemberWtb) {
         ["vat_type", "VAT Type"],
         ["status", "Status"],
         ["tracking_number", "Tracking Number"],
+        ["invoice", "Invoice"],
         ["actions", "Actions"]
       ],
 
@@ -5191,6 +5198,14 @@ function amountForButton(rawValue) {
           : "—";
       }
     
+      // The PDF is fetched from Rompslomp by the server, behind the signed
+      // login; a new tab, so the table stays where it was.
+      if (key === "invoice") {
+        return order.has_invoice && order.id
+          ? `<a class="action-btn blue" href="/api/invoices/${encodeURIComponent(order.id)}" target="_blank" rel="noopener" title="${escapeHtml(order.invoice_number || "")}">INVOICE</a>`
+          : "—";
+      }
+
       if (key === "payment_link") {
         return order.payment_link
           ? `<a class="action-btn blue" href="${escapeHtml(order.payment_link)}" target="_blank">PAY</a>`

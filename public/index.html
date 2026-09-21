@@ -173,13 +173,18 @@
     // Sent here by API Access, which needs a login this browser does not
     // have yet. Only this one destination is honoured, so the parameter can
     // never be used to send someone elsewhere after logging in.
-    const wantsApiAccess = new URLSearchParams(window.location.search).get("next") === "api-access";
+    const nextPage = new URLSearchParams(window.location.search).get("next");
+    const wantsApiAccess = nextPage === "api-access";
+    // Sent by an invoice download, which also needs the signed login.
+    const wantsInvoice = nextPage === "invoice";
     const afterLogin = wantsApiAccess ? "/api-access" : "/portal";
 
     const existingMerchant = localStorage.getItem("lojiq_merchant");
 
-    if (wantsApiAccess) {
-      errorBox.textContent = "Please log in again to open API Access.";
+    if (wantsApiAccess || wantsInvoice) {
+      errorBox.textContent = wantsApiAccess
+        ? "Please log in again to open API Access."
+        : "Please log in again to download invoices. Then press INVOICE once more.";
       errorBox.style.display = "block";
     } else if (existingMerchant) {
       window.location.href = "/portal";

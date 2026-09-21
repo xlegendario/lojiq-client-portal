@@ -96,7 +96,11 @@ const {
   // Admin buttons that go beyond this service. Without them those buttons say
   // what is missing instead of failing silently.
   KC_PORTAL_SECRET,
-  DELIVERED_DISCORD_WEBHOOK_URL
+  DELIVERED_DISCORD_WEBHOOK_URL,
+
+  // Invoice downloads: the PDF is fetched from Rompslomp when a store asks.
+  ROMPSLOMP_API_TOKEN,
+  ROMPSLOMP_COMPANY_ID = "1296508534"
 } = process.env;
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
@@ -207,6 +211,70 @@ app.get("/", (_req, res) => {
 app.post("/api/logout", (req, res) => {
   apiAccess.clearSession(req, res);
   res.json({ ok: true });
+});
+
+/*
+ * A store's invoice for one order, as a PDF, straight from Rompslomp.
+ *
+ * Not stored anywhere else: Rompslomp is the bookkeeping, so the PDF a store
+ * downloads is always the one that is booked - also after a correction.
+ *
+ * Trusts only the signed session (see apiAccess.js), never the merchant id
+ * the browser keeps: an invoice shows prices and VAT numbers. The order must
+ * belong to that store. A store logged in from before the session existed is
+ * asked to log in once more.
+ */
+app.get("/api/invoices/:recordId", async (req, res) => {
+  try {
+    const merchant = await apiAccess.merchantFor(req);
+
+    if (!merchant) {
+      return res.redirect("/?next=invoice");
+    }
+
+    const recordId = asText(req.params.recordId);
+
+    if (!/^rec[a-zA-Z0-9]{14}$/.test(recordId)) {
+      return res.status(400).send("Unknown order.");
+    }
+
+    const order = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE).find(recordId).catch(() => null);
+    const f = order?.fields || {};
+
+    if (!order || asText(displayValue(f["Store Name"])) !== asText(merchant.store_name)) {
+      return res.status(404).send("No invoice found for this order.");
+    }
+
+    const invoiceId = asText(f["Rompslomp Invoice ID"]);
+
+    if (!invoiceId) {
+      return res.status(404).send("There is no invoice for this order yet.");
+    }
+
+    if (!ROMPSLOMP_API_TOKEN) {
+      return res.status(503).send("Invoice downloads are not configured yet.");
+    }
+
+    const pdf = await fetch(
+      `https://api.rompslomp.nl/api/v1/companies/${ROMPSLOMP_COMPANY_ID}/sales_invoices/${encodeURIComponent(invoiceId)}/pdf`,
+      { headers: { Authorization: `Bearer ${ROMPSLOMP_API_TOKEN}`, Accept: "application/pdf" }, signal: AbortSignal.timeout(30_000) }
+    );
+
+    if (!pdf.ok) {
+      console.error(`Invoice PDF ${invoiceId} for ${recordId}: Rompslomp answered ${pdf.status}`);
+      return res.status(502).send("The invoice could not be loaded. Try again in a minute.");
+    }
+
+    const name = `Invoice ${asText(f["Rompslomp Invoice Number"]) || asText(f["Order ID"])}.pdf`.replace(/[^\w .-]/g, "");
+
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `inline; filename="${name}"`);
+    res.set("Cache-Control", "private, no-store");
+    res.send(Buffer.from(await pdf.arrayBuffer()));
+  } catch (err) {
+    console.error("Invoice download failed:", err);
+    res.status(500).send("The invoice could not be loaded.");
+  }
 });
 
 app.post("/api/login", async (req, res) => {
@@ -1774,6 +1842,10 @@ app.get("/api/orders", async (req, res) => {
         vat: moneyValue(f["Buying VAT Amount"]),
         invoice_price: moneyValue(f["Invoice Price (VAT Included)"]),
         invoice_status: displayValue(f["Invoice Status"]),
+        // Only whether there is one and its number; the PDF itself comes from
+        // /api/invoices/:id, which checks the signed session first.
+        has_invoice: Boolean(displayValue(f["Rompslomp Invoice ID"])),
+        invoice_number: displayValue(f["Rompslomp Invoice Number"]),
         payment_link: displayValue(f["Payment Link"]),
         mollie_payment_id: displayValue(f["Mollie Payment ID"]),
         paid_at: dateValue(f["Paid At"]),
