@@ -55,6 +55,7 @@ import { PaymentError, loadOpenPayments, markPaidByBankTransfer } from "./adminP
 import { PayoutError, SHIPPING_FILTERS, loadPayouts, markUnitsPaid } from "./adminPayouts.js";
 import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
+import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -393,6 +394,17 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-bol-pages.html") : ""
   });
 
+  // External Sales: tracking and labels added after the WMS outbound
+  // (admin/adminExternalSales.js, private/admin-external-sales.html).
+  const externalSalesStore = createExternalSalesStore({ airtable });
+
+  mountExternalSales(router, {
+    store: externalSalesStore,
+    audit,
+    callWms: (pathName, body) => deps.callWms(pathName, body),
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-external-sales.html") : ""
+  });
+
   /*
    * Counts for the sidebar, every tab at once.
    *
@@ -460,6 +472,14 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }
 
     Object.assign(tabs, lastMoneyCounts);
+
+    try {
+      const sales = await externalSalesStore.counts();
+      tabs["external/pending"] = sales.pending;
+      tabs["external/ready"] = sales.ready;
+    } catch (err) {
+      console.error("[admin] external sales counts failed:", err.message);
+    }
 
     if (forwardingCounts.configured) {
       try {

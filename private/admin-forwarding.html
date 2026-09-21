@@ -227,6 +227,14 @@
         <button class="nav-item" type="button" data-shipping="all">All forwards</button>
       </div>
 
+      <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
+      <div class="nav-group" id="navExternal" hidden>
+        <a class="nav-item" href="/admin/external-sales?tab=pending">Pending <small class="nav-count" data-nav-count="external/pending"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=ready">Ready to Ship <small class="nav-count" data-nav-count="external/ready"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=shipped">Shipped</a>
+        <a class="nav-item" href="/admin/external-sales?tab=all">All sales</a>
+      </div>
+
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
       <div class="nav-group" id="navMarketplaces" hidden>
         <a class="nav-item" href="/admin/bol-pages">bol pages <small class="nav-count" data-nav-count="marketplaces/bol_pages"></small></a>
@@ -375,7 +383,7 @@
     /* ---------------- sidebar ---------------- */
 
     // Same folding as the main admin page, and the same remembered sections.
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", marketplaces: "navMarketplaces" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 
