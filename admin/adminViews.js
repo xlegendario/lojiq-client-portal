@@ -52,7 +52,7 @@ const col = (key, label, field, type = "text", extra = {}) => ({ key, label, fie
 const STORE = {
   orderId: col("order_id", "Order ID", "Order ID", "id"),
   store: col("store", "Store Name", "Store Name"),
-  shopify: col("shopify", "Shopify Order Number", "Shopify Order Number"),
+  shopify: col("shopify", "Shopify", "Shopify Order Number"),
   product: col("product", "Product", "Shopify Product Name"),
   sku: col("sku", "SKU", "SKU", "mono"),
   size: col("size", "Size", "Size"),
@@ -87,7 +87,7 @@ const STORE = {
 const QUEUE = {
   queueId: col("queue_id", "Queued Order ID", "Queued Order ID", "id"),
   store: col("store", "Store Name", "Store Name"),
-  shopify: col("shopify", "Shopify Order Number", "Shopify Order Number"),
+  shopify: col("shopify", "Shopify", "Shopify Order Number"),
   product: col("product", "Product", "Shopify Product Name"),
   sku: col("sku", "SKU", "SKU (Soft)", "mono"),
   size: col("size", "Size", "Size"),
@@ -425,7 +425,7 @@ const f = (label, field, type = "text", extra = {}) => ({ label, field, type, ..
 export const PANELS = {
   store: [
     { title: "Order", fields: [
-      f("Order ID", "Order ID", "id"), f("Store Name", "Store Name"), f("Shopify Order Number", "Shopify Order Number"),
+      f("Order ID", "Order ID", "id"), f("Store Name", "Store Name"), f("Shopify", "Shopify Order Number"),
       f("Order Source", "Order Source"), f("Marketplace", "Marketplace"), f("Date", "Order Date", "date"),
       f("Fulfillment Status", "Fulfillment Status", "status")
     ] },
@@ -484,7 +484,7 @@ export const PANELS = {
 
   queue: [
     { title: "Queued order", fields: [
-      f("Queued Order ID", "Queued Order ID", "id"), f("Store Name", "Store Name"), f("Shopify Order Number", "Shopify Order Number"),
+      f("Queued Order ID", "Queued Order ID", "id"), f("Store Name", "Store Name"), f("Shopify", "Shopify Order Number"),
       f("Date", "Order Date", "date"), f("Order Age (Hours)", "Order Age (Hours)", "hours"), f("Match Risk Level", "Match Risk Level", "status")
     ] },
     { title: "Product", fields: [
