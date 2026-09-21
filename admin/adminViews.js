@@ -179,7 +179,7 @@ const TABS = [
     key: "offers", section: "store", source: "store", label: "Offers",
     // Same rule as the store's own Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, {Offer To Store} != BLANK(), NOT({Offer Denied?}))`,
-    columns: [...storeBase, ...storePrices]
+    columns: [...storeBase, STORE.fulfillment, ...storePrices]
   },
   {
     key: "processing", section: "store", source: "store", label: "Processing",
@@ -255,7 +255,7 @@ const TABS = [
     key: "offers", section: "mwtb", source: "mwtb", label: "Offers",
     // Same rule as the Manual Orders Offers tab in the client portal.
     formula: `AND(${anyOf("Fulfillment Status", OPEN)}, OR({Offer To Buyer} > 0, {Current Lowest Offer} > 0))`,
-    columns: [...mwtbBase, ...mwtbPrices]
+    columns: [...mwtbBase, MWTB.fulfillment, ...mwtbPrices]
   },
   {
     key: "processing", section: "mwtb", source: "mwtb", label: "Processing",
