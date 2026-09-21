@@ -44,3 +44,8 @@ test("a label upload is recognised as PDF, JPEG or PNG by its first bytes", asyn
   assert.equal(labelUpload(pad(Buffer.from("GIF89a"))), null);
   assert.equal(labelUpload(Buffer.from("%PDF-")), null);
 });
+
+test("a tracking number typed with spaces stays one number", () => {
+  assert.deepEqual(trackingList("1Z FV6 483 68 2567 1031"), ["1ZFV648368 25671031".replace(" ", "")]);
+  assert.deepEqual(trackingList("JD00 003 0031993 000006106826, 1Z999"), ["JD000030031993000006106826", "1Z999"]);
+});
