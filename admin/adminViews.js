@@ -66,6 +66,7 @@ const STORE = {
   maxBuyingVat0: col("max_buying_vat0", "Max Buying Price (VAT0)", "Final Outsource Buying Price (VAT 0%)", "money"),
   offer: col("offer", "Offer to Store", "Offer To Store", "money"),
   eta: col("eta", "Offer ETA", "Estimated Time"),
+  aboveMax: col("above_max", "Above Max", "Allow Offers Above Max?", "flag"),
   offerVat: col("offer_vat", "Offer VAT Type", "Offer VAT Type"),
 
   finalPrice: col("final_price", "Final Price", "Final Buying Price", "money"),
@@ -172,7 +173,7 @@ const TABS = [
     key: "open", section: "store", source: "store", label: "Open Orders",
     formula: anyOf("Fulfillment Status", OPEN),
     // Pending or Outsource is the first thing to read on this tab.
-    columns: [...storeBase, STORE.fulfillment, ...storePrices]
+    columns: [...storeBase, STORE.fulfillment, ...storePrices, STORE.aboveMax]
   },
   {
     key: "offers", section: "store", source: "store", label: "Offers",
@@ -306,7 +307,7 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 // The buttons on each tab, from the Whimsical. What each one does is in
 // adminActions.js; a button only shows on a row where it can run.
 const TAB_ACTIONS = {
-  "store/open": ["send_offer", "custom_price", "manual_deal"],
+  "store/open": ["send_offer", "custom_price", "above_max", "manual_deal"],
   "store/processing": ["discord"],
   "mwtb/processing": ["discord"],
   "store/offers": ["accept", "counter"],

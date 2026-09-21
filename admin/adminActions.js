@@ -20,6 +20,9 @@
 //                   the External Sales Log row and the same notifications.
 //   Add Note        Shipping Notes. Nothing else reads it.
 //   Solved          Issue Status = Solved, as the store's own button does.
+//   Above Max       Allow Offers Above Max? on a store order. The WTB bot reads
+//                   it when a seller offers: the Maximum Buying Price stops
+//                   being the ceiling, undercutting other sellers still counts.
 //
 // Every action reads the record fresh, checks it may still run, and goes into
 // the action log with what it changed.
@@ -412,6 +415,42 @@ export const ACTIONS = {
       }
 
       return { message: `Counter of € ${price} sent to the seller.`, changed: { counter: price, on: option.summary } };
+    }
+  },
+
+  /*
+   * Let sellers offer above the store's Maximum Buying Price on one order.
+   *
+   * Asked for because deals were lost by a few euro: a seller five above the
+   * maximum was refused by the bot and never became an offer at all. With this
+   * on, the offer goes through and the store sees it like any other - above
+   * what it said it would pay, so it can still say no. Pressing it again puts
+   * the maximum back.
+   */
+  above_max: {
+    label: "Above Max",
+    sources: ["store"],
+    needs: { store: ["Allow Offers Above Max?", "Maximum Buying Price"] },
+    confirm: (source, f) => {
+      const max = Number(f["Maximum Buying Price"]) > 0 ? `€ ${f["Maximum Buying Price"]}` : "the maximum";
+
+      return f["Allow Offers Above Max?"]
+        ? `Make the Maximum Buying Price (${max}) the limit for seller offers again?`
+        : `Let sellers offer above the Maximum Buying Price (${max}) on this order? They still have to undercut the other offers, and the store decides whether it pays the higher price.`;
+    },
+    why: (source, f) => (OPEN.includes(status(f)) ? "" : "Only open orders (Pending or Outsource) take seller offers."),
+    async run({ record, deps }) {
+      const before = Boolean(record.fields["Allow Offers Above Max?"]);
+      const after = !before;
+
+      await deps.airtable.update(TABLES.store, record.id, { "Allow Offers Above Max?": after });
+
+      return {
+        message: after
+          ? "Sellers can now offer above the Maximum Buying Price on this order."
+          : "The Maximum Buying Price is the limit again.",
+        changed: { "Allow Offers Above Max?": { from: before, to: after } }
+      };
     }
   },
 
