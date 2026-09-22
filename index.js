@@ -595,6 +595,7 @@ async function loadPaymentBatchIndex() {
         "Batch ID",
         "Amount",
         "Mollie Payment ID",
+        "Mollie Payment Link ID",
         "Payment Status",
         "Order Numbers",
         "Settlement ID",
@@ -607,15 +608,23 @@ async function loadPaymentBatchIndex() {
 
   const byMolliePaymentId = new Map();
 
+  // A batch paid through a payment link has no payment id on it: Mollie
+  // calls the webhook with the link's id, and until 22-09-2026 nothing was
+  // stored then (PAYB-000112 to -000118 and every Member WTB paid in the KC
+  // portal). The settlement's payment still carries the link it came from
+  // and the "PAYB-" number in its description, so the batch is found by
+  // those as well - see findBatchForSettlementPayment.
+  byMolliePaymentId.byLinkId = new Map();
+  byMolliePaymentId.byBatchId = new Map();
+
   for (const record of records) {
     const molliePaymentId = displayValue(
       record.fields["Mollie Payment ID"]
     );
 
-    if (!molliePaymentId) continue;
-
-    byMolliePaymentId.set(molliePaymentId, {
+    const entry = {
       record_id: record.id,
+      mollie_payment_id: molliePaymentId,
       batch_id:
         displayValue(record.fields["Batch ID"]) ||
         record.id,
@@ -638,10 +647,44 @@ async function loadPaymentBatchIndex() {
       settlement_synced_at: displayValue(
         record.fields["Mollie Settlement Synced At"]
       )
-    });
+    };
+
+    // A pl_ id in this field (the KC portal wrote those) is a link, not a
+    // payment.
+    if (molliePaymentId.startsWith("tr_")) {
+      byMolliePaymentId.set(molliePaymentId, entry);
+    }
+
+    const linkId = displayValue(record.fields["Mollie Payment Link ID"]) ||
+      (molliePaymentId.startsWith("pl_") ? molliePaymentId : "");
+
+    if (linkId) byMolliePaymentId.byLinkId.set(linkId, entry);
+    if (entry.batch_id) byMolliePaymentId.byBatchId.set(entry.batch_id, entry);
   }
 
   return byMolliePaymentId;
+}
+
+/*
+ * The batch a payment in a settlement belongs to: by its payment id, else by
+ * the payment link it was paid through, else by the "PAYB-000123" in its
+ * description. `via` says which, so the sync can write the payment id onto a
+ * batch that did not have it yet.
+ */
+function findBatchForSettlementPayment(batchIndex, payment) {
+  const paymentId = asText(payment?.id);
+  const byId = batchIndex.get(paymentId);
+  if (byId) return { batch: byId, via: "payment" };
+
+  const linkId = asText(payment?.paymentLinkId);
+  const byLink = linkId ? batchIndex.byLinkId?.get(linkId) : null;
+  if (byLink) return { batch: byLink, via: "link" };
+
+  const batchNumber = asText(payment?.description).match(/PAYB-\d+/)?.[0] || "";
+  const byNumber = batchNumber ? batchIndex.byBatchId?.get(batchNumber) : null;
+  if (byNumber) return { batch: byNumber, via: "description" };
+
+  return { batch: null, via: "" };
 }
 
 function normalizeSettlementPreview(settlement) {
@@ -5519,9 +5562,23 @@ app.post("/api/mollie/webhook", async (req, res) => {
         return res.status(200).send("ok");
       }
 
+      // The payment that paid the link, so the batch can be found in the
+      // settlement later. Best-effort: the settlement sync also finds a
+      // batch by its link, so nothing is lost when this lookup fails.
+      const linkPayments = await mollieRequest(
+        `/payment-links/${encodeURIComponent(paymentId)}/payments?limit=50`
+      ).catch((err) => {
+        console.error(`Payment link ${paymentId}: its payments could not be read:`, err.message);
+        return null;
+      });
+
+      const paidPayment = (linkPayments?._embedded?.payments || [])
+        .find((payment) => payment?.status === "paid");
+
       await settlePaidBatch({
         batchRecordId: linkBatch.id,
-        targets: linkTargets
+        targets: linkTargets,
+        molliePaymentId: asText(paidPayment?.id) || undefined
       });
 
       console.log(
@@ -5906,8 +5963,8 @@ async function performMollieSettlementSync() {
 
       for (const payment of payments) {
         const paymentId = asText(payment?.id);
-        const matchedBatch =
-          batchIndex.get(paymentId) || null;
+        const { batch: matchedBatch } =
+          findBatchForSettlementPayment(batchIndex, payment);
 
         if (!matchedBatch) {
           unmatchedPayments.push({
@@ -5920,7 +5977,12 @@ async function performMollieSettlementSync() {
           continue;
         }
 
+        // The batch did not know its payment yet: it does now.
+        const missingPaymentId =
+          matchedBatch.mollie_payment_id !== paymentId;
+
         const alreadyFullySynced =
+          !missingPaymentId &&
           matchedBatch.current_settlement_id ===
             settlementId &&
           matchedBatch.current_settlement_status ===
@@ -5977,6 +6039,10 @@ async function performMollieSettlementSync() {
             syncedAt
         };
 
+        if (missingPaymentId) {
+          fields["Mollie Payment ID"] = paymentId;
+        }
+
         if (settlementDate) {
           fields["Settlement Date"] = settlementDate;
         }
@@ -6008,12 +6074,12 @@ async function performMollieSettlementSync() {
           payments.length -
           matchedCount -
           payments.filter((payment) => {
-            const matchedBatch = batchIndex.get(
-              asText(payment?.id)
-            );
+            const { batch: matchedBatch } =
+              findBatchForSettlementPayment(batchIndex, payment);
 
             return (
               matchedBatch &&
+              matchedBatch.mollie_payment_id === asText(payment?.id) &&
               matchedBatch.current_settlement_id ===
                 settlementId &&
               matchedBatch.current_settlement_status ===
