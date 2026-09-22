@@ -23,6 +23,7 @@ import {
   saleMoney
 } from "./externalSalesSync.js";
 import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
+import { createOutboundMaker } from "./externalSalesCreate.js";
 
 export { ExternalSalesError };
 
@@ -407,6 +408,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return changed;
   }
 
+  const outbounds = createOutboundMaker({ db, airtable, invoicing });
+
   // Invoicing starts from the deal as Airtable has it now.
   async function freshFromAirtable(id) {
     const sale = await saleById(id);
@@ -424,6 +427,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mailInvoices: (id, options) => invoicing.mailInvoices(id, options),
     credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
     link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
+    outboundPreview: (input) => outbounds.preview(input),
+    outboundCreate: (input) => outbounds.create(input),
     runSync,
     syncState,
     list,
@@ -443,7 +448,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   };
 }
 
-export function mountExternalSales(router, { store, audit, pageFile }) {
+export function mountExternalSales(router, { store, audit, pageFile, internalSecret = "" }) {
   const page = pageFile && fs.existsSync(pageFile) ? fs.readFileSync(pageFile, "utf8") : "";
 
   const send = (res, err) => {
@@ -573,6 +578,46 @@ export function mountExternalSales(router, { store, audit, pageFile }) {
       const out = await store.mailInvoices(before.id, { testTo: req.body?.test ? req.admin.email : "" });
       await log(req, out.test ? "external_sale_invoice_test_mail" : "external_sale_invoice_mailed", before, out);
       res.json({ ...(await store.detail(before.id)), log: [`${out.test ? "Test mail with" : "Mailed"} ${out.invoices.join(", ")} to ${out.to}`] });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  /*
+   * Create Outbound in the WMS (block 2). Not behind the admin login: the WMS
+   * sends the secret it already shares with the portals (x-kc-secret).
+   */
+  const fromWms = (req, res) => {
+    const secret = text(req.headers["x-kc-secret"]);
+    if (!text(internalSecret) || secret !== text(internalSecret)) {
+      res.status(401).json({ error: "Unauthorized" });
+      return false;
+    }
+    return true;
+  };
+
+  router.post("/api/internal/external-sales/preview", express.json({ limit: "200kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, preview: await store.outboundPreview(req.body || {}) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/internal/external-sales/create", express.json({ limit: "200kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      const out = await store.outboundCreate(req.body || {});
+      await audit.record({
+        actor: { email: "wms", name: text(req.body?.created_by) || "WMS Create Outbound" },
+        action: "external_sale_created",
+        source: "external_sales",
+        recordId: out.id,
+        label: out.deal,
+        details: { pairs: out.pairs, total: out.total, invoice: out.invoice_log, invoice_error: out.invoice_error || null }
+      }).catch(() => {});
+      res.json({ ok: true, ...out });
     } catch (err) {
       send(res, err);
     }

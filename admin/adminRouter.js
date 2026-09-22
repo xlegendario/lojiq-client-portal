@@ -413,6 +413,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   mountExternalSales(router, {
     store: externalSalesStore,
     audit,
+    internalSecret: services.counterOffersSecret,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-external-sales.html") : ""
   });
 
