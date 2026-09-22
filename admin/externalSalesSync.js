@@ -33,7 +33,6 @@ const SALE_FIELDS = [
   "Payment Status", "Payment Note", "Shipping Status", "Amount of Labels", "Items per Parcel",
   "Tracking Numbers", "Shipping Labels", "Linked Inventory Units"
 ];
-const BUYER_FIELDS = ["Buyer ID", "Full Name", "Company Name", "Email", "Country", "Country Code", "VAT ID"];
 const UNIT_FIELDS = ["Item ID", "Product Name", "SKU", "Size", "VAT Type", "Final Purchase Price", "Final Purchase Price (ex. VAT)", "Picture"];
 
 export const dealId = (sale) => `EXTD-${String(sale?.deal_number ?? "").padStart(6, "0")}`;
@@ -253,18 +252,30 @@ export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = 
       items_per_parcel: text(f["Items per Parcel"]) || null
     };
 
-    if (!sale || sale.buyer_record_id !== buyerRecordId) {
-      const buyer = context.buyers.get(buyerRecordId) || {};
+    /*
+     * The buyer comes from Supabase public.buyers (22-09-2026), found by the
+     * Airtable row the deal links to - or one merged into it. Copied onto the
+     * deal as it is now until the deal is invoiced; after that the invoice
+     * says who it was.
+     */
+    const buyer = context.buyerFor(buyerRecordId);
+    if (!INVOICED.has(sale?.bookkeeping_status)) {
+      if (!buyer && buyerRecordId) {
+        context.warnings.push({ sale: sale?.id || null, message: `${extdId}: buyer ${buyerRecordId} is not in Supabase buyers.` });
+      }
       Object.assign(fields, {
-        buyer_record_id: buyerRecordId,
-        buyer_id: text(buyer["Buyer ID"]) || null,
-        buyer_name: text(buyer["Full Name"]) || text(first(f["Buyer Name"])) || null,
-        buyer_company: text(buyer["Company Name"]) || null,
-        buyer_email: text(buyer["Email"]) || null,
-        buyer_country: text(first(buyer["Country"])) || null,
-        buyer_country_code: text(first(buyer["Country Code"])) || null,
-        buyer_vat_id: text(buyer["VAT ID"]) || null
+        buyer_record_id: buyer?.airtable_record_id || buyerRecordId,
+        buyer_uuid: buyer?.id || null,
+        buyer_id: buyer ? `BU-${String(buyer.buyer_number).padStart(5, "0")}` : null,
+        buyer_name: text(buyer?.full_name) || text(buyer?.company_name) || text(first(f["Buyer Name"])) || null,
+        buyer_company: text(buyer?.company_name) || null,
+        buyer_email: text(buyer?.email) || null,
+        buyer_country: text(buyer?.country) || null,
+        buyer_country_code: text(buyer?.country_code) || null,
+        buyer_vat_id: text(buyer?.vat_id) || null
       });
+    } else if (buyer && !sale.buyer_uuid) {
+      fields.buyer_uuid = buyer.id;
     }
 
     // Only on the change itself: a deal that was paid before step 2 has no
@@ -469,13 +480,20 @@ export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = 
     const pairs = group(pairsRows, "sale_id");
     const byAirtable = new Map(sales.map((s) => [s.airtable_record_id, s]));
 
-    const buyerIds = [];
     const unitIds = [];
+
+    // Every buyer, by the Airtable row a deal links to and by the rows of
+    // duplicates merged into it. A few hundred rows: one call.
+    const buyerRows = await db.get("buyers?select=*&limit=10000");
+    const buyerByRecord = new Map();
+    for (const b of buyerRows) {
+      for (const id of [b.airtable_record_id, b.airtable_ext_record_id, ...(b.airtable_aliases || [])]) {
+        if (id) buyerByRecord.set(id, b);
+      }
+    }
 
     for (const record of records) {
       const sale = byAirtable.get(record.id);
-      const buyer = text(first(record.fields["Buyer ID"]));
-      if (buyer && (!sale || sale.buyer_record_id !== buyer)) buyerIds.push(buyer);
 
       const had = new Map((sale ? pairs.get(sale.id) || [] : []).map((p) => [p.inventory_unit_record_id, p]));
       for (const unit of record.fields["Linked Inventory Units"] || []) {
@@ -489,7 +507,7 @@ export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = 
       byAirtable,
       pairs,
       shipments: group(shipmentRows, "external_sale_id"),
-      buyers: buyerIds.length ? await airtable.byIds("Buyers Database", buyerIds, BUYER_FIELDS) : new Map(),
+      buyerFor: (recordId) => (recordId ? buyerByRecord.get(recordId) || null : null),
       units: unitIds.length ? await airtable.byIds("Inventory Units", unitIds, UNIT_FIELDS) : new Map(),
       warnings: []
     };

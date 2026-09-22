@@ -138,10 +138,9 @@ test("a new outbound from Airtable arrives with its pairs, buyer and parcels", a
     units: {
       recU1: { "Item ID": "IU-1", SKU: "A", Size: "42", "VAT Type": "VAT21", "Final Purchase Price": 121, "Final Purchase Price (ex. VAT)": 100 },
       recU2: { "Item ID": "IU-2", SKU: "B", Size: "43" }
-    },
-    buyers: { recBUYER: { "Full Name": "Jan", "Country Code": "DE", "VAT ID": "DE999" } }
+    }
   });
-  const db = fakeDb({ external_sales: [], external_sale_pairs: [], shipments: [] });
+  const db = fakeDb({ external_sales: [], external_sale_pairs: [], shipments: [], buyers: [{ id: "b84", buyer_number: 84, airtable_record_id: "recBUYER", airtable_aliases: [], full_name: "Jan", country_code: "DE", vat_id: "DE999" }] });
   const stored = [];
   const sync = createExternalSalesSync({
     airtable,
@@ -156,6 +155,8 @@ test("a new outbound from Airtable arrives with its pairs, buyer and parcels", a
   const [sale] = db.tables.external_sales;
   assert.equal(sale.deal_number, 78);
   assert.equal(sale.buyer_name, "Jan");
+  assert.equal(sale.buyer_uuid, "b84");
+  assert.equal(sale.buyer_id, "BU-00084");
   assert.equal(sale.bookkeeping_status, "to_invoice");
   assert.equal(sale.shipping_status, "ready_to_ship");
 

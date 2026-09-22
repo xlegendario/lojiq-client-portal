@@ -228,22 +228,25 @@ export function creditInvoiceBody({ original, reference, now = new Date() }) {
 }
 
 // A Rompslomp contact from the Buyers Database.
+// A Rompslomp contact from a Supabase buyer, with its Buyer ID as the
+// customer number - the number Rompslomp and the admin share from now on.
 export function contactBody(buyer) {
-  const company = text(buyer["Company Name"]);
-  const person = text(buyer["Full Name"]);
-  const address = [text(buyer["Address"]), text(buyer["Address line 2"])].filter(Boolean).join(", ");
+  const company = text(buyer.company_name);
+  const person = text(buyer.full_name);
+  const address = [text(buyer.address), text(buyer.address_line2)].filter(Boolean).join(", ");
 
   return {
     contact: {
       is_individual: !company,
       company_name: company || null,
       contact_person_name: person || null,
-      contact_person_email_address: text(buyer["Email"]) || null,
+      contact_person_email_address: text(buyer.email) || null,
       address: address || null,
-      zipcode: text(buyer["Zipcode"]) || null,
-      city: text(buyer["City"]) || null,
-      country_code: text(Array.isArray(buyer["Country Code"]) ? buyer["Country Code"][0] : buyer["Country Code"]).toUpperCase() || null,
-      vat_number: text(buyer["VAT ID"]) || null
+      zipcode: text(buyer.zipcode) || null,
+      city: text(buyer.city) || null,
+      country_code: text(buyer.country_code).toUpperCase() || null,
+      vat_number: text(buyer.vat_id) || null,
+      contact_number: buyer.buyer_number ? `BU-${String(buyer.buyer_number).padStart(5, "0")}` : null
     }
   };
 }
@@ -254,8 +257,8 @@ export function contactBody(buyer) {
  * a new contact is better than an invoice to someone else.
  */
 export function matchContact(contacts, buyer) {
-  const vat = text(buyer["VAT ID"]).replace(/\s+/g, "").toUpperCase();
-  const names = [text(buyer["Company Name"]), text(buyer["Full Name"])].filter(Boolean).map((n) => n.toLowerCase());
+  const vat = text(buyer.vat_id).replace(/\s+/g, "").toUpperCase();
+  const names = [text(buyer.company_name), text(buyer.full_name)].filter(Boolean).map((n) => n.toLowerCase());
 
   if (vat) {
     const byVat = contacts.find((c) => text(c.vat_number).replace(/\s+/g, "").toUpperCase() === vat);
@@ -382,7 +385,6 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
  *   replyTo     where the buyer's questions go
  */
 export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl" }) {
-  const BUYER_FIELDS = ["Buyer ID", "Full Name", "Company Name", "VAT ID", "Email", "Address", "Address line 2", "Zipcode", "City", "Country", "Country Code", "Rompslomp Contact ID"];
 
   async function load(id) {
     const [sale] = await db.get(`external_sales?select=*&id=eq.${id}`);
@@ -393,33 +395,48 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { sale, pairs, invoices };
   }
 
+  // The deal's buyer in Supabase public.buyers: by its id, or by the Airtable
+  // row the deal links to (or one merged into it).
+  async function buyerOf(sale) {
+    if (sale.buyer_uuid) {
+      const [byId] = await db.get(`buyers?select=*&id=eq.${sale.buyer_uuid}`);
+      if (byId) return byId;
+    }
+
+    const record = text(sale.buyer_record_id);
+    if (!/^rec[A-Za-z0-9]{14}$/.test(record)) return null;
+
+    const [byRecord] = await db.get(`buyers?select=*&or=(airtable_record_id.eq.${record},airtable_ext_record_id.eq.${record},airtable_aliases.cs.{${record}})&limit=1`);
+    return byRecord || null;
+  }
+
   /*
    * The buyer's contact in Rompslomp, in this order:
-   *   1. the id on the Buyers Database record
+   *   1. the contact id stored on the buyer
    *   2. the contact of an earlier invoice to this buyer
    *   3. a contact with the same VAT number, or exactly the same name
-   *   4. a new one, from the Buyers Database
-   * and the id is written back on the buyer, so it is looked up only once.
+   *   4. a new one, numbered with the Buyer ID
+   * and the id is stored on the buyer, so it is looked up only once.
    */
   async function contactFor(sale, { create = true } = {}) {
-    const buyer = (await airtable.byIds("Buyers Database", [sale.buyer_record_id], BUYER_FIELDS)).get(sale.buyer_record_id);
-    if (!buyer) throw new ExternalSalesError("The buyer is not in the Buyers Database any more.");
+    const buyer = await buyerOf(sale);
+    if (!buyer) throw new ExternalSalesError("The deal's buyer is not in the buyers list.");
 
     const remember = async (id, how) => {
-      if (create && text(buyer["Rompslomp Contact ID"]) !== String(id)) {
-        await airtable.update("Buyers Database", sale.buyer_record_id, { "Rompslomp Contact ID": String(id) });
+      if (create && text(buyer.rompslomp_contact_id) !== String(id)) {
+        await db.patch(`buyers?id=eq.${buyer.id}`, { rompslomp_contact_id: String(id) });
       }
       return { id: String(id), how };
     };
 
-    const stored = text(buyer["Rompslomp Contact ID"]);
+    const stored = text(buyer.rompslomp_contact_id);
     if (stored) {
       const contact = await rompslomp.getContact(stored).catch(() => null);
       if (contact) return { id: stored, how: "stored on the buyer" };
     }
 
     const earlier = await db.get(
-      `external_sales?select=id&buyer_record_id=eq.${sale.buyer_record_id}&bookkeeping_status=in.(invoiced,credited)&limit=50`
+      `external_sales?select=id&buyer_uuid=eq.${buyer.id}&bookkeeping_status=in.(invoiced,credited)&limit=50`
     );
     if (earlier.length) {
       const links = await db.get(`external_sale_invoice_deals?select=invoice_id&sale_id=in.(${earlier.map((s) => `"${s.id}"`).join(",")})`);
@@ -430,7 +447,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
       }
     }
 
-    for (const q of [text(buyer["VAT ID"]), text(buyer["Company Name"]), text(buyer["Full Name"])].filter(Boolean)) {
+    for (const q of [text(buyer.vat_id), text(buyer.company_name), text(buyer.full_name)].filter(Boolean)) {
       const match = matchContact(await rompslomp.searchContacts(q), buyer);
       if (match) return remember(match.id, "found in Rompslomp");
     }
@@ -439,7 +456,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
 
     const body = contactBody(buyer);
     if (!body.contact.country_code || !body.contact.address) {
-      throw new ExternalSalesError("The buyer has no address or country code in the Buyers Database; the invoice needs them.");
+      throw new ExternalSalesError("The buyer has no address or country code; the invoice needs them. Fill them in on the buyer first.");
     }
 
     const created = await rompslomp.createContact(body);
@@ -649,7 +666,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
       ok: plan.ok && !handMade.length,
       problems: plan.problems,
       hand_made: handMade,
-      contact: contact ? `Rompslomp contact ${contact.id} (${contact.how})` : "A new contact is made in Rompslomp from the Buyers Database.",
+      contact: contact ? `Rompslomp contact ${contact.id} (${contact.how})` : "A new contact is made in Rompslomp, with the Buyer ID as its customer number.",
       mail_to: sale.buyer_email || null,
       invoices: plan.invoices.map((inv) => ({
         route: inv.route,

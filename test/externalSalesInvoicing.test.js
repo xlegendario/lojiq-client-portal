@@ -18,6 +18,7 @@ const sale = (extra = {}) => ({
   id: "s1",
   deal_number: 76,
   buyer_record_id: "recBUYER",
+  buyer_uuid: "b1",
   buyer_email: "buyer@example.com",
   buyer_vat_id: "PL7011035218",
   buyer_country_code: "PL",
@@ -135,13 +136,14 @@ test("a credit invoice is the same invoice, negative", () => {
 
 test("a contact is matched on VAT number or exact name, never on part of a name", () => {
   const contacts = [{ id: 1, company_name: "F1rst Kicks Amsterdam", vat_number: "" }, { id: 2, company_name: "Other", vat_number: "NL 8617 94461B01" }];
-  assert.equal(matchContact(contacts, { "VAT ID": "NL861794461B01", "Company Name": "F1rst Kicks" })?.id, 2);
-  assert.equal(matchContact(contacts, { "Company Name": "F1rst Kicks" }), null);
-  assert.equal(matchContact(contacts, { "Company Name": "f1rst kicks amsterdam" })?.id, 1);
+  assert.equal(matchContact(contacts, { vat_id: "NL861794461B01", company_name: "F1rst Kicks" })?.id, 2);
+  assert.equal(matchContact(contacts, { company_name: "F1rst Kicks" }), null);
+  assert.equal(matchContact(contacts, { company_name: "f1rst kicks amsterdam" })?.id, 1);
 });
 
 test("a private buyer becomes an individual contact", () => {
-  const body = contactBody({ "Full Name": "Lian Gietermans", Address: "Straat 1", "Address line 2": "bus 2", Zipcode: "1234AB", City: "Utrecht", "Country Code": "nl", Email: "l@x.nl" }).contact;
+  const body = contactBody({ buyer_number: 23, full_name: "Lian Gietermans", address: "Straat 1", address_line2: "bus 2", zipcode: "1234AB", city: "Utrecht", country_code: "nl", email: "l@x.nl" }).contact;
+  assert.equal(body.contact_number, "BU-00023", "the Buyer ID is the customer number");
   assert.equal(body.is_individual, true);
   assert.equal(body.contact_person_name, "Lian Gietermans");
   assert.equal(body.address, "Straat 1, bus 2");
@@ -199,10 +201,11 @@ test("invoicing a deal: invoice, journal, contact remembered, mail - and never t
     external_sales: [sale()],
     external_sale_pairs: [pair({ sale_id: "s1" })],
     external_sale_invoices: [],
-    external_sale_invoice_deals: []
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 84, company_name: "Grail Point sp. z o.o.", vat_id: "PL7011035218", address: "ul. 1", zipcode: "00-001", city: "Warsaw", country_code: "PL", rompslomp_contact_id: null }]
   });
   const rompslomp = fakeRompslomp();
-  const airtable = fakeAirtableBuyers({ "Company Name": "Grail Point sp. z o.o.", "VAT ID": "PL7011035218", Address: "ul. 1", Zipcode: "00-001", City: "Warsaw", "Country Code": "PL" });
+  const airtable = fakeAirtableBuyers({});
   const mails = [];
   const invoicing = createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail: async (m) => mails.push(m) });
 
@@ -210,7 +213,8 @@ test("invoicing a deal: invoice, journal, contact remembered, mail - and never t
 
   assert.equal(rompslomp.calls.created, 1);
   assert.equal(rompslomp.calls.contacts, 1, "no contact found: a new one");
-  assert.deepEqual(airtable.updates, [{ "Rompslomp Contact ID": "999" }]);
+  assert.equal(db.tables.buyers[0].rompslomp_contact_id, "999", "remembered on the buyer");
+  assert.deepEqual(airtable.updates, [], "Airtable is not written");
   assert.equal(rompslomp.calls.journals.length, 1);
   assert.equal(rompslomp.calls.journals[0].description, "Voorraadcorrectie KC202609-2200");
   assert.equal(rompslomp.calls.journals[0].lines[0].debit_amount, "150.00");
@@ -232,7 +236,8 @@ test("a run that stopped half-way carries on without a second invoice", async ()
     external_sales: [sale()],
     external_sale_pairs: [pair({ sale_id: "s1" })],
     external_sale_invoices: [],
-    external_sale_invoice_deals: []
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
   });
   const rompslomp = fakeRompslomp();
   // Made in Rompslomp by an earlier run that died before saving anything.
@@ -251,7 +256,8 @@ test("a total that comes out different stops before the journal", async () => {
     external_sales: [sale()],
     external_sale_pairs: [pair({ sale_id: "s1" })],
     external_sale_invoices: [],
-    external_sale_invoice_deals: []
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
   });
   const rompslomp = fakeRompslomp({ totalOverride: 174.99 + 0.5 });
   const invoicing = createExternalSalesInvoicing({ db, airtable: fakeAirtableBuyers({ "Rompslomp Contact ID": "474787066" }), rompslomp, sendMail: async () => {} });
@@ -267,7 +273,8 @@ test("crediting books a negative invoice and the purchase back into stock", asyn
     external_sales: [sale()],
     external_sale_pairs: [pair({ sale_id: "s1" })],
     external_sale_invoices: [],
-    external_sale_invoice_deals: []
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
   });
   const rompslomp = fakeRompslomp();
   const invoicing = createExternalSalesInvoicing({ db, airtable: fakeAirtableBuyers({ "Rompslomp Contact ID": "474787066" }), rompslomp, sendMail: async () => {} });
@@ -293,7 +300,8 @@ test("an invoice made by hand is found, not made again, and can be linked", asyn
     external_sales: [sale({ deal_number: 66, total_selling_price: "150.00" })],
     external_sale_pairs: [pair({ sale_id: "s1", purchase_price_ex_vat: "134.00" })],
     external_sale_invoices: [],
-    external_sale_invoice_deals: []
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
   });
   const rompslomp = fakeRompslomp();
   const hand = await rompslomp.createInvoice({ sales_invoice: { contact_id: 474787066, api_reference: null, invoice_lines: [{ description: "EXTD-000066", extended_description: "1203A537-106 - 39", price_per_unit: "150.0", vat_type_id: 688369464 }] } });
@@ -324,7 +332,8 @@ test("a journal that already exists is taken over, not made twice", async () => 
     external_sales: [sale()],
     external_sale_pairs: [pair({ sale_id: "s1" })],
     external_sale_invoices: [],
-    external_sale_invoice_deals: []
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
   });
   const rompslomp = fakeRompslomp();
   rompslomp.calls.journals.push({ description: "Voorraadcorrectie KC202609-2200", lines: [] });
