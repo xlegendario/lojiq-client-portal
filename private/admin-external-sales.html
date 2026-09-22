@@ -803,6 +803,7 @@
           <h3>Money</h3>
           <div class="money-grid">
             <div><span>Selling incl. VAT</span><strong>${esc(euro(money.selling))}</strong></div>
+            <div><span>${money.vat_label}</span><strong>${money.selling_ex_vat === null ? "?" : esc(euro(money.selling - money.selling_ex_vat))}</strong></div>
             <div><span>Selling excl. VAT</span><strong>${money.selling_ex_vat === null ? "?" : esc(euro(money.selling_ex_vat))}</strong></div>
             <div><span>Purchase excl. VAT</span><strong>${esc(euro(money.purchase))}</strong></div>
             <div><span>Shipping</span><strong>${esc(euro(money.shipping))}</strong></div>
@@ -831,7 +832,7 @@
           ${invoiceRows}
           <div class="inline" style="margin-top:8px">
             ${s.bookkeeping_status === "to_invoice" && s.payment_status !== "cancelled" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice…</button>' : ""}
-            ${invoices.some((i) => i.kind === "sale") && s.bookkeeping_status === "invoiced" ? '<button class="act" id="mailBtn" type="button">Send invoice again</button>' : ""}
+            ${invoices.some((i) => i.kind === "sale") && s.bookkeeping_status === "invoiced" ? '<button class="act" id="mailBtn" type="button">Send invoice again</button><button class="act" id="testMailBtn" type="button">Send me a test</button>' : ""}
             ${s.bookkeeping_status === "to_invoice" ? '<button class="act" id="notInvoicedBtn" type="button">Not to be invoiced…</button>' : ""}
             ${s.bookkeeping_status === "not_invoiced" ? '<button class="act" id="toInvoiceBtn" type="button">Back to "to invoice"</button>' : ""}
           </div>
@@ -990,6 +991,14 @@
         if (!confirm(`Mail the invoice again to ${state.detail.sale.buyer_email || "the buyer"}?`)) return;
         return busy(target, async () => {
           const d = await postJson("/api/admin/external-sales/invoice/mail", { id });
+          state.runLog = { id, lines: d.log || [] };
+          applyDetail(d, (d.log || []).join(" · "));
+        });
+      }
+
+      if (target.id === "testMailBtn") {
+        return busy(target, async () => {
+          const d = await postJson("/api/admin/external-sales/invoice/mail", { id, test: true });
           state.runLog = { id, lines: d.log || [] };
           applyDetail(d, (d.log || []).join(" · "));
         });

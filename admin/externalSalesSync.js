@@ -63,6 +63,15 @@ export function sellingVatType(purchaseVatType, buyer = {}) {
  * VAT types and no prices per pair cannot be split: it gets no profit rather
  * than a wrong one.
  */
+// Margin VAT is over the margin only; the tile says so.
+function vatLabel(types) {
+  const set = new Set(types.filter(Boolean));
+  if (set.size === 1 && set.has("Margin")) return "VAT on the margin";
+  if (set.size === 1 && set.has("VAT0")) return "VAT (0%, reverse-charged)";
+  if (set.size === 1 && set.has("VAT21")) return "VAT 21%";
+  return "VAT";
+}
+
 export function saleMoney(sale, pairs) {
   const purchase = round2(pairs.reduce((sum, pair) => sum + Number(pair.purchase_price_ex_vat || 0), 0));
   const shipping = round2(sale.shipping_costs);
@@ -90,7 +99,8 @@ export function saleMoney(sale, pairs) {
     purchase,
     shipping,
     profit: sellingExVat === null ? null : round2(sellingExVat - shipping - purchase),
-    priced_per_pair: pricedPerPair
+    priced_per_pair: pricedPerPair,
+    vat_label: vatLabel(pricedPerPair ? pairs.map((p) => p.selling_vat_type) : [sale.legacy_selling_vat_type])
   };
 }
 

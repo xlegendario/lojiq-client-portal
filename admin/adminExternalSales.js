@@ -421,7 +421,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     configured: db.configured,
     invoicePreview: async (id) => { await freshFromAirtable(id); return invoicing.preview(id); },
     invoice: async (id, options) => { await freshFromAirtable(id); return invoicing.invoice(id, options); },
-    mailInvoices: (id) => invoicing.mailInvoices(id),
+    mailInvoices: (id, options) => invoicing.mailInvoices(id, options),
     credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
     link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
     runSync,
@@ -569,9 +569,10 @@ export function mountExternalSales(router, { store, audit, pageFile }) {
   router.post("/api/admin/external-sales/invoice/mail", express.json({ limit: "10kb" }), async (req, res) => {
     try {
       const before = (await store.detail(req.body?.id)).sale;
-      const out = await store.mailInvoices(before.id);
-      await log(req, "external_sale_invoice_mailed", before, out);
-      res.json({ ...(await store.detail(before.id)), log: [`Mailed ${out.invoices.join(", ")} to ${out.to}`] });
+      // A test goes to the signed-in admin, never to an address from the browser.
+      const out = await store.mailInvoices(before.id, { testTo: req.body?.test ? req.admin.email : "" });
+      await log(req, out.test ? "external_sale_invoice_test_mail" : "external_sale_invoice_mailed", before, out);
+      res.json({ ...(await store.detail(before.id)), log: [`${out.test ? "Test mail with" : "Mailed"} ${out.invoices.join(", ")} to ${out.to}`] });
     } catch (err) {
       send(res, err);
     }

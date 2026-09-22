@@ -541,20 +541,27 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { log, invoices: done };
   }
 
-  async function mailInvoices(id) {
+  // To the buyer, or - with testTo - the same mail to an admin only, to see
+  // what the buyer gets. A test changes nothing on the deal.
+  async function mailInvoices(id, { testTo = "" } = {}) {
     const { sale, invoices } = await load(id);
     const sales = invoices.filter((i) => i.kind === "sale");
+    const to = text(testTo) || text(sale.buyer_email);
     if (!sales.length) throw new ExternalSalesError("This deal has no invoice to send.");
-    if (!text(sale.buyer_email)) throw new ExternalSalesError("The buyer has no email address.");
+    if (!to) throw new ExternalSalesError("The buyer has no email address.");
 
     const pdfs = [];
     for (const inv of sales) pdfs.push((await rompslomp.pdf(inv.rompslomp_invoice_id)).toString("base64"));
 
-    await sendMail(invoiceMail({ sale, invoices: sales, to: sale.buyer_email, from: mailFrom, replyTo, pdfs }));
+    const message = invoiceMail({ sale, invoices: sales, to, from: mailFrom, replyTo, pdfs });
+    if (testTo) message.subject = `[TEST] ${message.subject}`;
+    await sendMail(message);
 
-    const now = new Date().toISOString();
-    for (const inv of sales) await db.patch(`external_sale_invoices?id=eq.${inv.id}`, { sent_at: now });
-    return { to: sale.buyer_email, invoices: sales.map((i) => i.invoice_number) };
+    if (!testTo) {
+      const now = new Date().toISOString();
+      for (const inv of sales) await db.patch(`external_sale_invoices?id=eq.${inv.id}`, { sent_at: now });
+    }
+    return { to, test: Boolean(testTo), invoices: sales.map((i) => i.invoice_number) };
   }
 
   /*
