@@ -1036,7 +1036,7 @@
             <button class="act" type="button" data-pay="paid">Mark as paid</button>
             ${s.payment_link_url
               ? '<button class="act" type="button" data-pay="copy">Copy payment link</button><button class="act" type="button" data-pay="newlink">New link</button>'
-              : '<button class="act" type="button" data-pay="link">Payment link</button>'}
+              : '<button class="act" type="button" data-pay="link">Create payment link</button>'}
             ${invoiced && next.key !== "overdue" ? '<button class="act" type="button" data-pay="reminder">Send reminder</button>' : ""}
           </div>` : "";
 
@@ -1219,7 +1219,10 @@
         return busy(null, async () => {
           await update({ payment_link: { fresh: action === "newlink" } }, "Payment link ready.");
           const url = state.detail.sale.payment_link_url;
-          if (url) { try { await navigator.clipboard.writeText(url); toast("Payment link ready and copied."); } catch {} }
+          if (url) {
+            try { await navigator.clipboard.writeText(url); toast("Payment link copied - send it to the buyer, or use Send reminder."); }
+            catch { toast("Payment link ready - copy it from the payment block and send it to the buyer."); }
+          }
         });
       }
 
