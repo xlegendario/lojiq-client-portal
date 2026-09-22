@@ -1232,7 +1232,7 @@
       const actions = [
         s.bookkeeping_status === "invoiced" && ["resend", "Resend invoice"],
         s.bookkeeping_status === "invoiced" && ["test", "Test mail to me"],
-        ...invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id)).map((i) => [`credit:${i.id}`, `Credit ${i.invoice_number}`]),
+        ...invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id)).map((i) => [`credit:${i.id}`, `Credit ${i.invoice_number} (books only)`]),
         !locked && pairs.length > 1 && ["prices", "Prices per pair"],
         !locked && ["refresh", "Reload purchase prices"],
         !shipped && ["shipped", "Mark as shipped"],
@@ -1647,7 +1647,11 @@
 
       if (value.startsWith("credit:")) {
         const invoice = state.detail.invoices.find((i) => i.id === value.slice(7));
-        if (!confirm(`Credit ${invoice?.invoice_number || "this invoice"}? This makes a credit invoice for the same amount in Rompslomp and books the purchase back into stock. It cannot be undone.`)) return;
+        if (!confirm(`Credit ${invoice?.invoice_number || "this invoice"}?
+
+The books only: a credit invoice for the same amount in Rompslomp, and the purchase back into stock. The deal keeps its pairs and its units stay reserved. To take a pair off the deal instead, use Cancel pairs - that credits as well.
+
+It cannot be undone.`)) return;
         return busy(null, async () => {
           const d = await postJson("/api/admin/external-sales/invoice/credit", { id, invoice_id: value.slice(7) });
           state.runLog = { id, lines: d.log || [] };
