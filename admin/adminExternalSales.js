@@ -22,6 +22,7 @@ import {
   round2,
   saleMoney
 } from "./externalSalesSync.js";
+import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
 
 export { ExternalSalesError };
 
@@ -103,17 +104,30 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   add("labels_short", "warning", "Fewer labels than expected", "The outbound asked for more labels than the deal has.",
     live.filter((s) => s.shipping_status === "ready_to_ship" && s.labels_needed > (parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length).map((s) => row(s, `${(parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length} of ${s.labels_needed}`)));
 
+  add("invoice_not_sent", "warning", "Invoice not mailed to the buyer", "Open the deal and click Send invoice again - the message there says why it failed.",
+    live.filter((s) => (invoicesBySale.get(s.id) || []).some((i) => i.kind === "sale" && !i.sent_at && new Date(i.created_at).getTime() > Date.parse("2026-09-22"))).map((s) => row(s)));
+
   add("unpaid_old", "warning", "Unpaid after 14 days", "Chase the payment or cancel the deal.",
     live.filter((s) => ["pending", "partially_paid"].includes(s.payment_status) && now - new Date(s.sale_date || s.created_at).getTime() > 14 * DAY).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : "")));
 
-  add("to_invoice", "info", "Still to invoice", "Invoicing from this screen comes in the next step; until then these are invoiced by hand.",
+  add("to_invoice", "warning", "Still to invoice", "Open the deal and click Create invoice. It says what is still missing, if anything.",
     live.filter((s) => s.bookkeeping_status === "to_invoice").map((s) => row(s)));
 
   return checks;
 }
 
-export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, fetchImpl = fetch }) {
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "info@kickzcaviar.nl", fetchImpl = fetch }) {
   const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
+  const invoicing = createExternalSalesInvoicing({
+    db,
+    airtable,
+    rompslomp: createRompslomp({ token: rompslompToken, companyId: rompslompCompanyId, fetchImpl }),
+    sendMail: async (message) => {
+      if (!sendMail) throw new ExternalSalesError("Mail is not configured on this service.", 503);
+      return sendMail(message);
+    },
+    mailFrom
+  });
 
   const storeLabel = async ({ dealId: deal, filename, mime, bytes }) => {
     const stored = await callWms("/api/upload-label-file", {
@@ -392,8 +406,23 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return changed;
   }
 
+  // Invoicing starts from the deal as Airtable has it now.
+  async function freshFromAirtable(id) {
+    const sale = await saleById(id);
+    if (sale.airtable_record_id) {
+      const out = await runSync({ airtableId: sale.airtable_record_id });
+      if (out.errors.length) throw new ExternalSalesError(`Could not read ${dealId(sale)} from Airtable first: ${out.errors[0].message}`, 502);
+    }
+    return sale;
+  }
+
   return {
     configured: db.configured,
+    invoicePreview: async (id) => { await freshFromAirtable(id); return invoicing.preview(id); },
+    invoice: async (id, options) => { await freshFromAirtable(id); return invoicing.invoice(id, options); },
+    mailInvoices: (id) => invoicing.mailInvoices(id),
+    credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
+    link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
     runSync,
     syncState,
     list,
@@ -508,6 +537,63 @@ export function mountExternalSales(router, { store, audit, pageFile }) {
       const sale = await store.removeParcel(req.body?.id);
       await log(req, "external_sale_parcel_removed", sale, { parcel: text(req.body?.id) });
       await detailFor(res, sale.id);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/external-sales/invoice/preview", async (req, res) => {
+    try {
+      res.json(await store.invoicePreview(req.query.id));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Invoice(s), journal entries and the mail - see externalSalesInvoicing.js.
+  router.post("/api/admin/external-sales/invoice", express.json({ limit: "10kb" }), async (req, res) => {
+    let before = null;
+    try {
+      before = (await store.detail(req.body?.id)).sale;
+      const out = await store.invoice(before.id, { mail: req.body?.mail !== false });
+      await log(req, "external_sale_invoiced", before, { log: out.log });
+      res.json({ ...(await store.detail(before.id)), log: out.log });
+    } catch (err) {
+      // Half done is still written down: what exists is on the deal.
+      if (before) await log(req, "external_sale_invoice_failed", before, { error: err.message });
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/external-sales/invoice/mail", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const before = (await store.detail(req.body?.id)).sale;
+      const out = await store.mailInvoices(before.id);
+      await log(req, "external_sale_invoice_mailed", before, out);
+      res.json({ ...(await store.detail(before.id)), log: [`Mailed ${out.invoices.join(", ")} to ${out.to}`] });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // An invoice made by hand, taken over by the deal.
+  router.post("/api/admin/external-sales/invoice/link", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const before = (await store.detail(req.body?.id)).sale;
+      const out = await store.link(before.id, text(req.body?.rompslomp_invoice_id));
+      await log(req, "external_sale_invoice_linked", before, out);
+      res.json({ ...(await store.detail(before.id)), log: out.log });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/external-sales/invoice/credit", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const before = (await store.detail(req.body?.id)).sale;
+      const out = await store.credit(before.id, text(req.body?.invoice_id));
+      await log(req, "external_sale_credited", before, out);
+      res.json({ ...(await store.detail(before.id)), log: [`Credit ${out.credit} for ${out.of}`] });
     } catch (err) {
       send(res, err);
     }

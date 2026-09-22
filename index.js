@@ -100,8 +100,35 @@ const {
 
   // Invoice downloads: the PDF is fetched from Rompslomp when a store asks.
   ROMPSLOMP_API_TOKEN,
-  ROMPSLOMP_COMPANY_ID = "1296508534"
+  ROMPSLOMP_COMPANY_ID = "1296508534",
+
+  // External Sales invoices go out as Kickz Caviar. The sender must be
+  // verified in the SendGrid account of the key; when that is another account
+  // than SENDGRID_API_KEY's, its key goes in EXTERNAL_INVOICE_SENDGRID_KEY.
+  EXTERNAL_INVOICE_SENDGRID_KEY,
+  EXTERNAL_INVOICE_FROM = "info@kickzcaviar.nl"
 } = process.env;
+
+// One invoice mail through SendGrid's API, with the PDFs attached.
+async function sendInvoiceMail({ to, from, subject, text, attachments }) {
+  const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${EXTERNAL_INVOICE_SENDGRID_KEY || SENDGRID_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from,
+      subject,
+      content: [{ type: "text/plain", value: text }],
+      attachments
+    }),
+    signal: AbortSignal.timeout(30_000)
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`SendGrid said no (${response.status}): ${body.slice(0, 300)}`);
+  }
+}
 
 if (!AIRTABLE_TOKEN) throw new Error("Missing AIRTABLE_TOKEN");
 if (!AIRTABLE_BASE_ID) throw new Error("Missing AIRTABLE_BASE_ID");
@@ -149,7 +176,11 @@ const adminPortal = createAdminPortal({
     kcPortalSecret: KC_PORTAL_SECRET,
     discordUpdatesBaseUrl: DISCORD_UPDATES_BASE_URL,
     deliveredWebhookUrl: DELIVERED_DISCORD_WEBHOOK_URL,
-    mollieApiKey: MOLLIE_API_KEY
+    mollieApiKey: MOLLIE_API_KEY,
+    rompslompToken: ROMPSLOMP_API_TOKEN,
+    rompslompCompanyId: ROMPSLOMP_COMPANY_ID,
+    sendInvoiceMail,
+    invoiceMailFrom: EXTERNAL_INVOICE_FROM
   },
   pageFile: adminPagePath(__dirname),
   supabaseUrl: SUPABASE_URL,

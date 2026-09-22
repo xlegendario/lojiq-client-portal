@@ -243,6 +243,11 @@
     .check-items li[data-id]:not([data-id=""]):hover { background: var(--row-hover); }
     .checks { display: flex; flex-direction: column; gap: 12px; }
     textarea.notes { width: 100%; min-height: 70px; }
+    .problems { margin: 0; padding-left: 18px; color: var(--bad-text); display: flex; flex-direction: column; gap: 4px; }
+    .inv-plan { display: flex; flex-direction: column; gap: 10px; }
+    .inv-plan section { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
+    .inv-plan pre { margin: 6px 0 0; white-space: pre-wrap; font: inherit; color: var(--muted); }
+    .run-log { margin: 0; padding-left: 18px; color: var(--muted); }
 
     @media (max-width: 860px) {
       .parcel { grid-template-columns: 1fr; }
@@ -345,6 +350,17 @@
     </div>
     <div class="panel-body" id="panelBody"></div>
   </aside>
+
+  <dialog id="invoiceDialog">
+    <div class="dialog-body">
+      <h2 id="invoiceTitle">Create invoice</h2>
+      <div id="invoiceBody"><p class="sub">Checking the deal…</p></div>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="invoiceCancel">Close</button>
+        <button class="btn primary" type="button" id="invoiceGo" hidden>Create invoice</button>
+      </div>
+    </div>
+  </dialog>
 
   <div class="toast" id="toast" hidden role="status"></div>
 
@@ -756,7 +772,10 @@
         </tr>`).join("");
 
       const invoiceRows = invoices.length
-        ? `<ul class="link-list">${invoices.map((i) => `<li>${esc(i.kind === "credit" ? "Credit " : "")}<strong>${esc(i.invoice_number || i.rompslomp_invoice_id)}</strong> · ${esc(i.vat_route || "—")} · ${esc(euro(i.amount_incl_vat))} · ${i.journal_entry_id ? '<span class="pill good">journal</span>' : '<span class="pill bad">no journal</span>'}</li>`).join("")}</ul>`
+        ? `<ul class="link-list">${invoices.map((i) => {
+            const credited = invoices.some((c) => c.credits_invoice_id === i.id);
+            return `<li>${esc(i.kind === "credit" ? "Credit " : "")}<strong>${esc(i.invoice_number || i.rompslomp_invoice_id)}</strong> · ${esc(i.vat_route || "—")} · ${esc(euro(i.amount_incl_vat))} · ${i.journal_entry_id ? '<span class="pill good">journal</span>' : '<span class="pill bad">no journal</span>'}${i.sent_at ? ` <span class="sub">mailed ${esc(day(i.sent_at))}</span>` : ""}${credited ? ' <span class="pill">credited</span>' : ""}${i.kind === "sale" && !credited ? ` <button class="act" type="button" data-credit="${esc(i.id)}" data-number="${esc(i.invoice_number || "")}">Credit…</button>` : ""}</li>`;
+          }).join("")}</ul>`
         : '<p class="sub">No invoice yet.</p>';
 
       $("panelBody").innerHTML = `
@@ -811,9 +830,12 @@
           <h3>Books</h3>
           ${invoiceRows}
           <div class="inline" style="margin-top:8px">
+            ${s.bookkeeping_status === "to_invoice" && s.payment_status !== "cancelled" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice…</button>' : ""}
+            ${invoices.some((i) => i.kind === "sale") && s.bookkeeping_status === "invoiced" ? '<button class="act" id="mailBtn" type="button">Send invoice again</button>' : ""}
             ${s.bookkeeping_status === "to_invoice" ? '<button class="act" id="notInvoicedBtn" type="button">Not to be invoiced…</button>' : ""}
             ${s.bookkeeping_status === "not_invoiced" ? '<button class="act" id="toInvoiceBtn" type="button">Back to "to invoice"</button>' : ""}
           </div>
+          ${state.runLog?.id === s.id ? `<ul class="run-log">${state.runLog.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
         </div>
 
         <div class="group">
@@ -961,6 +983,121 @@
       }
 
       if (target.id === "toInvoiceBtn") return busy(target, () => update({ bookkeeping_status: "to_invoice" }, "Back on to invoice."));
+
+      if (target.id === "invoiceBtn") return openInvoiceDialog();
+
+      if (target.id === "mailBtn") {
+        if (!confirm(`Mail the invoice again to ${state.detail.sale.buyer_email || "the buyer"}?`)) return;
+        return busy(target, async () => {
+          const d = await postJson("/api/admin/external-sales/invoice/mail", { id });
+          state.runLog = { id, lines: d.log || [] };
+          applyDetail(d, (d.log || []).join(" · "));
+        });
+      }
+
+      if (target.dataset.credit) {
+        const number = target.dataset.number || "this invoice";
+        if (!confirm(`Credit ${number}? This makes a credit invoice for the same amount in Rompslomp and books the purchase back into stock. It cannot be undone.`)) return;
+        return busy(target, async () => {
+          const d = await postJson("/api/admin/external-sales/invoice/credit", { id, invoice_id: target.dataset.credit });
+          state.runLog = { id, lines: d.log || [] };
+          applyDetail(d, (d.log || []).join(" · "));
+        });
+      }
+    });
+
+    /* ---------------- invoice dialog ---------------- */
+
+    const ROUTE_NAME = { Margin: "Margin scheme", VAT21: "21% VAT", VAT0: "0% VAT, reverse-charged" };
+
+    async function openInvoiceDialog() {
+      const s = state.detail.sale;
+      $("invoiceTitle").textContent = `Invoice ${s.deal}`;
+      $("invoiceBody").innerHTML = '<p class="sub">Reading the deal from Airtable and checking it…</p>';
+      $("invoiceGo").hidden = true;
+      $("invoiceGo").textContent = "Create invoice";
+      $("invoiceDialog").showModal();
+
+      try {
+        const p = await api(`/api/admin/external-sales/invoice/preview?id=${encodeURIComponent(s.id)}`);
+
+        if (p.hand_made?.length) {
+          $("invoiceBody").innerHTML = `
+            <p>${esc(s.deal)} is already invoiced by hand in Rompslomp. Take that invoice over instead of making a second one:</p>
+            <div class="inv-plan">${p.hand_made.map((h) => `
+              <section class="inline" style="justify-content:space-between">
+                <span><strong>${esc(h.invoice_number)}</strong> · ${esc(h.route || "mixed VAT")} · ${esc(euro(h.amount))}${h.status !== "published" ? ' <span class="pill bad">concept</span>' : ""}</span>
+                <button class="btn primary" type="button" data-link-invoice="${esc(h.id)}">Link this invoice</button>
+              </section>`).join("")}</div>
+            <p class="sub">Linking puts it on the deal, books its Voorraadcorrectie if it has none, and counts it as sent.</p>`;
+          return;
+        }
+
+        if (!p.ok) {
+          $("invoiceBody").innerHTML = `<p>This deal cannot be invoiced yet:</p><ul class="problems">${p.problems.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+          return;
+        }
+
+        const many = p.invoices.length > 1;
+        $("invoiceBody").innerHTML = `
+          <div class="inv-plan">
+            ${p.invoices.map((i) => `
+              <section>
+                <strong>${esc(ROUTE_NAME[i.route] || i.route)}</strong> · ${esc(euro(i.amount))} incl. VAT · ${esc(i.pairs)} ${i.pairs === 1 ? "pair" : "pairs"}
+                <div class="sub">Voorraadcorrectie: ${esc(euro(i.purchase))} purchase from stock to cost</div>
+                <pre>${esc(s.deal)}
+${esc(i.lines)}</pre>
+              </section>`).join("")}
+            <p class="sub">${esc(p.contact)}</p>
+            <label class="inline"><input type="checkbox" id="invoiceMail" ${p.mail_to ? "checked" : "disabled"}> ${p.mail_to ? `Mail ${many ? "them" : "it"} to ${esc(p.mail_to)}` : "The buyer has no email address - not mailed"}</label>
+            <p class="sub">Rompslomp numbers ${many ? "the invoices" : "the invoice"} when ${many ? "they are" : "it is"} made; that cannot be undone, only credited.</p>
+          </div>`;
+        $("invoiceGo").textContent = many ? `Create ${p.invoices.length} invoices` : "Create invoice";
+        $("invoiceGo").hidden = false;
+      } catch (err) {
+        $("invoiceBody").innerHTML = `<ul class="problems"><li>${esc(err.message)}</li></ul>`;
+      }
+    }
+
+    $("invoiceCancel").addEventListener("click", () => $("invoiceDialog").close());
+
+    $("invoiceBody").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-link-invoice]");
+      if (!button) return;
+      const id = state.detail.sale.id;
+      button.disabled = true;
+      button.textContent = "Linking…";
+
+      try {
+        const d = await postJson("/api/admin/external-sales/invoice/link", { id, rompslomp_invoice_id: button.dataset.linkInvoice });
+        state.runLog = { id, lines: d.log || [] };
+        $("invoiceDialog").close();
+        applyDetail(d, "Invoice linked.");
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = "Link this invoice";
+        $("invoiceBody").insertAdjacentHTML("beforeend", `<ul class="problems"><li>${esc(err.message)}</li></ul>`);
+      }
+    });
+
+    $("invoiceGo").addEventListener("click", async () => {
+      const id = state.detail.sale.id;
+      const mail = Boolean($("invoiceMail")?.checked);
+      $("invoiceGo").disabled = true;
+      $("invoiceGo").textContent = "Invoicing…";
+
+      try {
+        const d = await postJson("/api/admin/external-sales/invoice", { id, mail });
+        state.runLog = { id, lines: d.log || [] };
+        $("invoiceDialog").close();
+        applyDetail(d, "Invoiced.");
+      } catch (err) {
+        $("invoiceBody").insertAdjacentHTML("beforeend", `<ul class="problems"><li>${esc(err.message)}</li></ul><p class="sub">Whatever was made before this is on the deal; running it again carries on from there.</p>`);
+        $("invoiceGo").textContent = "Try again";
+        try { applyDetail(await api(`/api/admin/external-sales/get?id=${encodeURIComponent(id)}`)); } catch {}
+      } finally {
+        $("invoiceGo").disabled = false;
+      }
     });
 
     drawNavSections();

@@ -402,6 +402,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     supabaseUrl,
     serviceKey,
     callWms: (pathName, body) => deps.callWms(pathName, body),
+    rompslompToken: services.rompslompToken,
+    rompslompCompanyId: services.rompslompCompanyId,
+    sendMail: services.sendInvoiceMail || null,
+    mailFrom: services.invoiceMailFrom,
     fetchImpl
   });
 
