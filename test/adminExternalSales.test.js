@@ -268,9 +268,13 @@ test("the next step follows the work: invoice, label, Pack & Ship, money", async
   const invoices = [{ kind: "sale", sent_at: "2026-09-18T10:00:00Z", created_at: "2026-09-22T08:00:00Z" }];
   const waiting = nextStep({ sale: shipped, invoices, now });
   assert.equal(waiting.key, "payment");
-  assert.match(waiting.text, /€1\.690,50, due 25-09-2026/);
+  // Short on purpose: the date is the message, the amount stands in the deal.
+  assert.equal(waiting.text, "Payment due 25-09-2026");
 
-  assert.equal(nextStep({ sale: shipped, invoices: [{ kind: "sale", sent_at: "2026-09-07T10:00:00Z" }], now }).key, "overdue");
+  const late = nextStep({ sale: shipped, invoices: [{ kind: "sale", sent_at: "2026-09-07T10:00:00Z" }], now });
+  assert.equal(late.key, "overdue");
+  assert.equal(late.tone, "bad");
+  assert.equal(late.text, "Overdue 14-09-2026");
   assert.equal(nextStep({ sale: { ...shipped, payment_status: "paid" }, now }).key, "done");
   assert.equal(nextStep({ sale: { ...shipped, payment_status: "cancelled" }, now }).key, "cancelled");
 });

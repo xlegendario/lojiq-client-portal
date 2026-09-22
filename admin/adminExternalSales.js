@@ -77,7 +77,9 @@ export function nextStep({ sale, parcels = [], invoices = [], now = Date.now() }
     return {
       key: late ? "overdue" : "payment",
       tone: late ? "bad" : "wait",
-      text: `${late ? "Payment overdue" : "Waiting for payment"}: €${Number(sale.total_selling_price || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${dueText ? `, due ${dueText}` : ""}`
+      // The date is the whole message; what is open stands in the deal
+      // itself, and a short pill keeps this column narrow.
+      text: dueText ? `${late ? "Overdue" : "Payment due"} ${dueText}` : "Payment due"
     };
   }
 
