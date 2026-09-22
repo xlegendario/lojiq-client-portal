@@ -409,11 +409,12 @@
               <th>Next step</th>
               <th>Payment</th>
               <th>Shipping</th>
+              <th>Track</th>
               <th>Books</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="10">Loading…</td></tr>
+            <tr><td class="empty" colspan="11">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -702,7 +703,7 @@
       $("count").textContent = `${sales.length} ${sales.length === 1 ? "deal" : "deals"}`;
 
       if (!sales.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${state.sales.length ? "Nothing matches." : "Nothing here."}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${state.sales.length ? "Nothing matches." : "Nothing here."}</td></tr>`;
         return;
       }
 
@@ -717,6 +718,9 @@
           <td><span class="pill ${esc(s.next?.tone || "")}">${esc(s.next?.text || "")}</span></td>
           <td>${pill(PAYMENT, s.payment_status)}</td>
           <td>${pill(SHIPPING, s.shipping_status)}</td>
+          <td>${(s.tracking || []).length
+            ? `<span class="row-actions">${s.tracking.map((t) => trackLink(t.number, t.carrier, (t.carrier || carrierOf(t.number) || "Track").toUpperCase())).join("")}</span>`
+            : '<span class="dash">—</span>'}</td>
           <td>${pill(BOOKS, s.bookkeeping_status)}${s.invoices.length ? `<div class="sub">${esc(s.invoices.join(", "))}</div>` : ""}</td>
         </tr>`).join("");
     }
@@ -968,6 +972,35 @@
       return out;
     }
 
+    /*
+     * The carrier's own page for a parcel. Which carrier comes from AfterShip
+     * once it has seen the parcel; before that, from the shape of the number
+     * (UPS starts with 1Z, DPD is 14 digits). No guess, no link - a link that
+     * opens the wrong carrier and finds nothing is worse than none.
+     */
+    const TRACK_URLS = {
+      ups: (n) => `https://www.ups.com/track?tracknum=${encodeURIComponent(n)}`,
+      dpd: (n) => `https://tracking.dpd.de/status/en_NL/parcel/${encodeURIComponent(n)}`,
+      postnl: (n) => `https://jouw.postnl.nl/track-and-trace/${encodeURIComponent(n)}`,
+      dhl: (n) => `https://www.dhl.com/nl-nl/home/tracking.html?tracking-id=${encodeURIComponent(n)}`,
+      gls: (n) => `https://gls-group.eu/NL/nl/pakket-zoeken?match=${encodeURIComponent(n)}`
+    };
+
+    const trackUrl = (number, carrier) => {
+      const slug = String(carrier || "").toLowerCase() ||
+        (/^1Z/i.test(number || "") ? "ups" : /^\d{14}$/.test(number || "") ? "dpd" : "");
+      const build = TRACK_URLS[slug];
+      return build && number ? build(number) : "";
+    };
+
+    const trackLink = (number, carrier, label) => {
+      const url = trackUrl(number, carrier);
+      const text = esc(label || number);
+      return url
+        ? `<a class="act" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(number)}">${text}</a>`
+        : `<span class="sub" title="${esc(number)}">${text}</span>`;
+    };
+
     const carrierOf = (tracking) => /^1Z/i.test(tracking || "") ? "UPS" : /^\d{14}$/.test(tracking || "") ? "DPD" : "";
 
     // What Aftership last said about a parcel (block 6). "pending" is the
@@ -1060,7 +1093,7 @@
             return `
           <div class="card-row">
             <div class="parcel-head">
-              <span>${carrierOf(p.tracking_number) ? `<span class="carrier">${carrierOf(p.tracking_number)}</span> ` : ""}<span class="mono">${esc(p.tracking_number || "no tracking number")}</span> ${parcelPill(p)}</span>
+              <span>${carrierOf(p.tracking_number) ? `<span class="carrier">${carrierOf(p.tracking_number)}</span> ` : ""}${p.tracking_number ? trackLink(p.tracking_number, p.carrier, p.tracking_number) : '<span class="mono">no tracking number</span>'} ${parcelPill(p)}</span>
               <span class="row-actions">
                 ${p.label_url ? `<a class="act" href="${esc(p.label_url)}" target="_blank" rel="noopener">Label</a>` : shipped ? "" : `<label class="act file-btn">Add label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}
                 ${shipped ? "" : `<button class="act" type="button" data-parcel-edit="${esc(p.id)}" aria-label="Edit parcel ${i + 1}">Edit</button><button class="act" type="button" data-parcel-remove="${esc(p.id)}" aria-label="Remove parcel ${i + 1}">Remove</button>`}

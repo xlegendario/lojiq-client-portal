@@ -160,11 +160,12 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
       if (!(invoicesBySale.get(s.id) || []).some((i) => i.kind === "sale")) return false;
       const due = dueDate(s, invoicesBySale.get(s.id) || []);
       return due && now > due.getTime();
-    }).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : `due ${dueDate(s, invoicesBySale.get(s.id) || []).toISOString().slice(0, 10)}`)));
-
-  add("delivered_unpaid", "warning", "Delivered, not paid", "The buyer has it. Link the payment in Rompslomp, use Mark as paid, or send a reminder.",
-    live.filter((s) => s.shipping_status === "delivered" && ["pending", "partially_paid"].includes(s.payment_status))
-      .map((s) => row(s, s.delivered_at ? `delivered ${new Date(s.delivered_at).toISOString().slice(0, 10)}` : "")));
+    }).map((s) => row(s, [
+      s.payment_status === "partially_paid" ? "partially paid" : `due ${dueDate(s, invoicesBySale.get(s.id) || []).toISOString().slice(0, 10)}`,
+      // The buyer already has the shoes: that is the part that makes this
+      // urgent rather than merely late.
+      s.shipping_status === "delivered" ? "delivered" : ""
+    ].filter(Boolean).join(", "))));
 
   add("parcel_exception", "warning", "A parcel is stuck", "The carrier reports a problem: returned, refused or lost. Check the tracking and tell the buyer.",
     live.flatMap((s) => (parcelsBySale.get(s.id) || []).filter((p) => p.status === "exception")
@@ -283,7 +284,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       bookkeeping_status: s.bookkeeping_status,
       labels_needed: s.labels_needed,
       labels: parcels.filter((p) => p.label_url).length,
-      tracking: parcels.map((p) => p.tracking_number).filter(Boolean),
+      tracking: parcels.filter((p) => plausibleTracking(p.tracking_number)).map((p) => ({ number: text(p.tracking_number), carrier: text(p.carrier), status: text(p.status) })),
       invoices: (data.invoicesBySale.get(s.id) || []).map((i) => i.invoice_number).filter(Boolean),
       money: saleMoney(s, pairs),
       next: nextStep({ sale: s, parcels, invoices: data.invoicesBySale.get(s.id) || [] })
