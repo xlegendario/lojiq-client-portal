@@ -46,8 +46,14 @@ const PAYMENT_DAYS = 7;
 export function dueDate(sale, invoices = []) {
   // sent_at is when the invoice went out (for migrated invoices: when it was
   // published in Rompslomp); created_at is only when it reached Supabase.
-  const dates = invoices.filter((i) => i.kind === "sale").map((i) => new Date(i.sent_at || i.created_at).getTime()).filter(Number.isFinite);
-  const from = dates.length ? Math.min(...dates) : new Date(sale.sale_date || sale.created_at).getTime();
+  // An invoice can be published long after it was made (EXTD-000077: made
+  // in April, published in September), so the earlier of the sale and the
+  // invoice counts.
+  const dates = [
+    ...invoices.filter((i) => i.kind === "sale").map((i) => new Date(i.sent_at || i.created_at).getTime()),
+    new Date(sale.sale_date || sale.created_at).getTime()
+  ].filter(Number.isFinite);
+  const from = dates.length ? Math.min(...dates) : NaN;
   return Number.isFinite(from) ? new Date(from + PAYMENT_DAYS * DAY) : null;
 }
 

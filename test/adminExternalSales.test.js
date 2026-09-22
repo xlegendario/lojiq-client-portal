@@ -257,7 +257,7 @@ test("a margin pair sold at a loss has no VAT to take off", () => {
 
 test("the next step follows the work: invoice, label, Pack & Ship, money", async () => {
   const { nextStep } = await import("../admin/adminExternalSales.js");
-  const base = { payment_status: "pending", shipping_status: "pending", bookkeeping_status: "invoiced", total_selling_price: 1690.5, sale_date: "2026-09-07" };
+  const base = { payment_status: "pending", shipping_status: "pending", bookkeeping_status: "invoiced", total_selling_price: 1690.5, sale_date: "2026-09-18" };
   const now = Date.parse("2026-09-22T12:00:00Z");
 
   assert.equal(nextStep({ sale: { ...base, bookkeeping_status: "to_invoice" }, now }).key, "invoice");
@@ -273,4 +273,10 @@ test("the next step follows the work: invoice, label, Pack & Ship, money", async
   assert.equal(nextStep({ sale: shipped, invoices: [{ kind: "sale", sent_at: "2026-09-07T10:00:00Z" }], now }).key, "overdue");
   assert.equal(nextStep({ sale: { ...shipped, payment_status: "paid" }, now }).key, "done");
   assert.equal(nextStep({ sale: { ...shipped, payment_status: "cancelled" }, now }).key, "cancelled");
+});
+
+test("an invoice published months later is due from the sale", async () => {
+  const { dueDate } = await import("../admin/adminExternalSales.js");
+  const due = dueDate({ sale_date: "2026-04-08" }, [{ kind: "sale", sent_at: "2026-09-21T10:00:00Z" }]);
+  assert.equal(due.toISOString().slice(0, 10), "2026-04-15");
 });

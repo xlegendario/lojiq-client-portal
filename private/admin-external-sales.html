@@ -755,15 +755,30 @@
     // Pairs by SKU and price, as on the invoice; open a group for its pairs.
     // A deal from before the prices per pair has one VAT type for the whole
     // deal and no price per pair: the pairs show that VAT and their purchase.
-    function pairGroups(pairs, dealVat) {
+    // Worked-out prices differ by a cent here and there: those group by SKU
+    // alone, and the group shows the price per pair on average.
+    function pairGroups(pairs, dealVat, bySkuOnly = false) {
       const groups = new Map();
       for (const p of pairs) {
         const vat = p.selling_vat_type || dealVat || "";
-        const key = `${p.sku || p.product_name || "—"}|${p.selling_price ?? ""}|${vat}`;
+        const key = `${p.sku || p.product_name || "—"}|${bySkuOnly ? "" : p.selling_price ?? ""}|${vat}`;
         if (!groups.has(key)) groups.set(key, { key, sku: p.sku || "", name: p.product_name || "", image: p.image_url, vat, price: p.selling_price, pairs: [] });
         groups.get(key).pairs.push(p);
       }
       return [...groups.values()];
+    }
+
+    // The total over the pairs by purchase, in cents that add up - the same
+    // rule the portal uses for a new outbound (spreadPrices).
+    function spreadByPurchase(total, pairs) {
+      const cents = Math.round(total * 100);
+      const w = pairs.map((p) => Math.max(0, Number(p.purchase_price_ex_vat) || 0));
+      const sum = w.reduce((a, b) => a + b, 0);
+      const shares = sum > 0 ? w.map((x) => (cents * x) / sum) : w.map(() => cents / w.length);
+      const floors = shares.map(Math.floor);
+      let left = cents - floors.reduce((a, b) => a + b, 0);
+      shares.map((share, i) => ({ i, frac: share - floors[i] })).sort((a, b) => b.frac - a.frac || a.i - b.i).forEach(({ i }) => { if (left > 0) { floors[i] += 1; left -= 1; } });
+      return floors.map((c) => c / 100);
     }
 
     function pairProfit(p) {
@@ -785,11 +800,19 @@
 
       $("panelTitle").textContent = s.deal;
 
-      // One pair without its own price: the deal's price is that pair's.
-      const shown = pairs.length === 1 && (pairs[0].selling_price === null || pairs[0].selling_price === undefined)
-        ? [{ ...pairs[0], selling_price: Number(s.total_selling_price), selling_vat_type: pairs[0].selling_vat_type || s.legacy_selling_vat_type }]
+      // A deal from before the prices per pair only knows its total. The
+      // pairs then show that total spread by purchase - the rule new deals
+      // use - marked as worked out: the invoice may say otherwise.
+      const unpriced = pairs.length > 0 && pairs.every((p) => p.selling_price === null || p.selling_price === undefined);
+      const estimated = unpriced && pairs.length > 1;
+      const spread = unpriced ? spreadByPurchase(Number(s.total_selling_price), pairs) : null;
+      const shown = unpriced
+        ? pairs.map((p, i) => ({ ...p, selling_price: spread[i], selling_vat_type: p.selling_vat_type || s.legacy_selling_vat_type }))
         : pairs;
-      const groups = pairGroups(shown, s.legacy_selling_vat_type);
+      const groups = pairGroups(shown, s.legacy_selling_vat_type, estimated);
+      if (estimated) {
+        for (const g of groups) g.price = Math.round((g.pairs.reduce((sum, p) => sum + Number(p.selling_price || 0), 0) / g.pairs.length) * 100) / 100;
+      }
       const images = shown.some((p) => p.image_url);
       const groupRows = groups.map((g) => {
         const open = state.open[g.key] || groups.length === 1 || pairs.length <= 3;
@@ -803,8 +826,8 @@
             <td><strong>${esc(g.sku || g.name || "—")}</strong><div class="sub">${esc(g.name && g.sku ? g.name : "")}${g.pairs.length > 1 ? ` · ${g.pairs.length} pairs · ${esc(sizes)}` : ` · ${esc(sizes)}`}</div></td>
             <td>${esc(g.vat || "—")}</td>
             <td class="money">${esc(euro(purchase))}</td>
-            <td class="money">${g.price === null || g.price === undefined ? "—" : esc(euro(g.price))}${g.pairs.length > 1 && g.price !== null && g.price !== undefined ? '<div class="sub">each</div>' : ""}</td>
-            <td class="money ${profit < 0 ? "neg" : ""}">${unknown ? "—" : esc(euro(profit))}</td>
+            <td class="money">${g.price === null || g.price === undefined ? "—" : `${estimated ? "≈ " : ""}${esc(euro(g.price))}`}${g.pairs.length > 1 && g.price !== null && g.price !== undefined ? '<div class="sub">each</div>' : ""}</td>
+            <td class="money ${profit < 0 ? "neg" : ""}">${unknown ? "—" : `${estimated ? "≈ " : ""}${esc(euro(profit))}`}</td>
           </tr>`;
         const detail = g.pairs.length > 1 && open ? g.pairs.map((p) => `
           <tr class="grp-pair">
@@ -812,8 +835,8 @@
             <td class="sub">${esc(p.item_id || p.inventory_unit_record_id)} · size ${esc(p.size || "—")}</td>
             <td class="sub">bought ${esc(p.purchase_vat_type || "?")}</td>
             <td class="money sub">${esc(euro(p.purchase_price_ex_vat))}</td>
-            <td class="money sub">${p.selling_price === null || p.selling_price === undefined ? "—" : esc(euro(p.selling_price))}</td>
-            <td class="money sub">${pairProfit(p) === null ? "—" : esc(euro(pairProfit(p)))}</td>
+            <td class="money sub">${p.selling_price === null || p.selling_price === undefined ? "—" : `${estimated ? "≈ " : ""}${esc(euro(p.selling_price))}`}</td>
+            <td class="money sub">${pairProfit(p) === null ? "—" : `${estimated ? "≈ " : ""}${esc(euro(pairProfit(p)))}`}</td>
           </tr>`).join("") : "";
         return head + detail;
       }).join("");
@@ -887,6 +910,7 @@
             <tbody>${groupRows}</tbody>
             <tfoot><tr>${images ? "<td></td>" : ""}<td><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></td><td></td><td class="money"><strong>${esc(euro(money.purchase))}</strong></td><td class="money"><strong>${esc(euro(money.selling))}</strong></td><td class="money ${money.profit !== null && money.profit < 0 ? "neg" : ""}"><strong>${money.profit === null ? "?" : esc(euro(money.profit))}</strong></td></tr></tfoot>
           </table></div>
+          ${estimated ? '<p class="sub">≈ This deal only recorded its total. The price per pair is worked out by purchase, as for new deals; the invoice may show it differently. The total and its profit are exact.</p>' : ""}
         </div>
 
         <div class="group">
