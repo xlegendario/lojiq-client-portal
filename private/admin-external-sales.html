@@ -1024,7 +1024,7 @@
       const paymentLine = s.payment_status === "paid"
         ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_method ? ` <span class="sub">· ${esc(METHOD[s.payment_method] || s.payment_method)}</span>` : ""}`
         : s.payment_status === "cancelled" ? "Cancelled"
-          : `${s.payment_status === "partially_paid" ? `${esc(euro(open))} still open` : `${esc(euro(open))} open`}${due_date && invoiced ? ` <span class="sub">· due ${esc(day(due_date))}</span>` : ""}`;
+          : `${s.payment_status === "partially_paid" ? `${esc(euro(open))} still open` : `${esc(euro(open))} open`} <span class="sub">· ${s.payment_link_url ? "payment link sent" : "waiting for bank transfer"}</span>${due_date && invoiced ? ` <span class="sub">· due ${esc(day(due_date))}</span>` : ""}`;
       const paySub = [
         mailed ? `invoice mailed ${esc(day(mailed.sent_at))}` : "",
         s.last_reminder_at ? `reminder ${esc(day(s.last_reminder_at))}` : ""
