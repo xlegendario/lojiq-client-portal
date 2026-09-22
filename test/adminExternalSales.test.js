@@ -254,3 +254,23 @@ test("a margin pair sold at a loss has no VAT to take off", () => {
   assert.equal(loss.selling_ex_vat, 80);
   assert.equal(loss.profit, -20);
 });
+
+test("the next step follows the work: invoice, label, Pack & Ship, money", async () => {
+  const { nextStep } = await import("../admin/adminExternalSales.js");
+  const base = { payment_status: "pending", shipping_status: "pending", bookkeeping_status: "invoiced", total_selling_price: 1690.5, sale_date: "2026-09-07" };
+  const now = Date.parse("2026-09-22T12:00:00Z");
+
+  assert.equal(nextStep({ sale: { ...base, bookkeeping_status: "to_invoice" }, now }).key, "invoice");
+  assert.equal(nextStep({ sale: base, now }).key, "label");
+  assert.equal(nextStep({ sale: { ...base, shipping_status: "ready_to_ship" }, now }).key, "pack");
+
+  const shipped = { ...base, shipping_status: "shipped" };
+  const invoices = [{ kind: "sale", sent_at: "2026-09-18T10:00:00Z", created_at: "2026-09-22T08:00:00Z" }];
+  const waiting = nextStep({ sale: shipped, invoices, now });
+  assert.equal(waiting.key, "payment");
+  assert.match(waiting.text, /€1\.690,50, due 25-09-2026/);
+
+  assert.equal(nextStep({ sale: shipped, invoices: [{ kind: "sale", sent_at: "2026-09-07T10:00:00Z" }], now }).key, "overdue");
+  assert.equal(nextStep({ sale: { ...shipped, payment_status: "paid" }, now }).key, "done");
+  assert.equal(nextStep({ sale: { ...shipped, payment_status: "cancelled" }, now }).key, "cancelled");
+});

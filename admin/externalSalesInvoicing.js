@@ -731,5 +731,12 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { log };
   }
 
-  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link };
+  async function invoicePdf(invoiceRowId) {
+    if (!/^[0-9a-f-]{36}$/i.test(text(invoiceRowId))) throw new ExternalSalesError("Unknown invoice.");
+    const [row] = await db.get(`external_sale_invoices?select=*&id=eq.${text(invoiceRowId)}`);
+    if (!row) throw new ExternalSalesError("That invoice is not known here.", 404);
+    return { filename: `Invoice ${row.invoice_number || row.rompslomp_invoice_id}.pdf`, pdf: await rompslomp.pdf(row.rompslomp_invoice_id) };
+  }
+
+  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf };
 }

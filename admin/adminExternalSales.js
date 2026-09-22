@@ -39,6 +39,42 @@ export const TABS = {
 };
 
 const DAY = 86_400_000;
+const PAYMENT_DAYS = 7;
+
+// When a deal's payment is due: 7 days after its first invoice, or after
+// the sale when there is no invoice yet.
+export function dueDate(sale, invoices = []) {
+  // sent_at is when the invoice went out (for migrated invoices: when it was
+  // published in Rompslomp); created_at is only when it reached Supabase.
+  const dates = invoices.filter((i) => i.kind === "sale").map((i) => new Date(i.sent_at || i.created_at).getTime()).filter(Number.isFinite);
+  const from = dates.length ? Math.min(...dates) : new Date(sale.sale_date || sale.created_at).getTime();
+  return Number.isFinite(from) ? new Date(from + PAYMENT_DAYS * DAY) : null;
+}
+
+/*
+ * The one thing to do next on a deal, in the order work happens: the
+ * invoice, the label, Pack & Ship, then the money. `tone` colours it:
+ * bad (wrong or late), wait (needs someone), move (in progress), good (done).
+ */
+export function nextStep({ sale, parcels = [], invoices = [], now = Date.now() }) {
+  if (sale.payment_status === "cancelled" || sale.shipping_status === "cancelled") return { key: "cancelled", tone: "", text: "Cancelled" };
+  if (sale.bookkeeping_status === "to_invoice") return { key: "invoice", tone: "bad", text: "Create the invoice" };
+  if (sale.shipping_status === "pending") return { key: "label", tone: "wait", text: "Add a label and its tracking number" };
+  if (sale.shipping_status === "ready_to_ship") return { key: "pack", tone: "move", text: "Ready for Pack & Ship" };
+
+  if (["pending", "partially_paid"].includes(sale.payment_status)) {
+    const due = dueDate(sale, invoices);
+    const late = due && now > due.getTime();
+    const dueText = due ? due.toISOString().slice(0, 10).split("-").reverse().join("-") : "";
+    return {
+      key: late ? "overdue" : "payment",
+      tone: late ? "bad" : "wait",
+      text: `${late ? "Payment overdue" : "Waiting for payment"}: €${Number(sale.total_selling_price || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${dueText ? `, due ${dueText}` : ""}`
+    };
+  }
+
+  return { key: "done", tone: "good", text: "Done" };
+}
 
 /*
  * Everything that is missing or does not add up.
@@ -108,10 +144,14 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   add("invoice_not_sent", "warning", "Invoice not mailed to the buyer", "Open the deal and click Send invoice again - the message there says why it failed.",
     live.filter((s) => (invoicesBySale.get(s.id) || []).some((i) => i.kind === "sale" && !i.sent_at && new Date(i.created_at).getTime() > Date.parse("2026-09-22"))).map((s) => row(s)));
 
-  add("unpaid_old", "warning", "Unpaid after 14 days", "Chase the payment or cancel the deal.",
-    live.filter((s) => ["pending", "partially_paid"].includes(s.payment_status) && now - new Date(s.sale_date || s.created_at).getTime() > 14 * DAY).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : "")));
+  add("unpaid_old", "warning", "Payment overdue", "Past the 7 days on the invoice. Chase the payment, or mark it paid if it has come in.",
+    live.filter((s) => {
+      if (!["pending", "partially_paid"].includes(s.payment_status)) return false;
+      const due = dueDate(s, invoicesBySale.get(s.id) || []);
+      return due && now > due.getTime();
+    }).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : `due ${dueDate(s, invoicesBySale.get(s.id) || []).toISOString().slice(0, 10)}`)));
 
-  add("to_invoice", "warning", "Still to invoice", "Open the deal and click Create invoice. It says what is still missing, if anything.",
+  add("to_invoice", "error", "No invoice yet", "Open the deal and click Create invoice. It says what is still missing, if anything.",
     live.filter((s) => s.bookkeeping_status === "to_invoice").map((s) => row(s)));
 
   return checks;
@@ -191,7 +231,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       buyer_company: s.buyer_company,
       buyer_country: s.buyer_country,
       sale_date: s.sale_date,
-      skus: [...new Set(pairs.map((p) => p.sku).filter(Boolean))].join(", "),
+      skus: [...new Set(pairs.map((p) => p.sku).filter(Boolean))],
       payment_status: s.payment_status,
       shipping_status: s.shipping_status,
       bookkeeping_status: s.bookkeeping_status,
@@ -199,7 +239,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       labels: parcels.filter((p) => p.label_url).length,
       tracking: parcels.map((p) => p.tracking_number).filter(Boolean),
       invoices: (data.invoicesBySale.get(s.id) || []).map((i) => i.invoice_number).filter(Boolean),
-      money: saleMoney(s, pairs)
+      money: saleMoney(s, pairs),
+      next: nextStep({ sale: s, parcels, invoices: data.invoicesBySale.get(s.id) || [] })
     };
   }
 
@@ -227,7 +268,16 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       ? await db.get(`external_sale_invoices?select=*&id=in.(${links.map((l) => `"${l.invoice_id}"`).join(",")})`)
       : [];
 
-    return { sale: { ...sale, deal: dealId(sale) }, pairs, parcels, invoices, money: saleMoney(sale, pairs) };
+    const due = dueDate(sale, invoices);
+    return {
+      sale: { ...sale, deal: dealId(sale) },
+      pairs,
+      parcels,
+      invoices,
+      money: saleMoney(sale, pairs),
+      next: nextStep({ sale, parcels, invoices }),
+      due_date: due ? due.toISOString().slice(0, 10) : null
+    };
   }
 
   async function checks() {
@@ -482,6 +532,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     invoicePreview: async (id) => { await freshFromAirtable(id); return invoicing.preview(id); },
     invoice: async (id, options) => { await freshFromAirtable(id); return invoicing.invoice(id, options); },
     mailInvoices: (id, options) => invoicing.mailInvoices(id, options),
+    invoicePdf: (invoiceRowId) => invoicing.invoicePdf(invoiceRowId),
     credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
     link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
     packShipList,
@@ -627,6 +678,18 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
     } catch (err) {
       // Half done is still written down: what exists is on the deal.
       if (before) await log(req, "external_sale_invoice_failed", before, { error: err.message });
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/external-sales/invoice/pdf", async (req, res) => {
+    try {
+      const { filename, pdf } = await store.invoicePdf(text(req.query.id));
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `inline; filename="${filename}"`);
+      res.set("Cache-Control", "no-store");
+      res.send(pdf);
+    } catch (err) {
       send(res, err);
     }
   });
