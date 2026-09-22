@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>bol pages · Lojiq Admin</title>
+  <title>Mollie payouts · Lojiq Admin</title>
   <link rel="icon" href="/favicon.png">
   <script>
     try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
@@ -202,6 +202,23 @@
       .label-add { grid-template-columns: 1fr; }
     }
   </style>
+  <style>
+    /* Only this page: a payout is a list of payments, each with what it paid. */
+    .payout-note { display: flex; flex-direction: column; gap: 6px; }
+    .pay-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .pay { border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .pay.unknown { border-color: var(--warning); }
+    .pay-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .pay-head strong { color: var(--strong); font-variant-numeric: tabular-nums; }
+    .pay-head .sub { margin-left: auto; }
+    .pay-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .pay-lines li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+    .pay-lines .inv { color: var(--primary-soft); }
+    .sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+    .sum span:nth-child(even) { font-variant-numeric: tabular-nums; text-align: right; }
+    .sum .big { color: var(--strong); font-weight: 700; }
+    .off { color: var(--warning); }
+  </style>
 </head>
 <body>
   <div class="app">
@@ -235,29 +252,28 @@
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
       <div class="nav-group" id="navMarketplaces" hidden>
-        <a class="nav-item active" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
+        <a class="nav-item" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
       </div>
     </nav>
 
     <main class="content">
       <div class="heading">
-        <span class="crumb">Marketplaces</span>
-        <h1>bol pages</h1>
+        <span class="crumb">Finance</span>
+        <h1>Mollie payouts</h1>
       </div>
 
-      <p class="sub" style="margin:0;max-width:760px">
-        Pairs the bol sync will not offer, because the bol page behind the barcode shows a different shoe or size.
-        Selling there means the buyer expects something else. If the page is the right shoe after all, click Approve:
-        the next sync offers it again, within two hours. If bol changes the page later, it is checked again.
+      <p class="sub" style="margin:0;max-width:780px">
+        Every amount Mollie paid out to ING, split into the payments in it: which order, want-to-buy or External Sale,
+        and the invoice number behind it. Book the payout in Rompslomp against those invoices, then tick it here so you
+        can see what is done.
       </p>
 
       <div class="filters">
-        <select class="select" id="statusFilter" aria-label="Status">
-          <option value="blocked" selected>Blocked</option>
-          <option value="approved">Approved</option>
-          <option value="all">All</option>
+        <select class="select" id="statusFilter" aria-label="Show">
+          <option value="all" selected>All payouts</option>
+          <option value="open">Not booked yet</option>
+          <option value="booked">Booked</option>
         </select>
-        <input class="input" id="searchInput" type="search" placeholder="Search SKU, EAN, page title…" style="width:260px">
         <span class="count" id="count"></span>
       </div>
 
@@ -265,22 +281,33 @@
         <table>
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Size</th>
-              <th>Problem</th>
-              <th>bol page</th>
-              <th>EAN</th>
-              <th>Last seen</th>
+              <th>Payout</th>
+              <th>Paid out</th>
+              <th class="money">Received</th>
+              <th class="money">Mollie fees</th>
+              <th class="money">To ING</th>
               <th>Status</th>
-              <th></th>
+              <th>Rompslomp</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="8">Loading…</td></tr>
+            <tr><td class="empty" colspan="7">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </main>
+  </div>
+
+  <div class="panel" id="panel" hidden aria-label="Payout">
+    <div class="panel-head">
+      <h2 id="panelTitle">Payout</h2>
+      <button class="btn ghost" type="button" id="closePanel" aria-label="Close">✕</button>
+    </div>
+    <div class="panel-actions">
+      <button class="btn" type="button" id="copyInvoices">Copy invoice numbers</button>
+      <button class="btn primary" type="button" id="bookedBtn">Mark booked in Rompslomp</button>
+    </div>
+    <div class="panel-body" id="panelBody"></div>
   </div>
 
   <div class="toast" id="toast" hidden role="status"></div>
@@ -291,13 +318,14 @@
     const esc = (value) => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const dateFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+    const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
-    const state = { pages: [], busy: new Set() };
+    const state = { payouts: [], payout: null, busy: false };
 
     async function api(url, options = {}) {
       const response = await fetch(url, { credentials: "same-origin", ...options });
-
       if (response.status === 401) {
         location.href = "/admin";
         throw new Error("Not signed in");
@@ -319,7 +347,6 @@
 
     /* ---------------- sidebar ---------------- */
 
-    // Same folding and remembered sections as the other admin pages.
     const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
@@ -329,7 +356,7 @@
       if (Array.isArray(saved)) saved.forEach((section) => openNavSections.add(section));
     } catch {}
 
-    openNavSections.add("marketplaces");
+    openNavSections.add("money");
 
     function saveNavSections() {
       try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
@@ -343,7 +370,7 @@
         const header = document.querySelector(`[data-nav-section="${section}"]`);
         $(groupId).hidden = !expanded;
         header.setAttribute("aria-expanded", String(expanded));
-        header.classList.toggle("current", section === "marketplaces");
+        header.classList.toggle("current", section === "money");
       }
     }
 
@@ -364,7 +391,7 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
-        `<a class="nav-item" href="/admin/mollie-payouts">Mollie payouts</a>`;
+        `<a class="nav-item active" href="/admin/mollie-payouts">Mollie payouts</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
@@ -391,121 +418,189 @@
       drawNavSections();
     });
 
-    /* ---------------- table ---------------- */
+    /* ---------------- list ---------------- */
 
-    // "different brand: bol shows "…"" - the page title has its own column.
-    const problemText = (reason) => {
-      const kind = String(reason || "").split(":")[0];
-      return { "different brand": "Other brand", "different shoe": "Other shoe", "different size": "Other size" }[kind] || kind || "—";
+    const visible = () => {
+      const filter = $("statusFilter").value;
+      return state.payouts.filter((p) => (filter === "open" ? !p.booked_at : filter === "booked" ? p.booked_at : true));
     };
 
-    const sizeDetail = (reason) => {
-      const match = String(reason || "").match(/bol shows (.+) for our/);
-      if (!match) return "";
-      return `bol size ${match[1].split(" / ").map((n) => Math.round(Number(n) * 100) / 100).join(" / ")}`;
-    };
+    function drawList() {
+      const rows = visible();
+      $("count").textContent = rows.length ? `${rows.length} payout${rows.length === 1 ? "" : "s"}` : "";
 
-    function visiblePages() {
-      const query = $("searchInput").value.trim().toLowerCase();
-      if (!query) return state.pages;
-
-      return state.pages.filter((page) =>
-        [page.sku, page.size, page.ean, page.page_title, page.reason].join(" ").toLowerCase().includes(query)
-      );
-    }
-
-    function render() {
-      const pages = visiblePages();
-
-      $("count").textContent = `${pages.length} ${pages.length === 1 ? "page" : "pages"}`;
-
-      if (!pages.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">${state.pages.length ? "Nothing matches the search." : "Nothing here."}</td></tr>`;
+      if (!rows.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="7">No payouts.</td></tr>`;
         return;
       }
 
-      $("rows").innerHTML = pages.map((page) => {
-        const approved = page.status === "approved";
-        const busy = state.busy.has(page.ean);
-        const detail = sizeDetail(page.reason);
-
-        return `<tr>
-          <td class="id">${esc(page.sku)}</td>
-          <td>${esc(page.size)}</td>
-          <td>${esc(problemText(page.reason))}${detail ? `<div class="sub">${esc(detail)}</div>` : ""}</td>
-          <td style="white-space:normal;min-width:260px;max-width:420px">
-            <a href="https://www.bol.com/nl/nl/s/?searchtext=${encodeURIComponent(page.ean)}" target="_blank" rel="noopener">${esc(page.page_title || "—")}</a>
-          </td>
-          <td>${esc(page.ean)}</td>
-          <td>${page.last_seen ? esc(dateFmt.format(new Date(page.last_seen))) : '<span class="dash">—</span>'}</td>
-          <td><span class="pill ${approved ? "good" : "bad"}">${approved ? "Approved" : "Blocked"}</span></td>
-          <td>
-            <button class="act" type="button" data-ean="${esc(page.ean)}" data-status="${approved ? "blocked" : "approved"}" ${busy ? "disabled" : ""}>
-              ${busy ? "Saving…" : approved ? "Block again" : "Approve"}
-            </button>
-          </td>
-        </tr>`;
-      }).join("");
+      $("rows").innerHTML = rows.map((p) => `
+        <tr data-id="${esc(p.id)}"${state.payout?.id === p.id ? ' class="selected"' : ""}>
+          <td class="id">${esc(p.reference || p.id)}</td>
+          <td>${esc(day(p.payout_date))}</td>
+          <td class="money">${esc(money(p.gross))}</td>
+          <td class="money">${esc(money(p.fees))}</td>
+          <td class="money">${esc(money(p.net))}</td>
+          <td>${p.status === "paidout" ? '<span class="pill good">Paid out</span>' : `<span class="pill wait">${esc(p.status || "open")}</span>`}</td>
+          <td>${p.booked_at ? `<span class="pill good">Booked</span>` : '<span class="pill">To book</span>'}</td>
+        </tr>`).join("");
     }
 
-    async function load() {
-      $("rows").innerHTML = `<tr><td class="empty" colspan="8">Loading…</td></tr>`;
+    $("rows").addEventListener("click", (event) => {
+      const row = event.target.closest("tr[data-id]");
+      if (row) openPayout(row.dataset.id);
+    });
+
+    $("statusFilter").addEventListener("change", drawList);
+
+    /* ---------------- one payout ---------------- */
+
+    const lineText = (line) => `${line.what}${line.who ? ` · ${line.who}` : ""}`;
+
+    function paymentCard(payment) {
+      const lines = payment.lines.length
+        ? `<ul class="pay-lines">${payment.lines.map((l) => `
+            <li><span>${esc(lineText(l))}${l.invoice ? ` <span class="inv">${esc(l.invoice)}</span>` : ""}</span><span>${esc(money(l.amount))}</span></li>`).join("")}</ul>`
+        : `<div class="sub">No invoice found for this payment${payment.batch ? "" : " — no Payment Batch knows it, so it was a link made by hand in Mollie"}.</div>`;
+
+      return `
+        <li class="pay${payment.batch ? "" : " unknown"}">
+          <div class="pay-head">
+            <strong>${esc(money(payment.amount))}</strong>
+            <span class="sub">${esc(payment.method || "mollie")} · ${esc(day(payment.paid_at))}</span>
+            <span class="sub">${payment.batch ? esc(payment.batch) : '<span class="off">Unmatched</span>'}</span>
+          </div>
+          ${payment.description ? `<div class="sub">${esc(payment.description)}</div>` : ""}
+          ${lines}
+        </li>`;
+    }
+
+    function drawPanel() {
+      const payout = state.payout;
+      $("panel").hidden = !payout;
+      if (!payout) return;
+
+      $("panelTitle").textContent = payout.reference || payout.id;
+      $("bookedBtn").textContent = payout.booked_at ? "Booked — undo" : "Mark booked in Rompslomp";
+      $("bookedBtn").classList.toggle("primary", !payout.booked_at);
+
+      const off = Math.round((Number(payout.invoiced_total || 0) - Number(payout.gross || 0)) * 100) / 100;
+
+      $("panelBody").innerHTML = `
+        <div class="group">
+          <h3>Payout</h3>
+          <div class="sum">
+            <span>Received from buyers</span><span class="big">${esc(money(payout.gross))}</span>
+            <span>Mollie fees</span><span>${esc(money(payout.fees))}</span>
+            <span>Paid out to ING</span><span class="big">${esc(money(payout.net))}</span>
+            <span>Paid out on</span><span>${esc(day(payout.payout_date))}</span>
+            <span>On invoices found here</span><span${off ? ' class="off"' : ""}>${esc(money(payout.invoiced_total))}</span>
+          </div>
+          ${off ? `<div class="sub off" style="margin-top:8px">${esc(money(Math.abs(off)))} ${off > 0 ? "more on invoices than came in" : "of this payout is not on an invoice here"}.</div>` : ""}
+          ${payout.booked_at ? `<div class="sub" style="margin-top:8px">Booked ${esc(day(payout.booked_at))}.</div>` : ""}
+        </div>
+
+        ${payout.unmatched.length ? `
+        <div class="group">
+          <h3>Not known here (${payout.unmatched.length})</h3>
+          <p class="sub" style="margin:0 0 8px">These payments are in no Payment Batch: made through a link created by hand in Mollie. Link them on External Sales › Checks, or book them by hand.</p>
+          <ul class="pay-list">${payout.unmatched.map(paymentCard).join("")}</ul>
+        </div>` : ""}
+
+        <div class="group">
+          <h3>Payments (${payout.payments.length})</h3>
+          <ul class="pay-list">${payout.payments.map(paymentCard).join("")}</ul>
+        </div>
+
+        <div class="group payout-note">
+          <h3>Note</h3>
+          <textarea class="input" id="noteInput" placeholder="Anything about this payout…">${esc(payout.note || "")}</textarea>
+          <button class="btn" type="button" id="saveNote">Save note</button>
+        </div>`;
+
+      $("saveNote").addEventListener("click", () => setBooked(Boolean(payout.booked_at), $("noteInput").value));
+    }
+
+    async function openPayout(id) {
+      state.payout = { id, reference: id, payments: [], unmatched: [], gross: 0, fees: 0, net: 0 };
+      drawList();
+      $("panel").hidden = false;
+      $("panelBody").innerHTML = '<div class="empty">Loading…</div>';
 
       try {
-        const data = await api(`/api/admin/bol-pages?status=${encodeURIComponent($("statusFilter").value)}`);
-        state.pages = data.pages || [];
-        render();
+        const data = await api(`/api/admin/mollie-payouts/get?id=${encodeURIComponent(id)}`);
+        state.payout = data.payout;
+        drawPanel();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">${esc(err.message)}</td></tr>`;
+        $("panelBody").innerHTML = `<div class="empty">${esc(err.message)}</div>`;
       }
     }
 
-    $("rows").addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-ean]");
-      if (!button) return;
-
-      const { ean, status } = button.dataset;
-      const page = state.pages.find((row) => row.ean === ean);
-
-      if (status === "approved" && !confirm(`Offer ${page.sku} ${page.size} on this bol page?\n\n${page.page_title}\n\nOnly approve if the page shows exactly this shoe in this size.`)) return;
-
-      state.busy.add(ean);
-      render();
+    async function setBooked(booked, note) {
+      if (state.busy || !state.payout) return;
+      state.busy = true;
 
       try {
-        await api("/api/admin/bol-pages/status", {
+        const payout = state.payout;
+        const data = await api("/api/admin/mollie-payouts/booked", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ean, status })
+          body: JSON.stringify({ id: payout.id, reference: payout.reference, booked, note: note ?? payout.note })
         });
 
-        toast(status === "approved"
-          ? `${page.sku} ${page.size} approved. The next bol sync offers it again.`
-          : `${page.sku} ${page.size} blocked. The next bol sync takes it offline.`);
+        payout.booked_at = data.payout?.booked_at || null;
+        payout.note = data.payout?.note || "";
+        const inList = state.payouts.find((p) => p.id === payout.id);
+        if (inList) { inList.booked_at = payout.booked_at; inList.note = payout.note; }
 
-        state.busy.delete(ean);
-        await load();
-        loadNavCounts();
+        drawList();
+        drawPanel();
+        toast(booked ? "Payout marked as booked." : "Payout is open again.");
       } catch (err) {
-        state.busy.delete(ean);
-        render();
         toast(err.message);
+      } finally {
+        state.busy = false;
+      }
+    }
+
+    $("bookedBtn").addEventListener("click", () => setBooked(!state.payout?.booked_at, state.payout?.note));
+
+    $("copyInvoices").addEventListener("click", async () => {
+      const invoices = state.payout?.invoices || [];
+      if (!invoices.length) return toast("No invoice numbers in this payout.");
+
+      try {
+        await navigator.clipboard.writeText(invoices.join("\n"));
+        toast(`${invoices.length} invoice number${invoices.length === 1 ? "" : "s"} copied.`);
+      } catch {
+        toast(invoices.join(", "));
       }
     });
 
-    $("statusFilter").addEventListener("change", load);
-    $("searchInput").addEventListener("input", render);
+    $("closePanel").addEventListener("click", () => {
+      state.payout = null;
+      $("panel").hidden = true;
+      drawList();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("panel").hidden) $("closePanel").click();
+    });
+
+    async function load() {
+      try {
+        const data = await api("/api/admin/mollie-payouts");
+        state.payouts = data.payouts || [];
+        drawList();
+      } catch (err) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="7">${esc(err.message)}</td></tr>`;
+      }
+    }
 
     drawNavSections();
-
-    api("/api/admin/me")
-      .then((me) => {
-        drawOtherSections(me.views);
-        load();
-        setTimeout(loadNavCounts, 500);
-        setInterval(loadNavCounts, 300_000);
-      })
-      .catch(() => {});
+    drawOtherSections([]);
+    load();
+    loadNavCounts();
   </script>
 </body>
 </html>

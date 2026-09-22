@@ -167,7 +167,7 @@ export function createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl = fetch 
   return {
     configured,
     get: (path) => request(path),
-    insert: (table, rows) => request(table, { method: "POST", body: rows, prefer: "return=representation" }),
+    insert: (table, rows, prefer = "return=representation") => request(table, { method: "POST", body: rows, prefer }),
     patch: (path, fields) => request(path, { method: "PATCH", body: fields, prefer: "return=representation" }),
     remove: (path) => request(path, { method: "DELETE" })
   };

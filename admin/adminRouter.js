@@ -56,6 +56,8 @@ import { PayoutError, SHIPPING_FILTERS, loadPayouts, markUnitsPaid } from "./adm
 import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
+import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
+import { createSupabaseRest } from "./externalSalesSync.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -419,6 +421,21 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     audit,
     internalSecret: services.counterOffersSecret,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-external-sales.html") : ""
+  });
+
+  // Mollie payouts: what ING paid out, split into the payments in it and the
+  // invoices behind them (admin/adminMolliePayouts.js,
+  // private/admin-mollie-payouts.html).
+  mountMolliePayouts(router, {
+    store: createMolliePayoutsStore({
+      airtable,
+      db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+      token: services.mollieReportingToken,
+      profileId: services.mollieProfileId,
+      fetchImpl
+    }),
+    audit,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-mollie-payouts.html") : ""
   });
 
   // Until the WMS writes to Supabase (step 5), new outbounds, payments and

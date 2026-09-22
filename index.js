@@ -177,6 +177,9 @@ const adminPortal = createAdminPortal({
     discordUpdatesBaseUrl: DISCORD_UPDATES_BASE_URL,
     deliveredWebhookUrl: DELIVERED_DISCORD_WEBHOOK_URL,
     mollieApiKey: MOLLIE_API_KEY,
+    // Read-only token: the payouts tab reads settlements and their payments.
+    mollieReportingToken: MOLLIE_REPORTING_TOKEN,
+    mollieProfileId: MOLLIE_PROFILE_ID,
     rompslompToken: ROMPSLOMP_API_TOKEN,
     rompslompCompanyId: ROMPSLOMP_COMPANY_ID,
     sendInvoiceMail,
@@ -5008,6 +5011,69 @@ async function findRecordInTable(table, recordId) {
  * after every call came in as "pl_..." and the handler asked /payments for
  * it. We store that id when the link is made, so this is a direct lookup.
  */
+/*
+ * NEW - a payment link that nobody can pay any more has to be switched off.
+ *
+ * A Mollie link outlives the payment attempts under it: when one expires the
+ * orders go back to unpaid and a new link is made, but the old url still
+ * takes money, for an amount that may since have changed. Archiving it makes
+ * Mollie refuse it.
+ *
+ * Best effort by design: the new link is what matters, so a failure here is
+ * logged and nothing more.
+ */
+async function archiveMolliePaymentLink(linkId, why = "") {
+  const clean = asText(linkId);
+
+  if (!clean.startsWith("pl_")) return false;
+
+  try {
+    await mollieRequest(`/payment-links/${encodeURIComponent(clean)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ archived: true })
+    });
+
+    console.log(`Mollie payment link ${clean} archived${why ? ` (${why})` : ""}`);
+    return true;
+  } catch (err) {
+    console.error(`Mollie payment link ${clean} could not be archived:`, err.message);
+    return false;
+  }
+}
+
+/*
+ * The open batches that already cover one of these records: their links are
+ * about to be replaced. "Paid" is never in here - a paid batch is history.
+ */
+async function openBatchesForTargets(targets) {
+  const ids = new Set(targets.map((target) => target.id));
+
+  if (!ids.size) return [];
+
+  const records = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+    .select({
+      filterByFormula: `AND({Mollie Payment Link ID} != '', {Payment Status} != 'Paid')`,
+      fields: [
+        "Batch ID",
+        "Payment Status",
+        "Mollie Payment Link ID",
+        ...Object.values(PAYMENT_SOURCES).map((spec) => spec.batchLinkField)
+      ],
+      pageSize: 100
+    })
+    .all()
+    .catch((err) => {
+      console.error("Open payment batches could not be read:", err.message);
+      return [];
+    });
+
+  return records.filter((record) =>
+    Object.values(PAYMENT_SOURCES).some((spec) =>
+      (record.fields?.[spec.batchLinkField] || []).some((id) => ids.has(id))
+    )
+  );
+}
+
 async function findPaymentBatchByLinkId(linkId) {
   const clean = asText(linkId);
 
@@ -5036,6 +5102,35 @@ async function settlePaidBatch({
   targets,
   molliePaymentId
 }) {
+  /*
+    NEW - a webhook that arrives twice used to settle twice.
+
+    Mollie calls this url again when it is not answered fast enough, and
+    both the link webhook and the payment webhook fire for one payment
+    link. Every call rewrote "Paid At" and, worse, told Kickz Caviar again
+    that the Member WTBs were paid - the seller got his label step handed
+    to him a second time.
+
+    A batch that already says Paid is done. Its own record is the memory,
+    so a second call costs one read and nothing else.
+  */
+  const before = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+    .find(batchRecordId)
+    .catch(() => null);
+
+  if (asText(before?.fields?.["Payment Status"]) === "Paid" && asText(before?.fields?.["Paid At"])) {
+    // One thing may still be worth writing: the payment id, when the first
+    // call settled a link that did not know it yet.
+    if (asText(molliePaymentId) && !asText(before?.fields?.["Mollie Payment ID"])) {
+      await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+        .update(batchRecordId, { "Mollie Payment ID": molliePaymentId })
+        .catch((err) => console.error(`Payment batch ${batchRecordId}: payment id not filled in:`, err.message));
+    }
+
+    console.log(`Payment batch ${asText(before?.fields?.["Batch ID"]) || batchRecordId} was already settled; ignoring this webhook`);
+    return;
+  }
+
   const paidAt = isoNow();
 
   // Cleared rather than left alone when a link settled this: any id still
@@ -5209,7 +5304,76 @@ async function tellKickzMemberWtbsArePaid(targets) {
   );
 }
 
-app.post("/api/payments/create-link", async (req, res) => {
+/*
+ * NEW - a double click made two batches, each with its own live link.
+ *
+ * The first click is still reading orders from Airtable when the second one
+ * arrives, so neither sees the other's batch and the check on "Awaiting
+ * Payment" lets both through. The store then has two urls for one amount and
+ * the second batch never gets paid, which leaves it hanging in Finance.
+ *
+ * The second call waits for the first and gets the same answer back, so the
+ * store sees one link and the button behaves as if it clicked once.
+ */
+const paymentLinkCalls = new Map();
+
+function oneLinkAtATime(keyOf) {
+  return async (req, res, next) => {
+    const key = keyOf(req);
+
+    if (!key) return next();
+
+    const running = paymentLinkCalls.get(key);
+
+    if (running) {
+      const first = await running;
+
+      if (first?.body) return res.status(first.status).json(first.body);
+
+      return res.status(409).json({
+        error: "A payment link for these orders is already being made. Refresh the page to see it."
+      });
+    }
+
+    let done = () => {};
+    paymentLinkCalls.set(key, new Promise((resolve) => { done = resolve; }));
+
+    const answer = { status: 200, body: null };
+    const setStatus = res.status.bind(res);
+    const sendJson = res.json.bind(res);
+
+    res.status = (code) => {
+      answer.status = code;
+      setStatus(code);
+      return res;
+    };
+
+    res.json = (body) => {
+      answer.body = body;
+      return sendJson(body);
+    };
+
+    // Released on the way out, whatever happened; a moment later the entry
+    // goes, so a click a minute on makes a fresh link as it should.
+    res.on("close", () => {
+      done(answer.body && answer.status < 400 ? answer : null);
+      setTimeout(() => paymentLinkCalls.delete(key), 10_000).unref?.();
+    });
+
+    next();
+  };
+}
+
+const paymentLinkKey = (req) => {
+  const merchantId = asText(req.body?.merchant_id);
+  const orderIds = Array.isArray(req.body?.order_ids)
+    ? [...new Set(req.body.order_ids.map(asText).filter(Boolean))].sort()
+    : [];
+
+  return merchantId && orderIds.length ? `${merchantId}|${orderIds.join(",")}` : "";
+};
+
+app.post("/api/payments/create-link", oneLinkAtATime(paymentLinkKey), async (req, res) => {
   try {
     const merchantId = asText(req.body.merchant_id);
     const orderIds = Array.isArray(req.body.order_ids)
@@ -5308,6 +5472,21 @@ app.post("/api/payments/create-link", async (req, res) => {
     ];
 
     if (buyerIds.length) batchFields["Buyer"] = buyerIds;
+
+    // Anything these orders were payable through before this: switched off,
+    // so only the link made below can still take money.
+    for (const old of await openBatchesForTargets(targets)) {
+      const archived = await archiveMolliePaymentLink(
+        old.fields?.["Mollie Payment Link ID"],
+        `replaced for ${asText(old.fields?.["Batch ID"]) || old.id}`
+      );
+
+      if (!archived) continue;
+
+      await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE)
+        .update(old.id, { "Payment Status": "Cancelled", "Payment Link": "" })
+        .catch((err) => console.error(`Old payment batch ${old.id} not cancelled:`, err.message));
+    }
 
     const batch = await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).create(batchFields);
 
@@ -5719,9 +5898,34 @@ app.post("/api/mollie/webhook", async (req, res) => {
     }
 
     if (terminalStatus) {
+      // The link this payment came from is cleared off the orders, so the
+      // store makes a new one; the old url must not still take money.
+      await archiveMolliePaymentLink(
+        asText(batchRecord?.fields?.["Mollie Payment Link ID"]),
+        `payment ${payment.status}`
+      );
+
+      /*
+        NEW - "Failed" is not one of the batch's Payment Status options.
+
+        Unfulfilled Orders Log and Member WTBs both have it, Payment Batches
+        does not, so a failed payment made Airtable refuse the whole update
+        and the webhook answered 500 - which has Mollie call again, forever,
+        with the orders left on "Pending Payment".
+
+        Second try with "Cancelled", which the field does have. Add "Failed"
+        to that field and this falls away by itself.
+      */
       await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
         "Payment Status": terminalStatus,
         "Mollie Payment ID": payment.id
+      }).catch(async (err) => {
+        console.error(`Payment batch ${batchRecordId} could not be set to ${terminalStatus}:`, err.message);
+
+        await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
+          "Payment Status": "Cancelled",
+          "Mollie Payment ID": payment.id
+        });
       });
 
       await setPaymentStatus(targets, terminalStatus, {
