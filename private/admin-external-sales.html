@@ -312,7 +312,7 @@
     .packed .qty { font-weight: 700; color: var(--strong); min-width: 22px; }
     .line { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 4px 0; }
     .line a { font-weight: 700; }
-    .pay-line { font-size: 15px; color: var(--strong); }
+    .pay-line { font-size: 15px; color: var(--strong); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .pay-line .sub { font-size: 13px; }
     .link-line { overflow-wrap: anywhere; }
     .pre { white-space: pre-wrap; }
@@ -1020,11 +1020,17 @@
 
       const invoiced = invoices.some((i) => i.kind === "sale");
       const open = s.payment_status === "partially_paid" ? Number(s.total_selling_price) - Number(s.paid_amount || 0) : Number(s.total_selling_price);
-      const METHOD = { bank_transfer: "bank transfer", payment_link: "payment link", paid: "paid before the outbound" };
+      // How it is paid, or waited for: Mollie once there is a payment link,
+      // otherwise a bank transfer.
+      const via = s.payment_status === "paid"
+        ? (s.payment_method === "payment_link" ? "mollie" : s.payment_method === "paid" ? "advance" : "bank")
+        : (s.payment_link_url ? "mollie" : "bank");
+      const VIA = { mollie: ["Mollie", "move"], bank: ["Bank transfer", ""], advance: ["Paid in advance", ""] };
+      const viaPill = s.payment_status === "cancelled" ? "" : `<span class="pill ${VIA[via][1]}">${VIA[via][0]}</span>`;
       const paymentLine = s.payment_status === "paid"
-        ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_method ? ` <span class="sub">· ${esc(METHOD[s.payment_method] || s.payment_method)}</span>` : ""}`
+        ? `${viaPill} Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}`
         : s.payment_status === "cancelled" ? "Cancelled"
-          : `${s.payment_status === "partially_paid" ? `${esc(euro(open))} still open` : `${esc(euro(open))} open`} <span class="sub">· ${s.payment_link_url ? "payment link sent" : "waiting for bank transfer"}</span>${due_date && invoiced ? ` <span class="sub">· due ${esc(day(due_date))}</span>` : ""}`;
+          : `${viaPill} ${s.payment_status === "partially_paid" ? `${esc(euro(open))} still open` : `${esc(euro(open))} open`}${due_date && invoiced ? ` <span class="sub">· due ${esc(day(due_date))}</span>` : ""}`;
       const paySub = [
         mailed ? `invoice mailed ${esc(day(mailed.sent_at))}` : "",
         s.last_reminder_at ? `reminder ${esc(day(s.last_reminder_at))}` : ""
