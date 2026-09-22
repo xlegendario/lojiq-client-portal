@@ -517,7 +517,7 @@
       checks: "Checks"
     };
 
-    const SHIPPING = { pending: ["Pending", "wait"], ready_to_ship: ["Ready to Ship", "move"], shipped: ["Shipped", "good"], cancelled: ["Cancelled", "bad"] };
+    const SHIPPING = { pending: ["Pending", "wait"], ready_to_ship: ["Ready to Ship", "move"], shipped: ["Shipped", "move"], delivered: ["Delivered", "good"], cancelled: ["Cancelled", "bad"] };
     const PAYMENT = { pending: ["Unpaid", "wait"], partially_paid: ["Partially paid", "wait"], paid: ["Paid", "good"], cancelled: ["Cancelled", "bad"] };
     const BOOKS = { to_invoice: ["To invoice", "wait"], invoiced: ["Invoiced", "good"], credited: ["Credited", ""], not_invoiced: ["Not invoiced", ""] };
     const SEVERITY = { error: ["Error", "bad"], warning: ["To do", "wait"], info: ["Info", ""] };
@@ -970,10 +970,27 @@
 
     const carrierOf = (tracking) => /^1Z/i.test(tracking || "") ? "UPS" : /^\d{14}$/.test(tracking || "") ? "DPD" : "";
 
+    // What Aftership last said about a parcel (block 6). "pending" is the
+    // normal state of a label that has not been handed over yet, so it gets
+    // no pill of its own - the parcel line already says there is a label.
+    const PARCEL_STATE = {
+      in_transit: { text: "On its way", tone: "move" },
+      delivered: { text: "Delivered", tone: "good" },
+      exception: { text: "Problem", tone: "bad" }
+    };
+
+    const parcelPill = (parcel) => {
+      const state = PARCEL_STATE[parcel.status];
+      if (!state) return "";
+      const when = parcel.status === "delivered" ? parcel.delivered_at : parcel.shipped_at;
+      const title = [parcel.tracking_detail, when ? dayFmt.format(new Date(when)) : ""].filter(Boolean).join(" · ");
+      return `<span class="pill ${state.tone}"${title ? ` title="${esc(title)}"` : ""}>${state.text}${parcel.status === "delivered" && when ? ` ${esc(dayFmt.format(new Date(when)))}` : ""}</span>`;
+    };
+
     function drawPanel() {
       const { sale: s, pairs, parcels, invoices, money, next, due_date } = state.detail;
       const locked = ["invoiced", "credited"].includes(s.bookkeeping_status);
-      const shipped = ["shipped", "cancelled"].includes(s.shipping_status);
+      const shipped = ["shipped", "delivered", "cancelled"].includes(s.shipping_status);
       const unpaid = ["pending", "partially_paid"].includes(s.payment_status);
 
       $("panelTitle").textContent = s.deal;
@@ -1043,7 +1060,7 @@
             return `
           <div class="card-row">
             <div class="parcel-head">
-              <span>${carrierOf(p.tracking_number) ? `<span class="carrier">${carrierOf(p.tracking_number)}</span> ` : ""}<span class="mono">${esc(p.tracking_number || "no tracking number")}</span></span>
+              <span>${carrierOf(p.tracking_number) ? `<span class="carrier">${carrierOf(p.tracking_number)}</span> ` : ""}<span class="mono">${esc(p.tracking_number || "no tracking number")}</span> ${parcelPill(p)}</span>
               <span class="row-actions">
                 ${p.label_url ? `<a class="act" href="${esc(p.label_url)}" target="_blank" rel="noopener">Label</a>` : shipped ? "" : `<label class="act file-btn">Add label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}
                 ${shipped ? "" : `<button class="act" type="button" data-parcel-edit="${esc(p.id)}" aria-label="Edit parcel ${i + 1}">Edit</button><button class="act" type="button" data-parcel-remove="${esc(p.id)}" aria-label="Remove parcel ${i + 1}">Remove</button>`}

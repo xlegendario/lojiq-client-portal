@@ -24,6 +24,7 @@ import {
 } from "./externalSalesSync.js";
 import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
 import { createOutboundMaker } from "./externalSalesCreate.js";
+import { createExternalSalesTracking } from "./externalSalesTracking.js";
 import { createExternalSalesPayments } from "./externalSalesPayments.js";
 
 export { ExternalSalesError };
@@ -34,7 +35,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const TABS = {
   pending: (s) => s.shipping_status === "pending",
   ready: (s) => s.shipping_status === "ready_to_ship",
-  shipped: (s) => s.shipping_status === "shipped",
+  shipped: (s) => ["shipped", "delivered"].includes(s.shipping_status),
   cancelled: (s) => s.shipping_status === "cancelled",
   all: () => true
 };
@@ -161,6 +162,14 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
       return due && now > due.getTime();
     }).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : `due ${dueDate(s, invoicesBySale.get(s.id) || []).toISOString().slice(0, 10)}`)));
 
+  add("delivered_unpaid", "warning", "Delivered, not paid", "The buyer has it. Link the payment in Rompslomp, use Mark as paid, or send a reminder.",
+    live.filter((s) => s.shipping_status === "delivered" && ["pending", "partially_paid"].includes(s.payment_status))
+      .map((s) => row(s, s.delivered_at ? `delivered ${new Date(s.delivered_at).toISOString().slice(0, 10)}` : "")));
+
+  add("parcel_exception", "warning", "A parcel is stuck", "The carrier reports a problem: returned, refused or lost. Check the tracking and tell the buyer.",
+    live.flatMap((s) => (parcelsBySale.get(s.id) || []).filter((p) => p.status === "exception")
+      .map((p) => row(s, `${p.tracking_number || "no tracking"}${p.tracking_detail ? ` - ${p.tracking_detail}` : ""}`))));
+
   add("to_invoice", "error", "No invoice yet", "Open the deal and click Create invoice. It says what is still missing, if anything.",
     live.filter((s) => s.bookkeeping_status === "to_invoice").map((s) => row(s)));
 
@@ -183,6 +192,10 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     if (!response.ok) throw new ExternalSalesError(`Mollie said no: ${data.detail || data.title || response.status}`, 502);
     return data;
   }
+
+  // Where the parcels are: the engine asks and answers through the internal
+  // routes below (admin/externalSalesTracking.js).
+  const tracking = createExternalSalesTracking({ db });
 
   const payments = createExternalSalesPayments({
     db,
@@ -591,6 +604,9 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mollieSuggestions: () => payments.mollieSuggestions(),
     linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
+    openParcels: (options) => tracking.openParcels(options),
+    applyTracking: (updates) => tracking.applyUpdates(updates),
+    markParcelRegistered: (id, aftershipId) => tracking.markRegistered(id, aftershipId),
     airtableSync: sync.enabled,
     outboundPreview: (input) => outbounds.preview(input),
     outboundCreate: (input) => outbounds.create(input),
@@ -842,6 +858,53 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         label: dealId(sale),
         details: { items_per_parcel: sale.items_per_parcel }
       }).catch(() => {});
+      res.json({ ok: true });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  /*
+   * Tracking (block 6). The Lojiq Automation Engine asks which parcels still
+   * need watching, reads Aftership and posts back what it found; the same
+   * secret as the WMS routes above.
+   */
+  router.post("/api/internal/external-sales/tracking/open", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, parcels: await store.openParcels({ limit: req.body?.limit }) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/internal/external-sales/tracking/update", express.json({ limit: "200kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      const out = await store.applyTracking(req.body?.updates || []);
+
+      for (const deal of out.delivered) {
+        await audit.record({
+          actor: { email: "engine", name: "Automation Engine" },
+          action: "external_sale_delivered",
+          source: "external_sales",
+          recordId: "",
+          label: deal,
+          details: {}
+        }).catch(() => {});
+      }
+
+      res.json({ ok: true, ...out });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // A parcel Aftership did not know yet; the engine has registered it now.
+  router.post("/api/internal/external-sales/tracking/registered", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      await store.markParcelRegistered(text(req.body?.id), text(req.body?.aftership_id));
       res.json({ ok: true });
     } catch (err) {
       send(res, err);
