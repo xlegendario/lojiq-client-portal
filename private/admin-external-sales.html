@@ -584,7 +584,7 @@
     function drawOtherSections(views) {
       navViews = views || [];
       const link = (view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)} ${navCount(`${view.section}/${view.key}`)}</a>`;
-      const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Payouts" }];
+      const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
 
       $("navStore").innerHTML = navViews.filter((v) => v.section === "store").map(link).join("");
       $("navMwtb").innerHTML = navViews.filter((v) => v.section === "mwtb").map(link).join("");

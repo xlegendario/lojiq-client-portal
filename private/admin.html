@@ -813,7 +813,7 @@
   // the navigation and the address bar like any tab.
   const MONEY_VIEWS = [
     { key: "payments", section: "money", source: "mixed", label: "Open Payments", columns: [], actions: [] },
-    { key: "payouts", section: "money", source: "units", label: "Payouts", columns: [], actions: [] }
+    { key: "payouts", section: "money", source: "units", label: "Seller Payouts", columns: [], actions: [] }
   ];
 
   /* ---------------- helpers ---------------- */
@@ -1572,8 +1572,8 @@
     const isPayouts = kind === "payouts";
 
     $("crumb").textContent = "Finance";
-    $("viewTitle").textContent = isPayouts ? "Payouts" : "Open Payments";
-    document.title = `${isPayouts ? "Payouts" : "Open Payments"} · Lojiq Admin`;
+    $("viewTitle").textContent = isPayouts ? "Seller Payouts" : "Open Payments";
+    document.title = `${isPayouts ? "Seller Payouts" : "Open Payments"} · Lojiq Admin`;
 
     $("tableHead").innerHTML = isPayouts
       ? `<tr><th class="check"></th><th class="image">Picture</th><th class="id">Item ID</th><th>Type</th><th>Product</th><th>Size</th>
