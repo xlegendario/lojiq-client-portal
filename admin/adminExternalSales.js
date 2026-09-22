@@ -588,6 +588,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     markPaid: (id, input) => payments.markPaid(id, input),
     paymentLink: (id, options) => payments.paymentLink(id, options),
     settleFromBatch: (dealIds, options) => payments.settleFromBatch(dealIds, options),
+    mollieSuggestions: () => payments.mollieSuggestions(),
+    linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
     airtableSync: sync.enabled,
     outboundPreview: (input) => outbounds.preview(input),
@@ -637,6 +639,15 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
       // they are never behind the list the way the cached admin counts are.
       const [sales, counts] = await Promise.all([store.list(text(req.query.tab) || "all"), store.counts()]);
       res.json({ sales, counts, sync: store.syncState() });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Paid Mollie payments no batch knows, suggested for the open deals.
+  router.get("/api/admin/external-sales/mollie-suggestions", async (req, res) => {
+    try {
+      res.json({ suggestions: await store.mollieSuggestions() });
     } catch (err) {
       send(res, err);
     }
@@ -890,6 +901,8 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details = { payment_link: await store.paymentLink(id, { fresh: Boolean(req.body.payment_link.fresh) }) };
       } else if (req.body?.reminder) {
         details = { reminder: await store.mailInvoices(id, { reminder: true }) };
+      } else if (req.body?.link_mollie) {
+        details = { mollie: await store.linkMolliePayment(id, text(req.body.link_mollie.payment_id)).then((out) => ({ batch: out.batch, payment: text(req.body.link_mollie.payment_id) })) };
       } else if (req.body?.dismiss_check) {
         await store.dismissCheck(id, req.body.dismiss_check.key, req.body.dismiss_check.reason, req.admin?.name || req.admin?.email);
         details = { dismissed: text(req.body.dismiss_check.key), reason: text(req.body.dismiss_check.reason) };

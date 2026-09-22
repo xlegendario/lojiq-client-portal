@@ -92,3 +92,35 @@ test("mark as paid by hand, with its date and a note", async () => {
   assert.equal(row.paid_at, "2026-09-21T12:00:00Z");
   assert.match(row.payment_note, /Cash - Part paid: €150.00 on 2026-09-20\nPaid: €250.00 on 2026-09-21/);
 });
+
+test("hand-made Mollie links are suggested by open amount, the named deal first", async () => {
+  const { matchMolliePayments } = await import("../admin/externalSalesPayments.js");
+  const deals = [{ id: "d1", deal_number: 49, total_selling_price: "360.00", payment_status: "pending", sale_date: "2026-07-06", buyer_company: "CONQUER SHOP S.R.L." }];
+  const payments = [
+    { id: "tr_a", amount: 360, paid_at: "2026-07-01T10:00:00Z", description: "early" },
+    { id: "tr_b", amount: 360, paid_at: "2026-07-08T10:00:00Z", description: "Betaling" },
+    { id: "tr_c", amount: 360, paid_at: "2026-07-09T10:00:00Z", description: "Conquer shop 2 pairs" },
+    { id: "tr_d", amount: 350, paid_at: "2026-07-09T10:00:00Z", description: "Conquer" }
+  ];
+  const [m] = matchMolliePayments(deals, payments);
+  assert.deepEqual(m.candidates.map((c) => [c.id, c.strong]), [["tr_c", true], ["tr_b", false]], "before the sale and other amounts left out");
+});
+
+test("linking a Mollie payment makes a paid batch with its payment id, and pays the deal", async () => {
+  const { db, batches, payments } = setup();
+  const created = [];
+  const airtable = {
+    async select() { return { records: [], offset: "" }; },
+    async create(table, fields) { const rec = { id: "recB", fields: { ...fields, "Batch ID": "PAYB-000130" } }; created.push(rec); return rec; }
+  };
+  const mollie = async (path) => ({ id: "tr_c", status: "paid", paidAt: "2026-07-09T10:00:00Z", amount: { value: "400.00" }, paymentLinkId: "pl_x" });
+  const { createExternalSalesPayments } = await import("../admin/externalSalesPayments.js");
+  const p = createExternalSalesPayments({ db, airtable, rompslomp: {}, mollie });
+  const out = await p.linkMolliePayment(SALE, "tr_c");
+  assert.equal(out.batch, "PAYB-000130");
+  assert.deepEqual([created[0].fields["Payment Status"], created[0].fields["Mollie Payment ID"], created[0].fields["External Deal IDs"]], ["Paid", "tr_c", "EXTD-000078"]);
+  const row = db.tables.external_sales[0];
+  assert.equal(row.payment_status, "paid");
+  assert.equal(row.paid_at, "2026-07-09T10:00:00Z");
+  assert.equal(row.payment_method, "payment_link");
+});

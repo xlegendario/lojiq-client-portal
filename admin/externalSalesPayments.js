@@ -56,6 +56,38 @@ export function paymentFromInvoices(sale, invoices) {
  *   mollie     (path, { method, body }) -> JSON, the Mollie API
  *   links      { redirectUrl, webhookUrl }
  */
+/*
+ * Which paid Mollie payment is which open deal, for payments made through a
+ * link made by hand in the Mollie dashboard: no Payment Batch knows them.
+ * A payment fits a deal when it is exactly what is open and paid on or after
+ * the sale; it fits strongly when its description names the deal or the
+ * buyer. Only a suggestion - Dario confirms each one.
+ */
+export function matchMolliePayments(deals, payments) {
+  const norm = (v) => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return deals.map((deal) => {
+    const open = round2(Number(deal.total_selling_price) - (deal.payment_status === "partially_paid" ? Number(deal.paid_amount || 0) : 0));
+    const from = new Date(deal.sale_date || deal.created_at).getTime() - 86_400_000;
+    // Distinctive words of the buyer's name; legal forms and shop words
+    // would match half the buyers.
+    const COMMON = new Set(["shop", "store", "stores", "sneakers", "sneaker", "kicks", "group", "resell", "trading", "limited", "company", "spolka", "ograniczona", "odpowiedzialnoscia"]);
+    const names = [...new Set(String(`${deal.buyer_company || ""} ${deal.buyer_name || ""}`).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/))]
+      .filter((w) => w.length >= 4 && !COMMON.has(w));
+    const extd = dealId(deal).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const candidates = payments
+      .filter((p) => Math.abs(Number(p.amount) - open) < 0.005 && new Date(p.paid_at).getTime() >= from)
+      .map((p) => {
+        const text = norm(p.description);
+        const strong = text.includes(extd) || names.some((n) => text.includes(n));
+        return { ...p, strong };
+      })
+      .sort((a, b) => Number(b.strong) - Number(a.strong) || new Date(a.paid_at) - new Date(b.paid_at));
+
+    return { id: deal.id, deal: dealId(deal), buyer: deal.buyer_company || deal.buyer_name, open, candidates: candidates.slice(0, 5) };
+  }).filter((m) => m.candidates.length);
+}
+
 export function createExternalSalesPayments({ db, airtable, rompslomp, mollie, links = {} }) {
   async function saleById(id) {
     if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown deal.");
@@ -209,5 +241,80 @@ export function createExternalSalesPayments({ db, airtable, rompslomp, mollie, l
     return settled;
   }
 
-  return { checkRompslomp, markPaid, paymentLink, settleFromBatch };
+  // Every paid Mollie payment no Payment Batch knows (by payment or link id).
+  async function unmatchedMolliePayments({ pages = 6 } = {}) {
+    const known = new Set();
+    let offset = "";
+    do {
+      const page = await airtable.select(PAYMENT_BATCHES, { fields: ["Mollie Payment ID", "Mollie Payment Link ID"], pageSize: 100, offset });
+      for (const r of page.records) {
+        for (const k of ["Mollie Payment ID", "Mollie Payment Link ID"]) if (text(r.fields?.[k])) known.add(text(r.fields[k]));
+      }
+      offset = page.offset;
+    } while (offset);
+
+    const out = [];
+    let path = "/payments?limit=250";
+    for (let i = 0; i < pages && path; i++) {
+      const data = await mollie(path);
+      for (const p of data?._embedded?.payments || []) {
+        if (p.status !== "paid" || known.has(p.id) || (p.paymentLinkId && known.has(p.paymentLinkId))) continue;
+        out.push({ id: p.id, amount: Number(p.amount?.value || 0), description: text(p.description), paid_at: p.paidAt || p.createdAt, method: text(p.method), link_id: text(p.paymentLinkId) });
+      }
+      const next = data?._links?.next?.href;
+      path = next ? next.replace(/^https:\/\/api\.mollie\.com\/v2/, "") : "";
+    }
+    return out;
+  }
+
+  async function mollieSuggestions() {
+    const deals = await db.get("external_sales?select=*&payment_status=in.(pending,partially_paid)&bookkeeping_status=eq.invoiced&limit=500");
+    if (!deals.length) return [];
+    return matchMolliePayments(deals, await unmatchedMolliePayments());
+  }
+
+  /*
+   * A Mollie payment made through a hand-made link, taken over by its deal:
+   * a Payment Batch that says so (Paid, with the payment id, so the
+   * settlement sync finds its payout), and the deal paid on the day Mollie
+   * says.
+   */
+  async function linkMolliePayment(id, paymentId) {
+    const sale = await saleById(id);
+    if (sale.payment_status === "paid") throw new ExternalSalesError("This deal is already paid.");
+    if (!/^tr_[A-Za-z0-9]+$/.test(text(paymentId))) throw new ExternalSalesError("That is not a Mollie payment id.");
+
+    const payment = await mollie(`/payments/${encodeURIComponent(text(paymentId))}`);
+    if (payment?.status !== "paid") throw new ExternalSalesError("Mollie does not have that payment as paid.");
+
+    const known = await airtable.select(PAYMENT_BATCHES, { formula: `{Mollie Payment ID} = '${text(paymentId)}'`, fields: ["Batch ID"], pageSize: 1, maxRecords: 1 });
+    if (known.records.length) throw new ExternalSalesError(`That payment is already in ${text(known.records[0].fields?.["Batch ID"]) || "a Payment Batch"}.`);
+
+    const deal = dealId(sale);
+    const paidAt = payment.paidAt || new Date().toISOString();
+    const amount = round2(payment.amount?.value);
+
+    const batch = await airtable.create(PAYMENT_BATCHES, {
+      "Amount": amount,
+      "Payment Status": "Paid",
+      "Payment Provider": "Mollie",
+      "Order Numbers": deal,
+      "External Deal IDs": deal,
+      "Mollie Payment ID": payment.id,
+      ...(payment.paymentLinkId ? { "Mollie Payment Link ID": payment.paymentLinkId } : {}),
+      "Paid At": paidAt
+    });
+
+    const next = paymentAfter(sale, amount);
+    const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, {
+      ...next,
+      paid_at: next.payment_status === "paid" ? paidAt : sale.paid_at,
+      payment_method: "payment_link",
+      payment_batch_id: batch.id,
+      payment_note: [text(sale.payment_note), `Paid through Mollie (${payment.id}, link made by hand), ${text(batch.fields?.["Batch ID"])}`].filter(Boolean).join("\n")
+    });
+    return { sale: saved, batch: text(batch.fields?.["Batch ID"]) || batch.id };
+  }
+
+  return { checkRompslomp, markPaid, paymentLink, settleFromBatch, mollieSuggestions, linkMolliePayment };
 }

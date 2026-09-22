@@ -274,6 +274,10 @@
     .inv-row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
     .pay { margin: 8px 0 0; }
     .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .mollie-item { flex-direction: column; align-items: stretch !important; }
+    .mollie-item > span { margin-right: 10px; }
+    .mollie-cands { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .mollie-cand { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
     details.fold { border-top: 1px solid var(--border); padding-top: 10px; }
     details.fold summary { cursor: pointer; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
     details.fold dl { margin: 10px 0 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; }
@@ -716,6 +720,29 @@
         </tr>`).join("");
     }
 
+    // Mollie payments from links made by hand, suggested per open deal.
+    async function loadMollieSuggestions() {
+      const box = document.getElementById("mollieBox");
+      if (!box) return;
+      try {
+        const { suggestions } = await api("/api/admin/external-sales/mollie-suggestions");
+        if (!suggestions.length) { box.remove(); return; }
+        box.innerHTML = `
+          <div class="check-head"><span class="pill move">Mollie</span> <strong>Paid through Mollie, not linked yet</strong> <span class="sub">${suggestions.length}</span><span class="sub">Payments from links made by hand in Mollie that match what a deal has open. Link the right one: the deal is paid, and the payout shows it.</span></div>
+          <ul class="check-items">${suggestions.map((m) => `
+            <li class="mollie-item">
+              <span class="id">${esc(m.deal)}</span><span>${esc(m.buyer || "")}</span><span class="sub">${esc(euro(m.open))} open</span>
+              <div class="mollie-cands">${m.candidates.map((c) => `
+                <div class="mollie-cand">
+                  <span>${c.strong ? '<span class="pill good">match</span> ' : ""}${esc(euro(c.amount))} · paid ${esc(day(c.paid_at))} · <span class="sub">${esc(c.description || "no description")}</span> <span class="sub mono">${esc(c.id)}</span></span>
+                  <button class="act" type="button" data-link-mollie="${esc(m.id)}" data-payment="${esc(c.id)}" data-deal="${esc(m.deal)}">Link</button>
+                </div>`).join("")}</div>
+            </li>`).join("")}</ul>`;
+      } catch (err) {
+        box.innerHTML = `<div class="check-head"><span class="sub">Mollie payments could not be read: ${esc(err.message)}</span></div>`;
+      }
+    }
+
     async function loadChecks() {
       $("checks").innerHTML = `<p class="sub">Loading…</p>`;
       try {
@@ -723,18 +750,21 @@
         state.sync = out.sync;
         drawSync();
 
+        const mollie = '<section class="check-group" id="mollieBox"><div class="check-head"><span class="sub">Looking for Mollie payments…</span></div></section>';
         if (!out.checks.length) {
-          $("checks").innerHTML = `<div class="empty">Everything adds up.</div>`;
+          $("checks").innerHTML = mollie + `<div class="empty">Everything adds up.</div>`;
+          loadMollieSuggestions();
           return;
         }
 
-        $("checks").innerHTML = out.checks.map((c) => `
+        $("checks").innerHTML = mollie + out.checks.map((c) => `
           <section class="check-group">
             <div class="check-head">${pill(SEVERITY, c.severity)} <strong>${esc(c.title)}</strong> <span class="sub">${esc(c.items.length)}</span><span class="sub">${esc(c.hint)}</span></div>
             <ul class="check-items">${c.items.map((i) => `
               <li data-id="${esc(i.id)}"><span class="id">${esc(i.deal || "—")}</span><span>${esc(i.buyer)}</span><span class="sub">${esc(i.detail)}</span>${i.id ? `<span class="row-actions" style="margin-left:auto"><button class="act" type="button" data-open="${esc(i.id)}">Open</button><button class="act" type="button" data-dismiss="${esc(i.id)}" data-key="${esc(i.key)}" data-deal="${esc(i.deal)}">Dismiss</button></span>` : ""}</li>`).join("")}
             </ul>
           </section>`).join("");
+        loadMollieSuggestions();
       } catch (err) {
         $("checks").innerHTML = `<div class="empty">${esc(err.message)}</div>`;
       }
@@ -770,6 +800,21 @@
     });
 
     $("checks").addEventListener("click", async (event) => {
+      const linkBtn = event.target.closest("[data-link-mollie]");
+      if (linkBtn) {
+        if (!confirm(`Link Mollie payment ${linkBtn.dataset.payment} to ${linkBtn.dataset.deal}? It becomes a Payment Batch and the deal is paid.`)) return;
+        linkBtn.disabled = true;
+        try {
+          await postJson("/api/admin/external-sales/update", { id: linkBtn.dataset.linkMollie, link_mollie: { payment_id: linkBtn.dataset.payment } });
+          toast(`${linkBtn.dataset.deal} paid through Mollie.`);
+          loadChecks();
+          loadNavCounts(true);
+        } catch (err) {
+          linkBtn.disabled = false;
+          toast(err.message);
+        }
+        return;
+      }
       const dismiss = event.target.closest("[data-dismiss]");
       if (dismiss) {
         const reason = prompt(`Why can ${dismiss.dataset.deal} stay like this? (it disappears from Checks; the reason goes into its history)`);
