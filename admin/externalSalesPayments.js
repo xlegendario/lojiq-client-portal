@@ -90,7 +90,9 @@ export function createExternalSalesPayments({ db, airtable, rompslomp, mollie, l
         const fields = { payment_checked_at: new Date().toISOString() };
 
         if (next?.payment_status === "paid") {
-          Object.assign(fields, { payment_status: "paid", paid_at: new Date().toISOString(), paid_amount: round2(sale.total_selling_price), payment_method: sale.payment_method || "bank_transfer" });
+          // Found paid in Rompslomp, not through the Mollie webhook: the money
+          // came in on the bank, whatever was offered.
+          Object.assign(fields, { payment_status: "paid", paid_at: new Date().toISOString(), paid_amount: round2(sale.total_selling_price), payment_method: "bank_transfer" });
         } else if (next?.payment_status === "partially_paid" && Number(next.paid_amount) > Number(sale.paid_amount || 0)) {
           Object.assign(fields, { payment_status: "partially_paid", paid_amount: next.paid_amount });
         }
