@@ -46,8 +46,8 @@
       --shadow: rgba(0, 0, 0, 0.5);
       --backdrop: rgba(0, 0, 0, 0.6);
       --logo-plate: transparent;
-      --bank-bg: rgba(167, 139, 250, 0.16);
-      --bank-text: #C4B5FD;
+      --bank-bg: rgba(250, 224, 60, 0.16);
+      --bank-text: #FDE047;
       color-scheme: dark;
     }
 
@@ -84,8 +84,8 @@
       --shadow: rgba(20, 28, 40, 0.14);
       --backdrop: rgba(20, 28, 40, 0.35);
       --logo-plate: #121215;
-      --bank-bg: rgba(109, 40, 217, 0.1);
-      --bank-text: #5B21B6;
+      --bank-bg: rgba(234, 179, 8, 0.2);
+      --bank-text: #713F12;
       color-scheme: light;
     }
 
@@ -909,7 +909,9 @@
       const flat = String(textValue || "").replace(/\s*[\r\n]+\s*-?\s*/g, " - ").replace(/ - (?= - )/g, "");
       for (const chunk of flat.split(/Tracking Number:\s*/).map((c) => c.trim().replace(/ -$/, "")).filter(Boolean)) {
         const cut = chunk.indexOf(" - ");
-        const tracking = (cut >= 0 ? chunk.slice(0, cut) : chunk).trim();
+        // Pack & Ship keeps the number as typed ("1Z FV6 483 …"); compared
+        // without spaces, as the parcels store it.
+        const tracking = (cut >= 0 ? chunk.slice(0, cut) : chunk).replace(/\s+/g, "");
         const rest = cut >= 0 ? chunk.slice(cut + 3) : "";
         const items = [];
         const re = /(\d+)x (.+?) \| ([^|]+?) \| ([^|]+?) \| GTIN: [^|]*?(?= - \d+x |$)/g;
@@ -991,7 +993,7 @@
             </span>
           </div>`;
             }
-            const items = packed.get(p.tracking_number || "") || [];
+            const items = packed.get(String(p.tracking_number || "").replace(/\s+/g, "")) || [];
             return `
           <div class="card-row">
             <div class="parcel-head">
@@ -1006,7 +1008,7 @@
           }).join("")
         : '<p class="sub">No parcels yet.</p>';
       // Packing text that matched no parcel, shown as it came.
-      const unmatchedPacking = s.items_per_parcel && ![...packed.keys()].some((t) => parcels.some((p) => p.tracking_number === t))
+      const unmatchedPacking = s.items_per_parcel && ![...packed.keys()].some((t) => parcels.some((p) => String(p.tracking_number || "").replace(/\s+/g, "") === t))
         ? `<p class="sub">${esc(s.items_per_parcel)}</p>` : "";
 
       /* ----- invoice and payment ----- */
