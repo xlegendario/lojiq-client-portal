@@ -46,6 +46,8 @@
       --shadow: rgba(0, 0, 0, 0.5);
       --backdrop: rgba(0, 0, 0, 0.6);
       --logo-plate: transparent;
+      --bank-bg: rgba(167, 139, 250, 0.16);
+      --bank-text: #C4B5FD;
       color-scheme: dark;
     }
 
@@ -82,6 +84,8 @@
       --shadow: rgba(20, 28, 40, 0.14);
       --backdrop: rgba(20, 28, 40, 0.35);
       --logo-plate: #121215;
+      --bank-bg: rgba(109, 40, 217, 0.1);
+      --bank-text: #5B21B6;
       color-scheme: light;
     }
 
@@ -168,6 +172,7 @@
     .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
     .pill.move { background: var(--move-bg); color: var(--primary-soft); }
     .pill.bad { background: var(--bad-bg); color: var(--bad-text); }
+    .pill.bank { background: var(--bank-bg); color: var(--bank-text); }
     .row-actions { display: inline-flex; gap: 6px; }
     .act { height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel-2); font-size: 12px; font-weight: 700; cursor: pointer; }
     .act:hover { border-color: var(--primary); color: var(--strong); }
@@ -1025,7 +1030,7 @@
       const via = s.payment_status === "paid"
         ? (s.payment_method === "payment_link" ? "mollie" : s.payment_method === "paid" ? "advance" : "bank")
         : (s.payment_link_url ? "mollie" : "bank");
-      const VIA = { mollie: ["Mollie", "move"], bank: ["Bank transfer", "wait"], advance: ["Paid in advance", ""] };
+      const VIA = { mollie: ["Mollie", "move"], bank: ["Bank transfer", "bank"], advance: ["Paid in advance", ""] };
       const viaPill = s.payment_status === "cancelled" ? "" : `<span class="pill ${VIA[via][1]}">${VIA[via][0]}</span>`;
       const paymentLine = s.payment_status === "paid"
         ? `${viaPill} Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}`
