@@ -400,7 +400,9 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
   async function load(id) {
     const [sale] = await db.get(`external_sales?select=*&id=eq.${id}`);
     if (!sale) throw new ExternalSalesError("That deal no longer exists.", 404);
-    const pairs = await db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&order=created_at.asc`);
+    // A cancelled pair is off the bill; what it was invoiced for is settled
+    // by its credit invoice (admin/externalSalesCancel.js).
+    const pairs = await db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&cancelled_at=is.null&order=created_at.asc`);
     const links = await db.get(`external_sale_invoice_deals?select=invoice_id&sale_id=eq.${sale.id}`);
     const invoices = links.length ? await db.get(`external_sale_invoices?select=*&id=in.(${links.map((l) => `"${l.invoice_id}"`).join(",")})`) : [];
     return { sale, pairs, invoices };

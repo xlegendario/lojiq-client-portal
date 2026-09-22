@@ -298,6 +298,13 @@
     .sec { display: flex; flex-direction: column; gap: 10px; }
     .sec h3 { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
     .sec-head { display: flex; justify-content: space-between; align-items: center; }
+    .plan { border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .plan strong { color: var(--strong); }
+    .plan .warn { color: var(--warning); }
+    .cancelled-pair { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--border); }
+    .cancelled-pair .what { color: var(--muted); text-decoration: line-through; }
+    .pick { display: flex; gap: 8px; align-items: center; }
+    .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
     .pairs { display: flex; flex-direction: column; }
     .pair-row, .pair-total { display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px 84px; gap: 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .pair-row.clickable { cursor: pointer; }
@@ -505,6 +512,60 @@
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="paidCancel">Cancel</button>
         <button class="btn primary" type="button" id="paidSave">Mark as paid</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="cancelDialog">
+    <div class="dialog-body">
+      <h2>Cancel pairs</h2>
+      <p class="hint" style="margin:0">What was invoiced is credited in full and what is left is invoiced again, the way you would do it by hand.</p>
+      <div class="field">
+        <label>Which pairs</label>
+        <div class="label-list" id="cancelPairs"></div>
+      </div>
+      <div class="field">
+        <label for="cancelOutcome">Where is the pair now</label>
+        <select class="select" id="cancelOutcome">
+          <option value="never_shipped">Still here - never shipped</option>
+          <option value="return_expected">With the buyer - coming back</option>
+          <option value="stays_with_buyer">With the buyer - he keeps it</option>
+        </select>
+        <span class="hint" id="cancelOutcomeHint"></span>
+      </div>
+      <div class="field">
+        <label for="cancelReason">Why (optional)</label>
+        <input class="input" id="cancelReason" type="text" placeholder="Wrong size sent, buyer refused, ...">
+      </div>
+      <div class="plan" id="cancelPlan"></div>
+      <p class="field-error" id="cancelError"></p>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="cancelClose">Never mind</button>
+        <button class="btn primary" type="button" id="cancelConfirm">Cancel these pairs</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="refundDialog">
+    <div class="dialog-body">
+      <h2>Register refund</h2>
+      <p class="hint" style="margin:0">Money goes back by bank. Make the transfer in your bank, then write down here what went out.</p>
+      <div class="field">
+        <label for="refundDate">Sent on</label>
+        <input class="input" id="refundDate" type="date">
+      </div>
+      <div class="field">
+        <label for="refundAmount">Amount (€)</label>
+        <input class="input" id="refundAmount" type="text" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="refundNote">Note (optional)</label>
+        <input class="input" id="refundNote" type="text" placeholder="IBAN, reason, ...">
+      </div>
+      <p class="field-error" id="refundError"></p>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="refundCancel">Cancel</button>
+        <button class="btn primary" type="button" id="refundSave">Register refund</button>
       </div>
     </div>
   </dialog>
@@ -1172,7 +1233,9 @@
         !locked && ["refresh", "Reload purchase prices"],
         !shipped && ["shipped", "Mark as shipped"],
         s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice"],
-        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice after all"]
+        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice after all"],
+        s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", pairs.length === 1 ? "Cancel this pair" : "Cancel pairs"],
+        Number(s.paid_amount || 0) > 0 && ["refund", "Register refund"]
       ].filter(Boolean);
 
       $("panelBody").innerHTML = `
@@ -1193,6 +1256,13 @@
         <section class="sec">
           <h3>Pairs</h3>
           <div class="pairs">${pairRows}</div>
+          ${(state.detail.cancelled_pairs || []).length ? `
+          <div class="cancelled">${state.detail.cancelled_pairs.map((p) => `
+            <div class="cancelled-pair">
+              <span class="what">${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
+              <span class="pill ${p.cancel_outcome === "return_expected" ? "wait" : ""}">${esc(CANCEL_OUTCOME_TEXT[p.cancel_outcome] || "cancelled")}</span>
+              <span class="sub">${esc(day(p.cancelled_at))}${p.cancel_reason ? ` · ${esc(p.cancel_reason)}` : ""}</span>
+            </div>`).join("")}</div>` : ""}
           <div class="pair-total">
             <div class="pair-name"><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></div>
             <div class="num">${esc(euro(money.purchase))}</div>
@@ -1303,6 +1373,120 @@
         applyDetail(d, "Parcel added.");
       });
     });
+
+    /* ----- cancelling pairs ----- */
+
+    const CANCEL_OUTCOME_TEXT = {
+      never_shipped: "cancelled",
+      return_expected: "return expected",
+      stays_with_buyer: "stays with buyer"
+    };
+
+    const OUTCOME_HINTS = {
+      never_shipped: "The pair goes straight back to Available.",
+      return_expected: 'The unit reads "Need return from {buyer}" until it is back.',
+      stays_with_buyer: 'The unit is Sold and reads "At {buyer}".'
+    };
+
+    function openCancelDialog() {
+      const { sale: s, pairs } = state.detail;
+
+      $("cancelPairs").innerHTML = pairs.map((p) => `
+        <label class="label-item">
+          <span class="pick">
+            <input type="checkbox" value="${esc(p.id)}" ${pairs.length === 1 ? "checked" : ""}>
+            <span>${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
+          </span>
+          <span class="sub">${p.selling_price === null || p.selling_price === undefined ? "no price" : esc(euro(p.selling_price))}</span>
+        </label>`).join("");
+
+      // Where the pair is follows from how far the deal got; you can say
+      // otherwise.
+      $("cancelOutcome").value = ["pending", "ready_to_ship"].includes(s.shipping_status) ? "never_shipped" : "return_expected";
+      $("cancelReason").value = "";
+      $("cancelError").textContent = "";
+      $("cancelPlan").innerHTML = "";
+      drawCancelPlan();
+      $("cancelDialog").showModal();
+    }
+
+    const cancelPicked = () => [...$("cancelPairs").querySelectorAll("input:checked")].map((box) => box.value);
+
+    // What it will do, from the server, so the dialog never promises
+    // something the deal cannot do.
+    async function drawCancelPlan() {
+      const buyer = state.detail.sale.buyer_company || state.detail.sale.buyer_name || "the buyer";
+      $("cancelOutcomeHint").textContent = (OUTCOME_HINTS[$("cancelOutcome").value] || "").replace("{buyer}", buyer);
+
+      const picked = cancelPicked();
+      if (!picked.length) {
+        $("cancelPlan").innerHTML = '<span class="sub">Pick a pair to see what happens.</span>';
+        return;
+      }
+
+      $("cancelPlan").innerHTML = '<span class="sub">Working it out…</span>';
+
+      try {
+        const { plan } = await api(`/api/admin/external-sales/cancel-plan?id=${encodeURIComponent(state.detail.sale.id)}&pairs=${encodeURIComponent(picked.join(","))}`);
+        $("cancelConfirm").disabled = !plan.ok;
+
+        $("cancelPlan").innerHTML = plan.ok
+          ? [
+              `<span>Off the deal: <strong>${plan.pairs.length} ${plan.pairs.length === 1 ? "pair" : "pairs"}</strong>, ${esc(euro(plan.cancelled_value))}</span>`,
+              plan.ends_deal
+                ? "<span>Nothing left: the deal is cancelled.</span>"
+                : `<span>Deal becomes <strong>${esc(euro(plan.new_total))}</strong> over ${plan.remaining.length} ${plan.remaining.length === 1 ? "pair" : "pairs"}</span>`,
+              plan.credits.length ? `<span>Credit invoice for ${esc(plan.credits.join(", "))}${plan.reinvoice ? ", then a new invoice for what is left" : ""}</span>` : "",
+              plan.refund > 0 ? `<span class="warn">${esc(euro(plan.refund))} has to go back to the buyer by bank</span>` : ""
+            ].filter(Boolean).join("")
+          : `<span class="warn">${esc(plan.problems.join(" "))}</span>`;
+      } catch (err) {
+        $("cancelPlan").innerHTML = `<span class="warn">${esc(err.message)}</span>`;
+      }
+    }
+
+    $("cancelPairs").addEventListener("change", drawCancelPlan);
+    $("cancelOutcome").addEventListener("change", drawCancelPlan);
+    $("cancelClose").addEventListener("click", () => $("cancelDialog").close());
+
+    $("cancelConfirm").addEventListener("click", () => busy($("cancelConfirm"), async () => {
+      const picked = cancelPicked();
+      if (!picked.length) return;
+
+      try {
+        const d = await postJson("/api/admin/external-sales/update", {
+          id: state.detail.sale.id,
+          cancel_pairs: { pair_ids: picked, outcome: $("cancelOutcome").value, reason: $("cancelReason").value.trim() }
+        });
+        state.runLog = { id: state.detail.sale.id, lines: d.log || [] };
+        applyDetail(d, (d.log || []).join(" · ") || "Pairs cancelled.");
+        $("cancelDialog").close();
+      } catch (err) {
+        $("cancelError").textContent = err.message;
+      }
+    }));
+
+    /* ----- refund ----- */
+
+    function openRefundDialog() {
+      const s = state.detail.sale;
+      const back = Math.max(0, Number(s.paid_amount || 0) - Number(s.total_selling_price || 0));
+      $("refundDate").value = new Date().toISOString().slice(0, 10);
+      $("refundAmount").value = (back > 0 ? back : Number(s.paid_amount || 0)).toFixed(2).replace(".", ",");
+      $("refundNote").value = "";
+      $("refundError").textContent = "";
+      $("refundDialog").showModal();
+    }
+
+    $("refundCancel").addEventListener("click", () => $("refundDialog").close());
+    $("refundSave").addEventListener("click", () => busy($("refundSave"), async () => {
+      try {
+        await update({ refund: { amount: $("refundAmount").value.trim(), date: $("refundDate").value, note: $("refundNote").value.trim() } }, "Refund written down.");
+        $("refundDialog").close();
+      } catch (err) {
+        $("refundError").textContent = err.message;
+      }
+    }));
 
     /* ----- payment ----- */
 
@@ -1466,6 +1650,9 @@
           applyDetail(d, (d.log || []).join(" · "));
         });
       }
+
+      if (value === "cancelpairs") return openCancelDialog();
+      if (value === "refund") return openRefundDialog();
 
       if (value === "prices") return openPricesDialog();
       if (value === "refresh") return busy(null, () => update({ refresh_purchase: true }, "Purchase read again."));

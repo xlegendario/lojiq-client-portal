@@ -24,6 +24,7 @@ import {
 } from "./externalSalesSync.js";
 import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
 import { createOutboundMaker } from "./externalSalesCreate.js";
+import { createExternalSalesCancel } from "./externalSalesCancel.js";
 import { createExternalSalesTracking, plausibleTracking } from "./externalSalesTracking.js";
 import { createExternalSalesPayments } from "./externalSalesPayments.js";
 
@@ -196,6 +197,10 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return data;
   }
 
+  // Cancelling a pair, and the refund that can follow
+  // (admin/externalSalesCancel.js). Made after the invoicing below, so it is
+  // wired up further down.
+
   // Where the parcels are: the engine asks and answers through the internal
   // routes below (admin/externalSalesTracking.js).
   const tracking = createExternalSalesTracking({ db });
@@ -259,6 +264,9 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     ]);
 
     const group = (rows, key) => rows.reduce((map, r) => map.set(r[key], [...(map.get(r[key]) || []), r]), new Map());
+    // Cancelled pairs stay on the deal but count for nothing: not for the
+    // money, not for the checks, not for the invoice.
+    const livePairs = pairs.filter((pair) => !pair.cancelled_at);
     const invoiceById = new Map(invoices.map((i) => [i.id, i]));
     const invoicesBySale = new Map();
     for (const link of links) {
@@ -266,7 +274,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       if (invoice) invoicesBySale.set(link.sale_id, [...(invoicesBySale.get(link.sale_id) || []), invoice]);
     }
 
-    return { sales, pairsBySale: group(pairs, "sale_id"), parcelsBySale: group(parcels, "external_sale_id"), invoicesBySale };
+    return { sales, pairsBySale: group(livePairs, "sale_id"), parcelsBySale: group(parcels, "external_sale_id"), invoicesBySale };
   }
 
   function listRow(s, data) {
@@ -318,12 +326,16 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       : [];
 
     const due = dueDate(sale, invoices);
+    // A cancelled pair is history on the deal: shown, but out of the money.
+    const live = pairs.filter((pair) => !pair.cancelled_at);
+
     return {
       sale: { ...sale, deal: dealId(sale) },
-      pairs,
+      pairs: live,
+      cancelled_pairs: pairs.filter((pair) => pair.cancelled_at),
       parcels,
       invoices,
-      money: saleMoney(sale, pairs),
+      money: saleMoney(sale, live),
       next: nextStep({ sale, parcels, invoices }),
       due_date: due ? due.toISOString().slice(0, 10) : null
     };
@@ -509,6 +521,10 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
   const outbounds = createOutboundMaker({ db, airtable, invoicing, payments });
 
+  // Taking a pair off a deal: credit, new invoice, the unit back where the
+  // pair now is, and the refund that may follow.
+  const cancelling = createExternalSalesCancel({ db, airtable, invoicing });
+
   /*
    * Pack & Ship (block 3). Only deals made in Supabase: one that came from
    * the Airtable External Sales Log is still packed from there until it has
@@ -607,6 +623,9 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mollieSuggestions: () => payments.mollieSuggestions(),
     linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
+    cancelPlan: (id, pairIds) => cancelling.plan(id, pairIds),
+    cancelPairs: (id, input) => cancelling.cancelPairs(id, input),
+    registerRefund: (id, input) => cancelling.registerRefund(id, input),
     openParcels: (options) => tracking.openParcels(options),
     applyTracking: (updates) => tracking.applyUpdates(updates),
     markParcelRegistered: (id, aftershipId, note) => tracking.markRegistered(id, aftershipId, note),
@@ -688,6 +707,16 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         ...(out.sale.airtable_record_id ? await audit.forRecord(out.sale.airtable_record_id).catch(() => []) : [])
       ].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
       res.json({ ...out, history });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // What cancelling these pairs would do, before anyone confirms it.
+  router.get("/api/admin/external-sales/cancel-plan", async (req, res) => {
+    try {
+      const pairs = text(req.query.pairs).split(",").map(text).filter(Boolean);
+      res.json({ plan: await store.cancelPlan(text(req.query.id), pairs) });
     } catch (err) {
       send(res, err);
     }
@@ -969,6 +998,11 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details = { reminder: await store.mailInvoices(id, { reminder: true }) };
       } else if (req.body?.link_mollie) {
         details = { mollie: await store.linkMolliePayment(id, text(req.body.link_mollie.payment_id)).then((out) => ({ batch: out.batch, payment: text(req.body.link_mollie.payment_id) })) };
+      } else if (req.body?.cancel_pairs) {
+        details = { cancelled: await store.cancelPairs(id, { ...req.body.cancel_pairs, by: req.admin?.name || req.admin?.email }) };
+      } else if (req.body?.refund) {
+        const saved = await store.registerRefund(id, { ...req.body.refund, by: req.admin?.name || req.admin?.email });
+        details = { refund: { amount: text(req.body.refund.amount), date: text(req.body.refund.date) || null, to: saved.payment_status } };
       } else if (req.body?.dismiss_check) {
         await store.dismissCheck(id, req.body.dismiss_check.key, req.body.dismiss_check.reason, req.admin?.name || req.admin?.email);
         details = { dismissed: text(req.body.dismiss_check.key), reason: text(req.body.dismiss_check.reason) };
