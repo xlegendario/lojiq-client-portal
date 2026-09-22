@@ -1025,7 +1025,7 @@
       const via = s.payment_status === "paid"
         ? (s.payment_method === "payment_link" ? "mollie" : s.payment_method === "paid" ? "advance" : "bank")
         : (s.payment_link_url ? "mollie" : "bank");
-      const VIA = { mollie: ["Mollie", "move"], bank: ["Bank transfer", ""], advance: ["Paid in advance", ""] };
+      const VIA = { mollie: ["Mollie", "move"], bank: ["Bank transfer", "wait"], advance: ["Paid in advance", ""] };
       const viaPill = s.payment_status === "cancelled" ? "" : `<span class="pill ${VIA[via][1]}">${VIA[via][0]}</span>`;
       const paymentLine = s.payment_status === "paid"
         ? `${viaPill} Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}`
