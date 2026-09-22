@@ -327,7 +327,7 @@
         <h1 id="viewTitle">Pending</h1>
       </div>
 
-      <div class="syncline">
+      <div class="syncline" id="syncLine" hidden>
         <span id="syncText">Not synced with Airtable yet.</span>
         <button class="act" id="syncBtn" type="button">Sync now</button>
       </div>
@@ -521,9 +521,19 @@
       });
     }
 
+    // External Sales counts from the list itself, always current.
+    function applyCounts(counts) {
+      if (!counts) return;
+      state.externalCounts = counts;
+      navCounts = { ...navCounts, "external/pending": counts.pending, "external/ready": counts.ready, "external/checks": counts.checks };
+      drawOtherSections(navViews);
+    }
+
     async function loadNavCounts(fresh = false) {
       try {
         navCounts = (await api(`/api/admin/counts${fresh ? "?fresh=1" : ""}`)).tabs || {};
+        const c = state.externalCounts;
+        if (c) Object.assign(navCounts, { "external/pending": c.pending, "external/ready": c.ready, "external/checks": c.checks });
         drawOtherSections(navViews);
       } catch {}
     }
@@ -552,17 +562,24 @@
 
     /* ---------------- sync ---------------- */
 
+    /*
+     * The Airtable sync only keeps the 53 deals from before the switch up to
+     * date (their payment status still lives there). It stays out of sight
+     * unless it fails, and then it says so on the Checks tab.
+     */
     function drawSync() {
       const s = state.sync;
+      const trouble = Boolean(s?.error || s?.errors?.length);
+      $("syncLine").hidden = !(trouble || state.tab === "checks");
       if (!s?.at && !s?.error) {
-        $("syncText").textContent = "Not synced with Airtable since the service started - it runs every five minutes.";
+        $("syncText").textContent = "Old deals are read from Airtable every five minutes; not run yet since the service started.";
         return;
       }
 
       const ago = s.at ? Math.max(0, Math.round((Date.now() - new Date(s.at).getTime()) / 60000)) : null;
       const parts = [];
       if (s.error) parts.push(`<span class="bad">Sync failed: ${esc(s.error)}</span>`);
-      if (s.at) parts.push(`Synced with Airtable ${ago === 0 ? "just now" : `${ago} min ago`} (${esc(s.deals)} deals)`);
+      if (s.at) parts.push(`Old deals read from Airtable ${ago === 0 ? "just now" : `${ago} min ago`}`);
       if (s.errors?.length) parts.push(`<span class="bad">${s.errors.length} deal(s) could not be read - see Checks</span>`);
       $("syncText").innerHTML = parts.join(" · ");
     }
@@ -667,6 +684,7 @@
       try {
         const out = await api(`/api/admin/external-sales?tab=${encodeURIComponent(state.tab)}`);
         state.sales = out.sales || [];
+        applyCounts(out.counts);
         state.sync = out.sync;
         drawSync();
         render();
@@ -730,6 +748,7 @@
           try {
             const out = await api(`/api/admin/external-sales?tab=${encodeURIComponent(state.tab)}`);
             state.sales = out.sales || [];
+        applyCounts(out.counts);
             render();
           } catch {}
         }

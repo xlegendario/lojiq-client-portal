@@ -587,7 +587,10 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
 
   router.get("/api/admin/external-sales", async (req, res) => {
     try {
-      res.json({ sales: await store.list(text(req.query.tab) || "all"), sync: store.syncState() });
+      // The sidebar counts come along: counting in Supabase costs nothing, so
+      // they are never behind the list the way the cached admin counts are.
+      const [sales, counts] = await Promise.all([store.list(text(req.query.tab) || "all"), store.counts()]);
+      res.json({ sales, counts, sync: store.syncState() });
     } catch (err) {
       send(res, err);
     }
