@@ -10,7 +10,7 @@
     try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
   </script>
   <style>
-    /* Same palette and components as admin.html, so Forward Service reads as
+    /* Same palette and components as admin.html, so External Sales reads as
        part of the same portal. */
     :root {
       --bg: #08080A;
@@ -205,6 +205,48 @@
       .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
       .label-add { grid-template-columns: 1fr; }
     }
+
+    /* ----- External Sales on Supabase ----- */
+    .panel { width: min(620px, 100%); }
+    .syncline { display: flex; align-items: center; gap: 10px; color: var(--muted); flex-wrap: wrap; }
+    .syncline .bad { color: var(--bad-text); font-weight: 700; }
+    .total.neg strong { color: var(--bad-text); }
+    .total small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+    td.neg { color: var(--bad-text); font-weight: 700; }
+    .parcels { display: flex; flex-direction: column; gap: 8px; }
+    .parcel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .parcel .label-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .parcel input.input { height: 30px; width: 100%; }
+    .file-btn { position: relative; overflow: hidden; }
+    .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .new-parcels { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; }
+    .new-parcels .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .money-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+    .money-grid div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+    .money-grid span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .money-grid strong { font-variant-numeric: tabular-nums; color: var(--strong); }
+    .pairs-table { width: 100%; }
+    .pairs-table td, .pairs-table th { padding: 6px 8px; white-space: normal; }
+    .pairs-table th { position: static; }
+    .pairs-table img, .pairs-table .no-img { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
+    .pairs-table .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
+    .pairs-table input { width: 90px; height: 30px; text-align: right; }
+    .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .check-group { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .check-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .check-head strong { color: var(--strong); font-size: 14px; }
+    .check-head .sub { flex-basis: 100%; }
+    .check-items { list-style: none; margin: 0; padding: 0; }
+    .check-items li { display: flex; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); align-items: baseline; }
+    .check-items li:last-child { border-bottom: 0; }
+    .check-items li[data-id]:not([data-id=""]) { cursor: pointer; }
+    .check-items li[data-id]:not([data-id=""]):hover { background: var(--row-hover); }
+    .checks { display: flex; flex-direction: column; gap: 12px; }
+    textarea.notes { width: 100%; min-height: 70px; }
+
+    @media (max-width: 860px) {
+      .parcel { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -233,7 +275,8 @@
         <button class="nav-item" type="button" data-tab="pending">Pending <small data-nav-count="external/pending"></small></button>
         <button class="nav-item" type="button" data-tab="ready">Ready to Ship <small data-nav-count="external/ready"></small></button>
         <button class="nav-item" type="button" data-tab="shipped">Shipped</button>
-        <button class="nav-item" type="button" data-tab="all">All sales</button>
+        <button class="nav-item" type="button" data-tab="all">All sales &amp; earnings</button>
+        <button class="nav-item" type="button" data-tab="checks">Checks <small data-nav-count="external/checks"></small></button>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -248,26 +291,41 @@
         <h1 id="viewTitle">Pending</h1>
       </div>
 
-      <div class="filters">
+      <div class="syncline">
+        <span id="syncText">Not synced with Airtable yet.</span>
+        <button class="act" id="syncBtn" type="button">Sync now</button>
+      </div>
+
+      <div class="filters" id="listFilters">
         <input class="input" id="searchInput" type="search" placeholder="Search deal, buyer, SKU, tracking…" style="width:280px">
+        <select class="select" id="monthSelect" aria-label="Month" hidden></select>
+        <select class="select" id="statusSelect" aria-label="Status" hidden>
+          <option value="">Every status</option>
+          <option value="pending">Pending</option>
+          <option value="ready_to_ship">Ready to Ship</option>
+          <option value="shipped">Shipped</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
         <span class="count" id="count"></span>
       </div>
 
-      <div class="table-wrap">
+      <div class="totals" id="totals" hidden></div>
+
+      <div class="table-wrap" id="tableWrap">
         <table>
           <thead>
             <tr>
               <th>Deal</th>
               <th>Buyer</th>
-              <th>Sale Date</th>
+              <th>Sale date</th>
               <th class="money">Pairs</th>
               <th>SKUs</th>
-              <th class="money">Selling Price</th>
-              <th class="money">Shipping</th>
-              <th>Labels</th>
-              <th>Tracking</th>
-              <th>Shipping Status</th>
+              <th class="money">Selling</th>
+              <th class="money">Profit</th>
+              <th>Parcels</th>
+              <th>Shipping</th>
               <th>Payment</th>
+              <th>Books</th>
             </tr>
           </thead>
           <tbody id="rows">
@@ -275,63 +333,18 @@
           </tbody>
         </table>
       </div>
+
+      <div class="checks" id="checks" hidden></div>
     </main>
   </div>
 
-  <aside class="panel" id="panel" hidden aria-label="Sale details">
+  <aside class="panel" id="panel" hidden aria-label="Deal details">
     <div class="panel-head">
       <h2 id="panelTitle"></h2>
       <button class="btn ghost" id="panelClose" type="button" aria-label="Close">✕</button>
     </div>
-    <div class="panel-actions">
-      <button class="btn primary" id="editBtn" type="button">Tracking &amp; labels</button>
-    </div>
     <div class="panel-body" id="panelBody"></div>
   </aside>
-
-  <dialog id="editDialog">
-    <form class="dialog-body" id="editForm" method="dialog">
-      <h2 id="editTitle">Sale</h2>
-
-      <div class="field">
-        <label for="editTracking">Tracking numbers</label>
-        <textarea class="input" id="editTracking"></textarea>
-        <span class="hint">One per line or separated by commas. A tracking number or a label makes the sale Ready to Ship, so it shows in Pack &amp; Ship.</span>
-      </div>
-
-      <div class="field">
-        <label>Labels</label>
-        <div class="label-list" id="editLabels"></div>
-        <div class="label-add">
-          <input id="newLabelFile" type="file" accept="application/pdf,image/jpeg,image/png" multiple aria-label="Label files">
-          <button class="btn" id="uploadLabelBtn" type="button">Upload</button>
-        </div>
-        <div class="label-rows" id="newLabelRows"></div>
-        <span class="hint">Choose one or more labels (PDF, JPEG or PNG). Each gets its own tracking field - filled in when the file is named after its tracking number, otherwise type or paste it. Left empty, the label is added without one.</span>
-      </div>
-
-      <div class="field">
-        <label for="editShipping">Shipping costs (€)</label>
-        <input class="input" id="editShipping" type="text" inputmode="decimal">
-      </div>
-
-      <div class="field">
-        <label for="editStatus">Shipping status</label>
-        <select class="select" id="editStatus">
-          <option value="">Follows the labels and tracking</option>
-          <option value="Pending">Pending</option>
-          <option value="Label(s) Generated">Label(s) Generated</option>
-          <option value="Ready to Ship">Ready to Ship</option>
-          <option value="Shipped">Shipped</option>
-        </select>
-      </div>
-
-      <div class="dialog-foot">
-        <button class="btn ghost" type="button" id="editCancel">Close</button>
-        <button class="btn primary" type="button" id="editSave">Save</button>
-      </div>
-    </form>
-  </dialog>
 
   <div class="toast" id="toast" hidden role="status"></div>
 
@@ -341,22 +354,29 @@
     const esc = (value) => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const euro = (value) => `€ ${Number(value || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const euro = (value) => value === null || value === undefined ? "—" : `€ ${Number(value).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const dateFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const monthFmt = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" });
     const day = (value) => { const d = new Date(value); return value && !isNaN(d) ? dayFmt.format(d) : "—"; };
 
     const TABS = {
-      pending: { title: "Pending", status: "pending" },
-      ready: { title: "Ready to Ship", status: "Ready to Ship" },
-      shipped: { title: "Shipped", status: "Shipped" },
-      all: { title: "All sales", status: "all" }
+      pending: "Pending",
+      ready: "Ready to Ship",
+      shipped: "Shipped",
+      all: "All sales & earnings",
+      checks: "Checks"
     };
 
-    const PILL = { "Pending": "wait", "Label(s) Generated": "wait", "Ready to Ship": "move", "Shipped": "good" };
+    const SHIPPING = { pending: ["Pending", "wait"], ready_to_ship: ["Ready to Ship", "move"], shipped: ["Shipped", "good"], cancelled: ["Cancelled", "bad"] };
+    const PAYMENT = { pending: ["Unpaid", "wait"], partially_paid: ["Partially paid", "wait"], paid: ["Paid", "good"], cancelled: ["Cancelled", "bad"] };
+    const BOOKS = { to_invoice: ["To invoice", "wait"], invoiced: ["Invoiced", "good"], credited: ["Credited", ""], not_invoiced: ["Not invoiced", ""] };
+    const SEVERITY = { error: ["Error", "bad"], warning: ["To do", "wait"], info: ["Info", ""] };
+
+    const pill = (map, key) => { const [label, cls] = map[key] || [key || "—", ""]; return `<span class="pill ${cls}">${esc(label)}</span>`; };
 
     const params = new URLSearchParams(location.search);
-    const state = { tab: TABS[params.get("tab")] ? params.get("tab") : "pending", sales: [], selected: null, detail: null };
+    const state = { tab: TABS[params.get("tab")] ? params.get("tab") : "pending", sales: [], selected: null, detail: null, sync: null };
 
     async function api(url, options = {}) {
       const response = await fetch(url, { credentials: "same-origin", ...options });
@@ -370,6 +390,8 @@
       if (!response.ok) throw new Error(data.error || `The server answered ${response.status}.`);
       return data;
     }
+
+    const postJson = (url, body) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
     let toastTimer = null;
     function toast(message) {
@@ -425,9 +447,9 @@
       });
     }
 
-    async function loadNavCounts() {
+    async function loadNavCounts(fresh = false) {
       try {
-        navCounts = (await api("/api/admin/counts")).tabs || {};
+        navCounts = (await api(`/api/admin/counts${fresh ? "?fresh=1" : ""}`)).tabs || {};
         drawOtherSections(navViews);
       } catch {}
     }
@@ -454,48 +476,161 @@
       }
     });
 
-    /* ---------------- table ---------------- */
+    /* ---------------- sync ---------------- */
+
+    function drawSync() {
+      const s = state.sync;
+      if (!s?.at && !s?.error) {
+        $("syncText").textContent = "Not synced with Airtable since the service started - it runs every five minutes.";
+        return;
+      }
+
+      const ago = s.at ? Math.max(0, Math.round((Date.now() - new Date(s.at).getTime()) / 60000)) : null;
+      const parts = [];
+      if (s.error) parts.push(`<span class="bad">Sync failed: ${esc(s.error)}</span>`);
+      if (s.at) parts.push(`Synced with Airtable ${ago === 0 ? "just now" : `${ago} min ago`} (${esc(s.deals)} deals)`);
+      if (s.errors?.length) parts.push(`<span class="bad">${s.errors.length} deal(s) could not be read - see Checks</span>`);
+      $("syncText").innerHTML = parts.join(" · ");
+    }
+
+    $("syncBtn").addEventListener("click", async () => {
+      $("syncBtn").disabled = true;
+      $("syncBtn").textContent = "Syncing…";
+      try {
+        const out = await postJson("/api/admin/external-sales/sync", {});
+        state.sync = out.sync;
+        toast(`Synced: ${out.changed} deal(s) changed${out.errors ? `, ${out.errors} could not be read` : ""}.`);
+        await load();
+        loadNavCounts(true);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        $("syncBtn").disabled = false;
+        $("syncBtn").textContent = "Sync now";
+      }
+    });
+
+    /* ---------------- list ---------------- */
 
     function visibleSales() {
       const query = $("searchInput").value.trim().toLowerCase();
-      if (!query) return state.sales;
+      const month = state.tab === "all" ? $("monthSelect").value : "";
+      const status = state.tab === "all" ? $("statusSelect").value : "";
 
-      return state.sales.filter((s) => [s.display_id, s.buyer_name, s.buyer_id, s.skus, ...(s.tracking_numbers || [])]
-        .join(" ").toLowerCase().includes(query));
+      return state.sales.filter((s) =>
+        (!month || String(s.sale_date || "").startsWith(month)) &&
+        (!status || s.shipping_status === status) &&
+        (!query || [s.deal, s.buyer_name, s.buyer_company, s.skus, ...(s.tracking || []), ...(s.invoices || [])].join(" ").toLowerCase().includes(query)));
+    }
+
+    function drawMonths() {
+      const months = [...new Set(state.sales.map((s) => String(s.sale_date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+      const current = $("monthSelect").value;
+      $("monthSelect").innerHTML = `<option value="">All time</option>` + months.map((m) => `<option value="${esc(m)}">${esc(monthFmt.format(new Date(`${m}-01T12:00:00`)))}</option>`).join("");
+      if (months.includes(current)) $("monthSelect").value = current;
+    }
+
+    function drawTotals(sales) {
+      if (state.tab !== "all") { $("totals").hidden = true; return; }
+
+      // Earnings: cancelled deals left out, and a deal without a known profit
+      // (mixed VAT, no price per pair) counted apart instead of guessed.
+      const live = sales.filter((s) => s.payment_status !== "cancelled");
+      const known = live.filter((s) => s.money.profit !== null);
+      const sum = (rows, key) => rows.reduce((total, s) => total + Number(s.money[key] || 0), 0);
+      const profit = sum(known, "profit");
+      const unknown = live.length - known.length;
+
+      $("totals").hidden = false;
+      $("totals").innerHTML = `
+        <div class="total"><span>Deals</span><strong>${live.length}</strong><small>${sum(live, "pairs")} pairs</small></div>
+        <div class="total"><span>Selling incl. VAT</span><strong>${euro(sum(live, "selling"))}</strong></div>
+        <div class="total"><span>Selling excl. VAT</span><strong>${euro(sum(known, "selling_ex_vat"))}</strong></div>
+        <div class="total"><span>Purchase excl. VAT</span><strong>${euro(sum(known, "purchase"))}</strong></div>
+        <div class="total"><span>Shipping</span><strong>${euro(sum(known, "shipping"))}</strong></div>
+        <div class="total ${profit < 0 ? "neg" : ""}"><span>Profit</span><strong>${euro(profit)}</strong>${unknown ? `<small>${unknown} deal(s) without a profit yet - see Checks</small>` : ""}</div>`;
     }
 
     function render() {
       const sales = visibleSales();
-      $("viewTitle").textContent = TABS[state.tab].title;
-      document.title = `${TABS[state.tab].title} · External Sales · Lojiq Admin`;
-      $("count").textContent = `${sales.length} ${sales.length === 1 ? "sale" : "sales"}`;
+      $("viewTitle").textContent = TABS[state.tab];
+      document.title = `${TABS[state.tab]} · External Sales · Lojiq Admin`;
+      $("count").textContent = `${sales.length} ${sales.length === 1 ? "deal" : "deals"}`;
+      drawTotals(sales);
 
       if (!sales.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${state.sales.length ? "Nothing matches the search." : "Nothing here."}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${state.sales.length ? "Nothing matches." : "Nothing here."}</td></tr>`;
         return;
       }
 
-      $("rows").innerHTML = sales.map((s) => `
+      $("rows").innerHTML = sales.map((s) => {
+        const parcels = s.labels_needed
+          ? `${s.labels}/${s.labels_needed} labels`
+          : s.labels ? `${s.labels} label${s.labels === 1 ? "" : "s"}` : "";
+        const tracking = s.tracking.length ? `${s.tracking.length} tracking` : "";
+        return `
         <tr data-id="${esc(s.id)}" class="${s.id === state.selected ? "selected" : ""}">
-          <td class="id">${esc(s.display_id)}</td>
+          <td class="id">${esc(s.deal)}</td>
           <td>${esc(s.buyer_name || "—")}${s.buyer_country ? `<div class="sub">${esc(s.buyer_country)}</div>` : ""}</td>
           <td>${esc(day(s.sale_date))}</td>
-          <td class="money">${esc(s.quantity)}</td>
-          <td style="white-space:normal;max-width:260px">${esc(s.skus || "—")}</td>
-          <td class="money">${esc(euro(s.selling_price))}</td>
-          <td class="money">${esc(euro(s.shipping_costs))}</td>
-          <td>${s.labels.length ? `${s.labels.length}${s.amount_of_labels ? ` / ${s.amount_of_labels}` : ""}` : (s.amount_of_labels ? `0 / ${s.amount_of_labels}` : '<span class="dash">—</span>')}</td>
-          <td>${s.tracking_numbers.length ? esc(s.tracking_numbers.join(", ")) : '<span class="dash">—</span>'}</td>
-          <td><span class="pill ${PILL[s.shipping_status] || ""}">${esc(s.shipping_status)}</span></td>
-          <td>${esc(s.payment_status || "—")}</td>
-        </tr>`).join("");
+          <td class="money">${esc(s.money.pairs)}</td>
+          <td style="white-space:normal;max-width:240px">${esc(s.skus || "—")}</td>
+          <td class="money">${esc(euro(s.money.selling))}</td>
+          <td class="money ${s.money.profit !== null && s.money.profit < 0 ? "neg" : ""}">${s.money.profit === null ? '<span class="dash" title="Mixed VAT: enter the price per pair">?</span>' : esc(euro(s.money.profit))}</td>
+          <td>${[parcels, tracking].filter(Boolean).map(esc).join(" · ") || '<span class="dash">—</span>'}</td>
+          <td>${pill(SHIPPING, s.shipping_status)}</td>
+          <td>${pill(PAYMENT, s.payment_status)}</td>
+          <td>${pill(BOOKS, s.bookkeeping_status)}${s.invoices.length ? `<div class="sub">${esc(s.invoices.join(", "))}</div>` : ""}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    async function loadChecks() {
+      $("checks").innerHTML = `<p class="sub">Loading…</p>`;
+      try {
+        const out = await api("/api/admin/external-sales/checks");
+        state.sync = out.sync;
+        drawSync();
+
+        if (!out.checks.length) {
+          $("checks").innerHTML = `<div class="empty">Everything adds up.</div>`;
+          return;
+        }
+
+        $("checks").innerHTML = out.checks.map((c) => `
+          <section class="check-group">
+            <div class="check-head">${pill(SEVERITY, c.severity)} <strong>${esc(c.title)}</strong> <span class="sub">${esc(c.items.length)}</span><span class="sub">${esc(c.hint)}</span></div>
+            <ul class="check-items">${c.items.map((i) => `
+              <li data-id="${esc(i.id)}"><span class="id">${esc(i.deal || "—")}</span><span>${esc(i.buyer)}</span><span class="sub">${esc(i.detail)}</span></li>`).join("")}
+            </ul>
+          </section>`).join("");
+      } catch (err) {
+        $("checks").innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+      }
     }
 
     async function load() {
+      const checks = state.tab === "checks";
+      $("checks").hidden = !checks;
+      $("tableWrap").hidden = checks;
+      $("listFilters").hidden = checks;
+      $("monthSelect").hidden = state.tab !== "all";
+      $("statusSelect").hidden = state.tab !== "all";
+      $("viewTitle").textContent = TABS[state.tab];
+
+      if (checks) {
+        $("totals").hidden = true;
+        return loadChecks();
+      }
+
       $("rows").innerHTML = `<tr><td class="empty" colspan="11">Loading…</td></tr>`;
 
       try {
-        state.sales = (await api(`/api/admin/external-sales?status=${encodeURIComponent(TABS[state.tab].status)}`)).sales || [];
+        const out = await api(`/api/admin/external-sales?tab=${encodeURIComponent(state.tab)}`);
+        state.sales = out.sales || [];
+        state.sync = out.sync;
+        drawSync();
+        drawMonths();
         render();
       } catch (err) {
         $("rows").innerHTML = `<tr><td class="empty" colspan="11">${esc(err.message)}</td></tr>`;
@@ -507,7 +642,14 @@
       if (row) openPanel(row.dataset.id);
     });
 
+    $("checks").addEventListener("click", (event) => {
+      const item = event.target.closest("li[data-id]");
+      if (item?.dataset.id) openPanel(item.dataset.id);
+    });
+
     $("searchInput").addEventListener("input", render);
+    $("monthSelect").addEventListener("change", render);
+    $("statusSelect").addEventListener("change", render);
 
     /* ---------------- side panel ---------------- */
 
@@ -515,14 +657,14 @@
       state.selected = null;
       state.detail = null;
       $("panel").hidden = true;
-      render();
+      if (state.tab !== "checks") render();
     }
 
     async function openPanel(id) {
       state.selected = id;
-      render();
+      if (state.tab !== "checks") render();
       $("panel").hidden = false;
-      $("panelTitle").textContent = state.sales.find((s) => s.id === id)?.display_id || "Sale";
+      $("panelTitle").textContent = state.sales.find((s) => s.id === id)?.deal || "Deal";
       $("panelBody").innerHTML = `<p class="sub">Loading…</p>`;
 
       try {
@@ -533,205 +675,292 @@
       }
     }
 
-    function drawPanel() {
-      const { sale: s, units, history } = state.detail;
-
-      $("panelTitle").textContent = s.display_id;
-
-      const pairs = units.length
-        ? `<ul class="pair-list">${units.map((u) => `
-            <li>
-              ${u.image ? `<img src="${esc(u.image)}" alt="">` : '<span class="no-img"></span>'}
-              <span><strong>${esc(u.product || u.sku)}</strong><br><span class="sub">${esc(u.sku)} · ${esc(u.size)}</span></span>
-              <span class="sub">${esc(u.item_id)}</span>
-            </li>`).join("")}</ul>`
-        : '<p class="sub">No units linked.</p>';
-
-      const labels = s.labels.length
-        ? `<ul class="link-list">${s.labels.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.filename || "Label")}</a></li>`).join("")}</ul>`
-        : '<p class="sub">No labels yet.</p>';
-
-      const timeline = (history || []).length
-        ? `<ul class="timeline">${history.map((h) => `<li><span>${esc(h.action)}</span><small>${esc(h.actor_name || "")} · ${h.created_at ? esc(dateFmt.format(new Date(h.created_at))) : ""}</small></li>`).join("")}</ul>`
-        : '<p class="sub">Nothing changed here yet.</p>';
-
-      $("panelBody").innerHTML = `
-        <div class="group">
-          <h3>Sale</h3>
-          <dl>
-            <dt>Buyer</dt><dd>${esc(s.buyer_name || "—")}${s.buyer_id ? ` (${esc(s.buyer_id)})` : ""}</dd>
-            <dt>Country</dt><dd>${esc(s.buyer_country || "—")}</dd>
-            <dt>Sale date</dt><dd>${esc(day(s.sale_date))}</dd>
-            <dt>Selling price</dt><dd>${esc(euro(s.selling_price))}${s.vat_type ? ` (${esc(s.vat_type)})` : ""}</dd>
-            <dt>Shipping costs</dt><dd>${esc(euro(s.shipping_costs))}</dd>
-            <dt>Payment</dt><dd>${esc(s.payment_status || "—")}</dd>
-            <dt>Shipping status</dt><dd><span class="pill ${PILL[s.shipping_status] || ""}">${esc(s.shipping_status)}</span></dd>
-            <dt>Tracking</dt><dd>${s.tracking_numbers.length ? esc(s.tracking_numbers.join("\n")) : "—"}</dd>
-            <dt>Labels expected</dt><dd>${esc(s.amount_of_labels || "—")}</dd>
-            ${s.items_per_parcel ? `<dt>Items per parcel</dt><dd>${esc(s.items_per_parcel)}</dd>` : ""}
-          </dl>
-        </div>
-        <div class="group"><h3>Pairs (${units.length})</h3>${pairs}</div>
-        <div class="group"><h3>Labels</h3>${labels}</div>
-        <div class="group"><h3>History</h3>${timeline}</div>`;
-    }
-
-    $("panelClose").addEventListener("click", closePanel);
-
-    /* ---------------- edit dialog ---------------- */
-
-    function drawEditLabels() {
-      const s = state.detail.sale;
-      $("editLabels").innerHTML = s.labels.length
-        ? s.labels.map((l) => `<div class="label-item"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.filename || "Label")}</a><button class="act" type="button" data-remove-label="${esc(l.url)}">Remove</button></div>`).join("")
-        : '<span class="sub">No labels yet.</span>';
-    }
-
-    $("editBtn").addEventListener("click", () => {
-      if (!state.detail) return;
-      const s = state.detail.sale;
-      $("editTitle").textContent = `${s.display_id} · tracking & labels`;
-      $("editTracking").value = s.tracking_numbers.join("\n");
-      $("editShipping").value = String(s.shipping_costs || 0).replace(".", ",");
-      $("editStatus").value = "";
-      clearNewLabels();
-      drawEditLabels();
-      $("editDialog").showModal();
-    });
-
-    $("editCancel").addEventListener("click", () => $("editDialog").close());
-
-    async function applySale(sale, message) {
-      state.detail.sale = sale;
-      const i = state.sales.findIndex((s) => s.id === sale.id);
-      if (i >= 0) state.sales[i] = sale;
+    // After an edit: the answer is the deal as it is now.
+    function applyDetail(detail, message) {
+      state.detail = { ...detail, history: state.detail?.history || [] };
       drawPanel();
-      drawEditLabels();
-      render();
-      toast(message);
-      loadNavCounts();
+      if (message) toast(message);
+      refreshAfterEdit();
     }
 
-    $("editLabels").addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-remove-label]");
-      if (!button || !confirm("Remove this label from the sale?")) return;
-
-      try {
-        const { sale } = await api("/api/admin/external-sales/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: state.detail.sale.id, remove_label_url: button.dataset.removeLabel })
-        });
-        await applySale(sale, `Label removed. Status: ${sale.shipping_status}.`);
-      } catch (err) {
-        toast(err.message);
-      }
-    });
+    let refreshTimer = null;
+    function refreshAfterEdit() {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(async () => {
+        if (state.tab === "checks") loadChecks();
+        else {
+          try {
+            const out = await api(`/api/admin/external-sales?tab=${encodeURIComponent(state.tab)}`);
+            state.sales = out.sales || [];
+            render();
+          } catch {}
+        }
+        loadNavCounts(true);
+        if (state.selected) {
+          try { state.detail.history = (await api(`/api/admin/external-sales/get?id=${encodeURIComponent(state.selected)}`)).history || []; drawHistory(); } catch {}
+        }
+      }, 400);
+    }
 
     /*
-     * The tracking number a label file is named after, if it is one.
-     *
-     * Labels are usually saved as their tracking number
-     * ("1ZG223389130065859.jpeg"), so choosing three files is enough to add
-     * three labels with their tracking. A name that is not a tracking number
-     * gives none; the tracking field in the dialog still works for one file.
+     * The tracking number a label file is named after, if it is one
+     * ("1ZG223389130065859.jpeg"). Letters and digits only, 8 to 35 long, at
+     * least six digits: UPS 1Z..., DPD and DHL numbers - not "label-1".
      */
     const trackingFromFileName = (name) => {
       const base = String(name || "").replace(/\.[^.]+$/, "").trim();
-      // Letters and digits only, 8 to 35 long, at least six digits: UPS 1Z...,
-      // DPD and DHL numbers - and not "label-1" or "scan2".
       return /^[A-Za-z0-9]{8,35}$/.test(base) && (base.match(/\d/g) || []).length >= 6 ? base : "";
     };
 
     const labelContentType = (file) =>
       ["application/pdf", "image/jpeg", "image/png"].includes(file.type) ? file.type : "application/pdf";
 
-    // One tracking field per chosen file, filled from the file name when it is
-    // a tracking number. The upload reads these, in the same order.
-    function drawNewLabelRows() {
-      const files = [...$("newLabelFile").files];
-      $("newLabelRows").innerHTML = files.map((file, i) => `
-        <div class="label-row">
-          <span title="${esc(file.name)}">${esc(file.name)}</span>
-          <input class="input" data-label-tracking="${i}" type="text" value="${esc(trackingFromFileName(file.name))}" placeholder="Tracking number (optional)" autocomplete="off">
-        </div>`).join("");
+    function drawHistory() {
+      const el = $("historyBox");
+      if (!el) return;
+      const history = state.detail.history || [];
+      el.innerHTML = history.length
+        ? `<ul class="timeline">${history.map((h) => `<li><span>${esc(h.action)}</span><small>${esc(h.actor_name || "")} · ${h.created_at ? esc(dateFmt.format(new Date(h.created_at))) : ""}</small></li>`).join("")}</ul>`
+        : '<p class="sub">Nothing changed here yet.</p>';
     }
 
-    function clearNewLabels() {
-      $("newLabelFile").value = "";
-      $("newLabelRows").innerHTML = "";
+    function drawPanel() {
+      const { sale: s, pairs, parcels, invoices, money } = state.detail;
+      const locked = ["invoiced", "credited"].includes(s.bookkeeping_status);
+      const closed = ["shipped", "cancelled"].includes(s.shipping_status);
+
+      $("panelTitle").textContent = s.deal;
+
+      const parcelRows = parcels.length
+        ? parcels.map((p, i) => `
+          <div class="parcel">
+            <span class="label-cell">${p.label_url
+              ? `<a href="${esc(p.label_url)}" target="_blank" rel="noopener">Label ${i + 1}</a> <span class="sub">${esc(p.label_filename || "")}</span>`
+              : `<label class="act file-btn">Add label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}</span>
+            <input class="input" type="text" value="${esc(p.tracking_number || "")}" placeholder="Tracking number" data-parcel-tracking="${esc(p.id)}" data-was="${esc(p.tracking_number || "")}" autocomplete="off" aria-label="Tracking number for parcel ${i + 1}">
+            <span class="row-actions">
+              <button class="act" type="button" data-parcel-save="${esc(p.id)}">Save</button>
+              <button class="act" type="button" data-parcel-remove="${esc(p.id)}" aria-label="Remove parcel ${i + 1}">✕</button>
+            </span>
+          </div>`).join("")
+        : '<p class="sub">No parcels yet.</p>';
+
+      const pairRows = pairs.map((p) => `
+        <tr>
+          <td>${p.image_url ? `<img src="${esc(p.image_url)}" alt="">` : '<span class="no-img"></span>'}</td>
+          <td><strong>${esc(p.product_name || p.sku || "—")}</strong><div class="sub">${esc(p.sku || "")} · ${esc(p.size || "")} · ${esc(p.item_id || "")}</div></td>
+          <td class="money">${p.purchase_vat_type ? esc(p.purchase_vat_type) : '<span class="pill bad">no VAT type</span>'}<div class="sub">${Number(p.purchase_price_ex_vat) > 0 ? esc(euro(p.purchase_price_ex_vat)) : '<span class="pill bad">no price</span>'}</div></td>
+          <td class="money">${esc(p.selling_vat_type || "—")}<div>${locked
+            ? esc(p.selling_price === null ? "—" : euro(p.selling_price))
+            : `<input class="input" type="text" inputmode="decimal" value="${p.selling_price === null ? "" : esc(String(p.selling_price).replace(".", ","))}" placeholder="—" data-pair-price="${esc(p.id)}" aria-label="Selling price">`}</div></td>
+        </tr>`).join("");
+
+      const invoiceRows = invoices.length
+        ? `<ul class="link-list">${invoices.map((i) => `<li>${esc(i.kind === "credit" ? "Credit " : "")}<strong>${esc(i.invoice_number || i.rompslomp_invoice_id)}</strong> · ${esc(i.vat_route || "—")} · ${esc(euro(i.amount_incl_vat))} · ${i.journal_entry_id ? '<span class="pill good">journal</span>' : '<span class="pill bad">no journal</span>'}</li>`).join("")}</ul>`
+        : '<p class="sub">No invoice yet.</p>';
+
+      $("panelBody").innerHTML = `
+        <div class="inline">${pill(SHIPPING, s.shipping_status)} ${pill(PAYMENT, s.payment_status)} ${pill(BOOKS, s.bookkeeping_status)}</div>
+
+        <div class="group">
+          <h3>Parcels${s.labels_needed ? ` · ${parcels.filter((p) => p.label_url).length} of ${s.labels_needed} labels` : ""}</h3>
+          <div class="parcels">${parcelRows}</div>
+          ${s.items_per_parcel ? `<p class="sub">Items per parcel: ${esc(s.items_per_parcel)}</p>` : ""}
+          ${s.shipping_status === "cancelled" ? "" : `
+          <div class="new-parcels" style="margin-top:8px">
+            <div class="row">
+              <label class="btn file-btn">Add labels…<input id="newLabels" type="file" multiple accept="application/pdf,image/jpeg,image/png"></label>
+              <span class="sub">or a tracking number alone:</span>
+              <input class="input" id="newTracking" type="text" placeholder="Tracking number" autocomplete="off" style="width:200px">
+              <button class="btn" id="addTrackingBtn" type="button">Add</button>
+            </div>
+            <div id="newLabelRows" class="parcels"></div>
+            <span class="sub">A label or a tracking number puts the deal on Ready to Ship, so it shows in Pack &amp; Ship. Each label is its own parcel; its tracking number is filled in when the file is named after it.</span>
+          </div>`}
+          ${closed ? "" : `<div class="inline" style="margin-top:8px"><button class="btn" id="markShippedBtn" type="button">Mark as shipped</button><span class="sub">Normally Pack &amp; Ship does this.</span></div>`}
+        </div>
+
+        <div class="group">
+          <h3>Money</h3>
+          <div class="money-grid">
+            <div><span>Selling incl. VAT</span><strong>${esc(euro(money.selling))}</strong></div>
+            <div><span>Selling excl. VAT</span><strong>${money.selling_ex_vat === null ? "?" : esc(euro(money.selling_ex_vat))}</strong></div>
+            <div><span>Purchase excl. VAT</span><strong>${esc(euro(money.purchase))}</strong></div>
+            <div><span>Shipping</span><strong>${esc(euro(money.shipping))}</strong></div>
+            <div><span>Profit</span><strong style="${money.profit !== null && money.profit < 0 ? "color:var(--bad-text)" : ""}">${money.profit === null ? "?" : esc(euro(money.profit))}</strong></div>
+          </div>
+          ${money.selling_ex_vat === null ? '<p class="sub">This deal mixes VAT types. Enter the selling price of every pair below to get its profit - the invoice needs them too.</p>' : ""}
+          <div class="inline" style="margin-top:8px">
+            <label class="sub" for="shippingInput">Shipping costs (€)</label>
+            <input class="input" id="shippingInput" type="text" inputmode="decimal" value="${esc(String(Number(s.shipping_costs || 0)).replace(".", ","))}" style="width:100px">
+            <button class="act" id="shippingSave" type="button">Save</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Pairs (${pairs.length})</h3>
+          ${pairs.length ? `<div style="overflow-x:auto"><table class="pairs-table"><thead><tr><th></th><th>Pair</th><th class="money">Purchase</th><th class="money">Selling</th></tr></thead><tbody>${pairRows}</tbody></table></div>` : '<p class="sub">No pairs linked.</p>'}
+          ${locked ? '<p class="sub">Invoiced: prices and purchase are booked and no longer change here.</p>' : `
+          <div class="inline" style="margin-top:8px">
+            <button class="act" id="pricesSave" type="button">Save prices per pair</button>
+            <button class="act" id="refreshPurchase" type="button">Read purchase again from Airtable</button>
+          </div>`}
+        </div>
+
+        <div class="group">
+          <h3>Books</h3>
+          ${invoiceRows}
+          <div class="inline" style="margin-top:8px">
+            ${s.bookkeeping_status === "to_invoice" ? '<button class="act" id="notInvoicedBtn" type="button">Not to be invoiced…</button>' : ""}
+            ${s.bookkeeping_status === "not_invoiced" ? '<button class="act" id="toInvoiceBtn" type="button">Back to "to invoice"</button>' : ""}
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Buyer</h3>
+          <dl>
+            <dt>Name</dt><dd>${esc(s.buyer_name || "—")}${s.buyer_id ? ` (${esc(s.buyer_id)})` : ""}</dd>
+            ${s.buyer_company ? `<dt>Company</dt><dd>${esc(s.buyer_company)}</dd>` : ""}
+            <dt>Email</dt><dd>${esc(s.buyer_email || "—")}</dd>
+            <dt>Country</dt><dd>${esc(s.buyer_country || "—")}${s.buyer_country_code ? ` (${esc(s.buyer_country_code)})` : ""}</dd>
+            <dt>VAT ID</dt><dd>${esc(s.buyer_vat_id || "—")}</dd>
+            <dt>Sale date</dt><dd>${esc(day(s.sale_date))}</dd>
+            ${s.paid_at ? `<dt>Paid</dt><dd>${esc(day(s.paid_at))}</dd>` : ""}
+            ${s.shipped_at ? `<dt>Shipped</dt><dd>${esc(day(s.shipped_at))}</dd>` : ""}
+            ${s.payment_note ? `<dt>Payment note</dt><dd>${esc(s.payment_note)}</dd>` : ""}
+          </dl>
+        </div>
+
+        <div class="group">
+          <h3>Notes</h3>
+          <textarea class="input notes" id="notesInput" aria-label="Notes">${esc(s.notes || "")}</textarea>
+          <div class="inline" style="margin-top:6px"><button class="act" id="notesSave" type="button">Save notes</button></div>
+        </div>
+
+        <div class="group"><h3>History</h3><div id="historyBox"></div></div>`;
+
+      drawHistory();
     }
 
-    $("newLabelFile").addEventListener("change", drawNewLabelRows);
+    $("panelClose").addEventListener("click", closePanel);
 
-    const trackingForFile = (i) => (document.querySelector(`[data-label-tracking="${i}"]`)?.value || "").trim();
-
-    $("uploadLabelBtn").addEventListener("click", async () => {
-      const files = [...$("newLabelFile").files];
-      if (!files.length) return toast("Choose the label files first (PDF, JPEG or PNG).");
-
-      $("uploadLabelBtn").disabled = true;
-      let added = 0;
-      let sale = null;
-
+    async function busy(button, work) {
+      if (button) button.disabled = true;
       try {
-        for (const [i, file] of files.entries()) {
-          $("uploadLabelBtn").textContent = `Uploading ${added + 1}/${files.length}…`;
-
-          ({ sale } = await api(`/api/admin/external-sales/label?id=${encodeURIComponent(state.detail.sale.id)}&tracking=${encodeURIComponent(trackingForFile(i))}`, {
-            method: "POST",
-            headers: { "Content-Type": labelContentType(file) },
-            body: file
-          }));
-
-          state.detail.sale = sale;
-          added += 1;
-        }
-
-        clearNewLabels();
-        $("editTracking").value = sale.tracking_numbers.join("\n");
-        await applySale(sale, `${added === 1 ? "Label" : `${added} labels`} uploaded. Status: ${sale.shipping_status}.`);
-      } catch (err) {
-        if (sale) await applySale(sale, `${added} added, then: ${err.message}`);
-        else toast(err.message);
-      } finally {
-        $("uploadLabelBtn").disabled = false;
-        $("uploadLabelBtn").textContent = "Upload";
-      }
-    });
-
-    $("editSave").addEventListener("click", async () => {
-      const s = state.detail.sale;
-      const body = { id: s.id };
-      const typed = $("editTracking").value;
-
-      if (typed.split(/[\s,;]+/).filter(Boolean).join(",") !== s.tracking_numbers.join(",")) body.tracking_numbers = typed;
-
-      const costs = $("editShipping").value.trim().replace(",", ".");
-      if (costs !== "" && Number(costs) !== Number(s.shipping_costs)) body.shipping_costs = costs;
-
-      if ($("editStatus").value) body.shipping_status = $("editStatus").value;
-
-      if (Object.keys(body).length === 1) {
-        $("editDialog").close();
-        return;
-      }
-
-      $("editSave").disabled = true;
-
-      try {
-        const { sale } = await api("/api/admin/external-sales/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        $("editDialog").close();
-        await applySale(sale, `Saved. Status: ${sale.shipping_status}.`);
+        await work();
       } catch (err) {
         toast(err.message);
       } finally {
-        $("editSave").disabled = false;
+        if (button && document.body.contains(button)) button.disabled = false;
       }
+    }
+
+    const update = (body, message) => postJson("/api/admin/external-sales/update", { id: state.detail.sale.id, ...body }).then((d) => applyDetail(d, message));
+
+    function drawNewLabelRows(files) {
+      $("newLabelRows").innerHTML = files.map((file, i) => `
+        <div class="parcel">
+          <span class="label-cell" title="${esc(file.name)}">${esc(file.name)}</span>
+          <input class="input" type="text" data-new-tracking="${i}" value="${esc(trackingFromFileName(file.name))}" placeholder="Tracking number (optional)" autocomplete="off">
+          <span></span>
+        </div>`).join("") + (files.length ? `<div class="inline"><button class="btn primary" id="uploadLabelsBtn" type="button">Upload ${files.length} label${files.length === 1 ? "" : "s"}</button><button class="btn ghost" id="clearLabelsBtn" type="button">Cancel</button></div>` : "");
+    }
+
+    $("panelBody").addEventListener("change", async (event) => {
+      if (event.target.id === "newLabels") {
+        drawNewLabelRows([...event.target.files]);
+        return;
+      }
+
+      const labelInput = event.target.closest("[data-parcel-label]");
+      if (labelInput?.files?.[0]) {
+        const file = labelInput.files[0];
+        await busy(null, async () => {
+          const d = await api(`/api/admin/external-sales/parcel/label?id=${encodeURIComponent(labelInput.dataset.parcelLabel)}`, { method: "POST", headers: { "Content-Type": labelContentType(file) }, body: file });
+          applyDetail(d, "Label added.");
+        });
+      }
+    });
+
+    $("panelBody").addEventListener("click", async (event) => {
+      const target = event.target;
+      const id = state.detail?.sale?.id;
+      if (!id) return;
+
+      if (target.id === "uploadLabelsBtn") {
+        const files = [...$("newLabels").files];
+        const trackings = files.map((_, i) => (document.querySelector(`[data-new-tracking="${i}"]`)?.value || "").trim());
+        return busy(target, async () => {
+          let added = 0;
+          try {
+            for (const [i, file] of files.entries()) {
+              target.textContent = `Uploading ${i + 1}/${files.length}…`;
+              const d = await api(`/api/admin/external-sales/parcel?sale=${encodeURIComponent(id)}&tracking=${encodeURIComponent(trackings[i])}`, { method: "POST", headers: { "Content-Type": labelContentType(file) }, body: file });
+              state.detail = { ...d, history: state.detail.history };
+              added += 1;
+            }
+            applyDetail(state.detail, `${added === 1 ? "Label" : `${added} labels`} added.`);
+          } catch (err) {
+            if (added) applyDetail(state.detail, `${added} added, then: ${err.message}`);
+            else throw err;
+          }
+        });
+      }
+
+      if (target.id === "clearLabelsBtn") {
+        $("newLabels").value = "";
+        $("newLabelRows").innerHTML = "";
+        return;
+      }
+
+      if (target.id === "addTrackingBtn") {
+        const tracking = $("newTracking").value.trim();
+        if (!tracking) return toast("Type the tracking number first.");
+        return busy(target, async () => {
+          const d = await api(`/api/admin/external-sales/parcel?sale=${encodeURIComponent(id)}&tracking=${encodeURIComponent(tracking)}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" } });
+          applyDetail(d, "Parcel added.");
+        });
+      }
+
+      if (target.dataset.parcelSave) {
+        const input = document.querySelector(`[data-parcel-tracking="${target.dataset.parcelSave}"]`);
+        if (input.value.trim() === input.dataset.was) return toast("Nothing changed.");
+        return busy(target, async () => {
+          const d = await postJson("/api/admin/external-sales/parcel/tracking", { id: target.dataset.parcelSave, tracking_number: input.value });
+          applyDetail(d, "Tracking saved.");
+        });
+      }
+
+      if (target.dataset.parcelRemove) {
+        if (!confirm("Remove this parcel, with its label and tracking number?")) return;
+        return busy(target, async () => {
+          const d = await postJson("/api/admin/external-sales/parcel/remove", { id: target.dataset.parcelRemove });
+          applyDetail(d, "Parcel removed.");
+        });
+      }
+
+      if (target.id === "markShippedBtn") {
+        if (!confirm(`Mark ${state.detail.sale.deal} as shipped? Normally Pack & Ship does this.`)) return;
+        return busy(target, () => update({ mark_shipped: true }, "Marked as shipped."));
+      }
+
+      if (target.id === "shippingSave") return busy(target, () => update({ shipping_costs: $("shippingInput").value }, "Shipping costs saved (in Airtable too)."));
+      if (target.id === "notesSave") return busy(target, () => update({ notes: $("notesInput").value }, "Notes saved."));
+
+      if (target.id === "pricesSave") {
+        const prices = [...document.querySelectorAll("[data-pair-price]")].map((input) => ({ id: input.dataset.pairPrice, selling_price: input.value.trim() }));
+        return busy(target, () => update({ pair_prices: prices }, "Prices saved."));
+      }
+
+      if (target.id === "refreshPurchase") return busy(target, () => update({ refresh_purchase: true }, "Purchase read again."));
+
+      if (target.id === "notInvoicedBtn") {
+        const reason = prompt("Why is this deal not invoiced? (for example: APLUG self-billing, test deal)");
+        if (!reason?.trim()) return;
+        return busy(target, () => update({ bookkeeping_status: "not_invoiced", reason }, "Marked as not invoiced."));
+      }
+
+      if (target.id === "toInvoiceBtn") return busy(target, () => update({ bookkeeping_status: "to_invoice" }, "Back on to invoice."));
     });
 
     drawNavSections();

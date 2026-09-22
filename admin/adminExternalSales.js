@@ -1,171 +1,431 @@
 // admin/adminExternalSales.js
 //
-// External Sales: sales of our own stock to outside buyers, made as an
-// outbound in the WMS (External Sales Log in the main base). The WMS takes
-// tracking and labels only at the moment the outbound is made; here they can
-// be added afterwards, the same way Forward Service does it for forwards.
+// External Sales: sales of our own stock to outside buyers. They live in
+// Supabase; see admin/externalSalesSync.js for how Airtable's External Sales
+// Log feeds them until the WMS writes to Supabase itself.
 //
-// Shipping Status follows what is on the sale: a tracking number or a label
-// makes it Ready to Ship - which is what puts it in the WMS Pack & Ship list -
-// and taking them all off puts it back on Pending. Shipped is never undone.
+// This screen shows every deal with its money, its parcels (a label and its
+// tracking number, one row per parcel) and a checks list: everything that is
+// missing or does not add up, each with the deal it is on.
 //
 // Every change goes through the action log, like the other buttons.
 
 import express from "express";
 import fs from "fs";
 import { LABEL_TYPES, labelUpload, trackingList } from "./adminForwarding.js";
+import {
+  EXTERNAL_SALES_LOG,
+  ExternalSalesError,
+  createExternalSalesSync,
+  createSupabaseRest,
+  dealId,
+  round2,
+  saleMoney
+} from "./externalSalesSync.js";
+
+export { ExternalSalesError };
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
-const first = (value) => (Array.isArray(value) ? value[0] : value);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const EXTERNAL_SALES_LOG = "External Sales Log";
-export const SALE_STATUSES = ["Pending", "Label(s) Generated", "Ready to Ship", "Shipped"];
+export const TABS = {
+  pending: (s) => s.shipping_status === "pending",
+  ready: (s) => s.shipping_status === "ready_to_ship",
+  shipped: (s) => s.shipping_status === "shipped",
+  cancelled: (s) => s.shipping_status === "cancelled",
+  all: () => true
+};
 
-const LIST_FIELDS = [
-  "External Deal ID", "Buyer Name", "Buyer ID (Lookup)", "Buyer Country", "Sale Date", "Created",
-  "Quantity", "SKUs", "Total Selling Price", "Selling VAT Type", "Shipping Costs", "Payment Status",
-  "Amount of Labels", "Tracking Numbers", "Shipping Labels", "Shipping Status", "Items per Parcel",
-  "Linked Inventory Units"
-];
-
-export class ExternalSalesError extends Error {
-  constructor(message, status = 400) {
-    super(message);
-    this.status = status;
-  }
-}
+const DAY = 86_400_000;
 
 /*
- * What the status becomes after the tracking or labels changed.
+ * Everything that is missing or does not add up.
  *
- * Label(s) Generated is kept when nothing is on the sale yet: someone set it
- * by hand to say a label is being made, and an empty edit should not undo
- * that. Pending and Label(s) Generated both leave for Ready to Ship the
- * moment there is something to ship with.
+ * error    wrong in the books or the money
+ * warning  needs someone to act
+ * info     expected for now, listed so nothing is forgotten
  */
-export function nextSaleStatus(current, trackingNumbers, labels) {
-  if (current === "Shipped") return "Shipped";
-  if (trackingNumbers.length || labels.length) return "Ready to Ship";
-  return current === "Label(s) Generated" ? current : "Pending";
-}
-
-export function saleRow(record) {
-  const f = record.fields || {};
-  const labels = (f["Shipping Labels"] || []).map((file) => ({ id: file.id, url: file.url, filename: file.filename }));
-
-  return {
-    id: record.id,
-    display_id: text(f["External Deal ID"]) || record.id,
-    buyer_name: text(first(f["Buyer Name"])),
-    buyer_id: text(first(f["Buyer ID (Lookup)"])),
-    buyer_country: text(first(f["Buyer Country"])),
-    sale_date: text(f["Sale Date"]),
-    created: text(f["Created"]),
-    quantity: Number(first(f["Quantity"])) || (f["Linked Inventory Units"] || []).length,
-    skus: text(f["SKUs"]),
-    selling_price: Number(f["Total Selling Price"]) || 0,
-    vat_type: text(f["Selling VAT Type"]),
-    shipping_costs: Number(f["Shipping Costs"]) || 0,
-    payment_status: text(f["Payment Status"]),
-    amount_of_labels: Number(f["Amount of Labels"]) || 0,
-    tracking_numbers: trackingList(f["Tracking Numbers"]),
-    labels,
-    shipping_status: text(f["Shipping Status"]) || "Pending",
-    items_per_parcel: text(f["Items per Parcel"]),
-    unit_ids: f["Linked Inventory Units"] || []
+export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, sync, now = Date.now() }) {
+  const checks = [];
+  const add = (key, severity, title, hint, items) => {
+    if (items.length) checks.push({ key, severity, title, hint, items });
   };
+
+  const live = sales.filter((s) => s.payment_status !== "cancelled");
+  const row = (s, detail = "") => ({ id: s.id, deal: dealId(s), buyer: s.buyer_name || "", detail });
+
+  if (sync?.error) {
+    checks.push({ key: "sync_down", severity: "error", title: "The Airtable sync failed", hint: "New outbounds and payments from Airtable are not coming in. The message says why.", items: [{ id: "", deal: "", buyer: "", detail: sync.error }] });
+  }
+
+  add("sync_errors", "error", "Deals the sync could not read", "Open the deal in Airtable and fix what the message says; the next sync picks it up.",
+    (sync?.errors || []).map((e) => ({ id: "", deal: e.deal, buyer: "", detail: e.message })));
+
+  add("missing_in_airtable", "error", "In Supabase, gone from Airtable", "The External Sales Log row was deleted. Check whether the deal really is off.",
+    (sync?.missing || []).map((m) => ({ id: m.sale, deal: m.deal, buyer: "", detail: "" })));
+
+  add("cancelled_invoiced", "error", "Cancelled, but invoiced", "Needs a credit invoice and a reversing journal entry.",
+    sales.filter((s) => s.payment_status === "cancelled" && s.bookkeeping_status === "invoiced").map((s) => row(s)));
+
+  add("invoice_without_journal", "error", "Invoice without its journal entry", "The stock correction (Voorraadcorrectie) is missing in Rompslomp.",
+    sales.flatMap((s) => (invoicesBySale.get(s.id) || []).filter((i) => i.kind === "sale" && !i.journal_entry_id).map((i) => row(s, i.invoice_number || i.rompslomp_invoice_id))));
+
+  add("purchase_missing", "error", "Pair without purchase price or VAT type", "Fill in VAT Type and Final Purchase Price on the Inventory Unit; the sync reads it again.",
+    live.flatMap((s) => (pairsBySale.get(s.id) || []).filter((p) => !p.purchase_vat_type || !(Number(p.purchase_price_ex_vat) > 0)).map((p) => row(s, `${p.item_id || p.inventory_unit_record_id} ${p.sku || ""} ${p.size || ""}`.trim()))));
+
+  add("no_pairs", "error", "Deal without pairs", "Link the Inventory Units to the deal in Airtable.",
+    live.filter((s) => !(pairsBySale.get(s.id) || []).length).map((s) => row(s)));
+
+  add("no_buyer", "error", "Deal without buyer", "Link the buyer in Airtable; the invoice needs one.",
+    live.filter((s) => !s.buyer_record_id).map((s) => row(s)));
+
+  const moneyOf = (s) => saleMoney(s, pairsBySale.get(s.id) || []);
+
+  add("loss", "warning", "Sold at a loss", "Selling excl. VAT is lower than purchase plus shipping. Check the prices.",
+    live.filter((s) => (moneyOf(s).profit ?? 0) < 0).map((s) => row(s, `€ ${moneyOf(s).profit.toFixed(2)}`)));
+
+  add("mixed_vat", "warning", "Mixed VAT types, no price per pair", "Enter the selling price per pair: the invoice and the profit need to know which part is margin and which is VAT.",
+    live.filter((s) => s.bookkeeping_status === "to_invoice" && moneyOf(s).selling_ex_vat === null && (pairsBySale.get(s.id) || []).length).map((s) => row(s)));
+
+  add("pair_prices_sum", "warning", "Prices per pair do not add up", "The prices per pair must add up to the deal's selling price.",
+    live.filter((s) => {
+      const pairs = pairsBySale.get(s.id) || [];
+      if (!pairs.length || pairs.some((p) => p.selling_price === null || p.selling_price === undefined)) return false;
+      return Math.abs(pairs.reduce((sum, p) => sum + Number(p.selling_price), 0) - Number(s.total_selling_price)) > 0.01;
+    }).map((s) => row(s, `€ ${(pairsBySale.get(s.id) || []).reduce((sum, p) => sum + Number(p.selling_price), 0).toFixed(2)} vs € ${Number(s.total_selling_price).toFixed(2)}`)));
+
+  add("paid_not_shipped", "warning", "Paid, not shipped after 3 days", "Check whether it left; Pack & Ship marks it Shipped.",
+    live.filter((s) => s.payment_status === "paid" && ["pending", "ready_to_ship"].includes(s.shipping_status) && now - new Date(s.paid_at || s.sale_date || s.created_at).getTime() > 3 * DAY).map((s) => row(s, s.shipping_status === "pending" ? "no label yet" : "ready to ship")));
+
+  add("shipped_no_tracking", "warning", "Shipped without tracking", "Add the tracking number to its parcel.",
+    live.filter((s) => s.shipping_status === "shipped" && !(parcelsBySale.get(s.id) || []).some((p) => p.tracking_number)).map((s) => row(s)));
+
+  add("labels_short", "warning", "Fewer labels than expected", "The outbound asked for more labels than the deal has.",
+    live.filter((s) => s.shipping_status === "ready_to_ship" && s.labels_needed > (parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length).map((s) => row(s, `${(parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length} of ${s.labels_needed}`)));
+
+  add("unpaid_old", "warning", "Unpaid after 14 days", "Chase the payment or cancel the deal.",
+    live.filter((s) => ["pending", "partially_paid"].includes(s.payment_status) && now - new Date(s.sale_date || s.created_at).getTime() > 14 * DAY).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : "")));
+
+  add("to_invoice", "info", "Still to invoice", "Invoicing from this screen comes in the next step; until then these are invoiced by hand.",
+    live.filter((s) => s.bookkeeping_status === "to_invoice").map((s) => row(s)));
+
+  return checks;
 }
 
-export function createExternalSalesStore({ airtable }) {
-  async function list({ status = "open" } = {}) {
-    const formula =
-      status === "open" ? `NOT({Shipping Status} = 'Shipped')`
-        : SALE_STATUSES.includes(status) ? `{Shipping Status} = '${status}'`
-          : status === "pending" ? `OR({Shipping Status} = 'Pending', {Shipping Status} = 'Label(s) Generated', {Shipping Status} = '')`
-            : "";
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, fetchImpl = fetch }) {
+  const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
 
-    const rows = [];
-    let offset = "";
-    let pages = 0;
-
-    // Shipped grows for ever; the newest five hundred are what anyone looks for.
-    do {
-      const page = await airtable.select(EXTERNAL_SALES_LOG, { formula, fields: LIST_FIELDS, sort: "Created", pageSize: 100, offset });
-      rows.push(...page.records.map(saleRow));
-      offset = page.offset;
-      pages += 1;
-    } while (offset && pages < 5);
-
-    return rows;
-  }
-
-  async function get(id) {
-    if (!/^rec[a-zA-Z0-9]{14}$/.test(text(id))) throw new ExternalSalesError("Unknown sale.");
-
-    const { records } = await airtable.select(EXTERNAL_SALES_LOG, {
-      formula: `RECORD_ID() = '${text(id)}'`,
-      fields: LIST_FIELDS,
-      pageSize: 1,
-      maxRecords: 1
+  const storeLabel = async ({ dealId: deal, filename, mime, bytes }) => {
+    const stored = await callWms("/api/upload-label-file", {
+      folder: "external-sales",
+      file_name: `${deal}-${filename}`,
+      file_data_url: `data:${mime};base64,${bytes.toString("base64")}`
     });
+    if (!stored?.url) throw new Error("The WMS did not store the label.");
+    return { url: stored.url, filename: stored.filename || `${deal}-${filename}` };
+  };
 
-    if (!records[0]) throw new ExternalSalesError("That sale no longer exists.", 404);
-    return saleRow(records[0]);
+  const sync = createExternalSalesSync({ airtable, db, storeLabel, fetchImpl });
+  let syncError = "";
+
+  async function runSync(options = {}) {
+    try {
+      const result = await sync.run(options);
+      if (!options.airtableId) syncError = "";
+      return result;
+    } catch (err) {
+      if (!options.airtableId) syncError = err.message;
+      throw err;
+    }
   }
 
-  async function units(ids) {
-    if (!ids.length) return [];
+  const syncState = () => {
+    const last = sync.lastRun();
+    return { at: last?.at || null, ms: last?.ms || 0, deals: last?.deals || 0, changed: last?.changed || [], errors: last?.errors || [], warnings: last?.warnings || [], missing: last?.missing || [], error: syncError };
+  };
 
-    // A Map of id -> fields.
-    const found = await airtable.byIds("Inventory Units", ids, ["Item ID", "Product Name", "Size", "SKU", "Picture"]);
+  async function loadAll() {
+    const [sales, pairs, parcels, links, invoices] = await Promise.all([
+      db.get("external_sales?select=*&order=deal_number.desc&limit=10000"),
+      db.get("external_sale_pairs?select=*&limit=50000"),
+      db.get("shipments?select=*&external_sale_id=not.is.null&order=created_at.asc&limit=50000"),
+      db.get("external_sale_invoice_deals?select=*&limit=50000"),
+      db.get("external_sale_invoices?select=*&limit=10000")
+    ]);
 
-    return [...found].map(([id, f]) => ({
-      id,
-      item_id: text(f["Item ID"]),
-      product: text(f["Product Name"]),
-      size: text(f["Size"]),
-      sku: text(f["SKU"]),
-      image: text(first(f["Picture"])?.thumbnails?.small?.url || first(f["Picture"])?.url)
-    }));
+    const group = (rows, key) => rows.reduce((map, r) => map.set(r[key], [...(map.get(r[key]) || []), r]), new Map());
+    const invoiceById = new Map(invoices.map((i) => [i.id, i]));
+    const invoicesBySale = new Map();
+    for (const link of links) {
+      const invoice = invoiceById.get(link.invoice_id);
+      if (invoice) invoicesBySale.set(link.sale_id, [...(invoicesBySale.get(link.sale_id) || []), invoice]);
+    }
+
+    return { sales, pairsBySale: group(pairs, "sale_id"), parcelsBySale: group(parcels, "external_sale_id"), invoicesBySale };
   }
 
-  async function update(id, fields) {
-    const record = await airtable.update(EXTERNAL_SALES_LOG, id, fields);
-    return saleRow(record);
+  function listRow(s, data) {
+    const pairs = data.pairsBySale.get(s.id) || [];
+    const parcels = data.parcelsBySale.get(s.id) || [];
+    return {
+      id: s.id,
+      deal: dealId(s),
+      airtable_record_id: s.airtable_record_id,
+      buyer_name: s.buyer_name,
+      buyer_company: s.buyer_company,
+      buyer_country: s.buyer_country,
+      sale_date: s.sale_date,
+      skus: [...new Set(pairs.map((p) => p.sku).filter(Boolean))].join(", "),
+      payment_status: s.payment_status,
+      shipping_status: s.shipping_status,
+      bookkeeping_status: s.bookkeeping_status,
+      labels_needed: s.labels_needed,
+      labels: parcels.filter((p) => p.label_url).length,
+      tracking: parcels.map((p) => p.tracking_number).filter(Boolean),
+      invoices: (data.invoicesBySale.get(s.id) || []).map((i) => i.invoice_number).filter(Boolean),
+      money: saleMoney(s, pairs)
+    };
+  }
+
+  async function list(tab = "all") {
+    const data = await loadAll();
+    const keep = TABS[tab] || TABS.all;
+    return data.sales.filter(keep).map((s) => listRow(s, data));
+  }
+
+  async function saleById(id) {
+    if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown deal.");
+    const [sale] = await db.get(`external_sales?select=*&id=eq.${text(id)}`);
+    if (!sale) throw new ExternalSalesError("That deal no longer exists.", 404);
+    return sale;
+  }
+
+  async function detail(id) {
+    const sale = await saleById(id);
+    const [pairs, parcels, links] = await Promise.all([
+      db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&order=created_at.asc`),
+      db.get(`shipments?select=*&external_sale_id=eq.${sale.id}&order=created_at.asc`),
+      db.get(`external_sale_invoice_deals?select=invoice_id&sale_id=eq.${sale.id}`)
+    ]);
+    const invoices = links.length
+      ? await db.get(`external_sale_invoices?select=*&id=in.(${links.map((l) => `"${l.invoice_id}"`).join(",")})`)
+      : [];
+
+    return { sale: { ...sale, deal: dealId(sale) }, pairs, parcels, invoices, money: saleMoney(sale, pairs) };
+  }
+
+  async function checks() {
+    return externalSalesChecks({ ...(await loadAll()), sync: syncState() });
   }
 
   async function counts() {
-    const { records } = await airtable.select(EXTERNAL_SALES_LOG, {
-      formula: `NOT({Shipping Status} = 'Shipped')`,
-      fields: ["Shipping Status"],
-      pageSize: 100
-    });
-
-    const result = { pending: 0, ready: 0 };
-    for (const record of records) {
-      if (text(record.fields?.["Shipping Status"]) === "Ready to Ship") result.ready += 1;
-      else result.pending += 1;
-    }
-    return result;
+    const data = await loadAll();
+    const all = externalSalesChecks({ ...data, sync: syncState() });
+    return {
+      pending: data.sales.filter(TABS.pending).length,
+      ready: data.sales.filter(TABS.ready).length,
+      checks: all.filter((c) => c.severity !== "info").reduce((sum, c) => sum + c.items.length, 0)
+    };
   }
 
-  return { list, get, units, update, counts };
+  /* ----- edits ----- */
+
+  const parcelOf = async (id) => {
+    if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown parcel.");
+    const [parcel] = await db.get(`shipments?select=*&id=eq.${text(id)}`);
+    if (!parcel?.external_sale_id) throw new ExternalSalesError("That parcel no longer exists.", 404);
+    return parcel;
+  };
+
+  const cleanTracking = (value) => {
+    const tracking = text(value).replace(/\s+/g, "");
+    if (tracking && !/^[A-Za-z0-9-]{6,40}$/.test(tracking)) throw new ExternalSalesError("That is not a tracking number: letters and digits only, 6 to 40 long.");
+    return tracking || null;
+  };
+
+  // A new parcel: a label, a tracking number, or both.
+  async function addParcel(id, { file, tracking }) {
+    const sale = await saleById(id);
+    const number = cleanTracking(tracking);
+    const kind = file ? labelUpload(file) : null;
+
+    if (file && !kind) throw new ExternalSalesError("The label must be a PDF, JPEG or PNG file.");
+    if (!kind && !number) throw new ExternalSalesError("Add a label, a tracking number, or both.");
+
+    return sync.edit(sale, async (fresh, parcels) => {
+      if (number && parcels.some((p) => p.tracking_number === number)) throw new ExternalSalesError(`${number} is already on this deal.`);
+
+      const stored = kind ? await storeLabel({ dealId: dealId(fresh), filename: `${number || "label"}.${kind.ext}`, mime: kind.mime, bytes: file }) : null;
+      await db.insert("shipments", [{
+        external_sale_id: fresh.id,
+        tracking_number: number,
+        label_url: stored?.url || null,
+        label_filename: stored?.filename || null,
+        airtable_attachment_id: null
+      }]);
+    });
+  }
+
+  // A label added to a parcel that had only its tracking number, or replaced.
+  async function setParcelLabel(parcelId, file) {
+    const parcel = await parcelOf(parcelId);
+    const kind = labelUpload(file);
+    if (!kind) throw new ExternalSalesError("The label must be a PDF, JPEG or PNG file.");
+    const sale = await saleById(parcel.external_sale_id);
+
+    return sync.edit(sale, async (fresh) => {
+      const stored = await storeLabel({ dealId: dealId(fresh), filename: `${parcel.tracking_number || "label"}.${kind.ext}`, mime: kind.mime, bytes: file });
+      await db.patch(`shipments?id=eq.${parcel.id}`, { label_url: stored.url, label_filename: stored.filename, airtable_attachment_id: null });
+    });
+  }
+
+  async function setParcelTracking(parcelId, tracking) {
+    const parcel = await parcelOf(parcelId);
+    const number = cleanTracking(tracking);
+    if (!number && !parcel.label_url) throw new ExternalSalesError("A parcel without a label needs its tracking number. Remove the parcel instead.");
+    const sale = await saleById(parcel.external_sale_id);
+
+    return sync.edit(sale, async (fresh, parcels) => {
+      if (number && parcels.some((p) => p.id !== parcel.id && p.tracking_number === number)) throw new ExternalSalesError(`${number} is already on another parcel of this deal.`);
+      await db.patch(`shipments?id=eq.${parcel.id}`, { tracking_number: number });
+    });
+  }
+
+  async function removeParcel(parcelId) {
+    const parcel = await parcelOf(parcelId);
+    const sale = await saleById(parcel.external_sale_id);
+    return sync.edit(sale, async () => {
+      await db.remove(`shipments?id=eq.${parcel.id}`);
+    });
+  }
+
+  async function markShipped(id) {
+    const sale = await saleById(id);
+    if (sale.shipping_status === "cancelled") throw new ExternalSalesError("This deal is cancelled.");
+    return sync.edit(sale, async (fresh) => {
+      if (fresh.shipping_status !== "shipped") {
+        await db.patch(`external_sales?id=eq.${fresh.id}`, { shipping_status: "shipped", shipped_at: new Date().toISOString() });
+      }
+    });
+  }
+
+  // Shipping costs still belong to Airtable until step 5: written there and
+  // read back.
+  async function setShippingCosts(id, value) {
+    const costs = Number(String(value).replace(",", "."));
+    if (!Number.isFinite(costs) || costs < 0) throw new ExternalSalesError("Shipping costs cannot be negative.");
+    const sale = await saleById(id);
+    if (!sale.airtable_record_id) throw new ExternalSalesError("This deal is not in Airtable.");
+
+    return sync.edit(sale, async (fresh) => {
+      await airtable.update(EXTERNAL_SALES_LOG, fresh.airtable_record_id, { "Shipping Costs": round2(costs) });
+      return { reload: true, mirror: false };
+    });
+  }
+
+  async function setNotes(id, notes) {
+    const sale = await saleById(id);
+    const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, { notes: text(notes) || null });
+    return saved;
+  }
+
+  /*
+   * Whether a deal goes to the books. Only by hand between "to invoice" and
+   * "not invoiced" (APLUG's self-billing, a test deal); "invoiced" and
+   * "credited" are set by the invoicing itself, never by hand.
+   */
+  async function setBookkeeping(id, status, reason) {
+    const sale = await saleById(id);
+    if (!["to_invoice", "not_invoiced"].includes(status)) throw new ExternalSalesError("Only 'to invoice' and 'not invoiced' can be set by hand.");
+    if (["invoiced", "credited"].includes(sale.bookkeeping_status)) throw new ExternalSalesError("This deal is already in the books; that needs a credit invoice, not a switch.");
+    if (status === "not_invoiced" && !text(reason)) throw new ExternalSalesError("Say why this deal is not invoiced.");
+
+    const notes = status === "not_invoiced" ? [text(sale.notes), `Not invoiced: ${text(reason)}`].filter(Boolean).join("\n") : sale.notes;
+    const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, { bookkeeping_status: status, notes });
+    return saved;
+  }
+
+  // Selling price per pair; empty clears it. The VAT type follows the
+  // purchase and the buyer (see sellingVatType) and is not typed.
+  async function setPairPrices(id, prices) {
+    const sale = await saleById(id);
+    if (["invoiced", "credited"].includes(sale.bookkeeping_status)) throw new ExternalSalesError("This deal is invoiced; its prices are on the invoice.");
+
+    const pairs = await db.get(`external_sale_pairs?select=id,selling_price&sale_id=eq.${sale.id}`);
+    const known = new Set(pairs.map((p) => p.id));
+    const changed = [];
+
+    for (const entry of prices || []) {
+      if (!known.has(entry?.id)) throw new ExternalSalesError("That pair is not on this deal.");
+      const raw = text(entry.selling_price).replace(",", ".");
+      const price = raw === "" ? null : Number(raw);
+      if (price !== null && (!Number.isFinite(price) || price < 0)) throw new ExternalSalesError("A price cannot be negative.");
+      await db.patch(`external_sale_pairs?id=eq.${entry.id}`, { selling_price: price === null ? null : round2(price) });
+      changed.push({ id: entry.id, to: price });
+    }
+
+    return changed;
+  }
+
+  // Reads the purchase of every pair again from Airtable. Only before the
+  // deal is invoiced: after that the books have the old numbers.
+  async function refreshPurchase(id) {
+    const sale = await saleById(id);
+    if (["invoiced", "credited"].includes(sale.bookkeeping_status)) throw new ExternalSalesError("This deal is invoiced; its purchase is booked.");
+
+    const pairs = await db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}`);
+    const units = await airtable.byIds("Inventory Units", pairs.map((p) => p.inventory_unit_record_id), ["VAT Type", "Final Purchase Price", "Final Purchase Price (ex. VAT)"]);
+    const changed = [];
+
+    for (const pair of pairs) {
+      const u = units.get(pair.inventory_unit_record_id);
+      if (!u) continue;
+      const vat = ["Margin", "VAT0", "VAT21"].includes(text(u["VAT Type"])) ? text(u["VAT Type"]) : null;
+      const price = round2(vat === "VAT21" ? u["Final Purchase Price (ex. VAT)"] : u["Final Purchase Price"]);
+      if (vat === pair.purchase_vat_type && price === Number(pair.purchase_price_ex_vat)) continue;
+      await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { purchase_vat_type: vat, purchase_price_ex_vat: price });
+      changed.push({ item: pair.item_id, from: { vat: pair.purchase_vat_type, price: Number(pair.purchase_price_ex_vat) }, to: { vat, price } });
+    }
+
+    // The selling VAT follows the purchase: let the sync set it again.
+    if (changed.length && sale.airtable_record_id) await runSync({ airtableId: sale.airtable_record_id });
+    return changed;
+  }
+
+  return {
+    configured: db.configured,
+    runSync,
+    syncState,
+    list,
+    detail,
+    checks,
+    counts,
+    addParcel,
+    setParcelLabel,
+    setParcelTracking,
+    removeParcel,
+    markShipped,
+    setShippingCosts,
+    setNotes,
+    setBookkeeping,
+    setPairPrices,
+    refreshPurchase
+  };
 }
 
-// Airtable keeps an attachment only when it is sent back by id.
-const keepLabels = (labels) => labels.map((label) => (label.id ? { id: label.id } : { url: label.url, filename: label.filename }));
-
-export function mountExternalSales(router, { store, audit, callWms, pageFile }) {
+export function mountExternalSales(router, { store, audit, pageFile }) {
   const page = pageFile && fs.existsSync(pageFile) ? fs.readFileSync(pageFile, "utf8") : "";
 
   const send = (res, err) => {
     const status = err instanceof ExternalSalesError ? err.status : 500;
     if (status >= 500) console.error("[admin external sales]", err.message);
-    res.status(status).json({ error: err instanceof ExternalSalesError ? err.message : "External Sales failed." });
+    res.status(status).json({ error: err instanceof ExternalSalesError ? err.message : `External Sales failed: ${err.message}` });
   };
 
-  const log = (req, action, row, details) =>
-    audit.record({ actor: req.admin, action, source: "external_sales", recordId: row.id, label: row.display_id, details });
+  const log = (req, action, sale, details) =>
+    audit.record({ actor: req.admin, action, source: "external_sales", recordId: sale.id, label: dealId(sale), details }).catch(() => {});
+
+  const detailFor = async (res, id) => res.json(await store.detail(id));
 
   router.get(["/admin/external-sales", "/admin/external-sales/"], (req, res) => {
     res.set("Cache-Control", "no-store");
@@ -175,7 +435,15 @@ export function mountExternalSales(router, { store, audit, callWms, pageFile }) 
 
   router.get("/api/admin/external-sales", async (req, res) => {
     try {
-      res.json({ sales: await store.list({ status: text(req.query.status) || "open" }) });
+      res.json({ sales: await store.list(text(req.query.tab) || "all"), sync: store.syncState() });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/external-sales/checks", async (req, res) => {
+    try {
+      res.json({ checks: await store.checks(), sync: store.syncState() });
     } catch (err) {
       send(res, err);
     }
@@ -183,108 +451,99 @@ export function mountExternalSales(router, { store, audit, callWms, pageFile }) 
 
   router.get("/api/admin/external-sales/get", async (req, res) => {
     try {
-      const sale = await store.get(req.query.id);
-      const [units, history] = await Promise.all([store.units(sale.unit_ids), audit.forRecord(sale.id).catch(() => [])]);
-      res.json({ sale, units, history });
+      const out = await store.detail(req.query.id);
+      const history = [
+        ...(await audit.forRecord(out.sale.id).catch(() => [])),
+        ...(out.sale.airtable_record_id ? await audit.forRecord(out.sale.airtable_record_id).catch(() => []) : [])
+      ].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      res.json({ ...out, history });
     } catch (err) {
       send(res, err);
     }
   });
 
-  // Tracking numbers, a label taken off, or a status by hand.
+  router.post("/api/admin/external-sales/sync", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const result = await store.runSync();
+      res.json({ sync: store.syncState(), changed: result.changed.length, errors: result.errors.length });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // A new parcel. The body is the label file, or empty for tracking only.
+  router.post("/api/admin/external-sales/parcel", express.raw({ type: [...LABEL_TYPES, "application/octet-stream"], limit: "10mb" }), async (req, res) => {
+    try {
+      const file = Buffer.isBuffer(req.body) && req.body.length ? req.body : null;
+      const sale = await store.addParcel(req.query.sale, { file, tracking: req.query.tracking });
+      await log(req, "external_sale_parcel_added", sale, { tracking: text(req.query.tracking) || null, label: Boolean(file) });
+      await detailFor(res, sale.id);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/external-sales/parcel/label", express.raw({ type: LABEL_TYPES, limit: "10mb" }), async (req, res) => {
+    try {
+      const sale = await store.setParcelLabel(req.query.id, req.body);
+      await log(req, "external_sale_parcel_label", sale, { parcel: text(req.query.id) });
+      await detailFor(res, sale.id);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/external-sales/parcel/tracking", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const sale = await store.setParcelTracking(req.body?.id, req.body?.tracking_number);
+      await log(req, "external_sale_parcel_tracking", sale, { parcel: text(req.body?.id), tracking: text(req.body?.tracking_number) || null });
+      await detailFor(res, sale.id);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/external-sales/parcel/remove", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const sale = await store.removeParcel(req.body?.id);
+      await log(req, "external_sale_parcel_removed", sale, { parcel: text(req.body?.id) });
+      await detailFor(res, sale.id);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Everything else on a deal, one change per call.
   router.post("/api/admin/external-sales/update", express.json({ limit: "50kb" }), async (req, res) => {
     try {
-      const before = await store.get(req.body?.id);
-      const fields = {};
-      const changed = {};
+      const id = req.body?.id;
+      const before = (await store.detail(id)).sale;
+      let details;
 
-      let tracking = before.tracking_numbers;
-      let labels = before.labels;
-
-      if (req.body?.tracking_numbers !== undefined) {
-        tracking = trackingList(req.body.tracking_numbers);
-        fields["Tracking Numbers"] = tracking.join(", ");
-        changed.tracking_numbers = { from: before.tracking_numbers, to: tracking };
+      if (req.body?.mark_shipped) {
+        await store.markShipped(id);
+        details = { shipping_status: { from: before.shipping_status, to: "shipped" } };
+      } else if (req.body?.shipping_costs !== undefined) {
+        await store.setShippingCosts(id, req.body.shipping_costs);
+        details = { shipping_costs: { from: Number(before.shipping_costs), to: text(req.body.shipping_costs) } };
+      } else if (req.body?.notes !== undefined) {
+        await store.setNotes(id, req.body.notes);
+        details = { notes: { from: before.notes, to: text(req.body.notes) } };
+      } else if (req.body?.bookkeeping_status) {
+        await store.setBookkeeping(id, text(req.body.bookkeeping_status), req.body.reason);
+        details = { bookkeeping_status: { from: before.bookkeeping_status, to: text(req.body.bookkeeping_status) }, reason: text(req.body.reason) || null };
+      } else if (Array.isArray(req.body?.pair_prices)) {
+        details = { pair_prices: await store.setPairPrices(id, req.body.pair_prices) };
+      } else if (req.body?.refresh_purchase) {
+        details = { purchase: await store.refreshPurchase(id) };
+      } else {
+        throw new ExternalSalesError("Nothing to change.");
       }
 
-      if (text(req.body?.remove_label_url)) {
-        labels = labels.filter((label) => label.url !== text(req.body.remove_label_url));
-        fields["Shipping Labels"] = keepLabels(labels);
-        changed.label_removed = text(req.body.remove_label_url);
-      }
-
-      if (req.body?.shipping_costs !== undefined) {
-        const costs = Number(String(req.body.shipping_costs).replace(",", "."));
-        if (!Number.isFinite(costs) || costs < 0) throw new ExternalSalesError("Shipping costs cannot be negative.");
-        fields["Shipping Costs"] = Math.round(costs * 100) / 100;
-        changed.shipping_costs = { from: before.shipping_costs, to: fields["Shipping Costs"] };
-      }
-
-      if (fields["Tracking Numbers"] !== undefined || fields["Shipping Labels"]) {
-        fields["Shipping Status"] = nextSaleStatus(before.shipping_status, tracking, labels);
-      }
-
-      if (text(req.body?.shipping_status)) {
-        const wanted = text(req.body.shipping_status);
-        if (!SALE_STATUSES.includes(wanted)) throw new ExternalSalesError("Unknown shipping status.");
-        if (before.shipping_status === "Shipped" && wanted !== "Shipped") {
-          throw new ExternalSalesError("This sale is already shipped.");
-        }
-        fields["Shipping Status"] = wanted;
-      }
-
-      if (fields["Shipping Status"] && fields["Shipping Status"] !== before.shipping_status) {
-        changed.shipping_status = { from: before.shipping_status, to: fields["Shipping Status"] };
-      }
-
-      if (!Object.keys(fields).length) return res.json({ sale: before });
-
-      const sale = await store.update(before.id, fields);
-      await log(req, "external_sale_update", sale, { changed });
-      res.json({ sale });
+      await log(req, "external_sale_update", before, details);
+      await detailFor(res, before.id);
     } catch (err) {
       send(res, err);
     }
   });
-
-  // One label PDF, with the tracking number printed on it if there is one.
-  router.post(
-    "/api/admin/external-sales/label",
-    express.raw({ type: LABEL_TYPES, limit: "10mb" }),
-    async (req, res) => {
-      try {
-        const before = await store.get(req.query.id);
-        const tracking = text(req.query.tracking).replace(/\s+/g, "");
-        const kind = labelUpload(req.body);
-
-        if (!kind) throw new ExternalSalesError("The label must be a PDF, JPEG or PNG file.");
-
-        if (tracking && !/^[A-Za-z0-9-]{6,40}$/.test(tracking)) {
-          throw new ExternalSalesError("Enter the tracking number from the label.");
-        }
-
-        const stored = await callWms("/api/upload-label-file", {
-          folder: "external-sales",
-          file_name: `${before.display_id}${tracking ? `-${tracking}` : ""}.${kind.ext}`,
-          file_data_url: `data:${kind.mime};base64,${req.body.toString("base64")}`,
-          tracking
-        });
-
-        const labels = [...before.labels, { url: stored.url, filename: stored.filename }];
-        // (The WMS stored it as a PDF, whatever came in.)
-        const trackingNumbers = trackingList([...before.tracking_numbers, tracking]);
-
-        const sale = await store.update(before.id, {
-          "Shipping Labels": keepLabels(labels),
-          "Tracking Numbers": trackingNumbers.join(", "),
-          "Shipping Status": nextSaleStatus(before.shipping_status, trackingNumbers, labels)
-        });
-
-        await log(req, "external_sale_label", sale, { tracking, label: stored.url });
-        res.json({ sale });
-      } catch (err) {
-        send(res, err);
-      }
-    }
-  );
 }

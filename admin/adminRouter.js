@@ -252,7 +252,7 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   pageFile        private/admin.html
  *   supabaseUrl, serviceKey  for Forward Service (forwarding_log)
  */
-export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch }) {
+export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch, externalSalesSyncMs = 5 * 60_000 }) {
   const router = express.Router();
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
@@ -394,16 +394,31 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-bol-pages.html") : ""
   });
 
-  // External Sales: tracking and labels added after the WMS outbound
-  // (admin/adminExternalSales.js, private/admin-external-sales.html).
-  const externalSalesStore = createExternalSalesStore({ airtable });
+  // External Sales: deals, parcels, money and checks, in Supabase
+  // (admin/adminExternalSales.js, admin/externalSalesSync.js,
+  // private/admin-external-sales.html).
+  const externalSalesStore = createExternalSalesStore({
+    airtable,
+    supabaseUrl,
+    serviceKey,
+    callWms: (pathName, body) => deps.callWms(pathName, body),
+    fetchImpl
+  });
 
   mountExternalSales(router, {
     store: externalSalesStore,
     audit,
-    callWms: (pathName, body) => deps.callWms(pathName, body),
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-external-sales.html") : ""
   });
+
+  // Until the WMS writes to Supabase (step 5), new outbounds, payments and
+  // "Shipped" arrive in Airtable: read them every five minutes. unref: the
+  // timer never keeps the process (or a test) alive on its own.
+  if (enabled && externalSalesStore.configured && externalSalesSyncMs > 0) {
+    const tick = () => externalSalesStore.runSync().catch((err) => console.error("[external sales sync]", err.message));
+    setTimeout(tick, 20_000).unref?.();
+    setInterval(tick, externalSalesSyncMs).unref?.();
+  }
 
   /*
    * Counts for the sidebar, every tab at once.
@@ -473,12 +488,15 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
     Object.assign(tabs, lastMoneyCounts);
 
-    try {
-      const sales = await externalSalesStore.counts();
-      tabs["external/pending"] = sales.pending;
-      tabs["external/ready"] = sales.ready;
-    } catch (err) {
-      console.error("[admin] external sales counts failed:", err.message);
+    if (externalSalesStore.configured) {
+      try {
+        const sales = await externalSalesStore.counts();
+        tabs["external/pending"] = sales.pending;
+        tabs["external/ready"] = sales.ready;
+        tabs["external/checks"] = sales.checks;
+      } catch (err) {
+        console.error("[admin] external sales counts failed:", err.message);
+      }
     }
 
     if (forwardingCounts.configured) {
