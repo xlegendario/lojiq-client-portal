@@ -50,6 +50,18 @@ export function routeOfInvoice(invoice) {
   return routes.length === 1 && routes[0] !== "?" ? routes[0] : null;
 }
 
+// Invoices are due in 7 days, always (Dario, 22-09-2026) - sent with the
+// invoice so it never depends on Rompslomp's company setting. Dated in Dutch
+// time, so an invoice made just after midnight is not a day off.
+export const PAYMENT_DAYS = 7;
+
+export function invoiceDates(now = new Date()) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(now);
+  const due = new Date(`${today}T12:00:00Z`);
+  due.setUTCDate(due.getUTCDate() + PAYMENT_DAYS);
+  return { date: today, due_date: due.toISOString().slice(0, 10) };
+}
+
 const euroText = (n) => `€${Number.isInteger(Number(n)) ? Number(n) : Number(n).toFixed(2)}`;
 
 /*
@@ -123,7 +135,7 @@ export function pairLines(pairs, priced) {
 
 export const apiReference = (sale, route) => `${dealId(sale)}-${route}`;
 
-export function salesInvoiceBody({ sale, invoice, contactId }) {
+export function salesInvoiceBody({ sale, invoice, contactId, now = new Date() }) {
   const route = ROUTES[invoice.route];
 
   // VAT21 prices go to Rompslomp excl. VAT; it adds the 21% itself. Five
@@ -147,6 +159,7 @@ export function salesInvoiceBody({ sale, invoice, contactId }) {
 
   return {
     sales_invoice: {
+      ...invoiceDates(now),
       payment_method: "pay_transfer",
       description: "",
       contact_id: Number(contactId),
@@ -185,7 +198,7 @@ export function journalBody({ route, invoiceNumber, date, amount, reverse = fals
 
 // The credit invoice, the way the ones made by hand look: minus the same
 // amount, same VAT type, "Creditfactuur voor factuur: KC...".
-export function creditInvoiceBody({ original, reference }) {
+export function creditInvoiceBody({ original, reference, now = new Date() }) {
   const lines = (original.invoice_lines || []).map((line) => ({
     description: `Credit: ${text(line.description)}`,
     extended_description: text(line.extended_description),
@@ -198,6 +211,7 @@ export function creditInvoiceBody({ original, reference }) {
 
   return {
     sales_invoice: {
+      ...invoiceDates(now),
       payment_method: "pay_transfer",
       description: `Creditfactuur voor factuur: ${original.invoice_number}`,
       contact_id: original.contact_id,
@@ -262,6 +276,7 @@ export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs }) {
     subject: `Your invoice ${numbers} for ${dealId(sale)}`,
     text:
       `Dear ${name},\n\nPlease find attached ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)}.\n` +
+      `Payment is due within ${PAYMENT_DAYS} days of the invoice date; please mention the invoice number with your payment.\n\n` +
       `If you have any questions, email us at ${replyTo || "info@kickzcaviar.nl"} - replies to this address are not read.\n\n` +
       "Thank you for your business.\n\nKind regards,\nKickz Caviar",
     attachments: pdfs.map((pdf, i) => ({

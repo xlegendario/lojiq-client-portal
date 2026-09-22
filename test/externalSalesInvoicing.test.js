@@ -347,3 +347,14 @@ test("the mail comes from noreply and points questions to info@", async () => {
   assert.equal(m.replyTo, "info@kickzcaviar.nl");
   assert.match(m.text, /email us at info@kickzcaviar.nl/);
 });
+
+test("every invoice is due in 7 days, dated in Dutch time", async () => {
+  const { invoiceDates } = await import("../admin/externalSalesInvoicing.js");
+  assert.deepEqual(invoiceDates(new Date("2026-09-22T10:00:00Z")), { date: "2026-09-22", due_date: "2026-09-29" });
+  // 23:30 UTC on the 30th is already 1 October in Amsterdam.
+  assert.deepEqual(invoiceDates(new Date("2026-09-30T23:30:00Z")), { date: "2026-10-01", due_date: "2026-10-08" });
+  const [inv] = invoicePlanFor(sale(), [pair()]).invoices;
+  const body = salesInvoiceBody({ sale: sale(), invoice: inv, contactId: 1, now: new Date("2026-12-28T09:00:00Z") }).sales_invoice;
+  assert.equal(body.date, "2026-12-28");
+  assert.equal(body.due_date, "2027-01-04");
+});
