@@ -101,6 +101,9 @@
     .input:focus, .select:focus { border-color: var(--primary); outline: none; }
     .btn { height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; font-weight: 700; white-space: nowrap; }
     .btn:hover { border-color: var(--hover-border); }
+    /* A link that is a button: the height above only works with a box. */
+    a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+    a.btn.primary { color: #fff; }
     .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
     .btn:disabled { opacity: 0.55; cursor: default; }
     .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
@@ -412,6 +415,7 @@
           <option value="shipped">Shipped</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <a class="btn primary" id="createOutbound" href="https://lojiq-wms.onrender.com/create-outbound.html" target="_blank" rel="noopener">+ Create Outbound</a>
         <span class="count" id="count"></span>
       </div>
 
@@ -760,7 +764,7 @@
 
       return state.sales.filter((s) =>
         (!status || s.shipping_status === status) &&
-        (!query || [s.deal, s.buyer_name, s.buyer_company, ...(s.skus || []), ...(s.tracking || []), ...(s.invoices || [])].join(" ").toLowerCase().includes(query)));
+        (!query || [s.deal, s.buyer_name, s.buyer_company, ...(s.skus || []), ...(s.tracking || []).map((t) => t.number), ...(s.invoices || [])].join(" ").toLowerCase().includes(query)));
     }
 
     // SKUs on one line: the first two, then "+3 more". The deal shows them all.

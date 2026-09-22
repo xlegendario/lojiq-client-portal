@@ -151,7 +151,9 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   add("shipped_no_tracking", "warning", "Shipped without tracking", "Add the tracking number to its parcel.",
     live.filter((s) => s.shipping_status === "shipped" && !s.airtable_record_id && !(parcelsBySale.get(s.id) || []).some((p) => plausibleTracking(p.tracking_number))).map((s) => row(s)));
 
-  add("labels_short", "warning", "Fewer labels than expected", "The outbound asked for more labels than the deal has.",
+  // Since 22-09-2026 the number of labels is the number of parcels entered
+  // at Create Outbound, so this says: a parcel whose label is still missing.
+  add("labels_short", "warning", "Parcel without its label", "Open the deal and add the label to the parcel; Pack & Ship needs it.",
     live.filter((s) => s.shipping_status === "ready_to_ship" && s.labels_needed > (parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length).map((s) => row(s, `${(parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length} of ${s.labels_needed}`)));
 
   add("invoice_not_sent", "warning", "Invoice not mailed to the buyer", "Open the deal and click Send invoice again - the message there says why it failed.",
