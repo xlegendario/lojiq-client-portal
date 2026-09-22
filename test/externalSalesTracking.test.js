@@ -40,7 +40,7 @@ test("delivered is never taken back, and a problem is written down", () => {
 
 test("a deal is delivered when its last parcel is, dated by that parcel", () => {
   const sale = { shipping_status: "shipped" };
-  const first = { tracking_number: "1Z1", status: "delivered", delivered_at: "2026-09-24T10:00:00.000Z" };
+  const first = { tracking_number: "1ZAAA1111111111111", status: "delivered", delivered_at: "2026-09-24T10:00:00.000Z" };
   const second = { tracking_number: "1Z2", status: "in_transit", delivered_at: null };
 
   assert.equal(dealDelivery(sale, [first, second]), null);
@@ -62,7 +62,7 @@ test("what the engine found is written to the parcels and rolls up to the deal",
       { id: "s1", deal_number: 81, shipping_status: "shipped", payment_status: "pending", delivered_at: null }
     ],
     shipments: [
-      { id: P1, external_sale_id: "s1", tracking_number: "1Z1", status: "in_transit", delivered_at: null, shipped_at: "2026-09-24T08:00:00.000Z" },
+      { id: P1, external_sale_id: "s1", tracking_number: "1ZAAA1111111111111", status: "in_transit", delivered_at: null, shipped_at: "2026-09-24T08:00:00.000Z" },
       { id: P2, external_sale_id: "s1", tracking_number: "1Z2", status: "in_transit", delivered_at: null, shipped_at: "2026-09-24T08:00:00.000Z" }
     ]
   });
@@ -100,7 +100,7 @@ test("the engine is handed parcels with their deal number and nothing else", asy
       asked.push(query);
       return [{
         id: "p1",
-        tracking_number: "1Z1",
+        tracking_number: "1ZAAA1111111111111",
         status: "in_transit",
         carrier: "ups",
         tracking_checked_at: null,
@@ -111,7 +111,7 @@ test("the engine is handed parcels with their deal number and nothing else", asy
   };
 
   const [parcel] = await createExternalSalesTracking({ db }).openParcels({ limit: 5 });
-  assert.deepEqual(parcel, { id: "p1", deal: "EXTD-000081", tracking_number: "1Z1", carrier: "ups", status: "in_transit", checked_at: null });
+  assert.deepEqual(parcel, { id: "p1", deal: "EXTD-000081", tracking_number: "1ZAAA1111111111111", carrier: "ups", status: "in_transit", checked_at: null });
 
   // Only parcels that can still move, on deals that have left.
   assert.match(asked[0], /status=neq\.delivered/);

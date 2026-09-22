@@ -24,7 +24,7 @@ import {
 } from "./externalSalesSync.js";
 import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
 import { createOutboundMaker } from "./externalSalesCreate.js";
-import { createExternalSalesTracking } from "./externalSalesTracking.js";
+import { createExternalSalesTracking, plausibleTracking } from "./externalSalesTracking.js";
 import { createExternalSalesPayments } from "./externalSalesPayments.js";
 
 export { ExternalSalesError };
@@ -146,7 +146,7 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   // Only for deals made since the switch (22-09-2026): before that a
   // tracking number was optional, and those deals are long delivered.
   add("shipped_no_tracking", "warning", "Shipped without tracking", "Add the tracking number to its parcel.",
-    live.filter((s) => s.shipping_status === "shipped" && !s.airtable_record_id && !(parcelsBySale.get(s.id) || []).some((p) => p.tracking_number)).map((s) => row(s)));
+    live.filter((s) => s.shipping_status === "shipped" && !s.airtable_record_id && !(parcelsBySale.get(s.id) || []).some((p) => plausibleTracking(p.tracking_number))).map((s) => row(s)));
 
   add("labels_short", "warning", "Fewer labels than expected", "The outbound asked for more labels than the deal has.",
     live.filter((s) => s.shipping_status === "ready_to_ship" && s.labels_needed > (parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length).map((s) => row(s, `${(parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length} of ${s.labels_needed}`)));
@@ -606,7 +606,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     dismissCheck,
     openParcels: (options) => tracking.openParcels(options),
     applyTracking: (updates) => tracking.applyUpdates(updates),
-    markParcelRegistered: (id, aftershipId) => tracking.markRegistered(id, aftershipId),
+    markParcelRegistered: (id, aftershipId, note) => tracking.markRegistered(id, aftershipId, note),
     airtableSync: sync.enabled,
     outboundPreview: (input) => outbounds.preview(input),
     outboundCreate: (input) => outbounds.create(input),
@@ -904,7 +904,7 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
   router.post("/api/internal/external-sales/tracking/registered", express.json({ limit: "10kb" }), async (req, res) => {
     if (!fromWms(req, res)) return;
     try {
-      await store.markParcelRegistered(text(req.body?.id), text(req.body?.aftership_id));
+      await store.markParcelRegistered(text(req.body?.id), text(req.body?.aftership_id), text(req.body?.note));
       res.json({ ok: true });
     } catch (err) {
       send(res, err);

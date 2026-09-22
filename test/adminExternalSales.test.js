@@ -75,7 +75,7 @@ test("checks find what is missing or wrong, each on its deal", () => {
     ["s3", [{ purchase_vat_type: "Margin", purchase_price_ex_vat: 50, selling_vat_type: "Margin", selling_price: null }, { purchase_vat_type: null, purchase_price_ex_vat: 0, selling_vat_type: null, selling_price: null }]],
     ["s4", [{ purchase_vat_type: "VAT21", purchase_price_ex_vat: 100 }]]
   ]);
-  const parcelsBySale = new Map([["s1", [{ tracking_number: "1Z1" }]], ["s4", [{ label_url: "x", tracking_number: "1Z4" }]]]);
+  const parcelsBySale = new Map([["s1", [{ tracking_number: "1ZAAA1111111111111" }]], ["s4", [{ label_url: "x", tracking_number: "1ZDDD4444444444444" }]]]);
   const invoicesBySale = new Map([["s1", [{ kind: "sale", invoice_number: "KC1", journal_entry_id: null }]], ["s2", [{ kind: "sale", invoice_number: "KC2", journal_entry_id: "j" }]]]);
 
   const checks = externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, sync: { errors: [], missing: [] }, now: Date.parse("2026-09-22") });

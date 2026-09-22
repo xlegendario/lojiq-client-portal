@@ -39,6 +39,17 @@ export const PARCEL_STATUS_BY_TAG = {
 
 export const PARCEL_STATUSES = ["pending", "in_transit", "delivered", "exception"];
 
+// A number a carrier could actually have given out. Parcels from before this
+// (22-09-2026) sometimes carry a dash or a note where the tracking number
+// should be; asking AfterShip about those only earns a 400 every hour.
+export function plausibleTracking(value) {
+  return /^[A-Za-z0-9]{8,35}$/.test(String(value || "").replace(/\s/g, ""));
+}
+
+// Stop watching a parcel that never moved and is older than this: a label
+// made months ago is history, and carriers drop those from their systems.
+const GIVE_UP_DAYS = 60;
+
 /*
  * What to write on a parcel for what Aftership says.
  *
@@ -97,14 +108,21 @@ export function createExternalSalesTracking({ db }) {
    */
   async function openParcels({ limit = 100 } = {}) {
     const rows = await db.get(
-      "shipments?select=id,tracking_number,status,carrier,tracking_checked_at,external_sale_id," +
-      "external_sales!inner(deal_number,shipping_status,payment_status)" +
+      "shipments?select=id,tracking_number,status,carrier,tracking_checked_at,created_at,external_sale_id," +
+      "external_sales!inner(deal_number,shipping_status,payment_status,shipped_at)" +
       "&tracking_number=not.is.null&status=neq.delivered" +
       "&external_sales.shipping_status=in.(shipped,delivered)" +
       `&order=tracking_checked_at.asc.nullsfirst&limit=${Math.min(Number(limit) || 100, 500)}`
     );
 
-    return rows.map((row) => ({
+    const tooOld = Date.now() - GIVE_UP_DAYS * 86_400_000;
+
+    return rows.filter((row) => {
+      if (!plausibleTracking(row.tracking_number)) return false;
+      // Never moved and long past: leave it alone.
+      const since = new Date(row.external_sales?.shipped_at || row.created_at || Date.now()).getTime();
+      return !(row.status === "pending" && since < tooOld);
+    }).map((row) => ({
       id: row.id,
       deal: dealId({ deal_number: row.external_sales?.deal_number }),
       tracking_number: text(row.tracking_number),
@@ -166,12 +184,13 @@ export function createExternalSalesTracking({ db }) {
    * registers it there and says so, so the next run reads a real status
    * instead of asking for a number that is not being watched.
    */
-  async function markRegistered(id, aftershipId = "") {
+  async function markRegistered(id, aftershipId = "", note = "") {
     if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown parcel.");
 
     const [saved] = await db.patch(`shipments?id=eq.${text(id)}`, {
       tracking_checked_at: new Date().toISOString(),
-      ...(text(aftershipId) ? { aftership_id: text(aftershipId) } : {})
+      ...(text(aftershipId) ? { aftership_id: text(aftershipId) } : {}),
+      ...(text(note) ? { tracking_detail: text(note).slice(0, 300) } : {})
     });
 
     return saved || null;
