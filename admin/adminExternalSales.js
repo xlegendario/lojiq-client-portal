@@ -410,6 +410,63 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
   const outbounds = createOutboundMaker({ db, airtable, invoicing });
 
+  /*
+   * Pack & Ship (block 3). Only deals made in Supabase: one that came from
+   * the Airtable External Sales Log is still packed from there until it has
+   * shipped, so no deal shows twice. Ready to Ship with at least one tracking
+   * number, as Pack & Ship always asked.
+   */
+  async function packShipList() {
+    const sales = await db.get("external_sales?select=id,deal_number,buyer_name,buyer_company&shipping_status=eq.ready_to_ship&airtable_record_id=is.null&order=deal_number.asc&limit=500");
+    if (!sales.length) return [];
+    const parcels = await db.get(`shipments?select=external_sale_id,tracking_number&external_sale_id=in.(${sales.map((x) => `"${x.id}"`).join(",")})`);
+    return sales
+      .map((sale) => ({
+        id: sale.id,
+        deal: dealId(sale),
+        buyer: text(sale.buyer_company) || text(sale.buyer_name),
+        tracking_count: parcels.filter((p) => p.external_sale_id === sale.id && p.tracking_number).length
+      }))
+      .filter((option) => option.tracking_count > 0);
+  }
+
+  async function packShipGet(id) {
+    const sale = await saleById(id);
+    const [pairs, parcels] = await Promise.all([
+      db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&order=created_at.asc`),
+      db.get(`shipments?select=*&external_sale_id=eq.${sale.id}&order=created_at.asc`)
+    ]);
+    const units = pairs.length ? await airtable.byIds("Inventory Units", pairs.map((p) => p.inventory_unit_record_id), ["Product GTIN"]) : new Map();
+    return {
+      id: sale.id,
+      deal: dealId(sale),
+      shipping_status: sale.shipping_status,
+      tracking_numbers: parcels.map((p) => p.tracking_number).filter(Boolean),
+      labels: parcels.filter((p) => p.label_url).map((p) => ({ url: p.label_url, filename: p.label_filename || "label.pdf" })),
+      items: pairs.map((p) => ({
+        id: p.inventory_unit_record_id,
+        gtin: text(units.get(p.inventory_unit_record_id)?.["Product GTIN"]),
+        product_name: text(p.product_name),
+        sku: text(p.sku),
+        size: text(p.size)
+      }))
+    };
+  }
+
+  // Shipped: the WMS sets the units on Sold, as it does for every outbound.
+  async function packShipShip(id, itemsPerParcel) {
+    const sale = await saleById(id);
+    if (sale.shipping_status !== "ready_to_ship") {
+      throw new ExternalSalesError(`${dealId(sale)} is ${sale.shipping_status.replace(/_/g, " ")}, not ready to ship.`, 409);
+    }
+    const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, {
+      shipping_status: "shipped",
+      shipped_at: new Date().toISOString(),
+      items_per_parcel: text(itemsPerParcel) || null
+    });
+    return saved;
+  }
+
   // Invoicing starts from the deal as Airtable has it now.
   async function freshFromAirtable(id) {
     const sale = await saleById(id);
@@ -427,6 +484,9 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mailInvoices: (id, options) => invoicing.mailInvoices(id, options),
     credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
     link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
+    packShipList,
+    packShipGet,
+    packShipShip,
     outboundPreview: (input) => outbounds.preview(input),
     outboundCreate: (input) => outbounds.create(input),
     runSync,
@@ -618,6 +678,42 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details: { pairs: out.pairs, total: out.total, invoice: out.invoice_log, invoice_error: out.invoice_error || null }
       }).catch(() => {});
       res.json({ ok: true, ...out });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/internal/external-sales/pack-ship/list", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, sales: await store.packShipList() });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/internal/external-sales/pack-ship/get", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, sale: await store.packShipGet(req.body?.id) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/internal/external-sales/pack-ship/ship", express.json({ limit: "20kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      const sale = await store.packShipShip(req.body?.id, req.body?.items_per_parcel);
+      await audit.record({
+        actor: { email: "wms", name: "WMS Pack & Ship" },
+        action: "external_sale_shipped",
+        source: "external_sales",
+        recordId: sale.id,
+        label: dealId(sale),
+        details: { items_per_parcel: sale.items_per_parcel }
+      }).catch(() => {});
+      res.json({ ok: true });
     } catch (err) {
       send(res, err);
     }
