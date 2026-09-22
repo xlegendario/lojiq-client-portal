@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Mollie payouts · Lojiq Admin</title>
+  <title>Mollie Payouts · Lojiq Admin</title>
   <link rel="icon" href="/favicon.png">
   <script>
     try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
@@ -259,7 +259,7 @@
     <main class="content">
       <div class="heading">
         <span class="crumb">Finance</span>
-        <h1>Mollie payouts</h1>
+        <h1>Mollie Payouts</h1>
       </div>
 
       <p class="sub" style="margin:0;max-width:780px">
@@ -391,7 +391,7 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
-        `<a class="nav-item active" href="/admin/mollie-payouts">Mollie payouts</a>`;
+        `<a class="nav-item active" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];

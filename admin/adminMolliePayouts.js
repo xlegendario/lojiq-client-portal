@@ -92,7 +92,7 @@ export function createMolliePayoutsStore({ airtable, db, token = "", profileId =
   const configured = Boolean(text(token));
 
   async function mollie(pathAndQuery) {
-    if (!configured) throw new PayoutsError("Mollie payouts need MOLLIE_REPORTING_TOKEN on this service.", 503);
+    if (!configured) throw new PayoutsError("Mollie Payouts need MOLLIE_REPORTING_TOKEN on this service.", 503);
 
     const response = await fetchImpl(`https://api.mollie.com/v2${pathAndQuery}`, {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -313,7 +313,7 @@ export function mountMolliePayouts(router, { store, audit, pageFile }) {
   const send = (res, err) => {
     const status = err instanceof PayoutsError ? err.status : 500;
     if (status >= 500) console.error("[admin mollie payouts]", err.message);
-    res.status(status).json({ error: err instanceof PayoutsError ? err.message : `Mollie payouts failed: ${err.message}` });
+    res.status(status).json({ error: err instanceof PayoutsError ? err.message : `Mollie Payouts failed: ${err.message}` });
   };
 
   router.get(["/admin/mollie-payouts", "/admin/mollie-payouts/"], (req, res) => {

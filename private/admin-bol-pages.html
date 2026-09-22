@@ -364,7 +364,7 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
-        `<a class="nav-item" href="/admin/mollie-payouts">Mollie payouts</a>`;
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];

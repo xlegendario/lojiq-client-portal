@@ -1006,7 +1006,7 @@
 
     // Forwarding Payments lives on the Forward Service page; a plain link.
     $("navMoney").insertAdjacentHTML("beforeend", `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments${navCount("money/forwarding_payments")}</a>` +
-      `<a class="nav-item" href="/admin/mollie-payouts">Mollie payouts</a>`);
+      `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`);
 
     document.querySelectorAll("[data-nav-count]").forEach((el) => {
       el.textContent = navCountText(el.dataset.navCount);
