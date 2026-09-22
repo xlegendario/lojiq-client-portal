@@ -169,7 +169,7 @@ export function planOutbound({ buyer, unitIds, units, total, parcels = [] }) {
  *   airtable   byIds, update (main base)
  *   invoicing  createExternalSalesInvoicing
  */
-export function createOutboundMaker({ db, airtable, invoicing }) {
+export function createOutboundMaker({ db, airtable, invoicing, payments = null }) {
   async function loadBuyer(id) {
     if (!/^[0-9a-f-]{36}$/i.test(text(id))) return null;
     const [buyer] = await db.get(`buyers?select=*&id=eq.${text(id)}`);
@@ -215,6 +215,8 @@ export function createOutboundMaker({ db, airtable, invoicing }) {
       total_selling_price: p.totals.selling,
       shipping_costs: 0,
       payment_status: paidBefore ? "paid" : "pending",
+      payment_method: ["bank_transfer", "payment_link", "paid"].includes(input.payment?.method) ? input.payment.method : "bank_transfer",
+      paid_amount: paidBefore ? p.totals.selling : null,
       paid_at: paidAt ? `${paidAt}T12:00:00Z` : null,
       payment_note: paidBefore ? (text(input.payment?.note) || "Paid before the outbound") : null,
       shipping_status: p.parcels.length ? "ready_to_ship" : "pending",
@@ -254,6 +256,17 @@ export function createOutboundMaker({ db, airtable, invoicing }) {
       throw new ExternalSalesError(`${deal} was not made: ${err.message}`, 502);
     }
 
+    // Paid by link: the link is made first, so the invoice mail carries it.
+    let linkError = "";
+    if (input.payment?.method === "payment_link" && payments) {
+      try {
+        await payments.paymentLink(sale.id);
+      } catch (err) {
+        linkError = err.message;
+        console.error(`[external sales] ${deal}: payment link failed:`, err.message);
+      }
+    }
+
     let invoice = null;
     let invoiceError = "";
     try {
@@ -269,7 +282,7 @@ export function createOutboundMaker({ db, airtable, invoicing }) {
       pairs: p.pairs.length,
       total: p.totals.selling,
       invoice_log: invoice?.log || [],
-      invoice_error: invoiceError
+      invoice_error: [invoiceError, linkError && `Payment link: ${linkError}`].filter(Boolean).join(" ")
     };
   }
 

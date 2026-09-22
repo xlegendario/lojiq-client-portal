@@ -420,6 +420,30 @@
     </div>
   </dialog>
 
+  <dialog id="paidDialog">
+    <div class="dialog-body">
+      <h2>Mark as paid</h2>
+      <div class="field">
+        <label for="paidDate">Paid on</label>
+        <input class="input" id="paidDate" type="date">
+      </div>
+      <div class="field">
+        <label for="paidAmount">Amount received (€)</label>
+        <input class="input" id="paidAmount" type="text" inputmode="decimal">
+        <span class="hint">Less than what is open makes it partially paid.</span>
+      </div>
+      <div class="field">
+        <label for="paidNote">How (optional)</label>
+        <input class="input" id="paidNote" type="text" placeholder="Cash, transfer seen on ING, ...">
+      </div>
+      <p class="field-error" id="paidError"></p>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="paidCancel">Cancel</button>
+        <button class="btn primary" type="button" id="paidSave">Mark as paid</button>
+      </div>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" hidden role="status"></div>
 
   <script>
@@ -661,7 +685,7 @@
           <section class="check-group">
             <div class="check-head">${pill(SEVERITY, c.severity)} <strong>${esc(c.title)}</strong> <span class="sub">${esc(c.items.length)}</span><span class="sub">${esc(c.hint)}</span></div>
             <ul class="check-items">${c.items.map((i) => `
-              <li data-id="${esc(i.id)}"><span class="id">${esc(i.deal || "—")}</span><span>${esc(i.buyer)}</span><span class="sub">${esc(i.detail)}</span></li>`).join("")}
+              <li data-id="${esc(i.id)}"><span class="id">${esc(i.deal || "—")}</span><span>${esc(i.buyer)}</span><span class="sub">${esc(i.detail)}</span>${i.id ? `<span class="row-actions" style="margin-left:auto"><button class="act" type="button" data-open="${esc(i.id)}">Open</button><button class="act" type="button" data-dismiss="${esc(i.id)}" data-key="${esc(i.key)}" data-deal="${esc(i.deal)}">Dismiss</button></span>` : ""}</li>`).join("")}
             </ul>
           </section>`).join("");
       } catch (err) {
@@ -698,9 +722,24 @@
       if (row) openPanel(row.dataset.id);
     });
 
-    $("checks").addEventListener("click", (event) => {
-      const item = event.target.closest("li[data-id]");
-      if (item?.dataset.id) openPanel(item.dataset.id);
+    $("checks").addEventListener("click", async (event) => {
+      const dismiss = event.target.closest("[data-dismiss]");
+      if (dismiss) {
+        const reason = prompt(`Why can ${dismiss.dataset.deal} stay like this? (it disappears from Checks; the reason goes into its history)`);
+        if (!reason?.trim()) return;
+        try {
+          await postJson("/api/admin/external-sales/update", { id: dismiss.dataset.dismiss, dismiss_check: { key: dismiss.dataset.key, reason } });
+          toast(`${dismiss.dataset.deal} set aside.`);
+          loadChecks();
+          loadNavCounts(true);
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+      const item = event.target.closest("[data-open]") || event.target.closest("li[data-id]");
+      const id = item?.dataset.open || item?.dataset.id;
+      if (id) openPanel(id);
     });
 
     $("searchInput").addEventListener("input", render);
@@ -889,10 +928,23 @@
           }).join("")
         : '<p class="sub">No invoice yet.</p>';
 
+      const invoiced = invoices.some((i) => i.kind === "sale");
+      const open = s.payment_status === "partially_paid" ? Number(s.total_selling_price) - Number(s.paid_amount || 0) : Number(s.total_selling_price);
+      const METHOD = { bank_transfer: "bank transfer", payment_link: "payment link", paid: "paid before the outbound" };
       const payment = s.payment_status === "paid"
-        ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_note ? ` · ${esc(s.payment_note)}` : ""}`
+        ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_method ? ` · ${esc(METHOD[s.payment_method] || s.payment_method)}` : ""}`
         : s.payment_status === "cancelled" ? "Cancelled"
-          : `${s.payment_status === "partially_paid" ? "Partially paid" : "Unpaid"}${due_date && invoices.some((i) => i.kind === "sale") ? ` · due ${esc(day(due_date))}` : ""}${s.payment_note ? ` · ${esc(s.payment_note)}` : ""}`;
+          : `${s.payment_status === "partially_paid" ? `Partially paid · ${esc(euro(open))} open` : `Unpaid · ${esc(euro(open))}`}${due_date && invoiced ? ` · due ${esc(day(due_date))}` : ""}${s.last_reminder_at ? ` · reminder sent ${esc(day(s.last_reminder_at))}` : ""}`;
+      const unpaid = ["pending", "partially_paid"].includes(s.payment_status);
+      const payButtons = unpaid ? `
+          <div class="actions">
+            <button class="act" type="button" data-pay="paid">Mark as paid</button>
+            ${s.payment_link_url
+              ? `<button class="act" type="button" data-pay="copy">Copy payment link</button><button class="act" type="button" data-pay="newlink">New payment link</button>`
+              : `<button class="act" type="button" data-pay="link">Create payment link</button>`}
+            ${invoiced ? '<button class="act" type="button" data-pay="reminder">Send reminder</button>' : ""}
+          </div>
+          <p class="sub">Paid by bank transfer? Link the payment to the invoice in Rompslomp: the deal follows within 10 minutes.</p>` : "";
 
       // Everything besides the next step, each with a name that says what it
       // does - only what can be done on this deal now.
@@ -920,6 +972,7 @@
           <span>${esc(next.text)}</span>
           ${next.key === "invoice" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice</button>' : ""}
           ${next.key === "label" ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel</button>' : ""}
+          ${next.key === "overdue" ? '<button class="btn primary" type="button" data-pay="reminder">Send reminder</button>' : ""}
         </div>
 
         <div class="group">
@@ -942,6 +995,9 @@
           <h3>Invoice and payment</h3>
           <div class="invs">${invoiceRows}</div>
           <p class="pay">${payment}</p>
+          ${s.payment_link_url && unpaid ? `<p class="sub mono" style="overflow-wrap:anywhere">${esc(s.payment_link_url)}</p>` : ""}
+          ${s.payment_note ? `<p class="sub" style="white-space:pre-wrap">${esc(s.payment_note)}</p>` : ""}
+          ${payButtons}
         </div>
 
         ${actions.length ? `
@@ -1025,6 +1081,53 @@
       });
     });
 
+    /* ----- payment ----- */
+
+    function openPaidDialog() {
+      const s = state.detail.sale;
+      const open = s.payment_status === "partially_paid" ? Number(s.total_selling_price) - Number(s.paid_amount || 0) : Number(s.total_selling_price);
+      $("paidDate").value = new Date().toISOString().slice(0, 10);
+      $("paidAmount").value = open.toFixed(2).replace(".", ",");
+      $("paidNote").value = "";
+      $("paidError").textContent = "";
+      $("paidDialog").showModal();
+    }
+
+    $("paidCancel").addEventListener("click", () => $("paidDialog").close());
+    $("paidSave").addEventListener("click", () => busy($("paidSave"), async () => {
+      try {
+        await update({ mark_paid: { date: $("paidDate").value, amount: $("paidAmount").value.trim(), note: $("paidNote").value.trim() } }, "Payment saved.");
+        $("paidDialog").close();
+      } catch (err) {
+        $("paidError").textContent = err.message;
+      }
+    }));
+
+    async function runPay(action) {
+      const s = state.detail.sale;
+      if (action === "paid") return openPaidDialog();
+
+      if (action === "copy") {
+        try { await navigator.clipboard.writeText(s.payment_link_url); toast("Payment link copied."); }
+        catch { prompt("Copy the payment link:", s.payment_link_url); }
+        return;
+      }
+
+      if (action === "link" || action === "newlink") {
+        if (action === "newlink" && !confirm("Make a new payment link? The old one stops working.")) return;
+        return busy(null, async () => {
+          await update({ payment_link: { fresh: action === "newlink" } }, "Payment link ready.");
+          const url = state.detail.sale.payment_link_url;
+          if (url) { try { await navigator.clipboard.writeText(url); toast("Payment link ready and copied."); } catch {} }
+        });
+      }
+
+      if (action === "reminder") {
+        if (!confirm(`Send a payment reminder to ${s.buyer_email || "the buyer"}, with the invoice${s.payment_link_url ? " and the payment link" : ""}?`)) return;
+        return busy(null, () => update({ reminder: true }, "Reminder sent."));
+      }
+    }
+
     /* ----- prices dialog ----- */
 
     function openPricesDialog() {
@@ -1103,6 +1206,7 @@
 
       if (target.id === "notesSave") return busy(target, () => update({ notes: $("notesInput").value }, "Notes saved."));
       if (target.dataset?.action) return runMore(target.dataset.action);
+      if (target.dataset?.pay) return runPay(target.dataset.pay);
     });
 
     async function runMore(value) {

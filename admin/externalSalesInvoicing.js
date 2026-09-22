@@ -268,18 +268,29 @@ export function matchContact(contacts, buyer) {
   return contacts.find((c) => names.includes(text(c.company_name || c.name).toLowerCase())) || null;
 }
 
-export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs }) {
+// The invoice mail, or its reminder. A deal with a payment link carries it,
+// so the buyer can pay by card or iDEAL instead of a transfer.
+export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs, reminder = false }) {
   const numbers = invoices.map((i) => i.invoice_number).join(" and ");
   const name = text(sale.buyer_company) || text(sale.buyer_name) || "customer";
+  const link = text(sale.payment_link_url);
+  const open = sale.payment_status === "partially_paid"
+    ? Number(sale.total_selling_price) - Number(sale.paid_amount || 0)
+    : Number(sale.total_selling_price);
 
   return {
     to,
     from: { email: from, name: "Kickz Caviar" },
     replyTo,
-    subject: `Your invoice ${numbers} for ${dealId(sale)}`,
+    subject: reminder ? `Reminder: invoice ${numbers} for ${dealId(sale)}` : `Your invoice ${numbers} for ${dealId(sale)}`,
     text:
-      `Dear ${name},\n\nPlease find attached ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)}.\n` +
-      `Payment is due within ${PAYMENT_DAYS} days of the invoice date; please mention the invoice number with your payment.\n\n` +
+      `Dear ${name},\n\n` +
+      (reminder
+        ? `According to our records, ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)} ${invoices.length > 1 ? "have" : "has"} not been paid yet; €${open.toFixed(2)} is open. ${invoices.length > 1 ? "They are" : "It is"} attached again.\n` +
+          "If you have paid in the meantime, thank you - please ignore this message.\n\n"
+        : `Please find attached ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)}.\n` +
+          `Payment is due within ${PAYMENT_DAYS} days of the invoice date; please mention the invoice number with your payment.\n\n`) +
+      (link ? `You can also pay online: ${link}\n\n` : "") +
       `If you have any questions, email us at ${replyTo || "info@kickzcaviar.nl"} - replies to this address are not read.\n\n` +
       "Thank you for your business.\n\nKind regards,\nKickz Caviar",
     attachments: pdfs.map((pdf, i) => ({
@@ -575,7 +586,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
 
   // To the buyer, or - with testTo - the same mail to an admin only, to see
   // what the buyer gets. A test changes nothing on the deal.
-  async function mailInvoices(id, { testTo = "" } = {}) {
+  async function mailInvoices(id, { testTo = "", reminder = false } = {}) {
     const { sale, invoices } = await load(id);
     const sales = invoices.filter((i) => i.kind === "sale");
     const to = text(testTo) || text(sale.buyer_email);
@@ -585,15 +596,17 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     const pdfs = [];
     for (const inv of sales) pdfs.push((await rompslomp.pdf(inv.rompslomp_invoice_id)).toString("base64"));
 
-    const message = invoiceMail({ sale, invoices: sales, to, from: mailFrom, replyTo, pdfs });
+    const message = invoiceMail({ sale, invoices: sales, to, from: mailFrom, replyTo, pdfs, reminder });
     if (testTo) message.subject = `[TEST] ${message.subject}`;
     await sendMail(message);
 
-    if (!testTo) {
+    if (!testTo && reminder) {
+      await db.patch(`external_sales?id=eq.${sale.id}`, { last_reminder_at: new Date().toISOString() });
+    } else if (!testTo) {
       const now = new Date().toISOString();
-      for (const inv of sales) await db.patch(`external_sale_invoices?id=eq.${inv.id}`, { sent_at: now });
+      for (const inv of sales) if (!inv.sent_at) await db.patch(`external_sale_invoices?id=eq.${inv.id}`, { sent_at: now });
     }
-    return { to, test: Boolean(testTo), invoices: sales.map((i) => i.invoice_number) };
+    return { to, test: Boolean(testTo), reminder, invoices: sales.map((i) => i.invoice_number) };
   }
 
   /*

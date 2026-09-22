@@ -407,6 +407,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     sendMail: services.sendInvoiceMail || null,
     mailFrom: services.invoiceMailFrom,
     replyTo: services.invoiceReplyTo,
+    mollieApiKey: services.mollieApiKey,
+    paymentWebhookUrl: services.mollieWebhookUrl,
+    paymentRedirectUrl: services.externalPaymentRedirectUrl,
+    airtableSync: Boolean(services.externalSalesAirtableSync),
     fetchImpl
   });
 
@@ -421,9 +425,18 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   // "Shipped" arrive in Airtable: read them every five minutes. unref: the
   // timer never keeps the process (or a test) alive on its own.
   if (enabled && externalSalesStore.configured && externalSalesSyncMs > 0) {
-    const tick = () => externalSalesStore.runSync().catch((err) => console.error("[external sales sync]", err.message));
-    setTimeout(tick, 20_000).unref?.();
-    setInterval(tick, externalSalesSyncMs).unref?.();
+    if (externalSalesStore.airtableSync) {
+      const tick = () => externalSalesStore.runSync().catch((err) => console.error("[external sales sync]", err.message));
+      setTimeout(tick, 20_000).unref?.();
+      setInterval(tick, externalSalesSyncMs).unref?.();
+    }
+
+    // Every ten minutes: which invoices Rompslomp now has as paid (block 5).
+    const payTick = () => externalSalesStore.checkPayments()
+      .then((out) => { if (out.changed.length || out.errors.length) console.log("[external sales payments]", JSON.stringify(out)); })
+      .catch((err) => console.error("[external sales payments]", err.message));
+    setTimeout(payTick, 45_000).unref?.();
+    setInterval(payTick, externalSalesSyncMs * 2).unref?.();
   }
 
   /*
@@ -1171,7 +1184,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }
   });
 
-  return { router, enabled };
+  return { router, enabled, externalSales: externalSalesStore };
 }
 
 export function adminPagePath(dirname) {

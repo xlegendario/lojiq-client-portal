@@ -190,7 +190,7 @@ async function inChunks(ids, load) {
  *   storeLabel ({ dealId, filename, mime, bytes }) -> { url, filename }
  *   fetchImpl  to download an Airtable attachment
  */
-export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = fetch }) {
+export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = fetch, enabled = true }) {
   let chain = Promise.resolve();
   let lastRun = null;
 
@@ -552,7 +552,13 @@ export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = 
     return { ...result, synced, record: records[0] || null };
   }
 
-  const run = (options) => exclusive(() => runUnlocked(options));
+  /*
+   * Off since block 5 (22-09-2026): new outbounds are made in Supabase, and
+   * the deals from before get their payment from Rompslomp. With the sync
+   * off, nothing is read from or written to the External Sales Log.
+   */
+  const idle = () => ({ at: null, deals: 0, changed: [], errors: [], warnings: [], missing: [], ms: 0, synced: new Map(), record: null, off: true });
+  const run = (options) => (enabled ? exclusive(() => runUnlocked(options)) : Promise.resolve(idle()));
 
   /*
    * Writes a deal's parcels back to Airtable, the way Pack & Ship reads them.
@@ -608,7 +614,7 @@ export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = 
     return exclusive(async () => {
       let record = null;
 
-      if (sale.airtable_record_id) {
+      if (enabled && sale.airtable_record_id) {
         const out = await runUnlocked({ airtableId: sale.airtable_record_id });
         if (out.errors.length) throw new ExternalSalesError(`Could not read ${dealId(sale)} from Airtable first: ${out.errors[0].message}`, 502);
         record = out.record;
@@ -630,14 +636,14 @@ export function createExternalSalesSync({ airtable, db, storeLabel, fetchImpl = 
         });
       }
 
-      if (result.mirror !== false) await mirror(saved, after, record);
+      if (enabled && result.mirror !== false) await mirror(saved, after, record);
 
       // Airtable changed underneath: read the deal back so Supabase matches.
-      if (result.reload && saved.airtable_record_id) await runUnlocked({ airtableId: saved.airtable_record_id });
+      if (enabled && result.reload && saved.airtable_record_id) await runUnlocked({ airtableId: saved.airtable_record_id });
 
       return saved;
     });
   }
 
-  return { run, edit, lastRun: () => lastRun };
+  return { run, edit, lastRun: () => lastRun, enabled };
 }

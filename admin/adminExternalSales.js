@@ -24,6 +24,7 @@ import {
 } from "./externalSalesSync.js";
 import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
 import { createOutboundMaker } from "./externalSalesCreate.js";
+import { createExternalSalesPayments } from "./externalSalesPayments.js";
 
 export { ExternalSalesError };
 
@@ -91,8 +92,10 @@ export function nextStep({ sale, parcels = [], invoices = [], now = Date.now() }
  */
 export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, sync, now = Date.now() }) {
   const checks = [];
+  const byId = new Map(sales.map((s) => [s.id, s]));
   const add = (key, severity, title, hint, items) => {
-    if (items.length) checks.push({ key, severity, title, hint, items });
+    const open = items.filter((item) => !byId.get(item.id)?.dismissed_checks?.[key]).map((item) => ({ ...item, key }));
+    if (open.length) checks.push({ key, severity, title, hint, items: open });
   };
 
   const live = sales.filter((s) => s.payment_status !== "cancelled");
@@ -125,8 +128,6 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
 
   const moneyOf = (s) => saleMoney(s, pairsBySale.get(s.id) || []);
 
-  add("loss", "warning", "Sold at a loss", "Selling excl. VAT is lower than purchase plus shipping. Check the prices.",
-    live.filter((s) => (moneyOf(s).profit ?? 0) < 0).map((s) => row(s, `€ ${moneyOf(s).profit.toFixed(2)}`)));
 
   add("mixed_vat", "warning", "Mixed VAT types, no price per pair", "Enter the selling price per pair: the invoice and the profit need to know which part is margin and which is VAT.",
     live.filter((s) => s.bookkeeping_status === "to_invoice" && moneyOf(s).selling_ex_vat === null && (pairsBySale.get(s.id) || []).length).map((s) => row(s)));
@@ -141,8 +142,10 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   add("paid_not_shipped", "warning", "Paid, not shipped after 3 days", "Check whether it left; Pack & Ship marks it Shipped.",
     live.filter((s) => s.payment_status === "paid" && ["pending", "ready_to_ship"].includes(s.shipping_status) && now - new Date(s.paid_at || s.sale_date || s.created_at).getTime() > 3 * DAY).map((s) => row(s, s.shipping_status === "pending" ? "no label yet" : "ready to ship")));
 
+  // Only for deals made since the switch (22-09-2026): before that a
+  // tracking number was optional, and those deals are long delivered.
   add("shipped_no_tracking", "warning", "Shipped without tracking", "Add the tracking number to its parcel.",
-    live.filter((s) => s.shipping_status === "shipped" && !(parcelsBySale.get(s.id) || []).some((p) => p.tracking_number)).map((s) => row(s)));
+    live.filter((s) => s.shipping_status === "shipped" && !s.airtable_record_id && !(parcelsBySale.get(s.id) || []).some((p) => p.tracking_number)).map((s) => row(s)));
 
   add("labels_short", "warning", "Fewer labels than expected", "The outbound asked for more labels than the deal has.",
     live.filter((s) => s.shipping_status === "ready_to_ship" && s.labels_needed > (parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length).map((s) => row(s, `${(parcelsBySale.get(s.id) || []).filter((p) => p.label_url).length} of ${s.labels_needed}`)));
@@ -150,9 +153,10 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   add("invoice_not_sent", "warning", "Invoice not mailed to the buyer", "Open the deal and click Send invoice again - the message there says why it failed.",
     live.filter((s) => (invoicesBySale.get(s.id) || []).some((i) => i.kind === "sale" && !i.sent_at && new Date(i.created_at).getTime() > Date.parse("2026-09-22"))).map((s) => row(s)));
 
-  add("unpaid_old", "warning", "Payment overdue", "Past the 7 days on the invoice. Chase the payment, or mark it paid if it has come in.",
+  add("unpaid_old", "warning", "Payment overdue", "Past the 7 days on the invoice. If it was paid: link the payment to the invoice in Rompslomp (the deal follows within 10 minutes) or use Mark as paid. If not: Send reminder.",
     live.filter((s) => {
       if (!["pending", "partially_paid"].includes(s.payment_status)) return false;
+      if (!(invoicesBySale.get(s.id) || []).some((i) => i.kind === "sale")) return false;
       const due = dueDate(s, invoicesBySale.get(s.id) || []);
       return due && now > due.getTime();
     }).map((s) => row(s, s.payment_status === "partially_paid" ? "partially paid" : `due ${dueDate(s, invoicesBySale.get(s.id) || []).toISOString().slice(0, 10)}`)));
@@ -163,12 +167,35 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   return checks;
 }
 
-export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", fetchImpl = fetch }) {
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", airtableSync = false, fetchImpl = fetch }) {
   const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
+  const rompslomp = createRompslomp({ token: rompslompToken, companyId: rompslompCompanyId, fetchImpl });
+
+  async function mollie(path, { method = "GET", body } = {}) {
+    if (!text(mollieApiKey)) throw new ExternalSalesError("Payment links need MOLLIE_API_KEY on this service.", 503);
+    const response = await fetchImpl(`https://api.mollie.com/v2${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${mollieApiKey}`, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(20_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new ExternalSalesError(`Mollie said no: ${data.detail || data.title || response.status}`, 502);
+    return data;
+  }
+
+  const payments = createExternalSalesPayments({
+    db,
+    airtable,
+    rompslomp,
+    mollie,
+    links: { redirectUrl: paymentRedirectUrl, webhookUrl: paymentWebhookUrl }
+  });
+
   const invoicing = createExternalSalesInvoicing({
     db,
     airtable,
-    rompslomp: createRompslomp({ token: rompslompToken, companyId: rompslompCompanyId, fetchImpl }),
+    rompslomp,
     sendMail: async (message) => {
       if (!sendMail) throw new ExternalSalesError("Mail is not configured on this service.", 503);
       return sendMail(message);
@@ -187,7 +214,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return { url: stored.url, filename: stored.filename || `${deal}-${filename}` };
   };
 
-  const sync = createExternalSalesSync({ airtable, db, storeLabel, fetchImpl });
+  const sync = createExternalSalesSync({ airtable, db, storeLabel, fetchImpl, enabled: airtableSync });
   let syncError = "";
 
   async function runSync(options = {}) {
@@ -464,7 +491,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return changed;
   }
 
-  const outbounds = createOutboundMaker({ db, airtable, invoicing });
+  const outbounds = createOutboundMaker({ db, airtable, invoicing, payments });
 
   /*
    * Pack & Ship (block 3). Only deals made in Supabase: one that came from
@@ -473,7 +500,10 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
    * number, as Pack & Ship always asked.
    */
   async function packShipList() {
-    const sales = await db.get("external_sales?select=id,deal_number,buyer_name,buyer_company&shipping_status=eq.ready_to_ship&airtable_record_id=is.null&order=deal_number.asc&limit=500");
+    // With the Airtable sync on, a deal from the External Sales Log is still
+    // packed from there; with it off (block 5) every deal is packed from here.
+    const fromAirtable = sync.enabled ? "&airtable_record_id=is.null" : "";
+    const sales = await db.get(`external_sales?select=id,deal_number,buyer_name,buyer_company&shipping_status=eq.ready_to_ship${fromAirtable}&order=deal_number.asc&limit=500`);
     if (!sales.length) return [];
     const parcels = await db.get(`shipments?select=external_sale_id,tracking_number&external_sale_id=in.(${sales.map((x) => `"${x.id}"`).join(",")})`);
     return sales
@@ -523,6 +553,16 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return saved;
   }
 
+  // A check set aside on purpose, with the reason; it no longer shows.
+  async function dismissCheck(id, key, reason, by) {
+    const sale = await saleById(id);
+    if (!text(key)) throw new ExternalSalesError("Which check?");
+    if (!text(reason)) throw new ExternalSalesError("Say why this can stay as it is.");
+    const dismissed = { ...(sale.dismissed_checks || {}), [text(key)]: { reason: text(reason), by: text(by), at: new Date().toISOString() } };
+    const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, { dismissed_checks: dismissed });
+    return saved;
+  }
+
   // Invoicing starts from the deal as Airtable has it now.
   async function freshFromAirtable(id) {
     const sale = await saleById(id);
@@ -544,6 +584,12 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     packShipList,
     packShipGet,
     packShipShip,
+    checkPayments: (options) => payments.checkRompslomp(options),
+    markPaid: (id, input) => payments.markPaid(id, input),
+    paymentLink: (id, options) => payments.paymentLink(id, options),
+    settleFromBatch: (dealIds, options) => payments.settleFromBatch(dealIds, options),
+    dismissCheck,
+    airtableSync: sync.enabled,
     outboundPreview: (input) => outbounds.preview(input),
     outboundCreate: (input) => outbounds.create(input),
     runSync,
@@ -837,6 +883,16 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details = { pair_prices: await store.setPairPrices(id, req.body.pair_prices) };
       } else if (req.body?.refresh_purchase) {
         details = { purchase: await store.refreshPurchase(id) };
+      } else if (req.body?.mark_paid) {
+        const saved = await store.markPaid(id, req.body.mark_paid);
+        details = { payment: { from: before.payment_status, to: saved.payment_status, amount: text(req.body.mark_paid.amount) || "all", date: text(req.body.mark_paid.date) || null, note: text(req.body.mark_paid.note) || null } };
+      } else if (req.body?.payment_link) {
+        details = { payment_link: await store.paymentLink(id, { fresh: Boolean(req.body.payment_link.fresh) }) };
+      } else if (req.body?.reminder) {
+        details = { reminder: await store.mailInvoices(id, { reminder: true }) };
+      } else if (req.body?.dismiss_check) {
+        await store.dismissCheck(id, req.body.dismiss_check.key, req.body.dismiss_check.reason, req.admin?.name || req.admin?.email);
+        details = { dismissed: text(req.body.dismiss_check.key), reason: text(req.body.dismiss_check.reason) };
       } else {
         throw new ExternalSalesError("Nothing to change.");
       }

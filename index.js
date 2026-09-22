@@ -181,6 +181,12 @@ const adminPortal = createAdminPortal({
     rompslompCompanyId: ROMPSLOMP_COMPANY_ID,
     sendInvoiceMail,
     invoiceMailFrom: EXTERNAL_INVOICE_FROM,
+    mollieWebhookUrl: MOLLIE_WEBHOOK_URL,
+    // Where a buyer lands after paying an External Sale's link.
+    externalPaymentRedirectUrl: process.env.EXTERNAL_PAYMENT_REDIRECT_URL || "https://kickzcaviar.com",
+    // Off since block 5: set to "true" only when the WMS writes External
+    // Sales to Airtable again (EXTERNAL_SALES_IN_SUPABASE off).
+    externalSalesAirtableSync: String(process.env.EXTERNAL_SALES_AIRTABLE_SYNC || "").toLowerCase() === "true",
     invoiceReplyTo: EXTERNAL_INVOICE_REPLY_TO
   },
   pageFile: adminPagePath(__dirname),
@@ -5055,6 +5061,32 @@ async function settlePaidBatch({
   countsCache.clear();
 }
 
+/*
+ * External Sales in a Payment Batch (block 5): their EXTD numbers sit in the
+ * batch's "External Deal IDs", one per line. Paying the batch marks those
+ * deals paid in Supabase through the admin's External Sales store.
+ */
+function externalDealsOf(batchFields = {}) {
+  return String(batchFields["External Deal IDs"] || "")
+    .split(/[\s,;]+/)
+    .map((value) => value.trim())
+    .filter((value) => /^EXTD-\d+$/i.test(value));
+}
+
+async function settleExternalDeals(dealIds, molliePaymentId = "") {
+  if (!dealIds.length) return [];
+  try {
+    const settled = await adminPortal.externalSales.settleFromBatch(dealIds, { molliePaymentId });
+    if (settled.length) console.log(`External Sales paid through Mollie: ${settled.join(", ")}`);
+    return settled;
+  } catch (err) {
+    // Loud, and a 500 so Mollie calls again: money came in and the deal
+    // does not show it yet.
+    console.error("External Sales could not be marked paid:", dealIds.join(", "), err.message);
+    throw err;
+  }
+}
+
 async function findPaymentBatchByDescription(description) {
   const match = asText(description).match(/PAYB-\d+/);
 
@@ -5556,8 +5588,9 @@ app.post("/api/mollie/webhook", async (req, res) => {
       }
 
       const linkTargets = batchPaymentTargets(linkBatch.fields || {});
+      const linkExternalDeals = externalDealsOf(linkBatch.fields || {});
 
-      if (!linkTargets.length) {
+      if (!linkTargets.length && !linkExternalDeals.length) {
         console.error("Mollie payment link webhook found nothing to settle:", paymentId);
         return res.status(200).send("ok");
       }
@@ -5580,6 +5613,8 @@ app.post("/api/mollie/webhook", async (req, res) => {
         targets: linkTargets,
         molliePaymentId: asText(paidPayment?.id) || undefined
       });
+
+      await settleExternalDeals(linkExternalDeals, asText(paidPayment?.id));
 
       console.log(
         `Payment link ${paymentId} paid: settled ${linkTargets.length} record(s)`
@@ -5631,7 +5666,9 @@ app.post("/api/mollie/webhook", async (req, res) => {
           source: "orders"
         }));
 
-    if (!targets.length) {
+    const externalDeals = batchRecord ? externalDealsOf(batchRecord.fields || {}) : [];
+
+    if (!targets.length && !externalDeals.length) {
       console.error("Mollie webhook found nothing to settle:", paymentId, batchRecordId);
       return res.status(200).send("ok");
     }
@@ -5674,6 +5711,13 @@ app.post("/api/mollie/webhook", async (req, res) => {
 
     const terminalStatus = TERMINAL_MOLLIE_STATUSES[payment.status];
 
+    // A payment link for an External Sale stays payable when one attempt
+    // expires or fails: nothing to write for those.
+    if (terminalStatus && !targets.length) {
+      console.log(`Mollie ${payment.id} came back ${payment.status} for ${externalDeals.join(", ")}; the link stays open`);
+      return res.status(200).send("ok");
+    }
+
     if (terminalStatus) {
       await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
         "Payment Status": terminalStatus,
@@ -5705,6 +5749,8 @@ app.post("/api/mollie/webhook", async (req, res) => {
       targets,
       molliePaymentId: payment.id
     });
+
+    await settleExternalDeals(externalDeals, payment.id);
 
     res.status(200).send("ok");
   } catch (err) {

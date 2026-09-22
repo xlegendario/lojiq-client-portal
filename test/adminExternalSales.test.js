@@ -81,7 +81,7 @@ test("checks find what is missing or wrong, each on its deal", () => {
   const checks = externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, sync: { errors: [], missing: [] }, now: Date.parse("2026-09-22") });
   const by = Object.fromEntries(checks.map((c) => [c.key, c.items.map((i) => i.deal)]));
 
-  assert.deepEqual(by.loss, ["EXTD-000001"]);
+  assert.equal(by.loss, undefined, "selling at a loss happens on purpose; it is no check");
   assert.deepEqual(by.invoice_without_journal, ["EXTD-000001"]);
   assert.deepEqual(by.cancelled_invoiced, ["EXTD-000002"]);
   assert.deepEqual(by.purchase_missing, ["EXTD-000003"]);
