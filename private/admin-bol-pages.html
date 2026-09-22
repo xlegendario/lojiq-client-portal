@@ -201,6 +201,13 @@
       .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
       .label-add { grid-template-columns: 1fr; }
     }
+
+    /* Same foot as the main admin page: who is signed in, the theme switch
+       and Log out. Without it those two disappear the moment you open a tab
+       that has its own page. */
+    .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+    .sidebar-foot strong { color: var(--text); }
+    .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
   </style>
 </head>
 <body>
@@ -236,6 +243,12 @@
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
       <div class="nav-group" id="navMarketplaces" hidden>
         <a class="nav-item active" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
+      </div>
+
+      <div class="sidebar-foot">
+        <span>Signed in as <strong id="userName">…</strong></span>
+        <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
+        <button class="btn ghost" id="logoutButton" type="button">Log out</button>
       </div>
     </nav>
 
@@ -506,6 +519,35 @@
         setInterval(loadNavCounts, 300_000);
       })
       .catch(() => {});
+
+    /* ---------------- who is signed in, theme, log out ---------------- */
+
+    function syncThemeSwitch() {
+      const light = document.documentElement.dataset.theme === "light";
+      $("themeSwitch").textContent = light ? "Dark mode" : "Light mode";
+      $("themeSwitch").setAttribute("aria-pressed", String(light));
+    }
+
+    $("themeSwitch").addEventListener("click", () => {
+      const light = document.documentElement.dataset.theme !== "light";
+
+      if (light) document.documentElement.dataset.theme = "light";
+      else delete document.documentElement.dataset.theme;
+
+      try { localStorage.setItem("lojiq-admin-theme", light ? "light" : "dark"); } catch { /* not remembered, still switched */ }
+      syncThemeSwitch();
+    });
+
+    syncThemeSwitch();
+
+    $("logoutButton").addEventListener("click", async () => {
+      await api("/api/admin/logout", { method: "POST", body: "{}" }).catch(() => {});
+      location.href = "/admin";
+    });
+
+    api("/api/admin/me")
+      .then((me) => { $("userName").textContent = me.user?.name || me.user?.email || ""; })
+      .catch(() => { $("userName").textContent = ""; });
   </script>
 </body>
 </html>
