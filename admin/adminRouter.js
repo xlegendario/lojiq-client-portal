@@ -406,6 +406,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     rompslompCompanyId: services.rompslompCompanyId,
     sendMail: services.sendInvoiceMail || null,
     mailFrom: services.invoiceMailFrom,
+    replyTo: services.invoiceReplyTo,
     fetchImpl
   });
 

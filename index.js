@@ -102,21 +102,21 @@ const {
   ROMPSLOMP_API_TOKEN,
   ROMPSLOMP_COMPANY_ID = "1296508534",
 
-  // External Sales invoices go out as Kickz Caviar. The sender must be
-  // verified in the SendGrid account of the key; when that is another account
-  // than SENDGRID_API_KEY's, its key goes in EXTERNAL_INVOICE_SENDGRID_KEY.
-  EXTERNAL_INVOICE_SENDGRID_KEY,
-  EXTERNAL_INVOICE_FROM = "info@kickzcaviar.nl"
+  // External Sales invoices go out as Kickz Caviar, from the verified
+  // noreply sender in the same SendGrid account; replies go to info@.
+  EXTERNAL_INVOICE_FROM = "noreply@kickzcaviar.nl",
+  EXTERNAL_INVOICE_REPLY_TO = "info@kickzcaviar.nl"
 } = process.env;
 
 // One invoice mail through SendGrid's API, with the PDFs attached.
-async function sendInvoiceMail({ to, from, subject, text, attachments }) {
+async function sendInvoiceMail({ to, from, replyTo, subject, text, attachments }) {
   const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
-    headers: { Authorization: `Bearer ${EXTERNAL_INVOICE_SENDGRID_KEY || SENDGRID_API_KEY}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${SENDGRID_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }] }],
       from,
+      ...(replyTo ? { reply_to: { email: replyTo } } : {}),
       subject,
       content: [{ type: "text/plain", value: text }],
       attachments
@@ -180,7 +180,8 @@ const adminPortal = createAdminPortal({
     rompslompToken: ROMPSLOMP_API_TOKEN,
     rompslompCompanyId: ROMPSLOMP_COMPANY_ID,
     sendInvoiceMail,
-    invoiceMailFrom: EXTERNAL_INVOICE_FROM
+    invoiceMailFrom: EXTERNAL_INVOICE_FROM,
+    invoiceReplyTo: EXTERNAL_INVOICE_REPLY_TO
   },
   pageFile: adminPagePath(__dirname),
   supabaseUrl: SUPABASE_URL,

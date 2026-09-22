@@ -116,7 +116,7 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   return checks;
 }
 
-export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "info@kickzcaviar.nl", fetchImpl = fetch }) {
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", fetchImpl = fetch }) {
   const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
   const invoicing = createExternalSalesInvoicing({
     db,
@@ -126,7 +126,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       if (!sendMail) throw new ExternalSalesError("Mail is not configured on this service.", 503);
       return sendMail(message);
     },
-    mailFrom
+    mailFrom,
+    replyTo
   });
 
   const storeLabel = async ({ dealId: deal, filename, mime, bytes }) => {

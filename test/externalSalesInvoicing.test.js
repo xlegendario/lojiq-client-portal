@@ -339,3 +339,11 @@ test("the deal number is found as a whole word only", () => {
   assert.equal(mentionsDeal({ invoice_lines: [{ description: "EXTD-000066" }] }, "EXTD-000066"), true);
   assert.equal(mentionsDeal({ description: "", invoice_lines: [{ extended_description: "EXTD-0000661" }] }, "EXTD-000066"), false);
 });
+
+test("the mail comes from noreply and points questions to info@", async () => {
+  const { invoiceMail } = await import("../admin/externalSalesInvoicing.js");
+  const m = invoiceMail({ sale: sale({ buyer_company: "Grail Point" }), invoices: [{ invoice_number: "KC1" }], to: "b@x.pl", from: "noreply@kickzcaviar.nl", replyTo: "info@kickzcaviar.nl", pdfs: ["x"] });
+  assert.equal(m.from.email, "noreply@kickzcaviar.nl");
+  assert.equal(m.replyTo, "info@kickzcaviar.nl");
+  assert.match(m.text, /email us at info@kickzcaviar.nl/);
+});

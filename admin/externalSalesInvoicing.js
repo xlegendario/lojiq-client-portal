@@ -251,17 +251,19 @@ export function matchContact(contacts, buyer) {
   return contacts.find((c) => names.includes(text(c.company_name || c.name).toLowerCase())) || null;
 }
 
-export function invoiceMail({ sale, invoices, to, from, pdfs }) {
+export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs }) {
   const numbers = invoices.map((i) => i.invoice_number).join(" and ");
   const name = text(sale.buyer_company) || text(sale.buyer_name) || "customer";
 
   return {
     to,
     from: { email: from, name: "Kickz Caviar" },
+    replyTo,
     subject: `Your invoice ${numbers} for ${dealId(sale)}`,
     text:
       `Dear ${name},\n\nPlease find attached ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)}.\n` +
-      "If you have any questions, feel free to contact us.\n\nThank you for your business.\n\nKind regards,\nKickz Caviar",
+      `If you have any questions, email us at ${replyTo || "info@kickzcaviar.nl"} - replies to this address are not read.\n\n` +
+      "Thank you for your business.\n\nKind regards,\nKickz Caviar",
     attachments: pdfs.map((pdf, i) => ({
       content: pdf,
       type: "application/pdf",
@@ -361,9 +363,10 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
  *   airtable    byIds, update (main base) - the buyer and its contact id
  *   rompslomp   createRompslomp
  *   sendMail    ({ to, from, subject, text, attachments }) -> sends
- *   mailFrom    sender address
+ *   mailFrom    sender address (noreply)
+ *   replyTo     where the buyer's questions go
  */
-export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail, mailFrom = "info@kickzcaviar.nl" }) {
+export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl" }) {
   const BUYER_FIELDS = ["Buyer ID", "Full Name", "Company Name", "VAT ID", "Email", "Address", "Address line 2", "Zipcode", "City", "Country", "Country Code", "Rompslomp Contact ID"];
 
   async function load(id) {
@@ -547,7 +550,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     const pdfs = [];
     for (const inv of sales) pdfs.push((await rompslomp.pdf(inv.rompslomp_invoice_id)).toString("base64"));
 
-    await sendMail(invoiceMail({ sale, invoices: sales, to: sale.buyer_email, from: mailFrom, pdfs }));
+    await sendMail(invoiceMail({ sale, invoices: sales, to: sale.buyer_email, from: mailFrom, replyTo, pdfs }));
 
     const now = new Date().toISOString();
     for (const inv of sales) await db.patch(`external_sale_invoices?id=eq.${inv.id}`, { sent_at: now });
