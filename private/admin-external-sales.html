@@ -280,8 +280,50 @@
     .price-row .input { text-align: right; }
     .field-error { color: var(--bad-text); min-height: 1em; }
 
+    /* ----- the deal panel, calmer ----- */
+    .panel-body { gap: 26px; padding: 18px 20px 40px; }
+    .deal-head { display: flex; flex-direction: column; gap: 6px; }
+    .deal-buyer { font-size: 17px; font-weight: 700; color: var(--strong); line-height: 1.3; }
+    .deal-head .inline { margin-top: 4px; }
+    .next { padding: 12px 14px; border-radius: 10px; }
+    .sec { display: flex; flex-direction: column; gap: 10px; }
+    .sec h3 { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .sec-head { display: flex; justify-content: space-between; align-items: center; }
+    .pairs { display: flex; flex-direction: column; }
+    .pair-row, .pair-total { display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px 84px; gap: 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .pair-row.clickable { cursor: pointer; }
+    .pair-row.clickable:hover { background: var(--row-hover); }
+    .pair-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .pair-name .sub { overflow: hidden; text-overflow: ellipsis; }
+    .toggle { color: var(--primary-soft); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .num > span { display: block; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+    .num.neg { color: var(--bad-text); }
+    .pair-sub { display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px 84px; gap: 10px; padding: 6px 0 6px 14px; color: var(--muted); font-size: 12px; border-bottom: 1px dashed var(--border); }
+    .pair-total { border-bottom: 0; font-weight: 700; color: var(--strong); padding-top: 10px; }
+    .approx { color: var(--muted); cursor: help; }
+    .card-row { border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+    .card-row.editing { flex-direction: row; align-items: center; }
+    .card-row.editing .input { flex: 1; height: 32px; }
+    .parcel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .carrier { font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); }
+    .packed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .packed li { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+    .packed .qty { font-weight: 700; color: var(--strong); min-width: 22px; }
+    .line { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; padding: 4px 0; }
+    .line a { font-weight: 700; }
+    .pay-line { font-size: 15px; color: var(--strong); }
+    .pay-line .sub { font-size: 13px; }
+    .link-line { overflow-wrap: anywhere; }
+    .pre { white-space: pre-wrap; }
+    .folds { display: flex; flex-direction: column; }
+    .folds .fold { padding: 12px 0; }
+    .folds .fold .actions { margin-top: 10px; }
+    a.act { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+
     @media (max-width: 860px) {
       .parcel { grid-template-columns: 1fr; }
+      .pair-row, .pair-total, .pair-sub { grid-template-columns: minmax(0, 1fr) 70px 78px 70px; }
     }
   </style>
 </head>
@@ -851,16 +893,42 @@
 
     const NEXT_TONE = { bad: "bad", wait: "wait", move: "move", good: "good" };
 
+    /*
+     * What Pack & Ship wrote, parcel by parcel: "Tracking Number: 1Z… - 2x
+     * Name | SKU | Size | GTIN: … - 1x …". Read back into a list per tracking
+     * number; anything that does not read that way is shown as it is.
+     */
+    function packedByTracking(textValue) {
+      const out = new Map();
+      // Line breaks and " - " both separate the pairs; one form for both.
+      const flat = String(textValue || "").replace(/\s*[\r\n]+\s*-?\s*/g, " - ").replace(/ - (?= - )/g, "");
+      for (const chunk of flat.split(/Tracking Number:\s*/).map((c) => c.trim().replace(/ -$/, "")).filter(Boolean)) {
+        const cut = chunk.indexOf(" - ");
+        const tracking = (cut >= 0 ? chunk.slice(0, cut) : chunk).trim();
+        const rest = cut >= 0 ? chunk.slice(cut + 3) : "";
+        const items = [];
+        const re = /(\d+)x (.+?) \| ([^|]+?) \| ([^|]+?) \| GTIN: [^|]*?(?= - \d+x |$)/g;
+        let m;
+        while ((m = re.exec(rest))) items.push({ qty: Number(m[1]), name: m[2].trim(), sku: m[3].trim(), size: m[4].trim() });
+        out.set(tracking, items);
+      }
+      return out;
+    }
+
+    const carrierOf = (tracking) => /^1Z/i.test(tracking || "") ? "UPS" : /^\d{14}$/.test(tracking || "") ? "DPD" : "";
+
     function drawPanel() {
       const { sale: s, pairs, parcels, invoices, money, next, due_date } = state.detail;
       const locked = ["invoiced", "credited"].includes(s.bookkeeping_status);
       const shipped = ["shipped", "cancelled"].includes(s.shipping_status);
+      const unpaid = ["pending", "partially_paid"].includes(s.payment_status);
 
       $("panelTitle").textContent = s.deal;
 
-      // A deal from before the prices per pair only knows its total. The
-      // pairs then show that total spread by purchase - the rule new deals
-      // use - marked as worked out: the invoice may say otherwise.
+      /* ----- pairs ----- */
+
+      // A deal from before the prices per pair only knows its total: the
+      // pairs show it spread by purchase, marked ≈ (the invoice may differ).
       const unpriced = pairs.length > 0 && pairs.every((p) => p.selling_price === null || p.selling_price === undefined);
       const estimated = unpriced && pairs.length > 1;
       const spread = unpriced ? spreadByPurchase(Number(s.total_selling_price), pairs) : null;
@@ -871,161 +939,194 @@
       if (estimated) {
         for (const g of groups) g.price = Math.round((g.pairs.reduce((sum, p) => sum + Number(p.selling_price || 0), 0) / g.pairs.length) * 100) / 100;
       }
-      const images = shown.some((p) => p.image_url);
-      const groupRows = groups.map((g) => {
-        const open = state.open[g.key] || groups.length === 1 || pairs.length <= 3;
+      const approx = (value) => `${estimated ? '<span class="approx" title="Worked out: this deal only recorded its total. The invoice may split it differently; the total is exact.">≈</span> ' : ""}${esc(euro(value))}`;
+
+      const pairRows = groups.map((g, gi) => {
+        const label = (name) => (gi === 0 ? `<span>${name}</span>` : "");
+        const many = g.pairs.length > 1;
+        const open = many && state.open[g.key];
         const profit = g.pairs.reduce((sum, p) => sum + (pairProfit(p) ?? 0), 0);
         const unknown = g.pairs.some((p) => pairProfit(p) === null);
         const sizes = g.pairs.map((p) => p.size).filter(Boolean).join(", ");
         const purchase = g.pairs.reduce((sum, p) => sum + Number(p.purchase_price_ex_vat || 0), 0);
-        const head = `
-          <tr class="grp ${open ? "open" : ""}" data-group="${esc(g.key)}">
-            ${images ? `<td>${g.image ? `<img src="${esc(g.image)}" alt="">` : '<span class="no-img"></span>'}</td>` : ""}
-            <td><strong>${esc(g.sku || g.name || "—")}</strong><div class="sub">${esc(g.name && g.sku ? g.name : "")}${g.pairs.length > 1 ? ` · ${g.pairs.length} pairs · ${esc(sizes)}` : ` · ${esc(sizes)}`}</div></td>
-            <td>${esc(g.vat || "—")}</td>
-            <td class="money">${esc(euro(purchase))}</td>
-            <td class="money">${g.price === null || g.price === undefined ? "—" : `${estimated ? "≈ " : ""}${esc(euro(g.price))}`}${g.pairs.length > 1 && g.price !== null && g.price !== undefined ? '<div class="sub">each</div>' : ""}</td>
-            <td class="money ${profit < 0 ? "neg" : ""}">${unknown ? "—" : `${estimated ? "≈ " : ""}${esc(euro(profit))}`}</td>
-          </tr>`;
-        const detail = g.pairs.length > 1 && open ? g.pairs.map((p) => `
-          <tr class="grp-pair">
-            ${images ? "<td></td>" : ""}
-            <td class="sub">${esc(p.item_id || p.inventory_unit_record_id)} · size ${esc(p.size || "—")}</td>
-            <td class="sub">bought ${esc(p.purchase_vat_type || "?")}</td>
-            <td class="money sub">${esc(euro(p.purchase_price_ex_vat))}</td>
-            <td class="money sub">${p.selling_price === null || p.selling_price === undefined ? "—" : `${estimated ? "≈ " : ""}${esc(euro(p.selling_price))}`}</td>
-            <td class="money sub">${pairProfit(p) === null ? "—" : `${estimated ? "≈ " : ""}${esc(euro(pairProfit(p)))}`}</td>
-          </tr>`).join("") : "";
-        return head + detail;
+        const sold = g.pairs.reduce((sum, p) => sum + Number(p.selling_price || 0), 0);
+
+        return `
+          <div class="pair-row ${many ? "clickable" : ""}" ${many ? `data-group="${esc(g.key)}"` : ""}>
+            <div class="pair-name">
+              <strong>${esc(g.sku || g.name || "—")}</strong>
+              <span class="sub">${esc(g.name && g.sku ? g.name : "")}</span>
+              <span class="sub">${many ? `${g.pairs.length} pairs · ` : ""}size ${esc(sizes || "—")} · ${esc(g.vat || "—")}${many ? ` <span class="toggle">${open ? "hide" : "show"} pairs</span>` : ""}</span>
+            </div>
+            <div class="num">${label("Purchase")}${esc(euro(purchase))}</div>
+            <div class="num">${label("Sold for")}${g.price === null || g.price === undefined ? "—" : approx(sold)}</div>
+            <div class="num ${profit < 0 ? "neg" : ""}">${label("Profit")}${unknown ? "—" : approx(profit)}</div>
+          </div>
+          ${open ? g.pairs.map((p) => `
+          <div class="pair-sub">
+            <span>${esc(p.item_id || "")} · size ${esc(p.size || "—")}</span>
+            <span class="num">${esc(euro(p.purchase_price_ex_vat))}</span>
+            <span class="num">${p.selling_price === null || p.selling_price === undefined ? "—" : approx(p.selling_price)}</span>
+            <span class="num">${pairProfit(p) === null ? "—" : approx(pairProfit(p))}</span>
+          </div>`).join("") : ""}`;
       }).join("");
 
-      const parcelRows = parcels.length
-        ? parcels.map((p, i) => state.editParcel === p.id ? `
-          <div class="parcel editing">
+      /* ----- shipping ----- */
+
+      const packed = packedByTracking(s.items_per_parcel);
+      const parcelCards = parcels.length
+        ? parcels.map((p, i) => {
+            if (state.editParcel === p.id) {
+              return `
+          <div class="card-row editing">
             <input class="input" id="editTrackingInput" type="text" value="${esc(p.tracking_number || "")}" placeholder="Tracking number" autocomplete="off" aria-label="Tracking number">
             <span class="row-actions">
               <button class="act" type="button" data-parcel-save="${esc(p.id)}">Save</button>
               <button class="act" type="button" data-parcel-cancel>Cancel</button>
             </span>
-          </div>` : `
-          <div class="parcel">
-            <span class="parcel-main"><span class="mono">${esc(p.tracking_number || "no tracking")}</span>${p.label_url ? ` · <a href="${esc(p.label_url)}" target="_blank" rel="noopener">label</a>` : ' · <span class="sub">no label</span>'}</span>
-            ${shipped ? "" : `<span class="row-actions">
-              ${p.label_url ? "" : `<label class="icon-btn file-btn" title="Add the label">Add label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}
-              <button class="icon-btn" type="button" data-parcel-edit="${esc(p.id)}" aria-label="Edit the tracking number of parcel ${i + 1}">Edit</button>
-              <button class="icon-btn" type="button" data-parcel-remove="${esc(p.id)}" aria-label="Remove parcel ${i + 1}">Remove</button>
-            </span>`}
-          </div>`).join("")
+          </div>`;
+            }
+            const items = packed.get(p.tracking_number || "") || [];
+            return `
+          <div class="card-row">
+            <div class="parcel-head">
+              <span>${carrierOf(p.tracking_number) ? `<span class="carrier">${carrierOf(p.tracking_number)}</span> ` : ""}<span class="mono">${esc(p.tracking_number || "no tracking number")}</span></span>
+              <span class="row-actions">
+                ${p.label_url ? `<a class="act" href="${esc(p.label_url)}" target="_blank" rel="noopener">Label</a>` : shipped ? "" : `<label class="act file-btn">Add label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}
+                ${shipped ? "" : `<button class="act" type="button" data-parcel-edit="${esc(p.id)}" aria-label="Edit parcel ${i + 1}">Edit</button><button class="act" type="button" data-parcel-remove="${esc(p.id)}" aria-label="Remove parcel ${i + 1}">Remove</button>`}
+              </span>
+            </div>
+            ${items.length ? `<ul class="packed">${items.map((it) => `<li><span class="qty">${it.qty}×</span> ${esc(it.name)} <span class="sub">${esc(it.sku)} · ${esc(it.size)}</span></li>`).join("")}</ul>` : ""}
+          </div>`;
+          }).join("")
         : '<p class="sub">No parcels yet.</p>';
+      // Packing text that matched no parcel, shown as it came.
+      const unmatchedPacking = s.items_per_parcel && ![...packed.keys()].some((t) => parcels.some((p) => p.tracking_number === t))
+        ? `<p class="sub">${esc(s.items_per_parcel)}</p>` : "";
+
+      /* ----- invoice and payment ----- */
 
       const invoiceRows = invoices.length
         ? invoices.map((i) => {
             const credited = invoices.some((c) => c.credits_invoice_id === i.id);
-            return `<div class="inv-row">
-              <span>${i.kind === "credit" ? "Credit " : ""}<a href="/api/admin/external-sales/invoice/pdf?id=${esc(i.id)}" target="_blank" rel="noopener"><strong>${esc(i.invoice_number || i.rompslomp_invoice_id)}</strong></a> · ${esc(i.vat_route || "—")} · ${esc(euro(i.amount_incl_vat))}</span>
-              <span class="sub">${i.journal_entry_id ? "journal booked" : '<span class="pill bad">no journal</span>'}${i.sent_at ? ` · mailed ${esc(day(i.sent_at))}` : ""}${credited ? ' · <span class="pill">credited</span>' : ""}</span>
-            </div>`;
+            return `
+          <div class="line">
+            <span>${i.kind === "credit" ? "Credit " : ""}<a href="/api/admin/external-sales/invoice/pdf?id=${esc(i.id)}" target="_blank" rel="noopener">${esc(i.invoice_number || i.rompslomp_invoice_id)}</a> <span class="sub">· ${esc(i.vat_route || "—")}</span>${credited ? ' <span class="pill">credited</span>' : ""}${i.journal_entry_id ? "" : ' <span class="pill bad">journal missing</span>'}</span>
+            <span class="num">${esc(euro(i.amount_incl_vat))}</span>
+          </div>`;
           }).join("")
         : '<p class="sub">No invoice yet.</p>';
+      const mailed = invoices.find((i) => i.kind === "sale" && i.sent_at);
 
       const invoiced = invoices.some((i) => i.kind === "sale");
       const open = s.payment_status === "partially_paid" ? Number(s.total_selling_price) - Number(s.paid_amount || 0) : Number(s.total_selling_price);
       const METHOD = { bank_transfer: "bank transfer", payment_link: "payment link", paid: "paid before the outbound" };
-      const payment = s.payment_status === "paid"
-        ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_method ? ` · ${esc(METHOD[s.payment_method] || s.payment_method)}` : ""}`
+      const paymentLine = s.payment_status === "paid"
+        ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_method ? ` <span class="sub">· ${esc(METHOD[s.payment_method] || s.payment_method)}</span>` : ""}`
         : s.payment_status === "cancelled" ? "Cancelled"
-          : `${s.payment_status === "partially_paid" ? `Partially paid · ${esc(euro(open))} open` : `Unpaid · ${esc(euro(open))}`}${due_date && invoiced ? ` · due ${esc(day(due_date))}` : ""}${s.last_reminder_at ? ` · reminder sent ${esc(day(s.last_reminder_at))}` : ""}`;
-      const unpaid = ["pending", "partially_paid"].includes(s.payment_status);
+          : `${s.payment_status === "partially_paid" ? `${esc(euro(open))} still open` : `${esc(euro(open))} open`}${due_date && invoiced ? ` <span class="sub">· due ${esc(day(due_date))}</span>` : ""}`;
+      const paySub = [
+        mailed ? `invoice mailed ${esc(day(mailed.sent_at))}` : "",
+        s.last_reminder_at ? `reminder ${esc(day(s.last_reminder_at))}` : ""
+      ].filter(Boolean).join(" · ");
+
+      // The next step already carries Send reminder when it is overdue.
       const payButtons = unpaid ? `
           <div class="actions">
             <button class="act" type="button" data-pay="paid">Mark as paid</button>
             ${s.payment_link_url
-              ? `<button class="act" type="button" data-pay="copy">Copy payment link</button><button class="act" type="button" data-pay="newlink">New payment link</button>`
-              : `<button class="act" type="button" data-pay="link">Create payment link</button>`}
-            ${invoiced ? '<button class="act" type="button" data-pay="reminder">Send reminder</button>' : ""}
-          </div>
-          <p class="sub">Paid by bank transfer? Link the payment to the invoice in Rompslomp: the deal follows within 10 minutes.</p>` : "";
+              ? '<button class="act" type="button" data-pay="copy">Copy payment link</button><button class="act" type="button" data-pay="newlink">New link</button>'
+              : '<button class="act" type="button" data-pay="link">Payment link</button>'}
+            ${invoiced && next.key !== "overdue" ? '<button class="act" type="button" data-pay="reminder">Send reminder</button>' : ""}
+          </div>` : "";
 
-      // Everything besides the next step, each with a name that says what it
-      // does - only what can be done on this deal now.
+      /* ----- the rest ----- */
+
       const actions = [
-        s.bookkeeping_status === "invoiced" && ["resend", "Resend invoice to buyer"],
-        s.bookkeeping_status === "invoiced" && ["test", "Send invoice mail to me"],
+        s.bookkeeping_status === "invoiced" && ["resend", "Resend invoice"],
+        s.bookkeeping_status === "invoiced" && ["test", "Test mail to me"],
         ...invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id)).map((i) => [`credit:${i.id}`, `Credit ${i.invoice_number}`]),
-        !locked && pairs.length > 1 && ["prices", "Change prices per pair"],
-        !locked && ["refresh", "Reload purchase prices from Airtable"],
+        !locked && pairs.length > 1 && ["prices", "Prices per pair"],
+        !locked && ["refresh", "Reload purchase prices"],
         !shipped && ["shipped", "Mark as shipped"],
-        s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice this deal"],
-        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice this deal after all"]
+        s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice"],
+        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice after all"]
       ].filter(Boolean);
 
       $("panelBody").innerHTML = `
-        <div class="deal-head">
-          <div>
-            <div class="deal-buyer">${esc(s.buyer_company || s.buyer_name || "—")}</div>
-            <div class="sub">${esc(s.buyer_id || "")}${s.buyer_country ? ` · ${esc(s.buyer_country)}` : ""} · ${esc(day(s.sale_date))}</div>
-          </div>
+        <header class="deal-head">
+          <div class="deal-buyer">${esc(s.buyer_company || s.buyer_name || "—")}</div>
+          <div class="sub">${esc(s.buyer_id || "")}${s.buyer_country ? ` · ${esc(s.buyer_country)}` : ""} · ${esc(day(s.sale_date))}</div>
           <div class="inline">${pill(PAYMENT, s.payment_status)} ${pill(SHIPPING, s.shipping_status)} ${pill(BOOKS, s.bookkeeping_status)}</div>
-        </div>
+        </header>
 
+        ${next.key === "done" ? "" : `
         <div class="next ${NEXT_TONE[next.tone] || ""}">
           <span>${esc(next.text)}</span>
           ${next.key === "invoice" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice</button>' : ""}
           ${next.key === "label" ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel</button>' : ""}
           ${next.key === "overdue" ? '<button class="btn primary" type="button" data-pay="reminder">Send reminder</button>' : ""}
-        </div>
+        </div>`}
 
-        <div class="group">
+        <section class="sec">
           <h3>Pairs</h3>
-          <div style="overflow-x:auto"><table class="pairs-table">
-            <thead><tr>${images ? "<th></th>" : ""}<th>Pair</th><th>VAT</th><th class="money">Purchase</th><th class="money">Sold for</th><th class="money">Profit</th></tr></thead>
-            <tbody>${groupRows}</tbody>
-            <tfoot><tr>${images ? "<td></td>" : ""}<td><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></td><td></td><td class="money"><strong>${esc(euro(money.purchase))}</strong></td><td class="money"><strong>${esc(euro(money.selling))}</strong></td><td class="money ${money.profit !== null && money.profit < 0 ? "neg" : ""}"><strong>${money.profit === null ? "?" : esc(euro(money.profit))}</strong></td></tr></tfoot>
-          </table></div>
-          ${estimated ? '<p class="sub">≈ This deal only recorded its total. The price per pair is worked out by purchase, as for new deals; the invoice may show it differently. The total and its profit are exact.</p>' : ""}
-        </div>
+          <div class="pairs">${pairRows}</div>
+          <div class="pair-total">
+            <div class="pair-name"><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></div>
+            <div class="num">${esc(euro(money.purchase))}</div>
+            <div class="num">${esc(euro(money.selling))}</div>
+            <div class="num ${money.profit !== null && money.profit < 0 ? "neg" : ""}">${money.profit === null ? "—" : esc(euro(money.profit))}</div>
+          </div>
+        </section>
 
-        <div class="group">
-          <div class="group-title"><h3>Parcels${s.labels_needed ? ` · ${parcels.filter((p) => p.label_url).length} of ${s.labels_needed} labels` : ""}</h3>${shipped ? "" : '<button class="act" id="addParcelBtn" type="button">+ Add parcel</button>'}</div>
-          <div class="parcels">${parcelRows}</div>
-          ${s.items_per_parcel ? `<p class="sub">Packed: ${esc(s.items_per_parcel)}</p>` : ""}
-        </div>
+        <section class="sec">
+          <div class="sec-head"><h3>Shipping</h3>${shipped ? "" : '<button class="act" id="addParcelBtn" type="button">Add parcel</button>'}</div>
+          ${parcelCards}
+          ${unmatchedPacking}
+        </section>
 
-        <div class="group">
-          <h3>Invoice and payment</h3>
-          <div class="invs">${invoiceRows}</div>
-          <p class="pay">${payment}</p>
-          ${s.payment_link_url && unpaid ? `<p class="sub mono" style="overflow-wrap:anywhere">${esc(s.payment_link_url)}</p>` : ""}
-          ${s.payment_note ? `<p class="sub" style="white-space:pre-wrap">${esc(s.payment_note)}</p>` : ""}
+        <section class="sec">
+          <h3>Invoice</h3>
+          ${invoiceRows}
+        </section>
+
+        <section class="sec">
+          <h3>Payment</h3>
+          <div class="pay-line">${paymentLine}</div>
+          ${paySub ? `<div class="sub">${paySub}</div>` : ""}
+          ${s.payment_link_url && unpaid ? `<div class="sub mono link-line">${esc(s.payment_link_url)}</div>` : ""}
+          ${s.payment_note ? `<div class="sub pre">${esc(s.payment_note)}</div>` : ""}
           ${payButtons}
-        </div>
+        </section>
 
-        ${actions.length ? `
-        <div class="group">
-          <h3>Actions</h3>
-          <div class="actions">${actions.map(([value, label]) => `<button class="act" type="button" data-action="${esc(value)}">${esc(label)}</button>`).join("")}</div>
-        </div>` : ""}
         ${state.runLog?.id === s.id ? `<ul class="run-log">${state.runLog.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
 
-        <details class="fold">
-          <summary>Buyer</summary>
-          <dl>
-            <dt>Name</dt><dd>${esc(s.buyer_name || "—")}${s.buyer_id ? ` (${esc(s.buyer_id)})` : ""}</dd>
-            ${s.buyer_company ? `<dt>Company</dt><dd>${esc(s.buyer_company)}</dd>` : ""}
-            <dt>Email</dt><dd>${esc(s.buyer_email || "—")}</dd>
-            <dt>Country</dt><dd>${esc(s.buyer_country || "—")}${s.buyer_country_code ? ` (${esc(s.buyer_country_code)})` : ""}</dd>
-            <dt>VAT ID</dt><dd>${esc(s.buyer_vat_id || "—")}</dd>
-          </dl>
-        </details>
-        <details class="fold" ${s.notes ? "open" : ""}>
-          <summary>Notes${s.notes ? "" : " (none)"}</summary>
-          <textarea class="input notes" id="notesInput" aria-label="Notes">${esc(s.notes || "")}</textarea>
-          <div class="inline" style="margin-top:6px"><button class="act" id="notesSave" type="button">Save notes</button></div>
-        </details>
-        <details class="fold">
-          <summary>History</summary>
-          <div id="historyBox"></div>
-        </details>`;
+        <div class="folds">
+          ${actions.length ? `
+          <details class="fold">
+            <summary>More actions</summary>
+            <div class="actions">${actions.map(([value, label]) => `<button class="act" type="button" data-action="${esc(value)}">${esc(label)}</button>`).join("")}</div>
+          </details>` : ""}
+          <details class="fold">
+            <summary>Buyer</summary>
+            <dl>
+              <dt>Name</dt><dd>${esc(s.buyer_name || "—")}</dd>
+              ${s.buyer_company ? `<dt>Company</dt><dd>${esc(s.buyer_company)}</dd>` : ""}
+              <dt>Email</dt><dd>${esc(s.buyer_email || "—")}</dd>
+              <dt>Country</dt><dd>${esc(s.buyer_country || "—")}</dd>
+              <dt>VAT ID</dt><dd>${esc(s.buyer_vat_id || "—")}</dd>
+            </dl>
+          </details>
+          <details class="fold" ${s.notes ? "open" : ""}>
+            <summary>Notes</summary>
+            <textarea class="input notes" id="notesInput" aria-label="Notes">${esc(s.notes || "")}</textarea>
+            <div class="inline" style="margin-top:8px"><button class="act" id="notesSave" type="button">Save notes</button></div>
+          </details>
+          <details class="fold">
+            <summary>History</summary>
+            <div id="historyBox"></div>
+          </details>
+        </div>`;
 
       drawHistory();
     }
@@ -1164,7 +1265,7 @@
     });
 
     $("panelBody").addEventListener("click", async (event) => {
-      const target = event.target.closest("button, tr[data-group]") || event.target;
+      const target = event.target.closest("button, [data-group]") || event.target;
       const id = state.detail?.sale?.id;
       if (!id) return;
 
