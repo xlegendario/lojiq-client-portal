@@ -268,7 +268,7 @@
     .pairs-table tfoot td { border-top: 1px solid var(--border); }
     .inv-row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--border); }
     .pay { margin: 8px 0 0; }
-    .more-row .select { width: 100%; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
     details.fold { border-top: 1px solid var(--border); padding-top: 10px; }
     details.fold summary { cursor: pointer; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
     details.fold dl { margin: 10px 0 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; }
@@ -785,7 +785,12 @@
 
       $("panelTitle").textContent = s.deal;
 
-      const groups = pairGroups(pairs, s.legacy_selling_vat_type);
+      // One pair without its own price: the deal's price is that pair's.
+      const shown = pairs.length === 1 && (pairs[0].selling_price === null || pairs[0].selling_price === undefined)
+        ? [{ ...pairs[0], selling_price: Number(s.total_selling_price), selling_vat_type: pairs[0].selling_vat_type || s.legacy_selling_vat_type }]
+        : pairs;
+      const groups = pairGroups(shown, s.legacy_selling_vat_type);
+      const images = shown.some((p) => p.image_url);
       const groupRows = groups.map((g) => {
         const open = state.open[g.key] || groups.length === 1 || pairs.length <= 3;
         const profit = g.pairs.reduce((sum, p) => sum + (pairProfit(p) ?? 0), 0);
@@ -794,7 +799,7 @@
         const purchase = g.pairs.reduce((sum, p) => sum + Number(p.purchase_price_ex_vat || 0), 0);
         const head = `
           <tr class="grp ${open ? "open" : ""}" data-group="${esc(g.key)}">
-            <td>${g.image ? `<img src="${esc(g.image)}" alt="">` : '<span class="no-img"></span>'}</td>
+            ${images ? `<td>${g.image ? `<img src="${esc(g.image)}" alt="">` : '<span class="no-img"></span>'}</td>` : ""}
             <td><strong>${esc(g.sku || g.name || "—")}</strong><div class="sub">${esc(g.name && g.sku ? g.name : "")}${g.pairs.length > 1 ? ` · ${g.pairs.length} pairs · ${esc(sizes)}` : ` · ${esc(sizes)}`}</div></td>
             <td>${esc(g.vat || "—")}</td>
             <td class="money">${esc(euro(purchase))}</td>
@@ -803,7 +808,7 @@
           </tr>`;
         const detail = g.pairs.length > 1 && open ? g.pairs.map((p) => `
           <tr class="grp-pair">
-            <td></td>
+            ${images ? "<td></td>" : ""}
             <td class="sub">${esc(p.item_id || p.inventory_unit_record_id)} · size ${esc(p.size || "—")}</td>
             <td class="sub">bought ${esc(p.purchase_vat_type || "?")}</td>
             <td class="money sub">${esc(euro(p.purchase_price_ex_vat))}</td>
@@ -825,9 +830,9 @@
           <div class="parcel">
             <span class="parcel-main"><span class="mono">${esc(p.tracking_number || "no tracking")}</span>${p.label_url ? ` · <a href="${esc(p.label_url)}" target="_blank" rel="noopener">label</a>` : ' · <span class="sub">no label</span>'}</span>
             ${shipped ? "" : `<span class="row-actions">
-              ${p.label_url ? "" : `<label class="icon-btn file-btn" title="Add the label">＋ label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}
-              <button class="icon-btn" type="button" data-parcel-edit="${esc(p.id)}" title="Change the tracking number" aria-label="Change the tracking number of parcel ${i + 1}">✎</button>
-              <button class="icon-btn" type="button" data-parcel-remove="${esc(p.id)}" title="Remove this parcel" aria-label="Remove parcel ${i + 1}">🗑</button>
+              ${p.label_url ? "" : `<label class="icon-btn file-btn" title="Add the label">Add label<input type="file" accept="application/pdf,image/jpeg,image/png" data-parcel-label="${esc(p.id)}"></label>`}
+              <button class="icon-btn" type="button" data-parcel-edit="${esc(p.id)}" aria-label="Edit the tracking number of parcel ${i + 1}">Edit</button>
+              <button class="icon-btn" type="button" data-parcel-remove="${esc(p.id)}" aria-label="Remove parcel ${i + 1}">Remove</button>
             </span>`}
           </div>`).join("")
         : '<p class="sub">No parcels yet.</p>';
@@ -845,17 +850,19 @@
       const payment = s.payment_status === "paid"
         ? `Paid${s.paid_at ? ` on ${esc(day(s.paid_at))}` : ""}${s.payment_note ? ` · ${esc(s.payment_note)}` : ""}`
         : s.payment_status === "cancelled" ? "Cancelled"
-          : `${s.payment_status === "partially_paid" ? "Partially paid" : "Unpaid"}${due_date ? ` · due ${esc(day(due_date))}` : ""}${s.payment_note ? ` · ${esc(s.payment_note)}` : ""}`;
+          : `${s.payment_status === "partially_paid" ? "Partially paid" : "Unpaid"}${due_date && invoices.some((i) => i.kind === "sale") ? ` · due ${esc(day(due_date))}` : ""}${s.payment_note ? ` · ${esc(s.payment_note)}` : ""}`;
 
-      const more = [
-        s.bookkeeping_status === "invoiced" && ["resend", "Send the invoice again"],
-        s.bookkeeping_status === "invoiced" && ["test", "Send me a test of the invoice mail"],
-        ...invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id)).map((i) => [`credit:${i.id}`, `Credit ${i.invoice_number}…`]),
-        !locked && ["prices", "Prices per pair…"],
-        !locked && ["refresh", "Read the purchase again from Airtable"],
-        !shipped && ["shipped", "Mark as shipped (without Pack & Ship)"],
-        s.bookkeeping_status === "to_invoice" && ["noinvoice", "Not to be invoiced…"],
-        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Back to \"to invoice\""]
+      // Everything besides the next step, each with a name that says what it
+      // does - only what can be done on this deal now.
+      const actions = [
+        s.bookkeeping_status === "invoiced" && ["resend", "Resend invoice to buyer"],
+        s.bookkeeping_status === "invoiced" && ["test", "Send invoice mail to me"],
+        ...invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id)).map((i) => [`credit:${i.id}`, `Credit ${i.invoice_number}`]),
+        !locked && pairs.length > 1 && ["prices", "Change prices per pair"],
+        !locked && ["refresh", "Reload purchase prices from Airtable"],
+        !shipped && ["shipped", "Mark as shipped"],
+        s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice this deal"],
+        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice this deal after all"]
       ].filter(Boolean);
 
       $("panelBody").innerHTML = `
@@ -869,16 +876,16 @@
 
         <div class="next ${NEXT_TONE[next.tone] || ""}">
           <span>${esc(next.text)}</span>
-          ${next.key === "invoice" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice…</button>' : ""}
-          ${next.key === "label" ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel…</button>' : ""}
+          ${next.key === "invoice" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice</button>' : ""}
+          ${next.key === "label" ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel</button>' : ""}
         </div>
 
         <div class="group">
           <h3>Pairs</h3>
           <div style="overflow-x:auto"><table class="pairs-table">
-            <thead><tr><th></th><th>Pair</th><th>VAT</th><th class="money">Purchase</th><th class="money">Sold for</th><th class="money">Profit</th></tr></thead>
+            <thead><tr>${images ? "<th></th>" : ""}<th>Pair</th><th>VAT</th><th class="money">Purchase</th><th class="money">Sold for</th><th class="money">Profit</th></tr></thead>
             <tbody>${groupRows}</tbody>
-            <tfoot><tr><td></td><td><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></td><td></td><td class="money"><strong>${esc(euro(money.purchase))}</strong></td><td class="money"><strong>${esc(euro(money.selling))}</strong></td><td class="money ${money.profit !== null && money.profit < 0 ? "neg" : ""}"><strong>${money.profit === null ? "?" : esc(euro(money.profit))}</strong></td></tr></tfoot>
+            <tfoot><tr>${images ? "<td></td>" : ""}<td><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></td><td></td><td class="money"><strong>${esc(euro(money.purchase))}</strong></td><td class="money"><strong>${esc(euro(money.selling))}</strong></td><td class="money ${money.profit !== null && money.profit < 0 ? "neg" : ""}"><strong>${money.profit === null ? "?" : esc(euro(money.profit))}</strong></td></tr></tfoot>
           </table></div>
         </div>
 
@@ -894,12 +901,11 @@
           <p class="pay">${payment}</p>
         </div>
 
-        <div class="more-row">
-          <select class="select" id="moreSelect" aria-label="More actions">
-            <option value="">More…</option>
-            ${more.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("")}
-          </select>
-        </div>
+        ${actions.length ? `
+        <div class="group">
+          <h3>Actions</h3>
+          <div class="actions">${actions.map(([value, label]) => `<button class="act" type="button" data-action="${esc(value)}">${esc(label)}</button>`).join("")}</div>
+        </div>` : ""}
         ${state.runLog?.id === s.id ? `<ul class="run-log">${state.runLog.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
 
         <details class="fold">
@@ -1000,11 +1006,6 @@
     /* ----- actions in the panel ----- */
 
     $("panelBody").addEventListener("change", async (event) => {
-      if (event.target.id === "moreSelect") {
-        const value = event.target.value;
-        event.target.value = "";
-        return runMore(value);
-      }
 
       const labelInput = event.target.closest("[data-parcel-label]");
       if (labelInput?.files?.[0]) {
@@ -1058,6 +1059,7 @@
       }
 
       if (target.id === "notesSave") return busy(target, () => update({ notes: $("notesInput").value }, "Notes saved."));
+      if (target.dataset?.action) return runMore(target.dataset.action);
     });
 
     async function runMore(value) {
