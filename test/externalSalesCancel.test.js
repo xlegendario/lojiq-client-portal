@@ -32,9 +32,9 @@ const INVOICES = [{ id: "i1", kind: "sale", invoice_number: "KC202609-2100", rom
 
 test("the note says where the pair is, in the buyer's name", () => {
   assert.equal(conditionNote(SALE, "return_expected"), "Need return from Conquer Shop S.R.L.");
-  assert.equal(conditionNote(SALE, "stays_with_buyer"), "At Conquer Shop S.R.L.");
+  assert.equal(conditionNote({ buyer_name: "Jan" }, "return_expected"), "Need return from Jan");
+  // A pair that is still here needs no note.
   assert.equal(conditionNote(SALE, "never_shipped"), "");
-  assert.equal(conditionNote({ buyer_name: "Jan" }, "stays_with_buyer"), "At Jan");
 });
 
 test("the note goes in front of what the unit already said, and never twice", () => {
@@ -133,15 +133,15 @@ test("cancelling one pair credits, re-invoices, frees the unit and asks for the 
   }]);
 });
 
-test("a pair the buyer keeps is Sold, and the last pair ends the deal", async () => {
+test("the last pair off the deal ends it", async () => {
   const { db, written, calls, cancel } = fakes();
 
-  const out = await cancel.cancelPairs(S1, { pair_ids: [P1, P2], outcome: "stays_with_buyer" });
+  const out = await cancel.cancelPairs(S1, { pair_ids: [P1, P2], outcome: "never_shipped" });
 
   assert.equal(out.cancelled, 2);
   // Nothing is left to invoice, so only the credit runs.
   assert.deepEqual(calls, [["credit", "i1"]]);
-  assert.equal(written.every((w) => w.fields["Availability Status"] === "Sold"), true);
+  assert.equal(written.every((w) => w.fields["Availability Status"] === "Available"), true);
 
   const deal = db.tables.external_sales[0];
   assert.equal(deal.shipping_status, "cancelled");

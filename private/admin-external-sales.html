@@ -527,7 +527,6 @@
         <select class="select" id="cancelOutcome">
           <option value="never_shipped">Still here - never shipped</option>
           <option value="return_expected">With the buyer - coming back</option>
-          <option value="stays_with_buyer">With the buyer - he keeps it</option>
         </select>
         <span class="hint" id="cancelOutcomeHint"></span>
       </div>
@@ -1347,13 +1346,13 @@
     const CANCEL_OUTCOME_TEXT = {
       never_shipped: "cancelled",
       return_expected: "return expected",
+      // Kept for the deals that were cancelled while this was still a choice.
       stays_with_buyer: "stays with buyer"
     };
 
     const OUTCOME_HINTS = {
       never_shipped: "The pair goes straight back to Available.",
-      return_expected: 'The unit reads "Need return from {buyer}" until it is back.',
-      stays_with_buyer: 'The unit is Sold and reads "At {buyer}".'
+      return_expected: 'The unit reads "Need return from {buyer}" until it is back.'
     };
 
     function openCancelDialog() {

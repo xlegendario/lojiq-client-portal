@@ -12,14 +12,16 @@
 //                      carries "Need return from {buyer}" in Item Condition
 //                      until someone marks it arrived; the pair is not
 //                      offered again while it is away.
-//   stays with buyer   he keeps it and we take it off the bill (a wrong pair
-//                      he can use, damage settled that way). The unit is
-//                      Sold, with "At {buyer}" on it.
+// A pair the buyer keeps while we take it off the bill is deliberately not
+// one of the choices (23-09-2026). Crediting reverses the stock correction,
+// so Rompslomp would put a pair back in stock that is never coming back.
+// That case needs its own bookkeeping and waits for the next pass over
+// cancelling.
 //
-// A partner's pair follows the same three, with one question of its own: have
+// A partner's pair follows the same two, with one question of its own: have
 // we paid the partner yet? Not paid means it was never ours, so it goes back
 // on his shelf; paid means we bought it, and it stays an Inventory Unit in
-// our own stock however the sale ended.
+// our own stock.
 //
 // The books follow one rule, the same one Dario uses by hand: an invoice is
 // never edited. What was invoiced is credited in full, and what is left of
@@ -35,14 +37,12 @@ import { ExternalSalesError, dealId, round2 } from "./externalSalesSync.js";
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const UUID = /^[0-9a-f-]{36}$/i;
 
-export const CANCEL_OUTCOMES = ["never_shipped", "return_expected", "stays_with_buyer"];
+export const CANCEL_OUTCOMES = ["never_shipped", "return_expected"];
 
 // What the pair is doing now, in the words Dario reads on the unit.
 export function conditionNote(sale, outcome) {
   const buyer = text(sale.buyer_company) || text(sale.buyer_name) || "the buyer";
-  if (outcome === "return_expected") return `Need return from ${buyer}`;
-  if (outcome === "stays_with_buyer") return `At ${buyer}`;
-  return "";
+  return outcome === "return_expected" ? `Need return from ${buyer}` : "";
 }
 
 // The note goes in front, what was already there stays behind it: the unit's
@@ -136,17 +136,13 @@ export function createExternalSalesCancel({ db, airtable, invoicing }) {
     const failed = [];
 
     /*
-     * A partner pair that comes back goes back on the partner's shelf - but
-     * only while we still owe him for it. Once it is paid the pair is ours,
-     * however the sale ended: it stays an Inventory Unit and joins our own
-     * stock. Putting a paid pair back would have us buy it twice.
-     *
-     * One the buyer keeps never goes back either way: we owe the partner for
-     * it, or have already paid.
+     * A partner pair goes back on the partner's shelf - but only while we
+     * still owe him for it. Once it is paid the pair is ours: it stays an
+     * Inventory Unit and joins our own stock. Putting a paid pair back would
+     * have us buy it twice.
      */
     const toShelf = pairs.filter((pair) =>
       pair.partner_stock_id &&
-      outcome !== "stays_with_buyer" &&
       text(found.get(text(pair.inventory_unit_record_id))?.["Payment Status"]) !== "Paid");
 
     for (const pair of toShelf) {
@@ -172,9 +168,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing }) {
     if (!ids.length) return [];
 
     for (const id of ids) {
-      const fields = outcome === "stays_with_buyer"
-        ? { "Availability Status": "Sold", "External Deal ID": "" }
-        : { "Availability Status": "Available", "External Deal ID": "" };
+      const fields = { "Availability Status": "Available", "External Deal ID": "" };
 
       const condition = conditionWith(note, found.get(id)?.["Item Condition"]);
       if (note) fields["Item Condition"] = condition;
