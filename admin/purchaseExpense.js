@@ -29,17 +29,21 @@ const round2 = (value) => Math.round(Number(value || 0) * 100) / 100;
 export const PAYOUT_COMPANY = "payout by kickz caviar";
 /*
  * The stock the purchase goes into, recognised in the order that is most
- * certain first. Kickz Caviar has it as one account named Voorraad Scout;
- * in the Payout company it is "Scout" under "Activa - Vlottende activa -
- * Voorraad", so the name alone is not enough and the path alone could hit a
- * sibling.
+ * certain first. The same account is written differently per company -
+ * "Voorraad Scout" in one, "Voorraad | Scout" in the other - so names are
+ * compared with the punctuation taken out, and the path is only a fallback
+ * because it can point at the heading above the account.
  */
 export const STOCK_ACCOUNT_RULES = [
-  { why: "Voorraad Scout", match: (name, path) => name.includes("voorraad scout") },
+  { why: "Voorraad Scout", match: (name) => name.includes("voorraadscout") },
   { why: "Scout under Voorraad", match: (name, path) => path.includes("voorraad") && name.includes("scout") },
   { why: "an account named Voorraad", match: (name) => name.includes("voorraad") },
   { why: "anything under Voorraad", match: (name, path) => path.includes("voorraad") }
 ];
+
+// Names to compare by: lower case, letters and digits only, so "Voorraad |
+// Scout" and "Voorraad Scout" are the same thing.
+const key = (value) => text(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 
 // Which of Rompslomp's VAT types a purchase is booked under.
 export const PURCHASE_VAT = {
@@ -104,7 +108,7 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     const [accounts, vatTypes] = await Promise.all([client.accounts(), client.vatTypes()]);
     let account = null;
     for (const rule of STOCK_ACCOUNT_RULES) {
-      account = accounts.find((row) => rule.match(like(row.name), `${like(row.path_name)} ${like(row.path)}`));
+      account = accounts.find((row) => rule.match(key(row.name), key(`${row.path_name || ""} ${row.path || ""}`)));
       if (account) break;
     }
 

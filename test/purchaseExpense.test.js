@@ -104,13 +104,13 @@ test("a company or an account that is not there stops the booking with a reason"
   await assert.rejects(() => noAccount.company(), /no stock account this recognises. It has: Commercieel/);
 });
 
-test("the Payout company keeps its stock as Scout under Voorraad", async () => {
+test("the stock account is found however its name is punctuated", async () => {
   const client = {
     companyId: 987654321,
     async accounts() {
       return [
         { id: 1, name: "Voorraad", path_name: "Activa • Vlottende activa" },
-        { id: 2, name: "Scout", path_name: "Activa • Vlottende activa • Voorraad" },
+        { id: 2, name: "Voorraad | Scout", path_name: "Activa • Vlottende activa" },
         { id: 3, name: "Commercieel", path_name: "Kosten" }
       ];
     },
@@ -120,7 +120,7 @@ test("the Payout company keeps its stock as Scout under Voorraad", async () => {
   const purchases = createPurchaseExpense({ rompslomp: { async companies() { return COMPANIES; } }, forCompany: () => client });
   const { account } = await purchases.company();
 
-  assert.equal(account.id, 2, "Scout under Voorraad, not the Voorraad heading above it");
+  assert.equal(account.id, 2, "Voorraad | Scout, punctuation and all, not the heading above it");
 });
 
 test("a seller who is no supplier in Rompslomp is said, not invented", async () => {
