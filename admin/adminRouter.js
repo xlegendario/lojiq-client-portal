@@ -55,6 +55,7 @@ import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
+import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
@@ -418,6 +419,12 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     internalSecret: services.counterOffersSecret,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-external-sales.html") : ""
   });
+
+  // The self-billing purchase invoice for any unit we bought
+  // (admin/adminSelfBilling.js, admin/selfBillingPdf.js).
+  const selfBilling = createSelfBilling({ airtable });
+
+  mountSelfBilling(router, { store: selfBilling, internalSecret: services.counterOffersSecret });
 
   // Mollie payouts: what ING paid out, split into the payments in it and the
   // invoices behind them (admin/adminMolliePayouts.js,
