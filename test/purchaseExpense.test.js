@@ -27,8 +27,14 @@ function fakes({ suppliers = [{ id: 42, company_name: "Zhuoyi" }], expense = { i
     async accounts() { return ACCOUNTS; },
     async vatTypes() { return VAT_TYPES; },
     async searchSuppliers(q) { calls.push(["search", q]); return suppliers; },
-    async createExpense(body) { calls.push(["create", body]); return expense; },
-    async updateExpense(id, body) { calls.push(["update", id, Object.keys(body.expense)]); return { id }; },
+    async createExpense(body) {
+      calls.push(["create", body]);
+      return { ...expense, attachment_objects: body.expense.attachment_objects || [] };
+    },
+    async updateExpense(id, body) {
+      calls.push(["update", id, Object.keys(body.expense)]);
+      return { id, attachment_objects: body.expense.attachment_objects || [] };
+    },
     async getExpense(id) {
       calls.push(["get", id]);
       return {
@@ -90,8 +96,34 @@ test("the purchase lands in the Payout company, on Voorraad Scout, with the docu
   assert.equal(created.expense.type_account_id, 222, "Voorraad Scout, not the first account there is");
   assert.equal(created.expense.invoice_lines[0].vat_type_id, 688, "a margin purchase carries no VAT");
 
-  const attachment = calls.find((call) => call[0] === "update");
-  assert.deepEqual(attachment[2], ["attachment_objects"]);
+  // The document goes along on the way in, so no second call is needed.
+  assert.equal(created.expense.attachment_objects[0].attachment_file_name, "PCS-007999.pdf");
+  assert.equal(created.expense.attachment_objects[0].attachment_content_type, "application/pdf");
+  assert.equal(calls.some((call) => call[0] === "update"), false);
+});
+
+test("an attachment Rompslomp will not keep is reported, and the booking stands", async () => {
+  const { calls, purchases } = fakes();
+  const client = calls.client;
+
+  const bare = createPurchaseExpense({
+    rompslomp: { async companies() { return COMPANIES; } },
+    forCompany: () => ({
+      companyId: 987654321,
+      async accounts() { return ACCOUNTS; },
+      async vatTypes() { return VAT_TYPES; },
+      async searchSuppliers() { return [{ id: 42, company_name: "Zhuoyi" }]; },
+      async createExpense() { return { id: 9001, invoice_number: "2026-0042" }; },
+      async updateExpense() { return { id: 9001 }; }
+    }),
+    selfBilling: { async forUnit() { return { filename: "PCS-007999.pdf", pdf: Buffer.from("%PDF") }; } }
+  });
+
+  const out = await bare.book({ deal: "EXTD-1", unit: { record_id: "recUNIT0000000001", vat_type: "Margin", price: 100 }, seller: { company_name: "Zhuoyi" } });
+
+  assert.equal(out.expense_id, "9001", "the purchase is booked either way");
+  assert.equal(out.attached, false);
+  assert.match(out.attach_error, /kept no attachment/);
 });
 
 test("a company or an account that is not there stops the booking with a reason", async () => {

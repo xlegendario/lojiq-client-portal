@@ -176,32 +176,54 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       amount: unit.price
     });
 
-    const expense = await client.createExpense(body);
+    /*
+     * The self-billing invoice belongs on the booking, and Rompslomp takes
+     * it as a base64 attachment. Whether it takes it on the expense itself
+     * or only afterwards is not documented ("read only", while the file is
+     * write_only), so it goes along on the way in and is sent again after
+     * if it did not stick.
+     *
+     * A booking without its document is still a booking: what went wrong is
+     * carried back, not thrown.
+     */
+    let document = null;
+    let attachError = "";
 
-    // The self-billing invoice belongs on the booking. It is the document
-    // the purchase rests on, but a booking without it is still a booking:
-    // a failure here is said, not thrown.
-    let attached = false;
     if (selfBilling && text(unit.record_id)) {
       try {
-        const { filename, pdf } = await selfBilling.forUnit(unit.record_id, { order_number: deal });
-        await client.updateExpense(expense.id, {
-          expense: {
-            attachment_objects: [{ attachment: pdf.toString("base64"), attachment_file_name: filename }]
-          }
-        });
-        attached = true;
+        document = await selfBilling.forUnit(unit.record_id, { order_number: deal });
       } catch (err) {
-        console.error(`[purchase] ${unit.item_id || unit.record_id}: the self-billing invoice was not attached:`, err.message);
+        attachError = `the self-billing invoice could not be made: ${err.message}`;
       }
     }
+
+    const attachment = document
+      ? [{ attachment: document.pdf.toString("base64"), attachment_file_name: document.filename, attachment_content_type: "application/pdf" }]
+      : null;
+
+    const expense = await client.createExpense(attachment ? { expense: { ...body.expense, attachment_objects: attachment } } : body);
+
+    let attached = (expense?.attachment_objects || []).length > 0;
+
+    if (attachment && !attached) {
+      try {
+        const patched = await client.updateExpense(expense.id, { expense: { attachment_objects: attachment } });
+        attached = (patched?.attachment_objects || []).length > 0;
+        if (!attached) attachError = "Rompslomp accepted the expense but kept no attachment on it.";
+      } catch (err) {
+        attachError = `Rompslomp refused the attachment: ${err.message}`;
+      }
+    }
+
+    if (attachError) console.error(`[purchase] ${unit.item_id || unit.record_id}: ${attachError}`);
 
     return {
       expense_id: String(expense.id),
       expense_number: text(expense.invoice_number),
       company_id: String(client.companyId),
       supplier: text(contact.company_name) || text(contact.contact_person_name),
-      attached
+      attached,
+      attach_error: attachError
     };
   }
 

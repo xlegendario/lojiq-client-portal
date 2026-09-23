@@ -533,7 +533,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
           purchase_expense_number: out.expense_number || null
         });
 
-        booked.push(`${pair.item_id || pair.sku}: ${out.expense_number || out.expense_id}${out.attached ? " with its invoice" : " (the invoice was not attached)"}`);
+        booked.push(`${pair.item_id || pair.sku}: ${out.expense_number || out.expense_id}${out.attached ? " with its invoice" : ` (no invoice on it - ${out.attach_error || "Rompslomp kept none"})`}`);
       } catch (err) {
         failed.push(`${pair.item_id || pair.sku}: ${err.message}`);
       }
