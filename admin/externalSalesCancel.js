@@ -16,6 +16,11 @@
 //                      he can use, damage settled that way). The unit is
 //                      Sold, with "At {buyer}" on it.
 //
+// A partner's pair follows the same three, with one question of its own: have
+// we paid the partner yet? Not paid means it was never ours, so it goes back
+// on his shelf; paid means we bought it, and it stays an Inventory Unit in
+// our own stock however the sale ended.
+//
 // The books follow one rule, the same one Dario uses by hand: an invoice is
 // never edited. What was invoiced is credited in full, and what is left of
 // the deal is invoiced again. So cancelling a pair on an invoiced deal makes
@@ -124,14 +129,27 @@ export function createExternalSalesCancel({ db, airtable, invoicing }) {
    */
   async function releaseUnits(sale, pairs, outcome) {
     const note = conditionNote(sale, outcome);
+    const all = pairs.map((pair) => text(pair.inventory_unit_record_id)).filter(Boolean);
+    if (!all.length) return [];
+
+    const found = await airtable.byIds("Inventory Units", all, ["Item Condition", "Payment Status"]).catch(() => new Map());
+    const failed = [];
 
     /*
-     * A partner pair that comes back was never ours: it goes back on the
-     * partner's shelf and the unit that was made for the sale is switched
-     * off, so we do not owe for a pair we no longer sold. One the buyer
-     * keeps stays sold - we owe the partner for it either way.
+     * A partner pair that comes back goes back on the partner's shelf - but
+     * only while we still owe him for it. Once it is paid the pair is ours,
+     * however the sale ended: it stays an Inventory Unit and joins our own
+     * stock. Putting a paid pair back would have us buy it twice.
+     *
+     * One the buyer keeps never goes back either way: we owe the partner for
+     * it, or have already paid.
      */
-    for (const pair of pairs.filter((x) => x.partner_stock_id && outcome !== "stays_with_buyer")) {
+    const toShelf = pairs.filter((pair) =>
+      pair.partner_stock_id &&
+      outcome !== "stays_with_buyer" &&
+      text(found.get(text(pair.inventory_unit_record_id))?.["Payment Status"]) !== "Paid");
+
+    for (const pair of toShelf) {
       await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, {
         status: "in_stock",
         sold_at: null,
@@ -148,15 +166,10 @@ export function createExternalSalesCancel({ db, airtable, invoicing }) {
       }
     }
 
-    const ids = pairs
-      .filter((pair) => !pair.partner_stock_id || outcome === "stays_with_buyer")
-      .map((pair) => text(pair.inventory_unit_record_id))
-      .filter(Boolean);
+    const backOnShelf = new Set(toShelf.map((pair) => text(pair.inventory_unit_record_id)));
+    const ids = all.filter((id) => !backOnShelf.has(id));
 
     if (!ids.length) return [];
-
-    const found = await airtable.byIds("Inventory Units", ids, ["Item Condition"]).catch(() => new Map());
-    const failed = [];
 
     for (const id of ids) {
       const fields = outcome === "stays_with_buyer"

@@ -76,15 +76,19 @@ test("a deal without a price per pair cannot lose one pair", () => {
   assert.equal(cancelPlan({ sale: SALE, pairs: PAIRS, pairIds: [], invoices: [] }).ok, false);
 });
 
-function fakes({ sale = SALE, pairs = PAIRS, invoices = INVOICES } = {}) {
+function fakes({ sale = SALE, pairs = PAIRS, invoices = INVOICES, partnerStock = [], unitFields = {} } = {}) {
   const db = fakeDb({
     external_sales: [{ ...sale }],
     external_sale_pairs: pairs.map((pair) => ({ ...pair })),
     external_sale_invoices: invoices.map((invoice) => ({ ...invoice })),
-    external_sale_invoice_deals: invoices.map((invoice) => ({ invoice_id: invoice.id, sale_id: sale.id }))
+    external_sale_invoice_deals: invoices.map((invoice) => ({ invoice_id: invoice.id, sale_id: sale.id })),
+    partner_stock: partnerStock.map((row) => ({ ...row }))
   });
 
-  const units = new Map([["recA", { "Item Condition": "Box damaged" }], ["recB", {}]]);
+  const units = new Map([
+    ["recA", { "Item Condition": "Box damaged", ...(unitFields.recA || {}) }],
+    ["recB", { ...(unitFields.recB || {}) }]
+  ]);
   const written = [];
 
   const airtable = {
@@ -159,4 +163,36 @@ test("a refund is written down, never more than came in", async () => {
 
   await assert.rejects(() => cancel.registerRefund(S1, { amount: 500 }), /more than came in/);
   await assert.rejects(() => cancel.registerRefund(S1, { amount: 0 }), /amount that went back/);
+});
+
+/* ---------------- a partner's pair ---------------- */
+
+const SHELF = { id: "cccccccc-3333-4333-8333-cccccccccccc", sku: "A01FW702-BLK", size: "42", status: "sold", sold_ref: "EXTD-000081", inventory_unit_id: "PCS-006200" };
+const partnerPairs = () => [{ ...PAIRS[0], partner_stock_id: SHELF.id }, PAIRS[1]];
+
+test("an unpaid partner pair that comes back goes on the partner's shelf again", async () => {
+  const { db, written, cancel } = fakes({ pairs: partnerPairs(), partnerStock: [SHELF], unitFields: { recA: { "Payment Status": "To Pay" } } });
+
+  await cancel.cancelPairs(S1, { pair_ids: [P1], outcome: "return_expected" });
+
+  const shelf = db.tables.partner_stock[0];
+  assert.equal(shelf.status, "in_stock");
+  assert.equal(shelf.sold_ref, null);
+
+  // The unit made for the sale is switched off: we do not owe for it.
+  assert.equal(written[0].id, "recA");
+  assert.equal(written[0].fields["Availability Status"], "Inactive");
+});
+
+test("a partner pair we already paid for stays ours", async () => {
+  const { db, written, cancel } = fakes({ pairs: partnerPairs(), partnerStock: [SHELF], unitFields: { recA: { "Payment Status": "Paid", "Item Condition": "Box damaged" } } });
+
+  await cancel.cancelPairs(S1, { pair_ids: [P1], outcome: "return_expected" });
+
+  // Paid is bought: the shelf keeps it as sold and the unit joins our stock.
+  assert.equal(db.tables.partner_stock[0].status, "sold");
+  assert.deepEqual(written, [{
+    id: "recA",
+    fields: { "Availability Status": "Available", "External Deal ID": "", "Item Condition": "Need return from Conquer Shop S.R.L. - Box damaged" }
+  }]);
 });
