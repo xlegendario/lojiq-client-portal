@@ -945,6 +945,17 @@
      */
     const UNITS_URL = "https://airtable.com/appHoMBqKDPnVfWJY/tblt1aavfuJgspt8x";
 
+    /*
+     * The purchase invoice we wrote on the seller's behalf. Rompslomp takes
+     * no attachments on an expense, so it is downloaded here and dragged in
+     * there - or simply kept, since it always says the same thing.
+     */
+    const selfBillingLink = (pair) => {
+      if (!pair.partner_stock_id || !pair.inventory_unit_record_id) return "";
+      const url = `/api/admin/self-billing/pdf?unit=${encodeURIComponent(pair.inventory_unit_record_id)}`;
+      return ` <a class="act" href="${url}" target="_blank" rel="noopener" title="The self-billing purchase invoice for this pair">Self-billing</a>`;
+    };
+
     const itemLink = (pair) => {
       const id = pair.item_id || "";
       if (!id) return "";
@@ -1100,7 +1111,7 @@
             <div class="pair-name">
               <strong>${esc(g.sku || g.name || "—")}</strong>
               <span class="sub">${esc(g.name && g.sku ? g.name : "")}</span>
-              <span class="sub">${many ? `${g.pairs.length} pairs · ` : `${itemLink(g.pairs[0])}${g.pairs[0].item_id ? " · " : ""}`}size ${esc(sizes || "—")} · ${esc(g.vat || "—")}${many ? ` <span class="toggle">${open ? "hide" : "show"} pairs</span>` : ""}</span>
+              <span class="sub">${many ? `${g.pairs.length} pairs · ` : `${itemLink(g.pairs[0])}${g.pairs[0].item_id ? " · " : ""}`}size ${esc(sizes || "—")} · ${esc(g.vat || "—")}${many ? ` <span class="toggle">${open ? "hide" : "show"} pairs</span>` : ""}${many ? "" : selfBillingLink(g.pairs[0])}</span>
             </div>
             <div class="num">${label("Purchase")}${esc(euro(purchase))}</div>
             <div class="num">${label("Sold for")}${g.price === null || g.price === undefined ? "—" : approx(sold)}</div>
@@ -1108,7 +1119,7 @@
           </div>
           ${open ? g.pairs.map((p) => `
           <div class="pair-sub">
-            <span>${itemLink(p) || "—"} · size ${esc(p.size || "—")}</span>
+            <span>${itemLink(p) || "—"} · size ${esc(p.size || "—")}${selfBillingLink(p)}</span>
             <span class="num">${esc(euro(p.purchase_price_ex_vat))}</span>
             <span class="num">${p.selling_price === null || p.selling_price === undefined ? "—" : approx(p.selling_price)}</span>
             <span class="num">${pairProfit(p) === null ? "—" : approx(pairProfit(p))}</span>

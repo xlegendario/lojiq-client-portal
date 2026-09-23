@@ -86,41 +86,15 @@ test("the purchase lands in the Payout company, on Voorraad Scout, with the docu
   assert.equal(out.expense_id, "9001");
   assert.equal(out.expense_number, "2026-0042");
   assert.equal(out.supplier, "Zhuoyi");
-  assert.equal(out.attached, true, "the self-billing invoice goes on the booking");
+  assert.equal(out.attached, false, "Rompslomp takes no attachment on an expense");
 
   const created = calls.find((call) => call[0] === "create")[1];
   assert.equal(created.expense.contact_id, 42);
   assert.equal(created.expense.type_account_id, 222, "Voorraad Scout, not the first account there is");
   assert.equal(created.expense.invoice_lines[0].vat_type_id, 688, "a margin purchase carries no VAT");
 
-  // The document is uploaded to the expense on its own route.
-  const upload = calls.find((call) => call[0] === "attach");
-  assert.equal(upload[1], 9001);
-  assert.equal(upload[2], "PCS-007999.pdf");
-});
-
-test("an attachment Rompslomp will not keep is reported, and the booking stands", async () => {
-  const { calls, purchases } = fakes();
-  const client = calls.client;
-
-  const bare = createPurchaseExpense({
-    rompslomp: { async companies() { return COMPANIES; } },
-    forCompany: () => ({
-      companyId: 987654321,
-      async accounts() { return ACCOUNTS; },
-      async vatTypes() { return VAT_TYPES; },
-      async searchSuppliers() { return [{ id: 42, company_name: "Zhuoyi" }]; },
-      async createExpense() { return { id: 9001, invoice_number: "2026-0042" }; },
-      async attachToExpense() { return null; }
-    }),
-    selfBilling: { async forUnit() { return { filename: "PCS-007999.pdf", pdf: Buffer.from("%PDF") }; } }
-  });
-
-  const out = await bare.book({ deal: "EXTD-1", unit: { record_id: "recUNIT0000000001", vat_type: "Margin", price: 100 }, seller: { company_name: "Zhuoyi" } });
-
-  assert.equal(out.expense_id, "9001", "the purchase is booked either way");
-  assert.equal(out.attached, false);
-  assert.match(out.attach_error, /gave nothing back/);
+  // Nothing is uploaded: the document hangs on the pair in the admin.
+  assert.equal(calls.some((call) => call[0] === "attach"), false);
 });
 
 test("a company or an account that is not there stops the booking with a reason", async () => {

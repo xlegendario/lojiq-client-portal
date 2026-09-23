@@ -121,6 +121,18 @@ export function mountSelfBilling(router, { store, internalSecret = "" }) {
     res.status(status).json({ error: err instanceof SelfBillingError ? err.message : `The document could not be made: ${err.message}` });
   };
 
+  // The same document for whoever is signed in to the admin: Rompslomp
+  // takes no attachments on an expense ("Endpoint does not exist"), so it is
+  // downloaded here and dragged in there.
+  router.get("/api/admin/self-billing/pdf", async (req, res) => {
+    try {
+      const { filename, pdf } = await store.forUnit(text(req.query.unit), { order_number: text(req.query.order) });
+      res.type("application/pdf").set("Content-Disposition", `inline; filename="${filename}"`).send(pdf);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
   // The document for one unit, as a PDF. Any flow that makes a unit for a
   // purchase can ask for it the moment it has the unit.
   router.post("/api/internal/self-billing/pdf", express.json({ limit: "20kb" }), async (req, res) => {

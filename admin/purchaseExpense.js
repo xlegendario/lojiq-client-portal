@@ -176,45 +176,20 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       amount: unit.price
     });
 
-    /*
-     * The self-billing invoice belongs on the booking. It cannot ride along
-     * with the expense - Rompslomp refuses attachment_objects there - so it
-     * is uploaded to the expense afterwards, on the route its own docs only
-     * describe for sales invoices.
-     *
-     * A booking without its document is still a booking: what went wrong is
-     * carried back, not thrown.
-     */
-    let document = null;
-    let attachError = "";
-
-    if (selfBilling && text(unit.record_id)) {
-      try {
-        document = await selfBilling.forUnit(unit.record_id, { order_number: deal });
-      } catch (err) {
-        attachError = `the self-billing invoice could not be made: ${err.message}`;
-      }
-    }
-
     const expense = await client.createExpense(body);
 
-    let attached = false;
-
-    if (document) {
-      try {
-        const saved = await client.attachToExpense(expense.id, {
-          base64: document.pdf.toString("base64"),
-          filename: document.filename
-        });
-
-        attached = Boolean(saved?.id || saved?.attachment_file_name);
-        if (!attached) attachError = "Rompslomp took the attachment but gave nothing back.";
-      } catch (err) {
-        attachError = `Rompslomp refused the attachment: ${err.message}`;
-      }
-    }
-
-    if (attachError) console.error(`[purchase] ${unit.item_id || unit.record_id}: ${attachError}`);
+    /*
+     * The self-billing invoice would belong on the booking, but Rompslomp's
+     * API has no way to put it there: attachment_objects is refused on an
+     * expense and the upload route it documents for sales invoices answers
+     * "Endpoint does not exist" (tried 23-09-2026). Attachments are the
+     * Schoenendoos or dragging the file in.
+     *
+     * So the document is not sent; it is made on demand and hangs on the
+     * pair in the admin, ready to drag into Rompslomp or simply to keep.
+     */
+    const attachError = "";
+    const attached = false;
 
     return {
       expense_id: String(expense.id),
