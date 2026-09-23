@@ -1201,7 +1201,9 @@
         !shipped && ["shipped", "Mark as shipped"],
         s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice"],
         s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice after all"],
-        pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) && ["bookpurchase", "Book purchase"],
+        // Offered on every deal with a partner pair, booked or not: an
+        // expense thrown away in Rompslomp is only noticed by asking.
+        pairs.some((p) => p.partner_stock_id) && ["bookpurchase", pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) ? "Book purchase" : "Check purchase"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", pairs.length === 1 ? "Cancel this pair" : "Cancel pairs"],
         Number(s.paid_amount || 0) > 0 && ["refund", "Register refund"]
       ].filter(Boolean);
