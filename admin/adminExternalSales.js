@@ -166,6 +166,11 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
     live.flatMap((s) => (parcelsBySale.get(s.id) || []).filter((p) => p.status === "exception")
       .map((p) => row(s, `${p.tracking_number || "no tracking"}${p.tracking_detail ? ` - ${p.tracking_detail}` : ""}`))));
 
+  add("purchase_unbooked", "error", "Partner pair bought but not booked", "The sale took it off the partner's shelf, but the purchase never reached Rompslomp - so the stock correction takes out stock that was never put in. Open the deal and click Book purchase.",
+    live.flatMap((s) => (pairsBySale.get(s.id) || [])
+      .filter((p) => p.partner_stock_id && !p.purchase_expense_id)
+      .map((p) => row(s, `${p.item_id || p.sku || "pair"} · € ${Number(p.purchase_price_ex_vat || 0).toFixed(2)}`))));
+
   add("to_invoice", "error", "No invoice yet", "Open the deal and click Create invoice. It says what is still missing, if anything.",
     live.filter((s) => s.bookkeeping_status === "to_invoice").map((s) => row(s)));
 
@@ -494,6 +499,75 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   const cancelling = createExternalSalesCancel({ db, airtable, invoicing, purchases });
 
   /*
+   * Book what was bought and never reached Rompslomp (block 10). The same
+   * work the sale does; here to be done again when Rompslomp was down.
+   */
+  async function bookPurchases(id) {
+    const sale = await saleById(id);
+    const pairs = await db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&cancelled_at=is.null`);
+    const open = pairs.filter((pair) => pair.partner_stock_id && !text(pair.purchase_expense_id));
+
+    if (!open.length) throw new ExternalSalesError("Every purchase on this deal is booked.");
+
+    const booked = [];
+    const failed = [];
+
+    for (const pair of open) {
+      try {
+        const out = await purchases.book({
+          deal: dealId(sale),
+          unit: {
+            record_id: pair.inventory_unit_record_id,
+            item_id: pair.item_id,
+            product_name: pair.product_name,
+            sku: pair.sku,
+            size: pair.size,
+            vat_type: pair.purchase_vat_type,
+            price: Number(pair.purchase_price_ex_vat)
+          },
+          seller: await sellerOfPair(pair)
+        });
+
+        await db.patch(`external_sale_pairs?id=eq.${pair.id}`, {
+          purchase_expense_id: out.expense_id,
+          purchase_expense_number: out.expense_number || null
+        });
+
+        booked.push(`${pair.item_id || pair.sku}: ${out.expense_number || out.expense_id}${out.attached ? " with its invoice" : " (the invoice was not attached)"}`);
+      } catch (err) {
+        failed.push(`${pair.item_id || pair.sku}: ${err.message}`);
+      }
+    }
+
+    if (!booked.length) throw new ExternalSalesError(failed.join(" "), 502);
+    return { booked, failed };
+  }
+
+  /*
+   * Who we bought a pair from, in the words Rompslomp knows him by: the
+   * partner row says which seller, the Sellers Database says his name. The
+   * Seller ID alone finds no supplier - the contact is "Zhuoyi", not
+   * "SE-00781".
+   */
+  async function sellerOfPair(pair) {
+    const [row] = await db.get(`partner_stock?select=seller_id,seller_record_id&id=eq.${pair.partner_stock_id}`);
+    return sellerNames(text(row?.seller_record_id), text(row?.seller_id));
+  }
+
+  async function sellerNames(recordId, sellerId) {
+    const found = recordId
+      ? await airtable.byIds("Sellers Database", [recordId], ["Seller ID", "Company Name", "Full Name"]).catch(() => new Map())
+      : new Map();
+
+    const fields = found.get(recordId) || {};
+    return {
+      company_name: text(fields["Company Name"]),
+      name: text(fields["Full Name"]) || text(fields["Company Name"]),
+      seller_id: text(fields["Seller ID"]) || sellerId
+    };
+  }
+
+  /*
    * Partner pairs of this shoe that may be sold (block 10). They sit on our
    * shelf without an Inventory Unit - the unit is made when one is sold - so
    * Create Outbound cannot find them among the units and asks here.
@@ -616,6 +690,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
     partnerStockFor: (sku, size) => partnerStockFor(sku, size),
+    bookPurchases: (id) => bookPurchases(id),
+    sellerNames: (recordId, sellerId) => sellerNames(recordId, sellerId),
     cancelPlan: (id, pairIds) => cancelling.plan(id, pairIds),
     cancelPairs: (id, input) => cancelling.cancelPairs(id, input),
     registerRefund: (id, input) => cancelling.registerRefund(id, input),
@@ -985,6 +1061,8 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details = { reminder: await store.mailInvoices(id, { reminder: true }) };
       } else if (req.body?.link_mollie) {
         details = { mollie: await store.linkMolliePayment(id, text(req.body.link_mollie.payment_id)).then((out) => ({ batch: out.batch, payment: text(req.body.link_mollie.payment_id) })) };
+      } else if (req.body?.book_purchase) {
+        details = { purchase: await store.bookPurchases(id) };
       } else if (req.body?.cancel_pairs) {
         details = { cancelled: await store.cancelPairs(id, { ...req.body.cancel_pairs, by: req.admin?.name || req.admin?.email }) };
       } else if (req.body?.refund) {

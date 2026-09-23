@@ -219,6 +219,20 @@ export function planOutbound({ buyer, unitIds, units, partnerPairs = [], total, 
  *   purchases  createPurchaseExpense - booking a partner pair we buy
  */
 export function createOutboundMaker({ db, airtable, invoicing, payments = null, purchases = null }) {
+  // The seller as Rompslomp has him: his company, else his own name.
+  async function sellerNames(recordId, sellerId) {
+    const found = recordId
+      ? await airtable.byIds("Sellers Database", [recordId], ["Seller ID", "Company Name", "Full Name"]).catch(() => new Map())
+      : new Map();
+
+    const fields = found.get(recordId) || {};
+    return {
+      company_name: text(fields["Company Name"]),
+      name: text(fields["Full Name"]) || text(fields["Company Name"]),
+      seller_id: text(fields["Seller ID"]) || sellerId
+    };
+  }
+
   async function loadBuyer(id) {
     if (!/^[0-9a-f-]{36}$/i.test(text(id))) return null;
     const [buyer] = await db.get(`buyers?select=*&id=eq.${text(id)}`);
@@ -361,7 +375,8 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
                 vat_type: pair.purchase_vat_type,
                 price: round2(row?.partner_price)
               },
-              seller: { company_name: text(row?.seller_id), name: text(row?.seller_id) }
+              // Rompslomp knows him by his name, not by SE-00781.
+              seller: await sellerNames(text(row?.seller_record_id), text(row?.seller_id))
             });
 
             pair.purchase_expense_id = booked.expense_id;

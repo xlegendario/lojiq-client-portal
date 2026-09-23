@@ -1201,6 +1201,7 @@
         !shipped && ["shipped", "Mark as shipped"],
         s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice"],
         s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice after all"],
+        pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) && ["bookpurchase", "Book purchase"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", pairs.length === 1 ? "Cancel this pair" : "Cancel pairs"],
         Number(s.paid_amount || 0) > 0 && ["refund", "Register refund"]
       ].filter(Boolean);
@@ -1619,6 +1620,15 @@ It cannot be undone.`)) return;
           const d = await postJson("/api/admin/external-sales/invoice/credit", { id, invoice_id: value.slice(7) });
           state.runLog = { id, lines: d.log || [] };
           applyDetail(d, (d.log || []).join(" · "));
+        });
+      }
+
+      if (value === "bookpurchase") {
+        if (!confirm("Book what this deal bought from the partner in Rompslomp? This makes the expense on Voorraad Scout and attaches the self-billing invoice.")) return;
+        return busy(null, async () => {
+          const d = await postJson("/api/admin/external-sales/update", { id, book_purchase: true });
+          state.runLog = { id, lines: d.log || [] };
+          applyDetail(d, (d.log || []).join(" · ") || "Purchase booked.");
         });
       }
 
