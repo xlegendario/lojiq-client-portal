@@ -27,10 +27,19 @@ const text = (value) => (value === null || value === undefined ? "" : String(val
 const round2 = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 export const PAYOUT_COMPANY = "payout by kickz caviar";
-// The stock the purchase goes into. Kickz Caviar calls it Voorraad Scout;
-// the Payout company may call it plainly Voorraad, so both are tried in
-// order and the most specific wins.
-export const STOCK_ACCOUNTS = ["voorraad scout", "voorraad", "inkoop"];
+/*
+ * The stock the purchase goes into, recognised in the order that is most
+ * certain first. Kickz Caviar has it as one account named Voorraad Scout;
+ * in the Payout company it is "Scout" under "Activa - Vlottende activa -
+ * Voorraad", so the name alone is not enough and the path alone could hit a
+ * sibling.
+ */
+export const STOCK_ACCOUNT_RULES = [
+  { why: "Voorraad Scout", match: (name, path) => name.includes("voorraad scout") },
+  { why: "Scout under Voorraad", match: (name, path) => path.includes("voorraad") && name.includes("scout") },
+  { why: "an account named Voorraad", match: (name) => name.includes("voorraad") },
+  { why: "anything under Voorraad", match: (name, path) => path.includes("voorraad") }
+];
 
 // Which of Rompslomp's VAT types a purchase is booked under.
 export const PURCHASE_VAT = {
@@ -94,17 +103,17 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     const client = forCompany(found.id);
     const [accounts, vatTypes] = await Promise.all([client.accounts(), client.vatTypes()]);
     let account = null;
-    for (const wanted of STOCK_ACCOUNTS) {
-      account = accounts.find((row) => like(row.name).includes(wanted) || like(row.path_name).includes(wanted));
+    for (const rule of STOCK_ACCOUNT_RULES) {
+      account = accounts.find((row) => rule.match(like(row.name), `${like(row.path_name)} ${like(row.path)}`));
       if (account) break;
     }
 
     if (!account) {
-      // Say what it does have, so the right name can be picked without
+      // Say what it does have, so the right one can be picked without
       // hunting through Rompslomp.
-      const names = accounts.map((row) => text(row.name)).filter(Boolean).slice(0, 25).join(", ");
+      const names = accounts.map((row) => `${text(row.name)} (${text(row.path_name)})`).filter(Boolean).slice(0, 30).join("; ");
       throw new ExternalSalesError(
-        `${found.name} has no account named ${STOCK_ACCOUNTS.map((name) => `"${name}"`).join(" or ")}. It has: ${names || "nothing this token may see"}.`,
+        `${found.name} has no stock account this recognises. It has: ${names || "nothing this token may see"}.`,
         502
       );
     }

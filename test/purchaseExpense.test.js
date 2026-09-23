@@ -101,7 +101,26 @@ test("a company or an account that is not there stops the booking with a reason"
 
   const client = { companyId: 1, async accounts() { return [ACCOUNTS[0]]; }, async vatTypes() { return VAT_TYPES; } };
   const noAccount = createPurchaseExpense({ rompslomp: { async companies() { return COMPANIES; } }, forCompany: () => client });
-  await assert.rejects(() => noAccount.company(), /has no account named .*It has: Commercieel/);
+  await assert.rejects(() => noAccount.company(), /no stock account this recognises. It has: Commercieel/);
+});
+
+test("the Payout company keeps its stock as Scout under Voorraad", async () => {
+  const client = {
+    companyId: 987654321,
+    async accounts() {
+      return [
+        { id: 1, name: "Voorraad", path_name: "Activa • Vlottende activa" },
+        { id: 2, name: "Scout", path_name: "Activa • Vlottende activa • Voorraad" },
+        { id: 3, name: "Commercieel", path_name: "Kosten" }
+      ];
+    },
+    async vatTypes() { return VAT_TYPES; }
+  };
+
+  const purchases = createPurchaseExpense({ rompslomp: { async companies() { return COMPANIES; } }, forCompany: () => client });
+  const { account } = await purchases.company();
+
+  assert.equal(account.id, 2, "Scout under Voorraad, not the Voorraad heading above it");
 });
 
 test("a seller who is no supplier in Rompslomp is said, not invented", async () => {
