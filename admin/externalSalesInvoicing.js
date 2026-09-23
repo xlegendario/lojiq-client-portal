@@ -365,6 +365,18 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
     async updateExpense(id, body) {
       return (await call(`/expenses/${id}`, { method: "PATCH", body }))?.expense;
     },
+    /*
+     * A file on an expense. Rompslomp documents this route for sales
+     * invoices only, but the expense carries the same attachment objects and
+     * answers on the same shape; the body it refuses on the expense itself
+     * ("Unpermitted parameter: attachment_objects") it takes here.
+     */
+    async attachToExpense(id, { base64, filename }) {
+      return (await call(`/expenses/${id}/attachments`, {
+        method: "POST",
+        body: { attachment_object: { attachment: base64, attachment_file_name: filename } }
+      }))?.attachment_object;
+    },
     async searchSuppliers(q) {
       const params = new URLSearchParams({ selection: "suppliers", "search[q]": q, per_page: "100" });
       return (await call(`/contacts?${params}`))?.contacts || [];

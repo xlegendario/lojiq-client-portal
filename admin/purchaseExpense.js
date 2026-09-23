@@ -177,11 +177,10 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     });
 
     /*
-     * The self-billing invoice belongs on the booking, and Rompslomp takes
-     * it as a base64 attachment. Whether it takes it on the expense itself
-     * or only afterwards is not documented ("read only", while the file is
-     * write_only), so it goes along on the way in and is sent again after
-     * if it did not stick.
+     * The self-billing invoice belongs on the booking. It cannot ride along
+     * with the expense - Rompslomp refuses attachment_objects there - so it
+     * is uploaded to the expense afterwards, on the route its own docs only
+     * describe for sales invoices.
      *
      * A booking without its document is still a booking: what went wrong is
      * carried back, not thrown.
@@ -197,19 +196,19 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       }
     }
 
-    const attachment = document
-      ? [{ attachment: document.pdf.toString("base64"), attachment_file_name: document.filename, attachment_content_type: "application/pdf" }]
-      : null;
+    const expense = await client.createExpense(body);
 
-    const expense = await client.createExpense(attachment ? { expense: { ...body.expense, attachment_objects: attachment } } : body);
+    let attached = false;
 
-    let attached = (expense?.attachment_objects || []).length > 0;
-
-    if (attachment && !attached) {
+    if (document) {
       try {
-        const patched = await client.updateExpense(expense.id, { expense: { attachment_objects: attachment } });
-        attached = (patched?.attachment_objects || []).length > 0;
-        if (!attached) attachError = "Rompslomp accepted the expense but kept no attachment on it.";
+        const saved = await client.attachToExpense(expense.id, {
+          base64: document.pdf.toString("base64"),
+          filename: document.filename
+        });
+
+        attached = Boolean(saved?.id || saved?.attachment_file_name);
+        if (!attached) attachError = "Rompslomp took the attachment but gave nothing back.";
       } catch (err) {
         attachError = `Rompslomp refused the attachment: ${err.message}`;
       }

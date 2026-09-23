@@ -27,13 +27,10 @@ function fakes({ suppliers = [{ id: 42, company_name: "Zhuoyi" }], expense = { i
     async accounts() { return ACCOUNTS; },
     async vatTypes() { return VAT_TYPES; },
     async searchSuppliers(q) { calls.push(["search", q]); return suppliers; },
-    async createExpense(body) {
-      calls.push(["create", body]);
-      return { ...expense, attachment_objects: body.expense.attachment_objects || [] };
-    },
-    async updateExpense(id, body) {
-      calls.push(["update", id, Object.keys(body.expense)]);
-      return { id, attachment_objects: body.expense.attachment_objects || [] };
+    async createExpense(body) { calls.push(["create", body]); return expense; },
+    async attachToExpense(id, file) {
+      calls.push(["attach", id, file.filename]);
+      return { id: 555, attachment_file_name: file.filename };
     },
     async getExpense(id) {
       calls.push(["get", id]);
@@ -96,10 +93,10 @@ test("the purchase lands in the Payout company, on Voorraad Scout, with the docu
   assert.equal(created.expense.type_account_id, 222, "Voorraad Scout, not the first account there is");
   assert.equal(created.expense.invoice_lines[0].vat_type_id, 688, "a margin purchase carries no VAT");
 
-  // The document goes along on the way in, so no second call is needed.
-  assert.equal(created.expense.attachment_objects[0].attachment_file_name, "PCS-007999.pdf");
-  assert.equal(created.expense.attachment_objects[0].attachment_content_type, "application/pdf");
-  assert.equal(calls.some((call) => call[0] === "update"), false);
+  // The document is uploaded to the expense on its own route.
+  const upload = calls.find((call) => call[0] === "attach");
+  assert.equal(upload[1], 9001);
+  assert.equal(upload[2], "PCS-007999.pdf");
 });
 
 test("an attachment Rompslomp will not keep is reported, and the booking stands", async () => {
@@ -114,7 +111,7 @@ test("an attachment Rompslomp will not keep is reported, and the booking stands"
       async vatTypes() { return VAT_TYPES; },
       async searchSuppliers() { return [{ id: 42, company_name: "Zhuoyi" }]; },
       async createExpense() { return { id: 9001, invoice_number: "2026-0042" }; },
-      async updateExpense() { return { id: 9001 }; }
+      async attachToExpense() { return null; }
     }),
     selfBilling: { async forUnit() { return { filename: "PCS-007999.pdf", pdf: Buffer.from("%PDF") }; } }
   });
@@ -123,7 +120,7 @@ test("an attachment Rompslomp will not keep is reported, and the booking stands"
 
   assert.equal(out.expense_id, "9001", "the purchase is booked either way");
   assert.equal(out.attached, false);
-  assert.match(out.attach_error, /kept no attachment/);
+  assert.match(out.attach_error, /gave nothing back/);
 });
 
 test("a company or an account that is not there stops the booking with a reason", async () => {
