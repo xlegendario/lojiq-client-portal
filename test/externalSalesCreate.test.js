@@ -202,6 +202,7 @@ test("a partner pair becomes ours the moment it is sold", async () => {
   assert.equal(madeUnit["External Deal ID"], "EXTD-000090");
   assert.deepEqual(madeUnit["Seller ID"], ["recPARTNER000001"]);
   assert.equal(madeUnit["Product GTIN"], "4550456789012");
+  assert.equal(madeUnit["Ticket Number"], "EXTD-000090");
 
   // The pair on the deal knows both sides.
   const partnerPairRow = db.tables.external_sale_pairs.find((p) => p.partner_stock_id);

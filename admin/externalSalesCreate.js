@@ -316,6 +316,8 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
           "Shipping Deduction": 0,
           "Purchase Date": new Date().toISOString().slice(0, 10),
           ...(text(row?.seller_record_id) ? { "Seller ID": [text(row.seller_record_id)] } : {}),
+          // The deal is the reference Dario pays on and looks up in Rompslomp.
+          "Ticket Number": deal,
           "Type": "Partner Consignment",
           "Source": "Regular",
           "Verification Status": "Consigned",
