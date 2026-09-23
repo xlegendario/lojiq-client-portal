@@ -939,6 +939,21 @@
     // deal and no price per pair: the pairs show that VAT and their purchase.
     // Worked-out prices differ by a cent here and there: those group by SKU
     // alone, and the group shows the price per pair on average.
+    /*
+     * The Inventory Unit a pair was sold from. Its Item ID is how you find it
+     * anywhere else, so it is a link to the unit in Airtable for as long as
+     * the units live there.
+     */
+    const UNITS_URL = "https://airtable.com/appHoMBqKDPnVfWJY/tblt1aavfuJgspt8x";
+
+    const itemLink = (pair) => {
+      const id = pair.item_id || "";
+      if (!id) return "";
+      return pair.inventory_unit_record_id
+        ? `<a href="${UNITS_URL}/${esc(pair.inventory_unit_record_id)}" target="_blank" rel="noopener" title="Open the Inventory Unit in Airtable">${esc(id)}</a>`
+        : esc(id);
+    };
+
     function pairGroups(pairs, dealVat, bySkuOnly = false) {
       const groups = new Map();
       for (const p of pairs) {
@@ -1086,7 +1101,7 @@
             <div class="pair-name">
               <strong>${esc(g.sku || g.name || "—")}</strong>
               <span class="sub">${esc(g.name && g.sku ? g.name : "")}</span>
-              <span class="sub">${many ? `${g.pairs.length} pairs · ` : ""}size ${esc(sizes || "—")} · ${esc(g.vat || "—")}${many ? ` <span class="toggle">${open ? "hide" : "show"} pairs</span>` : ""}</span>
+              <span class="sub">${many ? `${g.pairs.length} pairs · ` : `${itemLink(g.pairs[0])}${g.pairs[0].item_id ? " · " : ""}`}size ${esc(sizes || "—")} · ${esc(g.vat || "—")}${many ? ` <span class="toggle">${open ? "hide" : "show"} pairs</span>` : ""}</span>
             </div>
             <div class="num">${label("Purchase")}${esc(euro(purchase))}</div>
             <div class="num">${label("Sold for")}${g.price === null || g.price === undefined ? "—" : approx(sold)}</div>
@@ -1094,7 +1109,7 @@
           </div>
           ${open ? g.pairs.map((p) => `
           <div class="pair-sub">
-            <span>${esc(p.item_id || "")} · size ${esc(p.size || "—")}</span>
+            <span>${itemLink(p) || "—"} · size ${esc(p.size || "—")}</span>
             <span class="num">${esc(euro(p.purchase_price_ex_vat))}</span>
             <span class="num">${p.selling_price === null || p.selling_price === undefined ? "—" : approx(p.selling_price)}</span>
             <span class="num">${pairProfit(p) === null ? "—" : approx(pairProfit(p))}</span>
