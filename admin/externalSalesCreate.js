@@ -124,7 +124,8 @@ export function planOutbound({ buyer, unitIds, units, partnerPairs = [], total, 
   }
 
   const ids = [...new Set((unitIds || []).filter(Boolean))];
-  if (!ids.length) problems.push("Add at least one pair.");
+  // A sale can be all partner pairs, all our own, or a mix of the two.
+  if (!ids.length && !partnerPairs.length) problems.push("Add at least one pair.");
   if (ids.length !== (unitIds || []).filter(Boolean).length) problems.push("The same pair is in the list twice.");
 
   const pairs = [];

@@ -161,6 +161,20 @@ const PARTNER_PAIR = {
   mode: "both"
 };
 
+test("a sale of nothing but partner pairs is a sale", () => {
+  const plan = planOutbound({
+    buyer: buyer(),
+    unitIds: [],
+    units: new Map(),
+    partnerPairs: [PARTNER_PAIR],
+    total: 125
+  });
+
+  assert.equal(plan.ok, true, plan.problems.join(" "));
+  assert.equal(plan.pairs.length, 1);
+  assert.equal(plan.totals.purchase, 100);
+});
+
 test("a partner pair becomes ours the moment it is sold", async () => {
   const db = fakeDb({ buyers: [buyer()], external_sales: [], external_sale_pairs: [], shipments: [], partner_stock: [{ ...PARTNER_PAIR }] });
   const insert = db.insert.bind(db);
