@@ -101,7 +101,7 @@ test("a company or an account that is not there stops the booking with a reason"
 
   const client = { companyId: 1, async accounts() { return [ACCOUNTS[0]]; }, async vatTypes() { return VAT_TYPES; } };
   const noAccount = createPurchaseExpense({ rompslomp: { async companies() { return COMPANIES; } }, forCompany: () => client });
-  await assert.rejects(() => noAccount.company(), /no account named/);
+  await assert.rejects(() => noAccount.company(), /has no account named .*It has: Commercieel/);
 });
 
 test("a seller who is no supplier in Rompslomp is said, not invented", async () => {

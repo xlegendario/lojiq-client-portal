@@ -27,7 +27,10 @@ const text = (value) => (value === null || value === undefined ? "" : String(val
 const round2 = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 export const PAYOUT_COMPANY = "payout by kickz caviar";
-export const STOCK_ACCOUNT = "voorraad scout";
+// The stock the purchase goes into. Kickz Caviar calls it Voorraad Scout;
+// the Payout company may call it plainly Voorraad, so both are tried in
+// order and the most specific wins.
+export const STOCK_ACCOUNTS = ["voorraad scout", "voorraad", "inkoop"];
 
 // Which of Rompslomp's VAT types a purchase is booked under.
 export const PURCHASE_VAT = {
@@ -90,10 +93,20 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
 
     const client = forCompany(found.id);
     const [accounts, vatTypes] = await Promise.all([client.accounts(), client.vatTypes()]);
-    const account = accounts.find((row) => like(row.name).includes(STOCK_ACCOUNT) || like(row.path_name).includes(STOCK_ACCOUNT));
+    let account = null;
+    for (const wanted of STOCK_ACCOUNTS) {
+      account = accounts.find((row) => like(row.name).includes(wanted) || like(row.path_name).includes(wanted));
+      if (account) break;
+    }
 
     if (!account) {
-      throw new ExternalSalesError(`${found.name} has no account named "${STOCK_ACCOUNT}"; a purchase cannot be booked.`, 502);
+      // Say what it does have, so the right name can be picked without
+      // hunting through Rompslomp.
+      const names = accounts.map((row) => text(row.name)).filter(Boolean).slice(0, 25).join(", ");
+      throw new ExternalSalesError(
+        `${found.name} has no account named ${STOCK_ACCOUNTS.map((name) => `"${name}"`).join(" or ")}. It has: ${names || "nothing this token may see"}.`,
+        502
+      );
     }
 
     payout = { id: found.id, name: found.name, client, account, vatTypes };
