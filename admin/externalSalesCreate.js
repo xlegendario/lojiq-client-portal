@@ -75,14 +75,42 @@ export function pairFromUnit(id, fields) {
 }
 
 /*
+ * A pair that belongs to a partner (public.partner_stock, block 10).
+ *
+ * It has no Inventory Unit while it sits on the shelf - it was never ours -
+ * so the unit is made when it is sold, with what we owe the partner as its
+ * purchase price. That keeps the invoice, the profit and the stock
+ * correction the same as for a pair of our own.
+ */
+export function pairFromPartnerStock(row) {
+  const vat = text(row.vat_type);
+  const purchaseVat = ["Margin", "VAT0", "VAT21"].includes(vat) ? vat : null;
+  const price = Number(row.partner_price) || 0;
+
+  return {
+    inventory_unit_record_id: null,
+    partner_stock_id: row.id,
+    item_id: null,
+    sku: text(row.sku) || null,
+    size: text(row.size) || null,
+    product_name: text(row.product_name) || null,
+    image_url: text(row.image_url) || null,
+    purchase_vat_type: purchaseVat,
+    // A partner price is what we pay; only a 21% pair carries VAT in it.
+    purchase_price_ex_vat: round2(purchaseVat === "VAT21" ? price / 1.21 : price)
+  };
+}
+
+/*
  * Everything the outbound will be, or every reason it cannot be made yet -
  * all at once, so one look says what to fix.
  *
- * buyer   a row of public.buyers
- * units   Map of Inventory Unit id -> fields
- * parcels [{ tracking_number, label_url?, label_filename? }]
+ * buyer         a row of public.buyers
+ * units         Map of Inventory Unit id -> fields
+ * partnerPairs  rows of public.partner_stock, still in stock
+ * parcels       [{ tracking_number, label_url?, label_filename? }]
  */
-export function planOutbound({ buyer, unitIds, units, total, parcels = [] }) {
+export function planOutbound({ buyer, unitIds, units, partnerPairs = [], total, parcels = [] }) {
   const problems = [];
 
   if (!buyer) {
@@ -114,6 +142,17 @@ export function planOutbound({ buyer, unitIds, units, total, parcels = [] }) {
     if (status !== "Available") problems.push(`${name} is ${status || "not available"}, not Available.`);
     if (!pair.purchase_vat_type) problems.push(`${name} has no VAT Type in Inventory Units.`);
     if (!(pair.purchase_price_ex_vat > 0)) problems.push(`${name} has no purchase price in Inventory Units.`);
+
+    pairs.push({ ...pair, partner_stock_id: null });
+  }
+
+  for (const row of partnerPairs) {
+    const pair = pairFromPartnerStock(row);
+    const name = `${pair.sku || "partner pair"} ${pair.size || ""}`.trim();
+
+    if (text(row.status) !== "in_stock") problems.push(`${name} is ${text(row.status) || "gone"}, not in stock any more.`);
+    if (!pair.purchase_vat_type) problems.push(`${name} has no VAT type in the partner stock.`);
+    if (!(pair.purchase_price_ex_vat > 0)) problems.push(`${name} has no partner price.`);
 
     pairs.push(pair);
   }
@@ -151,6 +190,9 @@ export function planOutbound({ buyer, unitIds, units, total, parcels = [] }) {
     ok: problems.length === 0,
     problems,
     pairs: tagged,
+    // The partner rows behind the pairs, for the unit each one gets when the
+    // sale is really made.
+    partnerById: new Map(partnerPairs.map((row) => [row.id, row])),
     parcels: cleanParcels,
     totals: {
       pairs: tagged.length,
@@ -180,7 +222,20 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
     const buyer = await loadBuyer(input.buyer_id);
     const unitIds = (input.unit_ids || []).map(text).filter((id) => /^rec[A-Za-z0-9]{14}$/.test(id));
     const units = unitIds.length ? await airtable.byIds("Inventory Units", unitIds, UNIT_FIELDS) : new Map();
-    return { buyer, plan: planOutbound({ buyer, unitIds, units, total: input.total_selling_price, parcels: input.parcels }) };
+
+    const partnerIds = [...new Set((input.partner_pair_ids || []).map(text).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
+    const partnerPairs = partnerIds.length
+      ? await db.get(`partner_stock?select=*&id=in.(${partnerIds.map((id) => `"${id}"`).join(",")})`)
+      : [];
+
+    const missing = partnerIds.filter((id) => !partnerPairs.some((row) => row.id === id));
+    const plan = planOutbound({ buyer, unitIds, units, partnerPairs, total: input.total_selling_price, parcels: input.parcels });
+    if (missing.length) {
+      plan.ok = false;
+      plan.problems = [...plan.problems, `${missing.length} partner pair(s) no longer exist.`];
+    }
+
+    return { buyer, plan };
   }
 
   async function preview(input) {
@@ -228,7 +283,54 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
 
     const deal = dealId(sale);
 
+    // Only what this sale really took off the partner's shelf goes back if
+    // it fails - a pair another sale claimed is not ours to put back.
+    const claimedPartner = [];
+
     try {
+      // A partner pair becomes ours the moment it is sold: its Inventory Unit
+      // is made here, with the partner price as what we owe and To Pay so it
+      // turns up in Seller Payouts. The pair is claimed with a condition on
+      // "in stock", so two sales cannot take the same one.
+      for (const pair of p.pairs.filter((x) => x.partner_stock_id)) {
+        const row = p.partnerById.get(pair.partner_stock_id);
+        const [claimed] = await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}&status=eq.in_stock`, {
+          status: "sold",
+          sold_at: new Date().toISOString(),
+          sold_ref: deal
+        });
+
+        if (!claimed) throw new Error(`${pair.sku || "A partner pair"} ${pair.size || ""} was just taken by another sale.`);
+
+        claimedPartner.push(pair);
+
+        const unit = await airtable.create("Inventory Units", {
+          "Product Name": pair.product_name || "",
+          "SKU": pair.sku || "",
+          "Size": pair.size || "",
+          ...(text(row?.brand) ? { "Brand": text(row.brand) } : {}),
+          ...(text(row?.barcode) ? { "Product GTIN": text(row.barcode) } : {}),
+          "VAT Type": pair.purchase_vat_type,
+          "Purchase Price": round2(row?.partner_price),
+          "Shipping Deduction": 0,
+          "Purchase Date": new Date().toISOString().slice(0, 10),
+          ...(text(row?.seller_record_id) ? { "Seller ID": [text(row.seller_record_id)] } : {}),
+          "Type": "Partner Consignment",
+          "Source": "Regular",
+          "Verification Status": "Consigned",
+          "Payment Status": "To Pay",
+          "Payment Note": `${round2(row?.partner_price).toFixed(2)}`,
+          "Availability Status": "Reserved",
+          "Selling Method": "Kickz Caviar",
+          "External Deal ID": deal
+        });
+
+        pair.inventory_unit_record_id = unit.id;
+        pair.item_id = text(unit.fields?.["Item ID"]) || null;
+
+        await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, { inventory_unit_id: pair.item_id }).catch(() => {});
+      }
+
       await db.insert("external_sale_pairs", p.pairs.map(({ profit, ...pair }) => ({ ...pair, sale_id: sale.id })));
       if (p.parcels.length) {
         await db.insert("shipments", p.parcels.map((parcel) => ({ ...parcel, external_sale_id: sale.id, airtable_attachment_id: null })));
@@ -237,7 +339,7 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
       // Reserved, as the WMS always did - plus the deal it went to.
       const reserved = [];
       try {
-        for (const pair of p.pairs) {
+        for (const pair of p.pairs.filter((x) => !x.partner_stock_id)) {
           await airtable.update("Inventory Units", pair.inventory_unit_record_id, {
             "Availability Status": "Reserved",
             "Selling Method": "Kickz Caviar",
@@ -252,6 +354,15 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
         throw err;
       }
     } catch (err) {
+      // Whatever was already taken from the partner's shelf goes back, and
+      // the unit made for it is switched off: the sale never happened.
+      for (const pair of claimedPartner) {
+        await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, { status: "in_stock", sold_at: null, sold_ref: null, inventory_unit_id: null }).catch(() => {});
+        if (pair.inventory_unit_record_id) {
+          await airtable.update("Inventory Units", pair.inventory_unit_record_id, { "Availability Status": "Inactive", "External Deal ID": "", "Payment Status": "Paid", "Payment Note": `Cancelled: ${deal} was not made` }).catch(() => {});
+        }
+      }
+
       await db.remove(`external_sales?id=eq.${sale.id}`).catch(() => {});
       throw new ExternalSalesError(`${deal} was not made: ${err.message}`, 502);
     }

@@ -124,7 +124,35 @@ export function createExternalSalesCancel({ db, airtable, invoicing }) {
    */
   async function releaseUnits(sale, pairs, outcome) {
     const note = conditionNote(sale, outcome);
-    const ids = pairs.map((pair) => text(pair.inventory_unit_record_id)).filter(Boolean);
+
+    /*
+     * A partner pair that comes back was never ours: it goes back on the
+     * partner's shelf and the unit that was made for the sale is switched
+     * off, so we do not owe for a pair we no longer sold. One the buyer
+     * keeps stays sold - we owe the partner for it either way.
+     */
+    for (const pair of pairs.filter((x) => x.partner_stock_id && outcome !== "stays_with_buyer")) {
+      await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, {
+        status: "in_stock",
+        sold_at: null,
+        sold_ref: null,
+        inventory_unit_id: null
+      }).catch((err) => console.error(`[external sales] partner pair ${pair.partner_stock_id} not put back:`, err.message));
+
+      if (text(pair.inventory_unit_record_id)) {
+        await airtable.update("Inventory Units", text(pair.inventory_unit_record_id), {
+          "Availability Status": "Inactive",
+          "External Deal ID": "",
+          "Item Condition": conditionWith(note, "")
+        }).catch((err) => console.error(`[external sales] unit ${pair.inventory_unit_record_id} not switched off:`, err.message));
+      }
+    }
+
+    const ids = pairs
+      .filter((pair) => !pair.partner_stock_id || outcome === "stays_with_buyer")
+      .map((pair) => text(pair.inventory_unit_record_id))
+      .filter(Boolean);
+
     if (!ids.length) return [];
 
     const found = await airtable.byIds("Inventory Units", ids, ["Item Condition"]).catch(() => new Map());

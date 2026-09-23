@@ -485,6 +485,45 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   const cancelling = createExternalSalesCancel({ db, airtable, invoicing });
 
   /*
+   * Partner pairs of this shoe that may be sold (block 10). They sit on our
+   * shelf without an Inventory Unit - the unit is made when one is sold - so
+   * Create Outbound cannot find them among the units and asks here.
+   *
+   * Grouped by what we owe the partner: two pairs at the same price are
+   * interchangeable, a cheaper batch is a different choice.
+   */
+  async function partnerStockFor(sku, size) {
+    const clean = text(sku).toUpperCase();
+    if (!clean || !text(size)) return [];
+
+    const rows = await db.get(
+      `partner_stock?select=id,sku,size,product_name,brand,barcode,image_url,vat_type,partner_price,seller_id,seller_record_id` +
+      `&sku=eq.${encodeURIComponent(clean)}&size=eq.${encodeURIComponent(text(size))}` +
+      `&status=eq.in_stock&mode=in.(both,selling)&order=partner_price.asc,received_at.asc`
+    );
+
+    const groups = new Map();
+    for (const row of rows) {
+      const key = `${text(row.seller_id)}|${round2(row.partner_price)}|${text(row.vat_type)}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          kind: "partner",
+          seller_id: text(row.seller_id),
+          price: round2(row.partner_price),
+          vat_type: text(row.vat_type),
+          product_name: text(row.product_name),
+          brand: text(row.brand),
+          barcode: text(row.barcode),
+          ids: []
+        });
+      }
+      groups.get(key).ids.push(row.id);
+    }
+
+    return [...groups.values()].map((group) => ({ ...group, available: group.ids.length }));
+  }
+
+  /*
    * Pack & Ship (block 3): every deal that is Ready to Ship with at least one
    * tracking number, as Pack & Ship always asked.
    */
@@ -567,6 +606,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mollieSuggestions: () => payments.mollieSuggestions(),
     linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
+    partnerStockFor: (sku, size) => partnerStockFor(sku, size),
     cancelPlan: (id, pairIds) => cancelling.plan(id, pairIds),
     cancelPairs: (id, input) => cancelling.cancelPairs(id, input),
     registerRefund: (id, input) => cancelling.registerRefund(id, input),
@@ -786,6 +826,16 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details: { pairs: out.pairs, total: out.total, invoice: out.invoice_log, invoice_error: out.invoice_error || null }
       }).catch(() => {});
       res.json({ ok: true, ...out });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Partner pairs of a shoe that Create Outbound may put on a sale.
+  router.post("/api/internal/external-sales/partner-stock", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, groups: await store.partnerStockFor(req.body?.sku, req.body?.size) });
     } catch (err) {
       send(res, err);
     }
