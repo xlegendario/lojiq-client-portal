@@ -1093,7 +1093,13 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
       }
 
       await log(req, "external_sale_update", before, details);
-      await detailFor(res, before.id);
+
+      // What the action did, in the words it used: an action that has
+      // something to say (which expense it made, what it could not attach)
+      // must reach the screen, not only the action log.
+      const said = [...(details?.purchase?.booked || []), ...(details?.purchase?.failed || []), ...(details?.cancelled?.log || [])];
+
+      res.json({ ...(await store.detail(before.id)), log: said });
     } catch (err) {
       send(res, err);
     }
