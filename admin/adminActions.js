@@ -34,8 +34,6 @@ const first = (value) => (Array.isArray(value) ? value[0] : value);
 
 // Kickz Caviar Discord server: claim, consignment and WTB channels live there.
 const KC_DISCORD_SERVER = "922818998163361792";
-const EXTERNAL_BASE = "appY9ZV7HJMYQbLUA";
-const EXTERNAL_SALES_TABLE = "tbloLumvktySBlOvM";
 
 const OPEN = ["Pending", "Outsource"];
 const SHIPPABLE = ["Ready to Ship", "Fulfilled"];
@@ -267,7 +265,6 @@ export const ACTIONS = {
       if (source === "mwtb") return { message: "Marked shipped.", changed: fields };
 
       const notes = [];
-      notes.push(await deps.updateExternalSale(record.fields["Order ID"], "Shipped"));
       notes.push(await deps.notify(deps.itemShippedUrl, itemShippedBody(record), "shipped update to the store"));
 
       return { message: ["Marked shipped.", ...notes.filter(Boolean)].join(" "), changed: fields };
@@ -302,7 +299,6 @@ export const ACTIONS = {
         ]);
 
         notes.push(await deps.notify(deps.deliveredWebhookUrl, deliveredBody(f, seller, unit), "delivered message"));
-        notes.push(await deps.updateExternalSale(f["Order ID"], "Delivered"));
       } else {
         const buyer = await deps.firstLinked("Sellers Database", f["Buyer Seller ID"], ["Full Name", "Seller ID"]);
         notes.push(await deps.notify(deps.deliveredWebhookUrl, memberWtbDeliveredBody(f, buyer), "delivered message"));
@@ -805,4 +801,4 @@ export async function runAction({ key, source, record, input = {}, file = null, 
   return action.run({ source, record, input, file, deps });
 }
 
-export { ActionError, EXTERNAL_BASE, EXTERNAL_SALES_TABLE };
+export { ActionError };

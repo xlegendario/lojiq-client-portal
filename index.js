@@ -187,9 +187,6 @@ const adminPortal = createAdminPortal({
     mollieWebhookUrl: MOLLIE_WEBHOOK_URL,
     // Where a buyer lands after paying an External Sale's link.
     externalPaymentRedirectUrl: process.env.EXTERNAL_PAYMENT_REDIRECT_URL || "https://kickzcaviar.com",
-    // Off since block 5: set to "true" only when the WMS writes External
-    // Sales to Airtable again (EXTERNAL_SALES_IN_SUPABASE off).
-    externalSalesAirtableSync: String(process.env.EXTERNAL_SALES_AIRTABLE_SYNC || "").toLowerCase() === "true",
     invoiceReplyTo: EXTERNAL_INVOICE_REPLY_TO
   },
   pageFile: adminPagePath(__dirname),

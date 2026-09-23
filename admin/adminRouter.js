@@ -41,8 +41,6 @@ import {
 import { NAME_MAX, SECTIONS, cleanFilters } from "./adminFilters.js";
 import {
   ActionError,
-  EXTERNAL_BASE,
-  EXTERNAL_SALES_TABLE,
   LINK_FIELDS,
   actionFields,
   availableActions,
@@ -259,7 +257,6 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
   const airtable = createAirtableReader({ token: airtableToken, baseId: airtableBaseId, fetchImpl });
-  const externalSales = createAirtableReader({ token: airtableToken, baseId: EXTERNAL_BASE, fetchImpl });
   const attempts = createAttemptLimiter();
   const cache = new Map();
 
@@ -412,7 +409,6 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     mollieApiKey: services.mollieApiKey,
     paymentWebhookUrl: services.mollieWebhookUrl,
     paymentRedirectUrl: services.externalPaymentRedirectUrl,
-    airtableSync: Boolean(services.externalSalesAirtableSync),
     fetchImpl
   });
 
@@ -438,16 +434,8 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-mollie-payouts.html") : ""
   });
 
-  // Until the WMS writes to Supabase (step 5), new outbounds, payments and
-  // "Shipped" arrive in Airtable: read them every five minutes. unref: the
-  // timer never keeps the process (or a test) alive on its own.
+  // unref: the timer never keeps the process (or a test) alive on its own.
   if (enabled && externalSalesStore.configured && externalSalesSyncMs > 0) {
-    if (externalSalesStore.airtableSync) {
-      const tick = () => externalSalesStore.runSync().catch((err) => console.error("[external sales sync]", err.message));
-      setTimeout(tick, 20_000).unref?.();
-      setInterval(tick, externalSalesSyncMs).unref?.();
-    }
-
     // Every ten minutes: which invoices Rompslomp now has as paid (block 5).
     const payTick = () => externalSalesStore.checkPayments()
       .then((out) => { if (out.changed.length || out.errors.length) console.log("[external sales payments]", JSON.stringify(out)); })
@@ -897,27 +885,6 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       } catch (err) {
         console.error("[admin] notification failed:", label, err.message);
         return `The ${label} could not be sent.`;
-      }
-    },
-
-    async updateExternalSale(orderId, shippingStatus) {
-      if (!text(orderId)) return "";
-
-      try {
-        const { records } = await externalSales.select(EXTERNAL_SALES_TABLE, {
-          formula: `{Order Number} = ${formulaString(orderId)}`,
-          fields: ["Order Number"],
-          pageSize: 1,
-          maxRecords: 1
-        });
-
-        if (!records[0]) return "";
-
-        await externalSales.update(EXTERNAL_SALES_TABLE, records[0].id, { "Shipping Status": shippingStatus });
-        return "";
-      } catch (err) {
-        console.error("[admin] external sales update failed:", orderId, err.message);
-        return "The External Sales Log row could not be updated.";
       }
     },
 

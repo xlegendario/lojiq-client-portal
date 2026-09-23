@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { externalSalesChecks } from "../admin/adminExternalSales.js";
 import { fakeDb } from "./fakeSupabase.js";
-import { createExternalSalesSync, labelKey, saleMoney, sellingVatType, shippingStatusFor } from "../admin/externalSalesSync.js";
+import { labelKey, saleMoney, sellingVatType, shippingStatusFor } from "../admin/externalSalesSync.js";
 
 /* ---------------- rules ---------------- */
 
@@ -53,9 +53,8 @@ test("a label keeps its key through the copy to R2", () => {
 test("shipping status: parcels make it ready, shipped and cancelled stay", () => {
   assert.equal(shippingStatusFor({ current: "pending", cancelled: false, parcels: 1 }), "ready_to_ship");
   assert.equal(shippingStatusFor({ current: "ready_to_ship", cancelled: false, parcels: 0 }), "pending");
-  assert.equal(shippingStatusFor({ current: "ready_to_ship", cancelled: false, airtableStatus: "Ready to Ship", parcels: 0 }), "ready_to_ship");
   assert.equal(shippingStatusFor({ current: "shipped", cancelled: false, parcels: 0 }), "shipped");
-  assert.equal(shippingStatusFor({ current: "pending", cancelled: false, airtableStatus: "Shipped", parcels: 0 }), "shipped");
+  assert.equal(shippingStatusFor({ current: "delivered", cancelled: false, parcels: 0 }), "delivered");
   assert.equal(shippingStatusFor({ current: "shipped", cancelled: true, parcels: 2 }), "cancelled");
 });
 
@@ -78,7 +77,7 @@ test("checks find what is missing or wrong, each on its deal", () => {
   const parcelsBySale = new Map([["s1", [{ tracking_number: "1ZAAA1111111111111" }]], ["s4", [{ label_url: "x", tracking_number: "1ZDDD4444444444444" }]]]);
   const invoicesBySale = new Map([["s1", [{ kind: "sale", invoice_number: "KC1", journal_entry_id: null }]], ["s2", [{ kind: "sale", invoice_number: "KC2", journal_entry_id: "j" }]]]);
 
-  const checks = externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, sync: { errors: [], missing: [] }, now: Date.parse("2026-09-22") });
+  const checks = externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, now: Date.parse("2026-09-22") });
   const by = Object.fromEntries(checks.map((c) => [c.key, c.items.map((i) => i.deal)]));
 
   assert.equal(by.loss, undefined, "selling at a loss happens on purpose; it is no check");
@@ -91,169 +90,36 @@ test("checks find what is missing or wrong, each on its deal", () => {
   assert.deepEqual(by.to_invoice, ["EXTD-000003"]);
 });
 
-/* ---------------- sync ---------------- */
+/* ---------------- one edit at a time ---------------- */
 
-function fakeAirtable(record, { units = {}, buyers = {} } = {}) {
-  const updates = [];
-  return {
-    updates,
-    async select() {
-      return { records: [structuredClone(record)], offset: "" };
-    },
-    async byIds(table, ids) {
-      const source = table === "Inventory Units" ? units : buyers;
-      return new Map(ids.filter((id) => source[id]).map((id) => [id, source[id]]));
-    },
-    async update(table, id, fields) {
-      updates.push(fields);
-      Object.assign(record.fields, fields);
-      // Airtable gives an attachment sent by URL a new id and keeps its name.
-      if (fields["Shipping Labels"]) {
-        record.fields["Shipping Labels"] = fields["Shipping Labels"].map((a, i) => (a.id ? { ...a, filename: (record._names || {})[a.id] || "" } : { id: `attNew${i}`, url: a.url, filename: a.filename }));
-      }
-      return structuredClone(record);
-    }
-  };
-}
+test("an edit works out the deal's shipping status again from its parcels", async () => {
+  const { createExternalSalesEdits } = await import("../admin/externalSalesSync.js");
 
-test("a new outbound from Airtable arrives with its pairs, buyer and parcels", async () => {
-  const record = {
-    id: "recSALE0000000078",
-    fields: {
-      "External Deal ID": "EXTD-000078",
-      "Buyer ID": ["recBUYER"],
-      "Buyer Name": ["Some Store"],
-      "Sale Date": "2026-09-22",
-      "Total Selling Price": 484,
-      "Shipping Costs": 12.5,
-      "Payment Status": "Pending",
-      "Shipping Status": "Pending",
-      "Amount of Labels": 2,
-      "Tracking Numbers": "1ZAAA111, 1ZBBB222",
-      "Shipping Labels": [{ id: "att1", url: "https://airtable/1", filename: "one.pdf", type: "application/pdf" }, { id: "att2", url: "https://airtable/2", filename: "two.png", type: "image/png" }],
-      "Linked Inventory Units": ["recU1", "recU2"]
-    }
-  };
-  const airtable = fakeAirtable(record, {
-    units: {
-      recU1: { "Item ID": "IU-1", SKU: "A", Size: "42", "VAT Type": "VAT21", "Final Purchase Price": 121, "Final Purchase Price (ex. VAT)": 100 },
-      recU2: { "Item ID": "IU-2", SKU: "B", Size: "43" }
-    }
-  });
-  const db = fakeDb({ external_sales: [], external_sale_pairs: [], shipments: [], buyers: [{ id: "b84", buyer_number: 84, airtable_record_id: "recBUYER", airtable_aliases: [], full_name: "Jan", country_code: "DE", vat_id: "DE999" }] });
-  const stored = [];
-  const sync = createExternalSalesSync({
-    airtable,
-    db,
-    storeLabel: async ({ dealId, filename, mime }) => { stored.push({ dealId, filename, mime }); return { url: `https://r2/${dealId}-${filename}`, filename: `${dealId}-${filename}` }; },
-    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })
-  });
-
-  const result = await sync.run();
-  assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
-
-  const [sale] = db.tables.external_sales;
-  assert.equal(sale.deal_number, 78);
-  assert.equal(sale.buyer_name, "Jan");
-  assert.equal(sale.buyer_uuid, "b84");
-  assert.equal(sale.buyer_id, "BU-00084");
-  assert.equal(sale.bookkeeping_status, "to_invoice");
-  assert.equal(sale.shipping_status, "ready_to_ship");
-
-  const pairs = db.tables.external_sale_pairs;
-  assert.equal(pairs.length, 2);
-  assert.equal(pairs.find((p) => p.item_id === "IU-1").purchase_price_ex_vat, 100, "VAT21 takes the ex-VAT purchase");
-  assert.equal(pairs.find((p) => p.item_id === "IU-1").selling_vat_type, "VAT0", "business abroad with a VAT id");
-  assert.equal(pairs.find((p) => p.item_id === "IU-2").purchase_vat_type, null, "missing purchase stays empty, for Checks");
-
-  const parcels = db.tables.shipments;
-  assert.equal(parcels.length, 2, "two labels, two tracking numbers: two parcels");
-  assert.deepEqual(parcels.map((p) => [p.airtable_attachment_id, p.tracking_number]), [["att1", "1ZAAA111"], ["att2", "1ZBBB222"]]);
-  assert.equal(stored[1].mime, "image/png", "an image label goes to the WMS as an image, which makes it a PDF");
-
-  assert.deepEqual(airtable.updates.at(-1), { "Shipping Status": "Ready to Ship" });
-
-  // A second run changes nothing and copies nothing again.
-  const again = await sync.run();
-  assert.equal(again.changed.length, 0, JSON.stringify(again.changed));
-  assert.equal(db.tables.shipments.length, 2);
-  assert.equal(stored.length, 2);
-});
-
-test("labels copied in step 2 are recognised by name, not copied twice", async () => {
-  const record = {
-    id: "recSALE0000000069",
-    fields: {
-      "External Deal ID": "EXTD-000069",
-      "Buyer ID": ["recBUYER"],
-      "Total Selling Price": 200,
-      "Payment Status": "Paid",
-      "Shipping Status": "Shipped",
-      "Tracking Numbers": "1ZR1J3649122428336",
-      "Shipping Labels": [{ id: "attOld", url: "https://airtable/x", filename: "label_astro (5).pdf" }],
-      "Linked Inventory Units": ["recU1"]
-    }
-  };
   const db = fakeDb({
-    external_sales: [{ id: "s69", airtable_record_id: record.id, deal_number: 69, buyer_record_id: "recBUYER", payment_status: "paid", paid_at: null, shipping_status: "shipped", bookkeeping_status: "invoiced", total_selling_price: "200.00", shipping_costs: "0.00", sale_date: null, payment_note: null, labels_needed: 0, items_per_parcel: null, legacy_selling_vat_type: "Margin" }],
-    external_sale_pairs: [{ id: "p1", sale_id: "s69", inventory_unit_record_id: "recU1", purchase_vat_type: "Margin", purchase_price_ex_vat: "100.00", selling_vat_type: null }],
-    shipments: [{ id: "sh1", external_sale_id: "s69", label_url: "https://r2/x", label_filename: "EXTD-000069-label_astro__5_.pdf", tracking_number: "1ZR1J3649122428336", airtable_attachment_id: null, created_at: "2026-09-22" }]
-  });
-  const sync = createExternalSalesSync({ airtable: fakeAirtable(record), db, storeLabel: async () => assert.fail("nothing to copy"), fetchImpl: async () => assert.fail("nothing to download") });
-
-  const result = await sync.run();
-  assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
-  assert.equal(db.tables.shipments.length, 1);
-  assert.equal(db.tables.shipments[0].airtable_attachment_id, "attOld");
-  assert.equal(db.tables.external_sales[0].paid_at, null, "paid before step 2: no made-up date");
-  assert.equal(db.tables.external_sale_pairs[0].selling_vat_type, null, "an invoiced deal is not touched");
-});
-
-test("an edit writes the parcels back to Airtable and links the new label", async () => {
-  const record = {
-    id: "recSALE0000000080",
-    _names: { attA: "a.pdf" },
-    fields: {
-      "External Deal ID": "EXTD-000080",
-      "Buyer ID": ["recBUYER"],
-      "Total Selling Price": 100,
-      "Payment Status": "Pending",
-      "Shipping Status": "Ready to Ship",
-      "Tracking Numbers": "1ZAAA111",
-      "Shipping Labels": [{ id: "attA", url: "https://airtable/a", filename: "a.pdf" }],
-      "Linked Inventory Units": []
-    }
-  };
-  const db = fakeDb({
-    external_sales: [{ id: "s80", airtable_record_id: record.id, deal_number: 80, buyer_record_id: "recBUYER", payment_status: "pending", shipping_status: "ready_to_ship", bookkeeping_status: "to_invoice", total_selling_price: "100.00", shipping_costs: "0.00", sale_date: null, payment_note: null, labels_needed: 0, items_per_parcel: null, legacy_selling_vat_type: null }],
-    external_sale_pairs: [],
-    shipments: [{ id: "sh1", external_sale_id: "s80", label_url: "https://r2/a", label_filename: "EXTD-000080-a.pdf", tracking_number: "1ZAAA111", airtable_attachment_id: "attA", created_at: "2026-09-22T10:00:00Z" }]
-  });
-  const airtable = fakeAirtable(record);
-  const sync = createExternalSalesSync({ airtable, db, storeLabel: async () => ({}), fetchImpl: async () => assert.fail("nothing to download") });
-
-  await sync.edit(db.tables.external_sales[0], async (sale) => {
-    await db.insert("shipments", [{ external_sale_id: sale.id, tracking_number: "1ZBBB222", label_url: "https://r2/b", label_filename: "EXTD-000080-1ZBBB222.pdf", airtable_attachment_id: null }]);
+    external_sales: [{ id: "s80", deal_number: 80, payment_status: "pending", shipping_status: "pending", shipped_at: null }],
+    shipments: []
   });
 
-  const written = airtable.updates.at(-1);
-  assert.equal(written["Tracking Numbers"], "1ZAAA111, 1ZBBB222");
-  assert.deepEqual(written["Shipping Labels"], [{ id: "attA" }, { url: "https://r2/b", filename: "EXTD-000080-1ZBBB222.pdf" }]);
-  assert.equal(db.tables.shipments.find((p) => p.tracking_number === "1ZBBB222").airtable_attachment_id, "attNew1");
+  const edits = createExternalSalesEdits({ db });
 
-  // Removing every parcel puts the deal back on Pending, in Airtable too.
-  await sync.edit(db.tables.external_sales[0], async () => {
+  // A first parcel makes it Ready to Ship.
+  await edits.edit(db.tables.external_sales[0], async (sale) => {
+    await db.insert("shipments", [{ external_sale_id: sale.id, tracking_number: "1ZBBB222", label_url: "https://r2/b", label_filename: "b.pdf", airtable_attachment_id: null }]);
+  });
+  assert.equal(db.tables.external_sales[0].shipping_status, "ready_to_ship");
+
+  // Removing the last one puts it back on Pending.
+  await edits.edit(db.tables.external_sales[0], async () => {
     db.tables.shipments = [];
   });
   assert.equal(db.tables.external_sales[0].shipping_status, "pending");
-  assert.equal(airtable.updates.at(-1)["Shipping Status"], "Pending");
+
+  // A deal that has left is never made unshipped by an edit.
+  db.tables.external_sales[0].shipping_status = "shipped";
+  await edits.edit(db.tables.external_sales[0], async () => {});
+  assert.equal(db.tables.external_sales[0].shipping_status, "shipped");
 });
 
-test("a margin pair sold at a loss has no VAT to take off", () => {
-  const loss = saleMoney({ total_selling_price: 80, shipping_costs: 0, legacy_selling_vat_type: "Margin" }, [{ purchase_price_ex_vat: 100 }]);
-  assert.equal(loss.selling_ex_vat, 80);
-  assert.equal(loss.profit, -20);
-});
 
 test("the next step follows the work: invoice, label, Pack & Ship, money", async () => {
   const { nextStep } = await import("../admin/adminExternalSales.js");

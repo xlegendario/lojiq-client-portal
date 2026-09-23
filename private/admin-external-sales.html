@@ -216,8 +216,6 @@
 
     /* ----- External Sales on Supabase ----- */
     .panel { width: min(620px, 100%); }
-    .syncline { display: flex; align-items: center; gap: 10px; color: var(--muted); flex-wrap: wrap; }
-    .syncline .bad { color: var(--bad-text); font-weight: 700; }
     .total.neg strong { color: var(--bad-text); }
     .total small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
     td.neg { color: var(--bad-text); font-weight: 700; }
@@ -401,10 +399,6 @@
         <h1 id="viewTitle">Pending</h1>
       </div>
 
-      <div class="syncline" id="syncLine" hidden>
-        <span id="syncText">Not synced with Airtable yet.</span>
-        <button class="act" id="syncBtn" type="button">Sync now</button>
-      </div>
 
       <div class="filters" id="listFilters">
         <input class="input" id="searchInput" type="search" placeholder="Search deal, buyer, SKU, tracking…" style="width:280px">
@@ -604,7 +598,7 @@
     const pill = (map, key) => { const [label, cls] = map[key] || [key || "—", ""]; return `<span class="pill ${cls}">${esc(label)}</span>`; };
 
     const params = new URLSearchParams(location.search);
-    const state = { open: {}, editParcel: null, tab: TABS[params.get("tab")] ? params.get("tab") : "pending", sales: [], selected: null, detail: null, sync: null };
+    const state = { open: {}, editParcel: null, tab: TABS[params.get("tab")] ? params.get("tab") : "pending", sales: [], selected: null, detail: null };
 
     async function api(url, options = {}) {
       const response = await fetch(url, { credentials: "same-origin", ...options });
@@ -715,47 +709,6 @@
       }
     });
 
-    /* ---------------- sync ---------------- */
-
-    /*
-     * The Airtable sync only keeps the 53 deals from before the switch up to
-     * date (their payment status still lives there). It stays out of sight
-     * unless it fails, and then it says so on the Checks tab.
-     */
-    function drawSync() {
-      const s = state.sync;
-      const trouble = Boolean(s?.error || s?.errors?.length);
-      $("syncLine").hidden = !(trouble || state.tab === "checks");
-      if (!s?.at && !s?.error) {
-        $("syncText").textContent = "Old deals are read from Airtable every five minutes; not run yet since the service started.";
-        return;
-      }
-
-      const ago = s.at ? Math.max(0, Math.round((Date.now() - new Date(s.at).getTime()) / 60000)) : null;
-      const parts = [];
-      if (s.error) parts.push(`<span class="bad">Sync failed: ${esc(s.error)}</span>`);
-      if (s.at) parts.push(`Old deals read from Airtable ${ago === 0 ? "just now" : `${ago} min ago`}`);
-      if (s.errors?.length) parts.push(`<span class="bad">${s.errors.length} deal(s) could not be read - see Checks</span>`);
-      $("syncText").innerHTML = parts.join(" · ");
-    }
-
-    $("syncBtn").addEventListener("click", async () => {
-      $("syncBtn").disabled = true;
-      $("syncBtn").textContent = "Syncing…";
-      try {
-        const out = await postJson("/api/admin/external-sales/sync", {});
-        state.sync = out.sync;
-        toast(`Synced: ${out.changed} deal(s) changed${out.errors ? `, ${out.errors} could not be read` : ""}.`);
-        await load();
-        loadNavCounts(true);
-      } catch (err) {
-        toast(err.message);
-      } finally {
-        $("syncBtn").disabled = false;
-        $("syncBtn").textContent = "Sync now";
-      }
-    });
-
     /* ---------------- list ---------------- */
 
     function visibleSales() {
@@ -830,8 +783,6 @@
       $("checks").innerHTML = `<p class="sub">Loading…</p>`;
       try {
         const out = await api("/api/admin/external-sales/checks");
-        state.sync = out.sync;
-        drawSync();
 
         const mollie = '<section class="check-group" id="mollieBox"><div class="check-head"><span class="sub">Looking for Mollie payments…</span></div></section>';
         if (!out.checks.length) {
@@ -869,8 +820,6 @@
         const out = await api(`/api/admin/external-sales?tab=${encodeURIComponent(state.tab)}`);
         state.sales = out.sales || [];
         applyCounts(out.counts);
-        state.sync = out.sync;
-        drawSync();
         render();
       } catch (err) {
         $("rows").innerHTML = `<tr><td class="empty" colspan="11">${esc(err.message)}</td></tr>`;

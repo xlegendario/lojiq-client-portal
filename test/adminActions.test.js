@@ -119,9 +119,8 @@ test("Mark Shipped does what the tracking job does", async () => {
   });
 
   assert.deepEqual(deps.calls[0].fields, { "Fulfillment Status": "Fulfilled", "Shipping Status": "Shipped" });
-  assert.deepEqual(deps.calls[1], { kind: "external", orderId: "ORD-7", status: "Shipped" });
-  assert.equal(deps.calls[2].body.trigger_type, "item-shipped");
-  assert.equal(deps.calls[2].body.store_name, "Genky");
+  assert.equal(deps.calls[1].body.trigger_type, "item-shipped");
+  assert.equal(deps.calls[1].body.store_name, "Genky");
   assert.equal(result.message, "Marked shipped.");
 
   // A want-to-buy: statuses only, no shipped notification.
