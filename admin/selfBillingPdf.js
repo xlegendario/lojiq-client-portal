@@ -324,7 +324,9 @@ export function selfBillingPdf(input = {}) {
     }
   }
 
-  y = rowBottom - 10;
+  // The money block hangs two points under the table, never in it: its own
+  // boxes run from y - 5 to y + 14.
+  y = rowBottom - 16;
 
   // The money block, in two boxes under the first two columns.
   const labelWidth = columns[0].width - 60;
