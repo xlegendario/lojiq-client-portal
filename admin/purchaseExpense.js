@@ -256,5 +256,20 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     return { expense_id: String(expense.id), expense_number: text(expense.invoice_number) };
   }
 
-  return { book, credit, company };
+  // Whether a booking we wrote down is still in Rompslomp: one thrown away
+  // there has to be made again here.
+  async function exists(expenseId) {
+    if (!text(expenseId)) return false;
+
+    try {
+      const { client } = await company();
+      return Boolean(await client.getExpense(text(expenseId)));
+    } catch (err) {
+      // Gone is a 404; anything else is Rompslomp having a moment, and
+      // then the safe answer is "it is still there".
+      return !/404/.test(err.message);
+    }
+  }
+
+  return { book, credit, company, exists };
 }

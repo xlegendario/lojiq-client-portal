@@ -505,7 +505,24 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   async function bookPurchases(id) {
     const sale = await saleById(id);
     const pairs = await db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&cancelled_at=is.null`);
-    const open = pairs.filter((pair) => pair.partner_stock_id && !text(pair.purchase_expense_id));
+    /*
+     * A pair whose expense was thrown away in Rompslomp counts as unbooked
+     * again: the id we kept points at nothing, and the purchase is missing
+     * from the books just the same.
+     */
+    const open = [];
+    for (const pair of pairs.filter((pair) => pair.partner_stock_id)) {
+      if (!text(pair.purchase_expense_id)) {
+        open.push(pair);
+        continue;
+      }
+
+      const stillThere = await purchases.exists(text(pair.purchase_expense_id));
+      if (stillThere) continue;
+
+      await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { purchase_expense_id: null, purchase_expense_number: null });
+      open.push({ ...pair, purchase_expense_id: null });
+    }
 
     if (!open.length) throw new ExternalSalesError("Every purchase on this deal is booked.");
 
