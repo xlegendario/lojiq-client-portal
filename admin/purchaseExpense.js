@@ -85,6 +85,32 @@ export function expenseBody({ date, contactId, accountId, vatTypeId, vatRate, de
 }
 
 /*
+ * A seller as a supplier in Rompslomp. His Seller ID is the contact number,
+ * the way a buyer's BU number is on the other side, so the two can always be
+ * matched without going by name.
+ */
+export function supplierBody(seller) {
+  const company = text(seller.company_name);
+  const person = text(seller.full_name) || text(seller.name);
+
+  return {
+    contact: {
+      is_individual: !company,
+      is_supplier: true,
+      company_name: company || null,
+      contact_person_name: person || null,
+      contact_person_email_address: text(seller.email) || null,
+      address: text(seller.address) || null,
+      zipcode: text(seller.zipcode) || null,
+      city: text(seller.city) || null,
+      country_code: text(seller.country_code).toUpperCase() || null,
+      vat_number: text(seller.vat_id) || null,
+      contact_number: text(seller.seller_id) || null
+    }
+  };
+}
+
+/*
  * deps:
  *   rompslomp    createRompslomp, for the company the sales invoices live in
  *   forCompany   (companyId) -> a Rompslomp client for that company
@@ -138,11 +164,18 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
   }
 
   /*
-   * The supplier in Rompslomp. Found by his company name, else by his own
-   * name; never created here, because a supplier carries bank details and
-   * VAT numbers that belong in Rompslomp itself.
+   * The supplier in Rompslomp: by his Seller ID first, which is his contact
+   * number there, and by name for the ones from before that.
    */
-  async function supplier(client, seller) {
+  async function findSupplier(client, seller) {
+    const sellerId = text(seller.seller_id);
+
+    if (sellerId) {
+      const byNumber = await client.searchSuppliers(sellerId);
+      const exact = byNumber.find((row) => like(row.contact_number) === like(sellerId));
+      if (exact) return exact;
+    }
+
     for (const term of [text(seller.company_name), text(seller.name), text(seller.full_name)].filter(Boolean)) {
       const matches = await client.searchSuppliers(term);
       const exact = matches.find((row) => like(row.company_name) === like(term) || like(row.contact_person_name) === like(term));
@@ -150,7 +183,49 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       if (matches.length === 1) return matches[0];
     }
 
-    throw new ExternalSalesError(`No supplier in Rompslomp for ${text(seller.company_name) || text(seller.name) || "this seller"}; add the contact there first.`, 502);
+    return null;
+  }
+
+  /*
+   * The supplier to book this purchase on, made now if he has none.
+   *
+   * On the first purchase, not at registration: there are 889 sellers and we
+   * buy from a handful, so making a contact for every one of them would turn
+   * Rompslomp into a phone book. Everything a contact needs is on the seller
+   * (name, address, VAT id, email), so there is nothing to invent.
+   */
+  async function supplier(client, seller) {
+    const found = await findSupplier(client, seller);
+    if (found) return found;
+
+    if (!text(seller.company_name) && !text(seller.full_name) && !text(seller.name)) {
+      throw new ExternalSalesError("This seller has no name in the Sellers Database, so no supplier can be made for him.", 502);
+    }
+
+    const made = await client.createContact(supplierBody(seller));
+    console.log(`[purchase] supplier made in Rompslomp: ${text(seller.seller_id)} ${text(made?.company_name) || text(made?.contact_person_name)}`);
+    return made;
+  }
+
+  /*
+   * The supplier a seller should have, made when he has none. Called when a
+   * seller registers, so the contact is there long before we buy from him -
+   * and so a purchase never has to invent one in a hurry.
+   */
+  async function ensureSupplier(seller) {
+    const { client } = await company();
+    const found = await findSupplier(client, seller);
+
+    if (found) {
+      return { contact_id: String(found.id), name: text(found.company_name) || text(found.contact_person_name), made: false };
+    }
+
+    if (!text(seller.company_name) && !text(seller.full_name) && !text(seller.name)) {
+      throw new ExternalSalesError("A supplier needs a name.");
+    }
+
+    const made = await client.createContact(supplierBody(seller));
+    return { contact_id: String(made.id), name: text(made.company_name) || text(made.contact_person_name), made: true };
   }
 
   /*
@@ -245,5 +320,5 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     }
   }
 
-  return { book, credit, company, exists };
+  return { book, credit, company, exists, ensureSupplier };
 }

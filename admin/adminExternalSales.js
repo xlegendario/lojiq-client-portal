@@ -33,6 +33,9 @@ export { ExternalSalesError };
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// What Rompslomp needs to know about a seller to keep him as a supplier.
+const SUPPLIER_FIELDS = ["Seller ID", "Company Name", "Full Name", "Email", "Address", "Zipcode", "City", "Country Code", "VAT ID"];
+
 export const TABS = {
   pending: (s) => s.shipping_status === "pending",
   ready: (s) => s.shipping_status === "ready_to_ship",
@@ -506,6 +509,35 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   const cancelling = createExternalSalesCancel({ db, airtable, invoicing, purchases });
 
   /*
+   * A seller as a supplier in Rompslomp, made when he has none. Called from
+   * the Kickz Caviar portal the moment someone registers, so the contact is
+   * waiting long before the first pair is bought from him.
+   */
+  async function ensureSupplier(sellerRecordId) {
+    const id = text(sellerRecordId);
+    if (!/^rec[A-Za-z0-9]{14}$/.test(id)) throw new ExternalSalesError("That is not a seller id.");
+
+    const found = await airtable.byIds("Sellers Database", [id], [
+      "Seller ID", "Full Name", "Company Name", "VAT ID", "Email", "Address", "Zipcode", "City", "Country", "Country Code"
+    ]);
+
+    const fields = found.get(id);
+    if (!fields) throw new ExternalSalesError("That seller no longer exists.", 404);
+
+    return purchases.ensureSupplier({
+      seller_id: text(fields["Seller ID"]),
+      company_name: text(fields["Company Name"]),
+      full_name: text(fields["Full Name"]),
+      email: text(fields["Email"]),
+      address: text(fields["Address"]),
+      zipcode: text(fields["Zipcode"]),
+      city: text(fields["City"]),
+      country_code: text(fields["Country Code"]),
+      vat_id: text(fields["VAT ID"])
+    });
+  }
+
+  /*
    * Book what was bought and never reached Rompslomp (block 10). The same
    * work the sale does; here to be done again when Rompslomp was down.
    */
@@ -580,14 +612,21 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
   async function sellerNames(recordId, sellerId) {
     const found = recordId
-      ? await airtable.byIds("Sellers Database", [recordId], ["Seller ID", "Company Name", "Full Name"]).catch(() => new Map())
+      ? await airtable.byIds("Sellers Database", [recordId], SUPPLIER_FIELDS).catch(() => new Map())
       : new Map();
 
     const fields = found.get(recordId) || {};
     return {
+      seller_id: text(fields["Seller ID"]) || sellerId,
       company_name: text(fields["Company Name"]),
+      full_name: text(fields["Full Name"]),
       name: text(fields["Full Name"]) || text(fields["Company Name"]),
-      seller_id: text(fields["Seller ID"]) || sellerId
+      email: text(fields["Email"]),
+      address: text(fields["Address"]),
+      zipcode: text(fields["Zipcode"]),
+      city: text(fields["City"]),
+      country_code: text(fields["Country Code"]),
+      vat_id: text(fields["VAT ID"])
     };
   }
 
@@ -713,6 +752,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mollieSuggestions: () => payments.mollieSuggestions(),
     linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
+    ensureSupplier: (recordId) => ensureSupplier(recordId),
     partnerStockFor: (sku, size) => partnerStockFor(sku, size),
     bookPurchases: (id) => bookPurchases(id),
     sellerNames: (recordId, sellerId) => sellerNames(recordId, sellerId),
@@ -935,6 +975,19 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details: { pairs: out.pairs, total: out.total, invoice: out.invoice_log, invoice_error: out.invoice_error || null }
       }).catch(() => {});
       res.json({ ok: true, ...out });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  /*
+   * A seller who registered, as a supplier in Rompslomp. Best effort by
+   * design: the Kickz Caviar portal never holds up a registration for it.
+   */
+  router.post("/api/internal/external-sales/supplier", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, supplier: await store.ensureSupplier(text(req.body?.seller_record_id)) });
     } catch (err) {
       send(res, err);
     }

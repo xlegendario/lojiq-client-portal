@@ -27,6 +27,7 @@ function fakes({ suppliers = [{ id: 42, company_name: "Zhuoyi" }], expense = { i
     async accounts() { return ACCOUNTS; },
     async vatTypes() { return VAT_TYPES; },
     async searchSuppliers(q) { calls.push(["search", q]); return suppliers; },
+    async createContact(body) { calls.push(["contact", body]); return { id: 77, ...body.contact }; },
     async createExpense(body) { calls.push(["create", body]); return expense; },
     async attachToExpense(id, file) {
       calls.push(["attach", id, file.filename]);
@@ -126,12 +127,30 @@ test("the stock account is found however its name is punctuated", async () => {
   assert.equal(account.id, 2, "Voorraad | Scout, punctuation and all, not the heading above it");
 });
 
-test("a seller who is no supplier in Rompslomp is said, not invented", async () => {
+test("a seller who is no supplier yet becomes one on the first purchase", async () => {
+  const { calls, purchases } = fakes({ suppliers: [] });
+
+  const out = await purchases.book({
+    deal: "EXTD-000078",
+    unit: { vat_type: "Margin", price: 100 },
+    seller: { seller_id: "SE-00781", company_name: "Zhuoyi", email: "z@x.es", address: "Calle remodelacion 5", zipcode: "28041", city: "Madrid", country_code: "es", vat_id: "ESB12345678" }
+  });
+
+  const made = calls.find((call) => call[0] === "contact")[1].contact;
+  assert.equal(made.is_supplier, true);
+  assert.equal(made.company_name, "Zhuoyi");
+  assert.equal(made.contact_number, "SE-00781", "his Seller ID is his number there, so he is found again by it");
+  assert.equal(made.country_code, "ES");
+  assert.equal(made.vat_number, "ESB12345678");
+  assert.equal(out.supplier, "Zhuoyi");
+});
+
+test("a seller without a name cannot become a supplier", async () => {
   const { purchases } = fakes({ suppliers: [] });
 
   await assert.rejects(
-    () => purchases.book({ deal: "EXTD-000078", unit: { vat_type: "Margin", price: 100 }, seller: { company_name: "Zhuoyi" } }),
-    /No supplier in Rompslomp for Zhuoyi/
+    () => purchases.book({ deal: "EXTD-000078", unit: { vat_type: "Margin", price: 100 }, seller: { seller_id: "SE-00999" } }),
+    /no name in the Sellers Database/
   );
 });
 

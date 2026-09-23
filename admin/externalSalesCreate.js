@@ -22,6 +22,9 @@ import { trackingList } from "./adminForwarding.js";
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
 
+// What Rompslomp needs to know about a seller to keep him as a supplier.
+const SUPPLIER_FIELDS = ["Seller ID", "Company Name", "Full Name", "Email", "Address", "Zipcode", "City", "Country Code", "VAT ID"];
+
 export const UNIT_FIELDS = [
   "Item ID", "Product Name", "SKU", "Size", "VAT Type", "Final Purchase Price", "Final Purchase Price (ex. VAT)",
   "Picture", "Availability Status"
@@ -222,14 +225,21 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
   // The seller as Rompslomp has him: his company, else his own name.
   async function sellerNames(recordId, sellerId) {
     const found = recordId
-      ? await airtable.byIds("Sellers Database", [recordId], ["Seller ID", "Company Name", "Full Name"]).catch(() => new Map())
+      ? await airtable.byIds("Sellers Database", [recordId], SUPPLIER_FIELDS).catch(() => new Map())
       : new Map();
 
     const fields = found.get(recordId) || {};
     return {
+      seller_id: text(fields["Seller ID"]) || sellerId,
       company_name: text(fields["Company Name"]),
+      full_name: text(fields["Full Name"]),
       name: text(fields["Full Name"]) || text(fields["Company Name"]),
-      seller_id: text(fields["Seller ID"]) || sellerId
+      email: text(fields["Email"]),
+      address: text(fields["Address"]),
+      zipcode: text(fields["Zipcode"]),
+      city: text(fields["City"]),
+      country_code: text(fields["Country Code"]),
+      vat_id: text(fields["VAT ID"])
     };
   }
 
