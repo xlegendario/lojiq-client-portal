@@ -348,8 +348,10 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
       if (!response.ok) throw new ExternalSalesError(`Rompslomp said no (${response.status}) on companies.`, 502);
       return data?.companies || [];
     },
-    async accounts() {
-      return (await call("/accounts?per_page=200"))?.accounts || [];
+    // "selection" is required, and "all" is what its own default says.
+    async accounts(selection = "all") {
+      const params = new URLSearchParams({ selection, per_page: "200" });
+      return (await call(`/accounts?${params}`))?.accounts || [];
     },
     async vatTypes() {
       return (await call("/vat_types"))?.vat_types || [];
