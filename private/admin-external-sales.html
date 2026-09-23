@@ -303,6 +303,7 @@
     .plan strong { color: var(--strong); }
     .plan .warn { color: var(--warning); }
     .cancelled-pair { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--border); }
+    .cancelled-pair .cancelled-what { flex: 1 1 100%; color: var(--muted); font-size: 12px; }
     .cancelled-pair .what { color: var(--muted); text-decoration: line-through; }
     .pick { display: flex; gap: 8px; align-items: center; }
     .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
@@ -1240,9 +1241,10 @@
           ${(state.detail.cancelled_pairs || []).length ? `
           <div class="cancelled">${state.detail.cancelled_pairs.map((p) => `
             <div class="cancelled-pair">
-              <span class="what">${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
+              <span class="what">${esc(p.sku || p.item_id || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
               <span class="pill ${p.cancel_outcome === "return_expected" ? "wait" : ""}">${esc(CANCEL_OUTCOME_TEXT[p.cancel_outcome] || "cancelled")}</span>
               <span class="sub">${esc(day(p.cancelled_at))}${p.cancel_reason ? ` · ${esc(p.cancel_reason)}` : ""}</span>
+              <span class="cancelled-what">${esc(p.product_name || "")}${p.item_id ? ` · ${itemLink(p)}` : ""}${p.selling_price === null || p.selling_price === undefined ? "" : ` · was ${esc(euro(p.selling_price))}`}${selfBillingLink(p)}</span>
             </div>`).join("")}</div>` : ""}
           <div class="pair-total">
             <div class="pair-name"><strong>${pairs.length} ${pairs.length === 1 ? "pair" : "pairs"}</strong></div>

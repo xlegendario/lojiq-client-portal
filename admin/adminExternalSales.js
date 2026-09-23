@@ -255,7 +255,13 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       if (invoice) invoicesBySale.set(link.sale_id, [...(invoicesBySale.get(link.sale_id) || []), invoice]);
     }
 
-    return { sales, pairsBySale: group(livePairs, "sale_id"), parcelsBySale: group(parcels, "external_sale_id"), invoicesBySale };
+    return {
+      sales,
+      pairsBySale: group(livePairs, "sale_id"),
+      cancelledBySale: group(pairs.filter((pair) => pair.cancelled_at), "sale_id"),
+      parcelsBySale: group(parcels, "external_sale_id"),
+      invoicesBySale
+    };
   }
 
   function listRow(s, data) {
@@ -269,7 +275,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       buyer_company: s.buyer_company,
       buyer_country: s.buyer_country,
       sale_date: s.sale_date,
-      skus: [...new Set(pairs.map((p) => p.sku).filter(Boolean))],
+      // A deal whose pairs are all cancelled still says what it was about.
+      skus: [...new Set((pairs.length ? pairs : (data.cancelledBySale.get(s.id) || [])).map((p) => p.sku).filter(Boolean))],
       payment_status: s.payment_status,
       shipping_status: s.shipping_status,
       bookkeeping_status: s.bookkeeping_status,

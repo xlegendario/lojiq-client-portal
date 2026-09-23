@@ -144,9 +144,19 @@ async function loadOrderIds(airtable, ids) {
   return out;
 }
 
-// Every unit on To Pay, grouped per seller: the seller owed the most on top.
+/*
+ * Every unit on To Pay, grouped per seller: the seller owed the most on top.
+ *
+ * Inactive is left out (23-09-2026): a unit made for a sale that was then
+ * cancelled is switched off and its purchase credited, so nothing is owed
+ * for it - it would otherwise sit here asking to be paid for a pair that
+ * went back to the seller.
+ */
 export async function loadPayouts(airtable, { shipping = "all", type = "", search = "" } = {}) {
-  const records = await selectAll(airtable, UNIT_TABLE, { formula: `{Payment Status} = 'To Pay'`, fields: PAYOUT_FIELDS });
+  const records = await selectAll(airtable, UNIT_TABLE, {
+    formula: `AND({Payment Status} = 'To Pay', {Availability Status} != 'Inactive')`,
+    fields: PAYOUT_FIELDS
+  });
   const sellers = await loadSellers(airtable, records.map((record) => first(record.fields?.["Seller ID"])));
 
   const needle = text(search).toLowerCase();
