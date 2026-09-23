@@ -277,45 +277,70 @@ export function selfBillingPdf(input = {}) {
 
   y -= 18;
 
-  // What was bought.
-  const columns = { name: MARGIN, size: MARGIN + 270, sku: MARGIN + 330, price: right - 90 };
-  page.write("Product Name", columns.name, y, { size: 10, bold: true, color: GOLD });
-  page.write("Size", columns.size, y, { size: 10, bold: true, color: GOLD });
-  page.write("SKU", columns.sku, y, { size: 10, bold: true, color: GOLD });
-  page.write("Price", columns.price, y, { size: 10, bold: true, color: GOLD, align: "right", width: 90 });
-  y -= 18;
+  // What was bought. The columns tile the width edge to edge, so a box can
+  // never land on top of its neighbour.
+  const PAD = 5;
+  const columns = [
+    { key: "name", label: "Product Name", x: MARGIN, width: 255 },
+    { key: "size", label: "Size", x: MARGIN + 255, width: 50 },
+    { key: "sku", label: "SKU", x: MARGIN + 305, width: 110 },
+    { key: "price", label: "Price", x: MARGIN + 415, width: right - (MARGIN + 415), align: "right" }
+  ];
 
-  const nameLines = wrap(text(input.product?.name), 9, 255);
-  const rowHeight = Math.max(18, 12 * nameLines.length + 6);
-
-  page.box(MARGIN - 4, y - rowHeight + 12, 258, rowHeight);
-  page.box(columns.size - 4, y - rowHeight + 12, 56, rowHeight);
-  page.box(columns.sku - 4, y - rowHeight + 12, 150, rowHeight);
-  page.box(columns.price - 6, y - rowHeight + 12, 96, rowHeight);
-
-  let nameY = y;
-  for (const line of nameLines) {
-    page.write(line, columns.name, nameY, { size: 9 });
-    nameY -= 12;
+  for (const column of columns) {
+    page.write(column.label, column.x + PAD, y, {
+      size: 10,
+      bold: true,
+      color: GOLD,
+      align: column.align || "left",
+      width: column.width - PAD * 2
+    });
   }
 
-  page.write(text(input.product?.size), columns.size, y, { size: 9 });
-  page.write(text(input.product?.sku), columns.sku, y, { size: 9 });
-  page.write(euro(money.price), columns.price, y, { size: 9, align: "right", width: 90 });
+  y -= 20;
 
-  y -= rowHeight + 6;
+  const nameLines = wrap(text(input.product?.name), 9, columns[0].width - PAD * 2);
+  const rowHeight = Math.max(20, 11 * nameLines.length + 9);
+  const rowBottom = y - rowHeight + 14;
 
-  // The money block, two boxed rows under the table.
+  const values = {
+    name: nameLines,
+    size: [text(input.product?.size)],
+    sku: [text(input.product?.sku)],
+    price: [euro(money.price)]
+  };
+
+  for (const column of columns) {
+    page.box(column.x, rowBottom, column.width, rowHeight);
+
+    let lineY = y;
+    for (const line of values[column.key]) {
+      page.write(line, column.x + PAD, lineY, {
+        size: 9,
+        align: column.align || "left",
+        width: column.width - PAD * 2
+      });
+      lineY -= 11;
+    }
+  }
+
+  y = rowBottom - 10;
+
+  // The money block, in two boxes under the first two columns.
+  const labelWidth = columns[0].width - 60;
+  const valueWidth = 150;
+
   for (const [label, value, bold] of [
     [money.vat_label, money.vat === null ? "-" : euro(money.vat), false],
     ["Total", euro(money.total), true]
   ]) {
-    page.box(MARGIN - 4, y - 6, 140, 18);
-    page.box(MARGIN + 140, y - 6, 158, 18);
-    page.write(label, MARGIN, y, { size: 9, bold });
-    page.write(value, MARGIN + 150, y, { size: 9, bold, align: "right", width: 138 });
-    y -= 20;
+    page.box(MARGIN, y - 5, labelWidth, 19);
+    page.box(MARGIN + labelWidth, y - 5, valueWidth, 19);
+    page.write(label, MARGIN + PAD, y, { size: 9, bold });
+    page.write(value, MARGIN + labelWidth + PAD, y, { size: 9, bold, align: "right", width: valueWidth - PAD * 2 });
+    y -= 21;
   }
+
 
   y -= 16;
 
