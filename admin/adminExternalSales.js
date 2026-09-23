@@ -24,6 +24,7 @@ import {
 import { createExternalSalesInvoicing, createRompslomp } from "./externalSalesInvoicing.js";
 import { createOutboundMaker } from "./externalSalesCreate.js";
 import { createExternalSalesCancel } from "./externalSalesCancel.js";
+import { createPurchaseExpense } from "./purchaseExpense.js";
 import { createExternalSalesTracking, plausibleTracking } from "./externalSalesTracking.js";
 import { createExternalSalesPayments } from "./externalSalesPayments.js";
 
@@ -171,7 +172,7 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   return checks;
 }
 
-export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", fetchImpl = fetch }) {
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", selfBilling = null, fetchImpl = fetch }) {
   const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
   const rompslomp = createRompslomp({ token: rompslompToken, companyId: rompslompCompanyId, fetchImpl });
 
@@ -478,11 +479,19 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return changed;
   }
 
-  const outbounds = createOutboundMaker({ db, airtable, invoicing, payments });
+  // Buying a partner pair is an expense in the Payout company, with the
+  // self-billing invoice on it (admin/purchaseExpense.js).
+  const purchases = createPurchaseExpense({
+    rompslomp,
+    forCompany: (companyId) => createRompslomp({ token: rompslompToken, companyId, fetchImpl }),
+    selfBilling: selfBilling || null
+  });
+
+  const outbounds = createOutboundMaker({ db, airtable, invoicing, payments, purchases });
 
   // Taking a pair off a deal: credit, new invoice, the unit back where the
   // pair now is, and the refund that may follow.
-  const cancelling = createExternalSalesCancel({ db, airtable, invoicing });
+  const cancelling = createExternalSalesCancel({ db, airtable, invoicing, purchases });
 
   /*
    * Partner pairs of this shoe that may be sold (block 10). They sit on our

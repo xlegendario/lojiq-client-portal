@@ -102,8 +102,9 @@ export function cancelPlan({ sale, pairs, pairIds, invoices = [] }) {
  *   db          createSupabaseRest
  *   airtable    update, byIds (main base) - Inventory Units
  *   invoicing   credit, invoice (admin/externalSalesInvoicing.js)
+ *   purchases   createPurchaseExpense - the purchase of a partner pair
  */
-export function createExternalSalesCancel({ db, airtable, invoicing }) {
+export function createExternalSalesCancel({ db, airtable, invoicing, purchases = null }) {
   async function load(id) {
     if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown deal.");
     const [sale] = await db.get(`external_sales?select=*&id=eq.${text(id)}`);
@@ -146,6 +147,14 @@ export function createExternalSalesCancel({ db, airtable, invoicing }) {
       text(found.get(text(pair.inventory_unit_record_id))?.["Payment Status"]) !== "Paid");
 
     for (const pair of toShelf) {
+      // We never bought it after all, so the purchase comes out of the books
+      // as well - otherwise the stock it put in stays there for good.
+      if (purchases && text(pair.purchase_expense_id)) {
+        await purchases
+          .credit({ expenseId: text(pair.purchase_expense_id), deal: dealId(sale) })
+          .catch((err) => console.error(`[external sales] the purchase of ${pair.item_id} was not credited:`, err.message));
+      }
+
       await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, {
         status: "in_stock",
         sold_at: null,

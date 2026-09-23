@@ -332,6 +332,41 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
 
   return {
     configured,
+    companyId,
+    // Rompslomp holds more than one company (the sales invoices are Kickz
+    // Caviar's, a purchase is Payout's), so the client can be asked for a
+    // sibling company by name.
+    async companies() {
+      if (!configured) throw new ExternalSalesError("Rompslomp needs ROMPSLOMP_API_TOKEN on this service.", 503);
+
+      const response = await fetchImpl("https://api.rompslomp.nl/api/v1/companies", {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(30_000)
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new ExternalSalesError(`Rompslomp said no (${response.status}) on companies.`, 502);
+      return data?.companies || [];
+    },
+    async accounts() {
+      return (await call("/accounts?per_page=200"))?.accounts || [];
+    },
+    async vatTypes() {
+      return (await call("/vat_types"))?.vat_types || [];
+    },
+    async createExpense(body) {
+      return (await call("/expenses", { method: "POST", body }))?.expense;
+    },
+    async getExpense(id) {
+      return (await call(`/expenses/${id}`))?.expense;
+    },
+    async updateExpense(id, body) {
+      return (await call(`/expenses/${id}`, { method: "PATCH", body }))?.expense;
+    },
+    async searchSuppliers(q) {
+      const params = new URLSearchParams({ selection: "suppliers", "search[q]": q, per_page: "100" });
+      return (await call(`/contacts?${params}`))?.contacts || [];
+    },
     async searchContacts(q) {
       const params = new URLSearchParams({ selection: "customers", "search[q]": q, per_page: "100" });
       return (await call(`/contacts?${params}`))?.contacts || [];

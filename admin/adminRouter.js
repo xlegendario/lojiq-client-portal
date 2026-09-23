@@ -394,6 +394,13 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-bol-pages.html") : ""
   });
 
+  // The self-billing purchase invoice for any unit we bought
+  // (admin/adminSelfBilling.js, admin/selfBillingPdf.js). Made before
+  // External Sales, which attaches it to the purchases it books.
+  const selfBilling = createSelfBilling({ airtable });
+
+  mountSelfBilling(router, { store: selfBilling, internalSecret: services.counterOffersSecret });
+
   // External Sales: deals, parcels, money and checks, in Supabase
   // (admin/adminExternalSales.js, admin/externalSalesSync.js,
   // private/admin-external-sales.html).
@@ -410,6 +417,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     mollieApiKey: services.mollieApiKey,
     paymentWebhookUrl: services.mollieWebhookUrl,
     paymentRedirectUrl: services.externalPaymentRedirectUrl,
+    selfBilling,
     fetchImpl
   });
 
@@ -419,12 +427,6 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     internalSecret: services.counterOffersSecret,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-external-sales.html") : ""
   });
-
-  // The self-billing purchase invoice for any unit we bought
-  // (admin/adminSelfBilling.js, admin/selfBillingPdf.js).
-  const selfBilling = createSelfBilling({ airtable });
-
-  mountSelfBilling(router, { store: selfBilling, internalSecret: services.counterOffersSecret });
 
   // Mollie payouts: what ING paid out, split into the payments in it and the
   // invoices behind them (admin/adminMolliePayouts.js,

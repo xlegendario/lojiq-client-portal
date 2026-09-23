@@ -64,6 +64,9 @@ export function pairFromUnit(id, fields) {
 
   return {
     inventory_unit_record_id: id,
+    partner_stock_id: null,
+    purchase_expense_id: null,
+    purchase_expense_number: null,
     item_id: text(fields["Item ID"]) || null,
     sku: text(fields["SKU"]) || null,
     size: text(fields["Size"]) || null,
@@ -90,6 +93,8 @@ export function pairFromPartnerStock(row) {
   return {
     inventory_unit_record_id: null,
     partner_stock_id: row.id,
+    purchase_expense_id: null,
+    purchase_expense_number: null,
     item_id: null,
     sku: text(row.sku) || null,
     size: text(row.size) || null,
@@ -144,7 +149,7 @@ export function planOutbound({ buyer, unitIds, units, partnerPairs = [], total, 
     if (!pair.purchase_vat_type) problems.push(`${name} has no VAT Type in Inventory Units.`);
     if (!(pair.purchase_price_ex_vat > 0)) problems.push(`${name} has no purchase price in Inventory Units.`);
 
-    pairs.push({ ...pair, partner_stock_id: null });
+    pairs.push(pair);
   }
 
   for (const row of partnerPairs) {
@@ -209,10 +214,11 @@ export function planOutbound({ buyer, unitIds, units, partnerPairs = [], total, 
 /*
  * deps:
  *   db         createSupabaseRest
- *   airtable   byIds, update (main base)
+ *   airtable   byIds, update, create (main base)
  *   invoicing  createExternalSalesInvoicing
+ *   purchases  createPurchaseExpense - booking a partner pair we buy
  */
-export function createOutboundMaker({ db, airtable, invoicing, payments = null }) {
+export function createOutboundMaker({ db, airtable, invoicing, payments = null, purchases = null }) {
   async function loadBuyer(id) {
     if (!/^[0-9a-f-]{36}$/i.test(text(id))) return null;
     const [buyer] = await db.get(`buyers?select=*&id=eq.${text(id)}`);
@@ -287,6 +293,7 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
     // Only what this sale really took off the partner's shelf goes back if
     // it fails - a pair another sale claimed is not ours to put back.
     const claimedPartner = [];
+    const purchaseErrors = [];
 
     try {
       // A partner pair becomes ours the moment it is sold: its Inventory Unit
@@ -332,6 +339,38 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
         pair.item_id = text(unit.fields?.["Item ID"]) || null;
 
         await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, { inventory_unit_id: pair.item_id }).catch(() => {});
+
+        /*
+         * Buying it is an expense of its own in Rompslomp, with the
+         * self-billing invoice on it. Without that the sale's stock
+         * correction takes out stock that was never put in.
+         *
+         * Said, not thrown: the pair is ours and the deal stands either
+         * way, and Checks has the deal with its purchase unbooked.
+         */
+        if (purchases) {
+          try {
+            const booked = await purchases.book({
+              deal,
+              unit: {
+                record_id: unit.id,
+                item_id: pair.item_id,
+                product_name: pair.product_name,
+                sku: pair.sku,
+                size: pair.size,
+                vat_type: pair.purchase_vat_type,
+                price: round2(row?.partner_price)
+              },
+              seller: { company_name: text(row?.seller_id), name: text(row?.seller_id) }
+            });
+
+            pair.purchase_expense_id = booked.expense_id;
+            pair.purchase_expense_number = booked.expense_number || null;
+          } catch (err) {
+            purchaseErrors.push(`${pair.item_id || pair.sku}: ${err.message}`);
+            console.error(`[external sales] ${deal}: the purchase of ${pair.item_id} was not booked:`, err.message);
+          }
+        }
       }
 
       await db.insert("external_sale_pairs", p.pairs.map(({ profit, ...pair }) => ({ ...pair, sale_id: sale.id })));
@@ -396,7 +435,11 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null }
       pairs: p.pairs.length,
       total: p.totals.selling,
       invoice_log: invoice?.log || [],
-      invoice_error: [invoiceError, linkError && `Payment link: ${linkError}`].filter(Boolean).join(" ")
+      invoice_error: [
+        invoiceError,
+        linkError && `Payment link: ${linkError}`,
+        purchaseErrors.length && `The purchase was not booked in Rompslomp - ${purchaseErrors.join("; ")}`
+      ].filter(Boolean).join(" ")
     };
   }
 
