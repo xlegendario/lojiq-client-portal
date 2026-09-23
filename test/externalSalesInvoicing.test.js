@@ -295,6 +295,28 @@ test("crediting books a negative invoice and the purchase back into stock", asyn
   assert.equal(rompslomp.calls.created, 2);
 });
 
+test("a credit puts back only what its own invoice took out", async () => {
+  const db = fakeDb({
+    external_sales: [sale({ total_selling_price: "300.00" })],
+    external_sale_pairs: [
+      // One pair was cancelled earlier and credited with its own invoice.
+      pair({ id: "p1", sale_id: "s1", purchase_price_ex_vat: "200.00", cancelled_at: "2026-09-23T10:00:00Z" }),
+      pair({ id: "p2", sale_id: "s1", purchase_price_ex_vat: "100.00", cancelled_at: null })
+    ],
+    external_sale_invoices: [],
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
+  });
+
+  const rompslomp = fakeRompslomp();
+  const invoicing = createExternalSalesInvoicing({ db, airtable: fakeAirtableBuyers({ "Rompslomp Contact ID": "474787066" }), rompslomp, sendMail: async () => {} });
+  await invoicing.invoice("s1", { mail: false });
+  await invoicing.credit("s1", db.tables.external_sale_invoices[0].id);
+
+  const reversal = rompslomp.calls.journals.at(-1);
+  assert.equal(reversal.lines[0].debit_amount, "100.00", "the cancelled pair is not put back a second time");
+});
+
 test("an invoice made by hand is found, not made again, and can be linked", async () => {
   const db = fakeDb({
     external_sales: [sale({ deal_number: 66, total_selling_price: "150.00" })],

@@ -14,6 +14,7 @@ export function fakeDb(tables) {
         const list = value.slice(4, -1).split(",").map((v) => v.replace(/^"|"$/g, ""));
         filters.push((r) => list.includes(String(r[key])));
       } else if (value === "not.is.null") filters.push((r) => r[key] !== null && r[key] !== undefined);
+      else if (value === "is.null") filters.push((r) => r[key] === null || r[key] === undefined);
     }
     return { rows: (tables[table] ||= []), match: (r) => filters.every((f) => f(r)) };
   };

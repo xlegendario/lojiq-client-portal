@@ -698,7 +698,12 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     // The journal: what the original booked, back. Only when the original had
     // one - a deal from before the journals has nothing to reverse.
     if (!row.journal_entry_id && original.journal_entry_id) {
-      const pairs = await db.get(`external_sale_pairs?select=purchase_price_ex_vat,selling_vat_type&sale_id=eq.${sale.id}`);
+      /*
+       * Only the pairs this invoice covers, which is the ones still on the
+       * deal: a pair cancelled earlier was credited with its own invoice and
+       * is not on this one. Counting it again would put back stock twice.
+       */
+      const pairs = await db.get(`external_sale_pairs?select=purchase_price_ex_vat,selling_vat_type&sale_id=eq.${sale.id}&cancelled_at=is.null`);
       const route = ROUTES[original.vat_route] ? original.vat_route : null;
       if (!route) throw new ExternalSalesError(`Invoice ${original.invoice_number} has VAT route "${original.vat_route}"; book its stock back by hand in Rompslomp.`);
 
