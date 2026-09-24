@@ -278,3 +278,16 @@ test("a second discount is added to the first, and a paid deal owes the differen
   assert.equal(db.tables.external_sale_pairs.find((p) => p.id === P1).discount, 75);
   assert.equal(db.tables.external_sales[0].payment_status, "partially_paid");
 });
+
+test("on a one-pair deal the deal's own price is the pair's price", () => {
+  const lone = [{ ...PAIRS[0], selling_price: null }];
+  const plan = discountPlan({ sale: { ...SALE, total_selling_price: 250 }, pairs: lone, wanted: [{ id: P1, amount: 50 }] });
+
+  assert.equal(plan.ok, true);
+  assert.equal(plan.lines[0].was, 250);
+  assert.equal(plan.new_total, 200);
+
+  // With more pairs on it there is nothing to divide the total over.
+  const two = discountPlan({ sale: SALE, pairs: [lone[0], { ...PAIRS[1], selling_price: null }], wanted: [{ id: P1, amount: 50 }] });
+  assert.match(two.problems[0], /Enter the selling price of PCS-007999 first/);
+});

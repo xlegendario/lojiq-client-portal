@@ -135,7 +135,13 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
       continue;
     }
 
-    const was = round2(pair.selling_price);
+    /*
+     * Older deals carry the price on the deal and not on the pair. With one
+     * pair on it that is the same number, so the discount can still be given.
+     */
+    const was = pair.selling_price === null || pair.selling_price === undefined
+      ? (live.length === 1 ? round2(sale.total_selling_price) : 0)
+      : round2(pair.selling_price);
 
     if (!(was > 0)) {
       problems.push(`Enter the selling price of ${pair.item_id || pair.sku || "the pair"} first: a discount is taken off a price.`);

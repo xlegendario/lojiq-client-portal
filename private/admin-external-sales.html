@@ -309,6 +309,8 @@
     .note-list li span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
     .cancelled-pair .what { color: var(--muted); text-decoration: line-through; }
     .pick { display: flex; gap: 8px; align-items: center; }
+    .pick-what { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .pick-what .sub { white-space: normal; }
     .select.slim, .input.slim { padding: 4px 6px; font-size: 12px; height: auto; }
     .input.slim { width: 76px; text-align: right; }
     .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
@@ -1392,12 +1394,7 @@
      * three below them are on deals cancelled while the choice was another
      * one, and are only ever read back.
      */
-    const CANCEL_OUTCOMES = [
-      ["return", "Return - it comes back to us"],
-      ["store_consign", "Store Consign - it stays at the buyer's shop"],
-      ["lost", "Lost - gone on the way"],
-      ["written_off", "Written Off - the buyer keeps it"]
-    ];
+    const CANCEL_OUTCOMES = [["return", "Return"], ["store_consign", "Store Consign"], ["lost", "Lost"], ["written_off", "Written Off"]];
 
     const CANCEL_OUTCOME_TEXT = {
       return: "return",
@@ -1408,6 +1405,30 @@
       return_expected: "return expected",
       stays_with_buyer: "stays with buyer"
     };
+
+    /*
+     * What a pair was sold for. On older deals only the deal total was
+     * filled in - with one pair on it that total is that pair's price.
+     */
+    function pairPrice(pair) {
+      const { sale: s, pairs } = state.detail;
+      if (pair.selling_price !== null && pair.selling_price !== undefined) return euro(pair.selling_price);
+      return pairs.length === 1 ? euro(s.total_selling_price) : "no price per pair";
+    }
+
+    const priceValue = (pair) => {
+      const { sale: s, pairs } = state.detail;
+      if (pair.selling_price !== null && pair.selling_price !== undefined) return Number(pair.selling_price);
+      return pairs.length === 1 ? Number(s.total_selling_price || 0) : 0;
+    };
+
+    // The shoe as you would recognise it on the shelf, not as the database
+    // knows it: SKU and name first, the item number under it.
+    const pickWhat = (p) => `
+      <span class="pick-what">
+        <span>${esc(p.sku || p.product_name || p.item_id || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
+        <span class="sub">${esc([p.sku ? p.product_name : "", p.item_id].filter(Boolean).join(" · "))}</span>
+      </span>`;
 
     function openCancelDialog() {
       const { sale: s, pairs } = state.detail;
@@ -1420,10 +1441,10 @@
         <label class="label-item">
           <span class="pick">
             <input type="checkbox" value="${esc(p.id)}" ${pairs.length === 1 ? "checked" : ""}>
-            <span>${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
+            ${pickWhat(p)}
           </span>
           <span class="pick">
-            <span class="sub">${p.selling_price === null || p.selling_price === undefined ? "no price" : esc(euro(p.selling_price))}</span>
+            <span class="sub">${esc(pairPrice(p))}</span>
             <select class="select slim" data-outcome="${esc(p.id)}">
               ${CANCEL_OUTCOMES.map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}
             </select>
@@ -1498,11 +1519,9 @@
 
       $("discountPairs").innerHTML = pairs.map((p) => `
         <label class="label-item">
+          <span class="pick">${pickWhat(p)}</span>
           <span class="pick">
-            <span>${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
-          </span>
-          <span class="pick">
-            <span class="sub">${p.selling_price === null || p.selling_price === undefined ? "no price" : esc(euro(p.selling_price))}</span>
+            <span class="sub">${esc(pairPrice(p))}</span>
             <span class="sub">− €</span>
             <input class="input slim" type="text" inputmode="decimal" data-discount="${esc(p.id)}" placeholder="0,00">
           </span>
@@ -1535,7 +1554,7 @@
       const given = lines.reduce((sum, line) => sum + line.amount, 0);
       const tooMuch = lines.find((line) => {
         const pair = pairs.find((p) => p.id === line.id);
-        return !(Number(pair?.selling_price) > line.amount);
+        return !(pair && priceValue(pair) > line.amount);
       });
 
       if (tooMuch) {
@@ -1545,7 +1564,7 @@
         return;
       }
 
-      const total = pairs.reduce((sum, p) => sum + Number(p.selling_price || 0), 0) - given;
+      const total = pairs.reduce((sum, p) => sum + priceValue(p), 0) - given;
       const back = Number(s.paid_amount || 0) - total;
 
       $("discountConfirm").disabled = false;
