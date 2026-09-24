@@ -381,7 +381,8 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
       const params = new URLSearchParams({ selection: "suppliers", "search[q]": q, per_page: "100" });
       return (await call(`/contacts?${params}`))?.contacts || [];
     },
-    async allSuppliers(pages = 20) {
+    // Enough pages for every supplier there is; it stops at the last one.
+    async allSuppliers(pages = 80) {
       const out = [];
       for (let page = 1; page <= pages; page++) {
         const params = new URLSearchParams({ selection: "suppliers", page: String(page), per_page: "100" });
