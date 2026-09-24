@@ -381,6 +381,19 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
       const params = new URLSearchParams({ selection: "suppliers", "search[q]": q, per_page: "100" });
       return (await call(`/contacts?${params}`))?.contacts || [];
     },
+    async allSuppliers(pages = 20) {
+      const out = [];
+      for (let page = 1; page <= pages; page++) {
+        const params = new URLSearchParams({ selection: "suppliers", page: String(page), per_page: "100" });
+        const rows = (await call(`/contacts?${params}`))?.contacts || [];
+        out.push(...rows);
+        if (rows.length < 100) break;
+      }
+      return out;
+    },
+    async updateContact(id, body) {
+      return (await call(`/contacts/${id}`, { method: "PATCH", body }))?.contact;
+    },
     async searchContacts(q) {
       const params = new URLSearchParams({ selection: "customers", "search[q]": q, per_page: "100" });
       return (await call(`/contacts?${params}`))?.contacts || [];

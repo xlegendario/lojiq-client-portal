@@ -509,6 +509,29 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   const cancelling = createExternalSalesCancel({ db, airtable, invoicing, purchases });
 
   /*
+   * One pass over Rompslomp's suppliers, giving the ones that are sellers
+   * their Seller ID as contact number. Read-only unless asked to apply.
+   */
+  async function linkSuppliers({ apply = false } = {}) {
+    const sellers = [];
+    let offset = "";
+
+    do {
+      const page = await airtable.select("Sellers Database", { fields: SUPPLIER_FIELDS, pageSize: 100, offset });
+      for (const record of page.records) {
+        sellers.push({
+          seller_id: text(record.fields?.["Seller ID"]),
+          company_name: text(record.fields?.["Company Name"]),
+          full_name: text(record.fields?.["Full Name"])
+        });
+      }
+      offset = page.offset;
+    } while (offset);
+
+    return purchases.linkSuppliers({ sellers: sellers.filter((seller) => seller.seller_id), apply });
+  }
+
+  /*
    * A seller as a supplier in Rompslomp, made when he has none. Called from
    * the Kickz Caviar portal the moment someone registers, so the contact is
    * waiting long before the first pair is bought from him.
@@ -753,6 +776,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     linkMolliePayment: (id, paymentId) => payments.linkMolliePayment(id, paymentId),
     dismissCheck,
     ensureSupplier: (recordId) => ensureSupplier(recordId),
+    linkSuppliers: (options) => linkSuppliers(options),
     partnerStockFor: (sku, size) => partnerStockFor(sku, size),
     bookPurchases: (id) => bookPurchases(id),
     sellerNames: (recordId, sellerId) => sellerNames(recordId, sellerId),
@@ -975,6 +999,17 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details: { pairs: out.pairs, total: out.total, invoice: out.invoice_log, invoice_error: out.invoice_error || null }
       }).catch(() => {});
       res.json({ ok: true, ...out });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Suppliers in Rompslomp that are sellers, given their Seller ID as
+  // contact number. Without apply it only reports what it would do.
+  router.post("/api/internal/external-sales/link-suppliers", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, result: await store.linkSuppliers({ apply: req.body?.apply === true }) });
     } catch (err) {
       send(res, err);
     }

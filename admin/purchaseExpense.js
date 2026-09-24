@@ -320,5 +320,58 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     }
   }
 
-  return { book, credit, company, exists, ensureSupplier };
+  /*
+   * Give the suppliers Rompslomp already has their Seller ID as contact
+   * number, so they are found by number from now on instead of by name.
+   *
+   * Only an exact, single name match is linked. Two sellers with the same
+   * name, or a supplier that is no seller at all (Sendcloud, the landlord),
+   * are left alone and listed - matching those by guesswork would put the
+   * wrong number on the wrong contact, which is worse than none.
+   */
+  async function linkSuppliers({ sellers, apply = false }) {
+    const { client } = await company();
+    const suppliers = await client.allSuppliers();
+
+    const byName = new Map();
+    for (const seller of sellers) {
+      for (const name of [seller.company_name, seller.full_name].map(key).filter(Boolean)) {
+        byName.set(name, byName.has(name) ? "many" : seller);
+      }
+    }
+
+    const out = { suppliers: suppliers.length, sellers: sellers.length, linked: [], already: [], ambiguous: [], unmatched: [] };
+
+    for (const supplier of suppliers) {
+      const name = text(supplier.company_name) || text(supplier.contact_person_name);
+      const number = text(supplier.contact_number);
+
+      if (/^SE-\d+$/i.test(number)) {
+        out.already.push({ id: supplier.id, name, seller_id: number });
+        continue;
+      }
+
+      const match = byName.get(key(supplier.company_name)) || byName.get(key(supplier.contact_person_name));
+
+      if (match === "many") {
+        out.ambiguous.push({ id: supplier.id, name, why: "more than one seller has this name" });
+        continue;
+      }
+
+      if (!match) {
+        out.unmatched.push({ id: supplier.id, name, number: number || null });
+        continue;
+      }
+
+      if (apply) {
+        await client.updateContact(supplier.id, { contact: { contact_number: match.seller_id } });
+      }
+
+      out.linked.push({ id: supplier.id, name, seller_id: match.seller_id, applied: apply });
+    }
+
+    return out;
+  }
+
+  return { book, credit, company, exists, ensureSupplier, linkSuppliers };
 }
