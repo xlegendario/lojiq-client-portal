@@ -311,6 +311,7 @@
     .pick { display: flex; gap: 8px; align-items: center; }
     .pick-what { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .pick-what .sub { white-space: normal; }
+    .pick .money { white-space: nowrap; }
     .select.slim, .input.slim { padding: 4px 6px; font-size: 12px; height: auto; }
     .input.slim { width: 76px; text-align: right; }
     .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
@@ -1426,8 +1427,8 @@
     // knows it: SKU and name first, the item number under it.
     const pickWhat = (p) => `
       <span class="pick-what">
-        <span>${esc(p.sku || p.product_name || p.item_id || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
-        <span class="sub">${esc([p.sku ? p.product_name : "", p.item_id].filter(Boolean).join(" · "))}</span>
+        <span>${esc(p.product_name || p.sku || p.item_id || "—")}</span>
+        <span class="sub">${esc([p.product_name ? p.sku : "", p.size ? `size ${p.size}` : "", p.item_id].filter(Boolean).join(" · "))}</span>
       </span>`;
 
     function openCancelDialog() {
@@ -1444,7 +1445,7 @@
             ${pickWhat(p)}
           </span>
           <span class="pick">
-            <span class="sub">${esc(pairPrice(p))}</span>
+            <span class="sub money">${esc(pairPrice(p))}</span>
             <select class="select slim" data-outcome="${esc(p.id)}">
               ${CANCEL_OUTCOMES.map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}
             </select>
@@ -1521,7 +1522,7 @@
         <label class="label-item">
           <span class="pick">${pickWhat(p)}</span>
           <span class="pick">
-            <span class="sub">${esc(pairPrice(p))}</span>
+            <span class="sub money">${esc(pairPrice(p))}</span>
             <span class="sub">− €</span>
             <input class="input slim" type="text" inputmode="decimal" data-discount="${esc(p.id)}" placeholder="0,00">
           </span>

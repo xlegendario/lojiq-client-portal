@@ -291,3 +291,12 @@ test("on a one-pair deal the deal's own price is the pair's price", () => {
   const two = discountPlan({ sale: SALE, pairs: [lone[0], { ...PAIRS[1], selling_price: null }], wanted: [{ id: P1, amount: 50 }] });
   assert.match(two.problems[0], /Enter the selling price of PCS-007999 first/);
 });
+
+test("a lone pair without its own price is still worth what the deal was", () => {
+  const plan = cancelPlan({ sale: { ...SALE, total_selling_price: 165 }, pairs: [{ ...PAIRS[0], selling_price: null }], pairIds: [P1], invoices: INVOICES });
+
+  assert.equal(plan.ok, true);
+  assert.equal(plan.cancelled_value, 165, "not 0,00");
+  assert.equal(plan.new_total, 0);
+  assert.equal(plan.ends_deal, true);
+});

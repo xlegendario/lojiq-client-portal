@@ -88,7 +88,16 @@ export function cancelPlan({ sale, pairs, pairIds, invoices = [] }) {
   }
 
   const remaining = live.filter((pair) => !pairIds.includes(pair.id));
-  const cancelledValue = round2(chosen.reduce((sum, pair) => sum + Number(pair.selling_price || 0), 0));
+
+  /*
+   * What a pair was worth. Older deals have the price on the deal and not on
+   * the pair; with one pair on it those are the same number.
+   */
+  const worth = (pair) => (pair.selling_price === null || pair.selling_price === undefined
+    ? (live.length === 1 ? round2(sale.total_selling_price) : 0)
+    : round2(pair.selling_price));
+
+  const cancelledValue = round2(chosen.reduce((sum, pair) => sum + worth(pair), 0));
   const newTotal = remaining.length
     ? (priced ? round2(remaining.reduce((sum, pair) => sum + Number(pair.selling_price || 0), 0)) : round2(sale.total_selling_price))
     : 0;
