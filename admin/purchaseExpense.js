@@ -365,8 +365,13 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       return null;
     }
 
-    const out = { suppliers: suppliers.length, sellers: sellers.length, linked: [], already: [], ambiguous: [], unmatched: [], left: 0, stopped: "" };
+    const out = { suppliers: suppliers.length, sellers: sellers.length, linked: [], already: [], ambiguous: [], duplicates: [], unmatched: [], left: 0, stopped: "" };
     let written = 0;
+
+    // A contact number says which seller this is, so it belongs to one
+    // contact. Rompslomp holding three contacts for one person is a mess of
+    // its own, to be merged there - numbering all three would only hide it.
+    const taken = new Set(suppliers.filter((row) => /^SE-\d+$/i.test(text(row.contact_number))).map((row) => text(row.contact_number).toUpperCase()));
 
     for (const supplier of suppliers) {
       const name = text(supplier.company_name) || text(supplier.contact_person_name);
@@ -397,6 +402,14 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       }
 
       const match = chosen.seller;
+      const sellerId = text(match.seller_id).toUpperCase();
+
+      if (taken.has(sellerId)) {
+        out.duplicates.push({ id: supplier.id, name, seller_id: match.seller_id, why: "another contact already carries this Seller ID" });
+        continue;
+      }
+
+      taken.add(sellerId);
 
       /*
        * Rompslomp counts requests per minute and answers 429 when there are

@@ -238,6 +238,20 @@ test("a supplier who is no seller is left alone", async () => {
   assert.equal(out.unmatched[0].name, "Netcup GmbH");
 });
 
+test("one Seller ID goes on one contact, and the rest are listed to be merged", async () => {
+  const calls = [];
+  const suppliers = [
+    { id: 6, contact_person_name: "luca codini", contact_person_email_address: "luca@new.it" },
+    { id: 7, contact_person_name: "luca codini", contact_person_email_address: "luca@new.it" }
+  ];
+
+  const out = await linker(suppliers, calls).linkSuppliers({ sellers: SELLERS, apply: true });
+
+  assert.deepEqual(calls, [[6, "SE-00800"]], "the second contact is left without a number");
+  assert.equal(out.duplicates[0].id, 7);
+  assert.equal(out.duplicates[0].seller_id, "SE-00800");
+});
+
 test("a supplier that already carries a Seller ID is not touched", async () => {
   const calls = [];
   const out = await linker([{ id: 5, company_name: "Zhuoyi", contact_number: "SE-00781" }], calls).linkSuppliers({ sellers: SELLERS, apply: true });
