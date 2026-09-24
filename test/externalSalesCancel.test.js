@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { cancelPlan, conditionNote, conditionWith, createExternalSalesCancel } from "../admin/externalSalesCancel.js";
+import { CANCEL_OUTCOMES, cancelPlan, conditionNote, conditionWith, createExternalSalesCancel, discountPlan } from "../admin/externalSalesCancel.js";
 import { fakeDb } from "./fakeSupabase.js";
 
 // Rows in Supabase, so ids that look like it.
@@ -24,17 +24,32 @@ const SALE = {
 };
 
 const PAIRS = [
-  { id: P1, sale_id: S1, inventory_unit_record_id: "recA", selling_price: 250, purchase_price_ex_vat: 200, selling_vat_type: "Margin", created_at: "2026-09-20T10:00:00Z" },
+  { id: P1, sale_id: S1, item_id: "PCS-007999", sku: "A01FW702-BLK", size: "42", inventory_unit_record_id: "recA", selling_price: 250, purchase_price_ex_vat: 200, selling_vat_type: "Margin", created_at: "2026-09-20T10:00:00Z" },
   { id: P2, sale_id: S1, inventory_unit_record_id: "recB", selling_price: 350, purchase_price_ex_vat: 300, selling_vat_type: "Margin", created_at: "2026-09-20T10:01:00Z" }
 ];
 
 const INVOICES = [{ id: "i1", kind: "sale", invoice_number: "KC202609-2100", rompslomp_invoice_id: "900", vat_route: "Margin", journal_entry_id: "j1" }];
 
-test("the note says where the pair is, in the buyer's name", () => {
-  assert.equal(conditionNote(SALE, "return_expected"), "Need return from Conquer Shop S.R.L.");
-  assert.equal(conditionNote({ buyer_name: "Jan" }, "return_expected"), "Need return from Jan");
-  // A pair that is still here needs no note.
-  assert.equal(conditionNote(SALE, "never_shipped"), "");
+test("the unit says where the pair went, off which deal and when", () => {
+  const when = new Date("2026-09-24T10:00:00Z");
+
+  assert.equal(conditionNote(SALE, "return", when), "Return from Conquer Shop S.R.L. (EXTD-000081, 24-09-2026)");
+  assert.equal(conditionNote(SALE, "store_consign", when), "At Conquer Shop S.R.L. (EXTD-000081, 24-09-2026)");
+  assert.equal(conditionNote(SALE, "lost", when), "Lost on the way to Conquer Shop S.R.L. (EXTD-000081, 24-09-2026)");
+  assert.equal(conditionNote(SALE, "written_off", when), "Written off, kept by Conquer Shop S.R.L. (EXTD-000081, 24-09-2026)");
+  assert.equal(conditionNote(SALE, "nonsense", when), "");
+});
+
+test("only a pair that comes back to us is sellable again and puts its stock back", () => {
+  assert.deepEqual(
+    Object.entries(CANCEL_OUTCOMES).map(([key, rule]) => [key, rule.available, rule.stockBack, rule.toPartner]),
+    [
+      ["return", true, true, true],
+      ["store_consign", true, true, false],
+      ["lost", false, false, false],
+      ["written_off", false, false, false]
+    ]
+  );
 });
 
 test("the note goes in front of what the unit already said, and never twice", () => {
@@ -108,7 +123,7 @@ function fakes({ sale = SALE, pairs = PAIRS, invoices = INVOICES, partnerStock =
 test("cancelling one pair credits, re-invoices, frees the unit and asks for the refund", async () => {
   const { db, written, calls, cancel } = fakes({ sale: { ...SALE, payment_status: "paid", paid_amount: 600 } });
 
-  const out = await cancel.cancelPairs(S1, { pair_ids: [P1], reason: "Wrong size sent", outcome: "return_expected", by: "Dario" });
+  const out = await cancel.cancelPairs(S1, { pair_ids: [P1], reason: "Wrong size sent", outcome: "return", by: "Dario" });
 
   assert.equal(out.cancelled, 1);
   assert.equal(out.refund, 250);
@@ -116,7 +131,7 @@ test("cancelling one pair credits, re-invoices, frees the unit and asks for the 
 
   const pair = db.tables.external_sale_pairs.find((p) => p.id === P1);
   assert.ok(pair.cancelled_at);
-  assert.equal(pair.cancel_outcome, "return_expected");
+  assert.equal(pair.cancel_outcome, "return");
   assert.equal(pair.cancel_reason, "Wrong size sent");
 
   const deal = db.tables.external_sales[0];
@@ -124,19 +139,24 @@ test("cancelling one pair credits, re-invoices, frees the unit and asks for the 
   assert.equal(deal.bookkeeping_status, "to_invoice");
   // Paid more than the deal is now worth: open again until the money is back.
   assert.equal(deal.payment_status, "partially_paid");
-  assert.match(deal.notes, /1 pair cancelled by Dario: Wrong size sent \(return expected\)/);
 
-  // The unit goes back to stock with the note in front of what it said.
-  assert.deepEqual(written, [{
-    id: "recA",
-    fields: { "Availability Status": "Available", "External Deal ID": "", "Item Condition": "Need return from Conquer Shop S.R.L. - Box damaged" }
-  }]);
+  // What happened is one note on the deal, in the words of the outcome.
+  const note = db.tables.external_sale_notes[0];
+  assert.equal(note.written_by, "Dario");
+  assert.match(note.body, /Cancelled 1 pair: PCS-007999 \(Return\) - Wrong size sent/);
+
+  // The unit goes back to stock, marked, with the story in front of what it said.
+  assert.equal(written.length, 1);
+  assert.equal(written[0].id, "recA");
+  assert.equal(written[0].fields["Availability Status"], "Available");
+  assert.equal(written[0].fields["Cancel Status"], "Return");
+  assert.match(written[0].fields["Item Condition"], /^Return from Conquer Shop S\.R\.L\. \(EXTD-000081, \d\d-\d\d-\d{4}\) - Box damaged$/);
 });
 
 test("the last pair off the deal ends it", async () => {
   const { db, written, calls, cancel } = fakes();
 
-  const out = await cancel.cancelPairs(S1, { pair_ids: [P1, P2], outcome: "never_shipped" });
+  const out = await cancel.cancelPairs(S1, { pair_ids: [P1, P2], outcome: "return" });
 
   assert.equal(out.cancelled, 2);
   // Nothing is left to invoice, so only the credit runs.
@@ -173,7 +193,7 @@ const partnerPairs = () => [{ ...PAIRS[0], partner_stock_id: SHELF.id }, PAIRS[1
 test("an unpaid partner pair that comes back goes on the partner's shelf again", async () => {
   const { db, written, cancel } = fakes({ pairs: partnerPairs(), partnerStock: [SHELF], unitFields: { recA: { "Payment Status": "To Pay" } } });
 
-  await cancel.cancelPairs(S1, { pair_ids: [P1], outcome: "return_expected" });
+  await cancel.cancelPairs(S1, { pair_ids: [P1], outcome: "return" });
 
   const shelf = db.tables.partner_stock[0];
   assert.equal(shelf.status, "in_stock");
@@ -187,12 +207,74 @@ test("an unpaid partner pair that comes back goes on the partner's shelf again",
 test("a partner pair we already paid for stays ours", async () => {
   const { db, written, cancel } = fakes({ pairs: partnerPairs(), partnerStock: [SHELF], unitFields: { recA: { "Payment Status": "Paid", "Item Condition": "Box damaged" } } });
 
-  await cancel.cancelPairs(S1, { pair_ids: [P1], outcome: "return_expected" });
+  await cancel.cancelPairs(S1, { pair_ids: [P1], outcome: "return" });
 
   // Paid is bought: the shelf keeps it as sold and the unit joins our stock.
   assert.equal(db.tables.partner_stock[0].status, "sold");
-  assert.deepEqual(written, [{
-    id: "recA",
-    fields: { "Availability Status": "Available", "External Deal ID": "", "Item Condition": "Need return from Conquer Shop S.R.L. - Box damaged" }
-  }]);
+  assert.equal(written.length, 1);
+  assert.equal(written[0].id, "recA");
+  assert.equal(written[0].fields["Availability Status"], "Available");
+  assert.equal(written[0].fields["Cancel Status"], "Return");
+  assert.match(written[0].fields["Item Condition"], /^Return from Conquer Shop S\.R\.L\. \(EXTD-000081, \d\d-\d\d-\d{4}\) - Box damaged$/);
+});
+
+/* ---------------- a discount, with the shoes gone ---------------- */
+
+test("a discount says what each pair becomes and what the deal is worth", () => {
+  const plan = discountPlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, amount: 50, reason: "Small mark" }], invoices: INVOICES });
+
+  assert.equal(plan.ok, true);
+  assert.equal(plan.given, 50);
+  assert.deepEqual(plan.lines[0], { id: P1, pair: "PCS-007999", amount: 50, reason: "Small mark", was: 250, becomes: 200, discount_so_far: 50 });
+  assert.equal(plan.new_total, 550, "the other pair keeps its price");
+  assert.equal(plan.reinvoice, true);
+});
+
+test("a discount is never the whole price, and never on a pair that is gone", () => {
+  const whole = discountPlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, amount: 250 }] });
+  assert.match(whole.problems[0], /whole price of 250.00: cancel the pair instead/);
+
+  const none = discountPlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, amount: 0 }] });
+  assert.match(none.problems[0], /Enter what comes off PCS-007999/);
+
+  const cancelled = discountPlan({ sale: SALE, pairs: [{ ...PAIRS[0], cancelled_at: "2026-09-24" }], wanted: [{ id: P1, amount: 50 }] });
+  assert.match(cancelled.problems[0], /no longer on this deal/);
+});
+
+test("discounting credits, writes the pair cheaper and invoices again", async () => {
+  const { db, written, calls, cancel } = fakes();
+
+  const out = await cancel.discountPairs(S1, { pairs: [{ id: P1, amount: 50 }], reason: "Small mark", by: "Dario" });
+
+  assert.equal(out.given, 50);
+  assert.equal(out.new_total, 550);
+  assert.deepEqual(calls, [["credit", "i1"], ["invoice", S1]]);
+
+  const pair = db.tables.external_sale_pairs.find((p) => p.id === P1);
+  assert.equal(pair.selling_price, 200);
+  assert.equal(pair.discount, 50);
+  assert.equal(pair.discount_reason, "Small mark");
+  assert.ok(pair.discounted_at);
+  assert.equal(pair.cancelled_at, undefined, "the pair stays sold");
+
+  // Nothing moves in stock: the buyer keeps the shoes.
+  assert.deepEqual(written, []);
+
+  const deal = db.tables.external_sales[0];
+  assert.equal(deal.total_selling_price, 550);
+  assert.equal(deal.bookkeeping_status, "to_invoice");
+  assert.match(db.tables.external_sale_notes[0].body, /Discount 50.00: PCS-007999 250.00 -> 200.00 - Small mark/);
+});
+
+test("a second discount is added to the first, and a paid deal owes the difference", async () => {
+  const { db, cancel } = fakes({ sale: { ...SALE, payment_status: "paid", paid_amount: 600 }, pairs: [{ ...PAIRS[0], discount: 50, selling_price: 200 }, PAIRS[1]] });
+
+  const out = await cancel.discountPairs(S1, { pairs: [{ id: P1, amount: 25 }] });
+
+  assert.equal(out.new_total, 525);
+  assert.equal(out.refund, 75, "600 came in, 525 is owed");
+  assert.match(out.log.join(" "), /Refund the buyer 75.00 by bank/);
+
+  assert.equal(db.tables.external_sale_pairs.find((p) => p.id === P1).discount, 75);
+  assert.equal(db.tables.external_sales[0].payment_status, "partially_paid");
 });

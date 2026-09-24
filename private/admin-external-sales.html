@@ -309,6 +309,8 @@
     .note-list li span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
     .cancelled-pair .what { color: var(--muted); text-decoration: line-through; }
     .pick { display: flex; gap: 8px; align-items: center; }
+    .select.slim, .input.slim { padding: 4px 6px; font-size: 12px; height: auto; }
+    .input.slim { width: 76px; text-align: right; }
     .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
     .pairs { display: flex; flex-direction: column; }
     .pair-row, .pair-total { display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px 84px; gap: 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
@@ -512,16 +514,9 @@
       <h2>Cancel pairs</h2>
       <p class="hint" style="margin:0">What was invoiced is credited in full and what is left is invoiced again, the way you would do it by hand.</p>
       <div class="field">
-        <label>Which pairs</label>
+        <label>Which pairs, and where each one is</label>
         <div class="label-list" id="cancelPairs"></div>
-      </div>
-      <div class="field">
-        <label for="cancelOutcome">Where is the pair now</label>
-        <select class="select" id="cancelOutcome">
-          <option value="never_shipped">Still here - never shipped</option>
-          <option value="return_expected">With the buyer - coming back</option>
-        </select>
-        <span class="hint" id="cancelOutcomeHint"></span>
+        <span class="hint">Return and Store Consign put the stock back; Lost and Written Off leave it written off.</span>
       </div>
       <div class="field">
         <label for="cancelReason">Why (optional)</label>
@@ -532,6 +527,27 @@
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="cancelClose">Never mind</button>
         <button class="btn primary" type="button" id="cancelConfirm">Cancel these pairs</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="discountDialog">
+    <div class="dialog-body">
+      <h2>Give a discount</h2>
+      <p class="hint" style="margin:0">The buyer keeps the shoes and pays less. The invoice is credited and written again for the lower amount; the stock correction stays as it is.</p>
+      <div class="field">
+        <label>How much comes off which pair</label>
+        <div class="label-list" id="discountPairs"></div>
+      </div>
+      <div class="field">
+        <label for="discountReason">Why</label>
+        <input class="input" id="discountReason" type="text" placeholder="Box damaged, late delivery, ...">
+      </div>
+      <div class="plan" id="discountPlan"></div>
+      <p class="field-error" id="discountError"></p>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="discountClose">Never mind</button>
+        <button class="btn primary" type="button" id="discountConfirm">Give the discount</button>
       </div>
     </div>
   </dialog>
@@ -1094,6 +1110,17 @@
       }
       const approx = (value) => `${estimated ? '<span class="approx" title="Worked out: this deal only recorded its total. The invoice may split it differently; the total is exact.">≈</span> ' : ""}${esc(euro(value))}`;
 
+      /*
+       * A price that dropped says so: the pair stayed sold, so without this
+       * line the lower amount looks like the price it always was.
+       */
+      const discountNote = (rows) => {
+        const given = rows.reduce((sum, p) => sum + Number(p.discount || 0), 0);
+        if (!(given > 0)) return "";
+        const why = [...new Set(rows.map((p) => p.discount_reason).filter(Boolean))].join(", ");
+        return `<span class="sub warn">− ${esc(euro(given))} discount${why ? ` · ${esc(why)}` : ""}</span>`;
+      };
+
       const pairRows = groups.map((g, gi) => {
         const label = (name) => (gi === 0 ? `<span>${name}</span>` : "");
         const many = g.pairs.length > 1;
@@ -1110,6 +1137,7 @@
               <strong>${esc(g.sku || g.name || "—")}</strong>
               <span class="sub">${esc(g.name && g.sku ? g.name : "")}</span>
               <span class="sub">${many ? `${g.pairs.length} pairs · ` : `${itemLink(g.pairs[0])}${g.pairs[0].item_id ? " · " : ""}`}size ${esc(sizes || "—")} · ${esc(g.vat || "—")}${many ? ` <span class="toggle">${open ? "hide" : "show"} pairs</span>` : ""}${many ? "" : selfBillingLink(g.pairs[0])}</span>
+              ${discountNote(g.pairs)}
             </div>
             <div class="num">${label("Purchase")}${esc(euro(purchase))}</div>
             <div class="num">${label("Sold for")}${g.price === null || g.price === undefined ? "—" : approx(sold)}</div>
@@ -1208,6 +1236,7 @@
         // so this is the second chance after Rompslomp was down.
         pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) && ["bookpurchase", "Book purchase"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", "Initiate cancel"],
+        s.payment_status !== "cancelled" && pairs.length > 0 && ["discount", "Give discount"],
         Number(s.paid_amount || 0) > 0 && ["refund", "Mark refunded"]
       ].filter(Boolean);
 
@@ -1233,7 +1262,7 @@
           <div class="cancelled">${state.detail.cancelled_pairs.map((p) => `
             <div class="cancelled-pair">
               <span class="what">${esc(p.sku || p.item_id || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
-              <span class="pill ${p.cancel_outcome === "return_expected" ? "wait" : ""}">${esc(CANCEL_OUTCOME_TEXT[p.cancel_outcome] || "cancelled")}</span>
+              <span class="pill ${["return", "return_expected"].includes(p.cancel_outcome) ? "wait" : ""}">${esc(CANCEL_OUTCOME_TEXT[p.cancel_outcome] || "cancelled")}</span>
               <span class="sub">${esc(day(p.cancelled_at))}${p.cancel_reason ? ` · ${esc(p.cancel_reason)}` : ""}</span>
               <span class="cancelled-what">${esc(p.product_name || "")}${p.item_id ? ` · ${itemLink(p)}` : ""}${p.selling_price === null || p.selling_price === undefined ? "" : ` · was ${esc(euro(p.selling_price))}`}${selfBillingLink(p)}</span>
             </div>`).join("")}</div>` : ""}
@@ -1358,33 +1387,49 @@
 
     /* ----- cancelling pairs ----- */
 
+    /*
+     * Where a cancelled pair ended up. The first four are the choice; the
+     * three below them are on deals cancelled while the choice was another
+     * one, and are only ever read back.
+     */
+    const CANCEL_OUTCOMES = [
+      ["return", "Return - it comes back to us"],
+      ["store_consign", "Store Consign - it stays at the buyer's shop"],
+      ["lost", "Lost - gone on the way"],
+      ["written_off", "Written Off - the buyer keeps it"]
+    ];
+
     const CANCEL_OUTCOME_TEXT = {
+      return: "return",
+      store_consign: "store consign",
+      lost: "lost",
+      written_off: "written off",
       never_shipped: "cancelled",
       return_expected: "return expected",
-      // Kept for the deals that were cancelled while this was still a choice.
       stays_with_buyer: "stays with buyer"
-    };
-
-    const OUTCOME_HINTS = {
-      never_shipped: "The pair goes straight back to Available.",
-      return_expected: 'The unit reads "Need return from {buyer}" until it is back.'
     };
 
     function openCancelDialog() {
       const { sale: s, pairs } = state.detail;
 
+      /*
+       * A pair and where it is, on one line: one can come back while another
+       * on the same deal was lost, so each says it for itself.
+       */
       $("cancelPairs").innerHTML = pairs.map((p) => `
         <label class="label-item">
           <span class="pick">
             <input type="checkbox" value="${esc(p.id)}" ${pairs.length === 1 ? "checked" : ""}>
             <span>${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
           </span>
-          <span class="sub">${p.selling_price === null || p.selling_price === undefined ? "no price" : esc(euro(p.selling_price))}</span>
+          <span class="pick">
+            <span class="sub">${p.selling_price === null || p.selling_price === undefined ? "no price" : esc(euro(p.selling_price))}</span>
+            <select class="select slim" data-outcome="${esc(p.id)}">
+              ${CANCEL_OUTCOMES.map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}
+            </select>
+          </span>
         </label>`).join("");
 
-      // Where the pair is follows from how far the deal got; you can say
-      // otherwise.
-      $("cancelOutcome").value = ["pending", "ready_to_ship"].includes(s.shipping_status) ? "never_shipped" : "return_expected";
       $("cancelReason").value = "";
       $("cancelError").textContent = "";
       $("cancelPlan").innerHTML = "";
@@ -1393,13 +1438,11 @@
     }
 
     const cancelPicked = () => [...$("cancelPairs").querySelectorAll("input:checked")].map((box) => box.value);
+    const cancelOutcomes = () => cancelPicked().map((id) => ({ id, outcome: $("cancelPairs").querySelector(`[data-outcome="${id}"]`).value }));
 
     // What it will do, from the server, so the dialog never promises
     // something the deal cannot do.
     async function drawCancelPlan() {
-      const buyer = state.detail.sale.buyer_company || state.detail.sale.buyer_name || "the buyer";
-      $("cancelOutcomeHint").textContent = (OUTCOME_HINTS[$("cancelOutcome").value] || "").replace("{buyer}", buyer);
-
       const picked = cancelPicked();
       if (!picked.length) {
         $("cancelPlan").innerHTML = '<span class="sub">Pick a pair to see what happens.</span>';
@@ -1428,7 +1471,6 @@
     }
 
     $("cancelPairs").addEventListener("change", drawCancelPlan);
-    $("cancelOutcome").addEventListener("change", drawCancelPlan);
     $("cancelClose").addEventListener("click", () => $("cancelDialog").close());
 
     $("cancelConfirm").addEventListener("click", () => busy($("cancelConfirm"), async () => {
@@ -1438,7 +1480,7 @@
       try {
         const d = await postJson("/api/admin/external-sales/update", {
           id: state.detail.sale.id,
-          cancel_pairs: { pair_ids: picked, outcome: $("cancelOutcome").value, reason: $("cancelReason").value.trim() }
+          cancel_pairs: { pairs: cancelOutcomes(), reason: $("cancelReason").value.trim() }
         });
         state.runLog = { id: state.detail.sale.id, lines: d.log || [] };
         applyDetail(d, (d.log || []).join(" · ") || "Pairs cancelled.");
@@ -1448,6 +1490,93 @@
       }
     }));
 
+
+    /* ----- a discount: the shoes stay sold, the price drops ----- */
+
+    function openDiscountDialog() {
+      const { pairs } = state.detail;
+
+      $("discountPairs").innerHTML = pairs.map((p) => `
+        <label class="label-item">
+          <span class="pick">
+            <span>${esc(p.item_id || p.sku || "—")}${p.size ? ` · size ${esc(p.size)}` : ""}</span>
+          </span>
+          <span class="pick">
+            <span class="sub">${p.selling_price === null || p.selling_price === undefined ? "no price" : esc(euro(p.selling_price))}</span>
+            <span class="sub">− €</span>
+            <input class="input slim" type="text" inputmode="decimal" data-discount="${esc(p.id)}" placeholder="0,00">
+          </span>
+        </label>`).join("");
+
+      $("discountReason").value = "";
+      $("discountError").textContent = "";
+      drawDiscountPlan();
+      $("discountDialog").showModal();
+    }
+
+    const discountLines = () => [...$("discountPairs").querySelectorAll("[data-discount]")]
+      .map((box) => ({ id: box.dataset.discount, amount: Number(box.value.trim().replace(",", ".")) }))
+      .filter((line) => line.amount > 0);
+
+    /*
+     * What it comes to, worked out here from what is already on the screen:
+     * every price is in state.detail, so the sum needs no round trip.
+     */
+    function drawDiscountPlan() {
+      const { sale: s, pairs } = state.detail;
+      const lines = discountLines();
+
+      if (!lines.length) {
+        $("discountPlan").innerHTML = '<span class="sub">Enter what comes off a pair to see what happens.</span>';
+        $("discountConfirm").disabled = true;
+        return;
+      }
+
+      const given = lines.reduce((sum, line) => sum + line.amount, 0);
+      const tooMuch = lines.find((line) => {
+        const pair = pairs.find((p) => p.id === line.id);
+        return !(Number(pair?.selling_price) > line.amount);
+      });
+
+      if (tooMuch) {
+        const pair = pairs.find((p) => p.id === tooMuch.id);
+        $("discountPlan").innerHTML = `<span class="warn">${esc(euro(tooMuch.amount))} off ${esc(pair.item_id || pair.sku || "that pair")} is its whole price: cancel the pair instead.</span>`;
+        $("discountConfirm").disabled = true;
+        return;
+      }
+
+      const total = pairs.reduce((sum, p) => sum + Number(p.selling_price || 0), 0) - given;
+      const back = Number(s.paid_amount || 0) - total;
+
+      $("discountConfirm").disabled = false;
+      $("discountPlan").innerHTML = [
+        `<span>Off the invoice: <strong>${esc(euro(given))}</strong> over ${lines.length} ${lines.length === 1 ? "pair" : "pairs"}</span>`,
+        `<span>Deal becomes <strong>${esc(euro(total))}</strong></span>`,
+        s.bookkeeping_status === "invoiced" ? "<span>Credit invoice, then a new invoice for the lower amount</span>" : "",
+        "<span>The stock correction stays as it is: nothing came back.</span>",
+        back > 0.005 ? `<span class="warn">${esc(euro(back))} has to go back to the buyer by bank</span>` : ""
+      ].filter(Boolean).join("");
+    }
+
+    $("discountPairs").addEventListener("input", drawDiscountPlan);
+    $("discountClose").addEventListener("click", () => $("discountDialog").close());
+
+    $("discountConfirm").addEventListener("click", () => busy($("discountConfirm"), async () => {
+      const lines = discountLines();
+      if (!lines.length) return;
+
+      try {
+        const d = await postJson("/api/admin/external-sales/update", {
+          id: state.detail.sale.id,
+          discount_pairs: { pairs: lines, reason: $("discountReason").value.trim() }
+        });
+        state.runLog = { id: state.detail.sale.id, lines: d.log || [] };
+        applyDetail(d, (d.log || []).join(" · ") || "Discount given.");
+        $("discountDialog").close();
+      } catch (err) {
+        $("discountError").textContent = err.message;
+      }
+    }));
     /* ----- refund ----- */
 
     function openRefundDialog() {
@@ -1613,6 +1742,7 @@
       }
 
       if (value === "cancelpairs") return openCancelDialog();
+      if (value === "discount") return openDiscountDialog();
       if (value === "refund") return openRefundDialog();
 
       if (value === "shipped") {

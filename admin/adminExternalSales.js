@@ -174,6 +174,17 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
       .filter((p) => p.partner_stock_id && !p.purchase_expense_id)
       .map((p) => row(s, `${p.item_id || p.sku || "pair"} · € ${Number(p.purchase_price_ex_vat || 0).toFixed(2)}`))));
 
+  /*
+   * Money that came in and is no longer owed: a cancel or a discount made
+   * the deal smaller than what was paid. It is only gone from this list once
+   * the transfer is registered with Mark refunded, so it cannot be forgotten.
+   */
+  add("refund_due", "error", "Refund still to be paid back", "Transfer the amount to the buyer, then open the deal and click Mark refunded.",
+    sales.map((s) => {
+      const owed = round2(Number(s.paid_amount || 0) - Number(s.refunded_amount || 0) - (s.payment_status === "cancelled" ? 0 : Number(s.total_selling_price || 0)));
+      return owed > 0.01 ? row(s, `€ ${owed.toFixed(2)} of € ${Number(s.paid_amount || 0).toFixed(2)} back`) : null;
+    }).filter(Boolean));
+
   add("to_invoice", "error", "No invoice yet", "Open the deal and click Create invoice. It says what is still missing, if anything.",
     live.filter((s) => s.bookkeeping_status === "to_invoice").map((s) => row(s)));
 
@@ -799,6 +810,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     sellerNames: (recordId, sellerId) => sellerNames(recordId, sellerId),
     cancelPlan: (id, pairIds) => cancelling.plan(id, pairIds),
     cancelPairs: (id, input) => cancelling.cancelPairs(id, input),
+    discountPairs: (id, input) => cancelling.discountPairs(id, input),
     registerRefund: (id, input) => cancelling.registerRefund(id, input),
     openParcels: (options) => tracking.openParcels(options),
     applyTracking: (updates) => tracking.applyUpdates(updates),
@@ -1194,6 +1206,8 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details = { purchase: await store.bookPurchases(id) };
       } else if (req.body?.cancel_pairs) {
         details = { cancelled: await store.cancelPairs(id, { ...req.body.cancel_pairs, by: req.admin?.name || req.admin?.email }) };
+      } else if (req.body?.discount_pairs) {
+        details = { discounted: await store.discountPairs(id, { ...req.body.discount_pairs, by: req.admin?.name || req.admin?.email }) };
       } else if (req.body?.refund) {
         const saved = await store.registerRefund(id, { ...req.body.refund, by: req.admin?.name || req.admin?.email });
         details = { refund: { amount: text(req.body.refund.amount), date: text(req.body.refund.date) || null, to: saved.payment_status } };
@@ -1209,7 +1223,7 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
       // What the action did, in the words it used: an action that has
       // something to say (which expense it made, what it could not attach)
       // must reach the screen, not only the action log.
-      const said = [...(details?.purchase?.booked || []), ...(details?.purchase?.failed || []), ...(details?.cancelled?.log || [])];
+      const said = [...(details?.purchase?.booked || []), ...(details?.purchase?.failed || []), ...(details?.cancelled?.log || []), ...(details?.discounted?.log || [])];
 
       res.json({ ...(await store.detail(before.id)), log: said });
     } catch (err) {

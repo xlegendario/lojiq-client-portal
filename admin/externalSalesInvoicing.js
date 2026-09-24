@@ -679,7 +679,15 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
    * entry that books the purchase back into stock. When every invoice on the
    * deal is credited, the deal is "credited".
    */
-  async function credit(id, invoiceRowId) {
+  /*
+   * Credit an invoice.
+   *
+   * keepStockOut: the pairs whose stock must stay written off - a pair that
+   * was lost or left with the buyer is gone, so putting it back would invent
+   * stock we do not have. Everything else is put back, and the new invoice
+   * for what is left takes its own share out again.
+   */
+  async function credit(id, invoiceRowId, { keepStockOut = [] } = {}) {
     const { sale, invoices } = await load(id);
     const original = invoices.find((i) => i.id === invoiceRowId && i.kind === "sale");
     if (!original) throw new ExternalSalesError("That invoice is not on this deal.");
@@ -717,7 +725,9 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
        * deal: a pair cancelled earlier was credited with its own invoice and
        * is not on this one. Counting it again would put back stock twice.
        */
-      const pairs = await db.get(`external_sale_pairs?select=purchase_price_ex_vat,selling_vat_type&sale_id=eq.${sale.id}&cancelled_at=is.null`);
+      const gone = new Set((keepStockOut || []).map(text));
+      const pairs = (await db.get(`external_sale_pairs?select=id,purchase_price_ex_vat,selling_vat_type&sale_id=eq.${sale.id}&cancelled_at=is.null`))
+        .filter((pair) => !gone.has(text(pair.id)));
       const route = ROUTES[original.vat_route] ? original.vat_route : null;
       if (!route) throw new ExternalSalesError(`Invoice ${original.invoice_number} has VAT route "${original.vat_route}"; book its stock back by hand in Rompslomp.`);
 
