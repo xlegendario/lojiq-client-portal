@@ -329,7 +329,7 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
    * are left alone and listed - matching those by guesswork would put the
    * wrong number on the wrong contact, which is worse than none.
    */
-  async function linkSuppliers({ sellers, apply = false }) {
+  async function linkSuppliers({ sellers, apply = false, limit = 100, pauseMs = 400 }) {
     const { client } = await company();
     const suppliers = await client.allSuppliers();
 
@@ -340,7 +340,8 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       }
     }
 
-    const out = { suppliers: suppliers.length, sellers: sellers.length, linked: [], already: [], ambiguous: [], unmatched: [] };
+    const out = { suppliers: suppliers.length, sellers: sellers.length, linked: [], already: [], ambiguous: [], unmatched: [], left: 0, stopped: "" };
+    let written = 0;
 
     for (const supplier of suppliers) {
       const name = text(supplier.company_name) || text(supplier.contact_person_name);
@@ -363,11 +364,28 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
         continue;
       }
 
-      if (apply) {
-        await client.updateContact(supplier.id, { contact: { contact_number: match.seller_id } });
+      /*
+       * Rompslomp counts requests per minute and answers 429 when there are
+       * too many, so the writes go in portions with a pause between them.
+       * What is left over is said, and the next run picks it up - nothing is
+       * written twice, because a linked supplier is "already" next time.
+       */
+      let applied = false;
+
+      if (apply && !out.stopped && written < limit) {
+        try {
+          await client.updateContact(supplier.id, { contact: { contact_number: match.seller_id } });
+          applied = true;
+          written += 1;
+          if (pauseMs) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+        } catch (err) {
+          out.stopped = err.message;
+        }
       }
 
-      out.linked.push({ id: supplier.id, name, seller_id: match.seller_id, applied: apply });
+      if (apply && !applied) out.left += 1;
+
+      out.linked.push({ id: supplier.id, name, seller_id: match.seller_id, applied });
     }
 
     return out;
