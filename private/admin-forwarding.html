@@ -253,6 +253,11 @@
         <a class="nav-item" href="/admin/bol-pages">bol pages <small class="nav-count" data-nav-count="marketplaces/bol_pages"></small></a>
       </div>
 
+      <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
+      <div class="nav-group" id="navWarehouse" hidden>
+        <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
+      </div>
+
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName">…</strong></span>
         <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
@@ -403,7 +408,7 @@
     /* ---------------- sidebar ---------------- */
 
     // Same folding as the main admin page, and the same remembered sections.
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 

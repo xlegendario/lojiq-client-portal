@@ -55,6 +55,7 @@ import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
+import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 
@@ -441,6 +442,16 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }),
     audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-mollie-payouts.html") : ""
+  });
+
+  // Inbound Scans: what came out of every scanned parcel, by tracking number
+  // (admin/adminInboundScans.js, private/admin-inbound-scans.html).
+  mountInboundScans(router, {
+    store: createInboundScansStore({
+      airtable,
+      db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl })
+    }),
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-inbound-scans.html") : ""
   });
 
   // unref: the timer never keeps the process (or a test) alive on its own.
