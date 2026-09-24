@@ -178,3 +178,70 @@ test("crediting reads the original and books its opposite", async () => {
   assert.equal(created.expense.invoice_lines[0].extended_description, "Peterson OG - 42");
   assert.equal(created.expense.contact_id, 42);
 });
+
+/* ---------------- sellers as suppliers ---------------- */
+
+const SELLERS = [
+  { seller_id: "SE-00100", full_name: "luca codini", company_name: "", email: "luca@old.it" },
+  { seller_id: "SE-00800", full_name: "luca codini", company_name: "", email: "luca@new.it" },
+  { seller_id: "SE-00781", full_name: "Zhuo Yi", company_name: "Zhuoyi", email: "z@x.es" }
+];
+
+function linker(suppliers, calls = []) {
+  const client = {
+    companyId: 9,
+    async accounts() { return ACCOUNTS; },
+    async vatTypes() { return VAT_TYPES; },
+    async allSuppliers() { return suppliers; },
+    async updateContact(id, body) { calls.push([id, body.contact.contact_number]); return { id }; }
+  };
+
+  return createPurchaseExpense({ rompslomp: { async companies() { return COMPANIES; } }, forCompany: () => client });
+}
+
+test("a supplier whose name is a seller's gets that Seller ID", async () => {
+  const calls = [];
+  const out = await linker([{ id: 1, company_name: "Zhuoyi", contact_number: "L02697" }], calls).linkSuppliers({ sellers: SELLERS, apply: true });
+
+  assert.deepEqual(calls, [[1, "SE-00781"]]);
+  assert.equal(out.linked[0].how, "name");
+});
+
+test("two sellers with one name are settled by the email, not by guesswork", async () => {
+  const calls = [];
+  const suppliers = [{ id: 2, contact_person_name: "luca codini", contact_person_email_address: "luca@new.it" }];
+  const out = await linker(suppliers, calls).linkSuppliers({ sellers: SELLERS, apply: true });
+
+  assert.deepEqual(calls, [[2, "SE-00800"]]);
+  assert.equal(out.linked[0].how, "email");
+});
+
+test("without an email to go on, nothing is written unless the newest is asked for", async () => {
+  const suppliers = [{ id: 3, contact_person_name: "luca codini" }];
+
+  const careful = await linker(suppliers).linkSuppliers({ sellers: SELLERS, apply: true });
+  assert.equal(careful.linked.length, 0);
+  assert.equal(careful.ambiguous[0].why, "2 sellers have this name");
+  assert.deepEqual(careful.ambiguous[0].sellers, ["SE-00100", "SE-00800"]);
+
+  const calls = [];
+  const guessing = await linker(suppliers, calls).linkSuppliers({ sellers: SELLERS, apply: true, whenSeveral: "newest" });
+  assert.deepEqual(calls, [[3, "SE-00800"]], "the newest record is the one a seller uses now");
+  assert.equal(guessing.linked[0].how, "newest");
+});
+
+test("a supplier who is no seller is left alone", async () => {
+  const calls = [];
+  const out = await linker([{ id: 4, company_name: "Netcup GmbH", contact_number: "L02667" }], calls).linkSuppliers({ sellers: SELLERS, apply: true });
+
+  assert.deepEqual(calls, []);
+  assert.equal(out.unmatched[0].name, "Netcup GmbH");
+});
+
+test("a supplier that already carries a Seller ID is not touched", async () => {
+  const calls = [];
+  const out = await linker([{ id: 5, company_name: "Zhuoyi", contact_number: "SE-00781" }], calls).linkSuppliers({ sellers: SELLERS, apply: true });
+
+  assert.deepEqual(calls, []);
+  assert.equal(out.already[0].seller_id, "SE-00781");
+});

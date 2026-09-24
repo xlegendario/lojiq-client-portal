@@ -512,7 +512,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
    * One pass over Rompslomp's suppliers, giving the ones that are sellers
    * their Seller ID as contact number. Read-only unless asked to apply.
    */
-  async function linkSuppliers({ apply = false, limit = 100 } = {}) {
+  async function linkSuppliers({ apply = false, limit = 100, whenSeveral = "none" } = {}) {
     const sellers = [];
     let offset = "";
 
@@ -522,13 +522,14 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
         sellers.push({
           seller_id: text(record.fields?.["Seller ID"]),
           company_name: text(record.fields?.["Company Name"]),
-          full_name: text(record.fields?.["Full Name"])
+          full_name: text(record.fields?.["Full Name"]),
+          email: text(record.fields?.["Email"])
         });
       }
       offset = page.offset;
     } while (offset);
 
-    return purchases.linkSuppliers({ sellers: sellers.filter((seller) => seller.seller_id), apply, limit });
+    return purchases.linkSuppliers({ sellers: sellers.filter((seller) => seller.seller_id), apply, limit, whenSeveral });
   }
 
   /*
@@ -1009,7 +1010,7 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
   router.post("/api/internal/external-sales/link-suppliers", express.json({ limit: "10kb" }), async (req, res) => {
     if (!fromWms(req, res)) return;
     try {
-      res.json({ ok: true, result: await store.linkSuppliers({ apply: req.body?.apply === true, limit: Number(req.body?.limit) || 100 }) });
+      res.json({ ok: true, result: await store.linkSuppliers({ apply: req.body?.apply === true, limit: Number(req.body?.limit) || 100, whenSeveral: text(req.body?.when_several) || "none" }) });
     } catch (err) {
       send(res, err);
     }

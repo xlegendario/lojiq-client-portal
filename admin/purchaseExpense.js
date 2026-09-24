@@ -329,15 +329,40 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
    * are left alone and listed - matching those by guesswork would put the
    * wrong number on the wrong contact, which is worse than none.
    */
-  async function linkSuppliers({ sellers, apply = false, limit = 100, pauseMs = 400 }) {
+  async function linkSuppliers({ sellers, apply = false, limit = 100, pauseMs = 400, whenSeveral = "none" }) {
     const { client } = await company();
     const suppliers = await client.allSuppliers();
 
+    // Every seller that goes by a name, so the ones sharing it are known
+    // rather than lost to whoever came first.
     const byName = new Map();
     for (const seller of sellers) {
-      for (const name of [seller.company_name, seller.full_name].map(key).filter(Boolean)) {
-        byName.set(name, byName.has(name) ? "many" : seller);
+      // A seller whose company and own name come out the same ("Zhuoyi" and
+      // "Zhuo Yi") is one seller, not two claimants to the name.
+      for (const name of new Set([seller.company_name, seller.full_name].map(key).filter(Boolean))) {
+        byName.set(name, [...(byName.get(name) || []), seller]);
       }
+    }
+
+    const newest = (list) => [...list].sort((a, b) => text(b.seller_id).localeCompare(text(a.seller_id)))[0];
+
+    /*
+     * Which of the sellers sharing a name this supplier is.
+     *
+     * The email settles it: two people with the same name do not share one.
+     * Without that there is no proof, so it is a guess - taken only when
+     * asked for, and then the newest record, which is the one a seller uses
+     * now.
+     */
+    function pick(list, supplier) {
+      if (list.length === 1) return { seller: list[0], how: "name" };
+
+      const mail = key(supplier.contact_person_email_address || supplier.email);
+      const byMail = mail ? list.filter((seller) => key(seller.email) === mail) : [];
+      if (byMail.length === 1) return { seller: byMail[0], how: "email" };
+
+      if (whenSeveral === "newest") return { seller: newest(list), how: "newest" };
+      return null;
     }
 
     const out = { suppliers: suppliers.length, sellers: sellers.length, linked: [], already: [], ambiguous: [], unmatched: [], left: 0, stopped: "" };
@@ -352,17 +377,26 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
         continue;
       }
 
-      const match = byName.get(key(supplier.company_name)) || byName.get(key(supplier.contact_person_name));
+      const sharing = byName.get(key(supplier.company_name)) || byName.get(key(supplier.contact_person_name));
 
-      if (match === "many") {
-        out.ambiguous.push({ id: supplier.id, name, why: "more than one seller has this name" });
-        continue;
-      }
-
-      if (!match) {
+      if (!sharing) {
         out.unmatched.push({ id: supplier.id, name, number: number || null });
         continue;
       }
+
+      const chosen = pick(sharing, supplier);
+
+      if (!chosen) {
+        out.ambiguous.push({
+          id: supplier.id,
+          name,
+          why: `${sharing.length} sellers have this name`,
+          sellers: sharing.map((seller) => seller.seller_id)
+        });
+        continue;
+      }
+
+      const match = chosen.seller;
 
       /*
        * Rompslomp counts requests per minute and answers 429 when there are
@@ -385,7 +419,7 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
 
       if (apply && !applied) out.left += 1;
 
-      out.linked.push({ id: supplier.id, name, seller_id: match.seller_id, applied });
+      out.linked.push({ id: supplier.id, name, seller_id: match.seller_id, how: chosen.how, applied });
     }
 
     return out;
