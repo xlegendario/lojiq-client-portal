@@ -304,6 +304,9 @@
     .plan .warn { color: var(--warning); }
     .cancelled-pair { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--border); }
     .cancelled-pair .cancelled-what { flex: 1 1 100%; color: var(--muted); font-size: 12px; }
+    .note-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+    .note-list li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+    .note-list li span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; }
     .cancelled-pair .what { color: var(--muted); text-decoration: line-through; }
     .pick { display: flex; gap: 8px; align-items: center; }
     .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
@@ -480,17 +483,6 @@
     </div>
   </dialog>
 
-  <dialog id="pricesDialog">
-    <div class="dialog-body">
-      <h2>Prices per pair</h2>
-      <div id="pricesBody" class="field"></div>
-      <div class="dialog-foot">
-        <button class="btn ghost" type="button" id="pricesCancel">Cancel</button>
-        <button class="btn primary" type="button" id="pricesSave">Save prices</button>
-      </div>
-    </div>
-  </dialog>
-
   <dialog id="paidDialog">
     <div class="dialog-body">
       <h2>Mark as paid</h2>
@@ -581,6 +573,11 @@
     const dateFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const monthFmt = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" });
     const day = (value) => { const d = new Date(value); return value && !isNaN(d) ? dayFmt.format(d) : "—"; };
+
+    // A note says the time as well: two people writing on one day is the
+    // whole point of keeping them apart.
+    const whenFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const when = (value) => { const d = new Date(value); return value && !isNaN(d) ? whenFmt.format(d) : ""; };
 
     const TABS = {
       pending: "Pending",
@@ -1206,18 +1203,12 @@
 
       const actions = [
         s.bookkeeping_status === "invoiced" && ["resend", "Resend invoice"],
-        s.bookkeeping_status === "invoiced" && ["test", "Test mail to me"],
-        ...invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id)).map((i) => [`credit:${i.id}`, `Credit ${i.invoice_number} (books only)`]),
-        !locked && pairs.length > 1 && ["prices", "Prices per pair"],
-        !locked && ["refresh", "Reload purchase prices"],
         !shipped && ["shipped", "Mark as shipped"],
-        s.bookkeeping_status === "to_invoice" && ["noinvoice", "Don't invoice"],
-        s.bookkeeping_status === "not_invoiced" && ["toinvoice", "Invoice after all"],
-        // Offered on every deal with a partner pair, booked or not: an
-        // expense thrown away in Rompslomp is only noticed by asking.
-        pairs.some((p) => p.partner_stock_id) && ["bookpurchase", pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) ? "Book purchase" : "Check purchase"],
-        s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", pairs.length === 1 ? "Cancel this pair" : "Cancel pairs"],
-        Number(s.paid_amount || 0) > 0 && ["refund", "Register refund"]
+        // Only when a purchase is missing: it is booked at Create Outbound,
+        // so this is the second chance after Rompslomp was down.
+        pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) && ["bookpurchase", "Book purchase"],
+        s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", "Initiate cancel"],
+        Number(s.paid_amount || 0) > 0 && ["refund", "Mark refunded"]
       ].filter(Boolean);
 
       $("panelBody").innerHTML = `
@@ -1292,10 +1283,18 @@
               <dt>VAT ID</dt><dd>${esc(s.buyer_vat_id || "—")}</dd>
             </dl>
           </details>
-          <details class="fold" ${s.notes ? "open" : ""}>
+          <details class="fold" ${(state.detail.notes || []).length || s.notes ? "open" : ""}>
             <summary>Notes</summary>
-            <textarea class="input notes" id="notesInput" aria-label="Notes">${esc(s.notes || "")}</textarea>
-            <div class="inline" style="margin-top:8px"><button class="act" id="notesSave" type="button">Save notes</button></div>
+            <textarea class="input notes" id="noteInput" placeholder="Write a note for whoever picks this up next..." aria-label="New note"></textarea>
+            <div class="inline" style="margin-top:8px"><button class="act" id="noteSave" type="button">Add note</button></div>
+            <ul class="note-list">
+              ${(state.detail.notes || []).map((n) => `
+              <li>
+                <span class="sub">${esc(n.written_by || "admin")} · ${esc(when(n.created_at))}</span>
+                <span>${esc(n.body)}</span>
+              </li>`).join("")}
+              ${s.notes ? `<li><span class="sub">from the deal itself</span><span>${esc(s.notes)}</span></li>` : ""}
+            </ul>
           </details>
           <details class="fold">
             <summary>History</summary>
@@ -1521,27 +1520,6 @@
       }
     }
 
-    /* ----- prices dialog ----- */
-
-    function openPricesDialog() {
-      const { sale, pairs } = state.detail;
-      $("pricesBody").innerHTML = `
-        <p class="sub">The prices per pair must add up to ${esc(euro(sale.total_selling_price))}. The invoice uses them.</p>
-        ${pairs.map((p) => `
-          <div class="price-row">
-            <span>${esc(p.sku || p.product_name || "")} · ${esc(p.size || "")} <span class="sub">${esc(p.item_id || "")} · ${esc(p.selling_vat_type || "?")} · in ${esc(euro(p.purchase_price_ex_vat))}</span></span>
-            <input class="input" type="text" inputmode="decimal" value="${p.selling_price === null ? "" : esc(String(p.selling_price).replace(".", ","))}" data-pair-price="${esc(p.id)}" aria-label="Selling price">
-          </div>`).join("")}`;
-      $("pricesDialog").showModal();
-    }
-
-    $("pricesCancel").addEventListener("click", () => $("pricesDialog").close());
-    $("pricesSave").addEventListener("click", () => busy($("pricesSave"), async () => {
-      const prices = [...document.querySelectorAll("[data-pair-price]")].map((input) => ({ id: input.dataset.pairPrice, selling_price: input.value.trim() }));
-      await update({ pair_prices: prices }, "Prices saved.");
-      $("pricesDialog").close();
-    }));
-
     /* ----- actions in the panel ----- */
 
     $("panelBody").addEventListener("change", async (event) => {
@@ -1597,7 +1575,14 @@
         });
       }
 
-      if (target.id === "notesSave") return busy(target, () => update({ notes: $("notesInput").value }, "Notes saved."));
+      if (target.id === "noteSave") {
+        const note = $("noteInput").value.trim();
+        if (!note) return;
+        return busy(target, async () => {
+          await update({ note }, "Note added.");
+          $("noteInput").value = "";
+        });
+      }
       if (target.dataset?.action) return runMore(target.dataset.action);
       if (target.dataset?.pay) return runPay(target.dataset.pay);
     });
@@ -1616,27 +1601,7 @@
         });
       }
 
-      if (value === "test") {
-        return busy(null, async () => {
-          const d = await postJson("/api/admin/external-sales/invoice/mail", { id, test: true });
-          state.runLog = { id, lines: d.log || [] };
-          applyDetail(d, (d.log || []).join(" · "));
-        });
-      }
 
-      if (value.startsWith("credit:")) {
-        const invoice = state.detail.invoices.find((i) => i.id === value.slice(7));
-        if (!confirm(`Credit ${invoice?.invoice_number || "this invoice"}?
-
-The books only: a credit invoice for the same amount in Rompslomp, and the purchase back into stock. The deal keeps its pairs and its units stay reserved. To take a pair off the deal instead, use Cancel pairs - that credits as well.
-
-It cannot be undone.`)) return;
-        return busy(null, async () => {
-          const d = await postJson("/api/admin/external-sales/invoice/credit", { id, invoice_id: value.slice(7) });
-          state.runLog = { id, lines: d.log || [] };
-          applyDetail(d, (d.log || []).join(" · "));
-        });
-      }
 
       if (value === "bookpurchase") {
         if (!confirm("Book what this deal bought from the partner in Rompslomp? This makes the expense on Voorraad Scout and attaches the self-billing invoice.")) return;
@@ -1650,21 +1615,11 @@ It cannot be undone.`)) return;
       if (value === "cancelpairs") return openCancelDialog();
       if (value === "refund") return openRefundDialog();
 
-      if (value === "prices") return openPricesDialog();
-      if (value === "refresh") return busy(null, () => update({ refresh_purchase: true }, "Purchase read again."));
-
       if (value === "shipped") {
         if (!confirm(`Mark ${s.deal} as shipped? Normally Pack & Ship does this.`)) return;
         return busy(null, () => update({ mark_shipped: true }, "Marked as shipped."));
       }
 
-      if (value === "noinvoice") {
-        const reason = prompt("Why is this deal not invoiced? (for example: APLUG self-billing, test deal)");
-        if (!reason?.trim()) return;
-        return busy(null, () => update({ bookkeeping_status: "not_invoiced", reason }, "Marked as not invoiced."));
-      }
-
-      if (value === "toinvoice") return busy(null, () => update({ bookkeeping_status: "to_invoice" }, "Back on to invoice."));
     }
 
     /* ---------------- invoice dialog ---------------- */

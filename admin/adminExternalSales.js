@@ -307,10 +307,11 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
   async function detail(id) {
     const sale = await saleById(id);
-    const [pairs, parcels, links] = await Promise.all([
+    const [pairs, parcels, links, notes] = await Promise.all([
       db.get(`external_sale_pairs?select=*&sale_id=eq.${sale.id}&order=created_at.asc`),
       db.get(`shipments?select=*&external_sale_id=eq.${sale.id}&order=created_at.asc`),
-      db.get(`external_sale_invoice_deals?select=invoice_id&sale_id=eq.${sale.id}`)
+      db.get(`external_sale_invoice_deals?select=invoice_id&sale_id=eq.${sale.id}`),
+      db.get(`external_sale_notes?select=*&sale_id=eq.${sale.id}&order=created_at.desc&limit=200`).catch(() => [])
     ]);
     const invoices = links.length
       ? await db.get(`external_sale_invoices?select=*&id=in.(${links.map((l) => `"${l.invoice_id}"`).join(",")})`)
@@ -326,6 +327,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       cancelled_pairs: pairs.filter((pair) => pair.cancelled_at),
       parcels,
       invoices,
+      notes,
       money: saleMoney(sale, live),
       next: nextStep({ sale, parcels, invoices }),
       due_date: due ? due.toISOString().slice(0, 10) : null
@@ -427,9 +429,23 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     });
   }
 
-  async function setNotes(id, notes) {
+  /*
+   * A note on a deal. Kept as its own row rather than one field, so two
+   * people working on a deal write under each other instead of over each
+   * other, and what was said stays said.
+   */
+  async function addNote(id, body, by = "") {
     const sale = await saleById(id);
-    const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, { notes: text(notes) || null });
+    const note = text(body);
+
+    if (!note) throw new ExternalSalesError("Write something first.");
+
+    const [saved] = await db.insert("external_sale_notes", [{
+      sale_id: sale.id,
+      body: note.slice(0, 4000),
+      written_by: text(by) || null
+    }]);
+
     return saved;
   }
 
@@ -798,7 +814,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     setParcelTracking,
     removeParcel,
     markShipped,
-    setNotes,
+    addNote,
     setBookkeeping,
     setPairPrices,
     refreshPurchase
@@ -1155,9 +1171,9 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
       if (req.body?.mark_shipped) {
         await store.markShipped(id);
         details = { shipping_status: { from: before.shipping_status, to: "shipped" } };
-      } else if (req.body?.notes !== undefined) {
-        await store.setNotes(id, req.body.notes);
-        details = { notes: { from: before.notes, to: text(req.body.notes) } };
+      } else if (req.body?.note !== undefined) {
+        const note = await store.addNote(id, req.body.note, req.admin?.name || req.admin?.email);
+        details = { note: text(note?.body).slice(0, 200) };
       } else if (req.body?.bookkeeping_status) {
         await store.setBookkeeping(id, text(req.body.bookkeeping_status), req.body.reason);
         details = { bookkeeping_status: { from: before.bookkeeping_status, to: text(req.body.bookkeeping_status) }, reason: text(req.body.reason) || null };
