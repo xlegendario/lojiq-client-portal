@@ -1,16 +1,16 @@
 // admin/adminInventory.js
 //
-// Inventory: the pairs we own ourselves (30-09-2026).
+// Inventory: everything that became ours on paper (30-09-2026).
 //
 // Everything on the marketplaces comes out of consignment_inventory, which
-// holds other people's pairs. Our own stock lives only in Airtable's
-// Inventory Units, so it is listed nowhere - and a pair of ours that happens
-// to match a consignor's SKU and size even gets repriced to the consignor's
-// price.
+// holds pairs that are still the consignor's. Our own stock lives only in
+// Airtable's Inventory Units, so it is listed nowhere - and a pair of ours
+// that happens to match a consignor's SKU and size even gets repriced to the
+// consignor's price.
 //
 // Before any of it can be listed, the statuses have to be worth believing,
-// and on the day this was written they were not. Of 1.059 own units that are
-// not plainly Sold: 700 had already shipped but were never moved off
+// and on the day this was written they were not. Of the units that are not
+// plainly Sold: some 700 had already shipped but were never moved off
 // Reserved or Available, 136 had no availability status at all, 138 carried
 // a note saying the pair never arrived, and 65 sat Reserved against no order.
 // Together about 700 units with a status that contradicts what happened, and
@@ -34,17 +34,32 @@ const first = (value) => text(many(value)[0]);
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
 /*
- * The types that mean the pair is ours.
+ * Inventory is everything that became ours on paper.
  *
- * We paid for it and it is ours to sell: Direct is bought outright, Custom is
- * sourced for an order and left over when that order went another way, and
- * Return Service is a pair we took over from the customer who returned it.
+ * A unit only exists once there was a deal, so the type says how the pair
+ * arrived, never who owns it now:
  *
- * Consignment and Partner Consignment belong to whoever sent them and are on
- * the marketplaces already; Forwarding is only passing through on its way to
- * someone else.
+ *   Direct              bought outright from a seller
+ *   Custom              sourced to fill an order, and left over when that
+ *                       order went another way
+ *   Return Service      taken over from the customer who sent it back
+ *   Consignment         bought from the consignor at the moment it sold, so
+ *                       the unit IS the purchase - a pair still sitting with
+ *                       a consignor has no unit at all, it lives in
+ *                       consignment_inventory
+ *   Partner Consignment taken over from the partner at intake, back when
+ *                       that was the arrangement; still owed on some of them,
+ *                       which is what Payment Status says
+ *
+ * Only Forwarding is not ours, and that is a fact rather than a reading:
+ * none of its 683 units has a purchase price or a purchase date, because
+ * nothing was ever bought. They pass through the warehouse on the way to
+ * somebody else.
+ *
+ * A unit with no type at all is kept: it is a gap to fill, not a reason to
+ * hide a pair.
  */
-export const OWNED_TYPES = ["Direct", "Custom", "Return Service"];
+export const EXCLUDED_TYPES = ["Forwarding"];
 
 export const AIRTABLE_TABLE_ID = "tblt1aavfuJgspt8x";
 
@@ -317,7 +332,9 @@ export const VIEWS = {
  *   baseId    only to link a row through to the record in Airtable
  */
 export function createInventoryStore({ airtable, baseId = "", now = () => new Date(), cacheMs = 180_000 }) {
-  const owned = OWNED_TYPES.map((type) => `{Type} = '${type}'`).join(",");
+  // "not Forwarding" rather than a list of what is ours, so a type nobody
+  // has filled in yet still turns up instead of quietly falling out.
+  const owned = EXCLUDED_TYPES.map((type) => `{Type} != '${type}'`).join(", ");
 
   async function pages(formula, { sort = "", cap = 40 } = {}) {
     const records = [];
@@ -353,7 +370,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     if (!cache.promise || Date.now() - cache.at > cacheMs) {
       cache = {
         at: Date.now(),
-        promise: pages(`AND(OR(${owned}), {Availability Status} != 'Sold')`)
+        promise: pages(`AND(${owned}, {Availability Status} != 'Sold')`)
           .then((records) => {
             const today = now();
             return records.map((record) => unitRow(record, today, baseId));
@@ -464,7 +481,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
       : "";
 
     const records = await pages(
-      `AND(OR(${owned}), {Availability Status} = 'Sold'${search})`,
+      `AND(${owned}, {Availability Status} = 'Sold'${search})`,
       { sort: "Purchase Date", cap: needle ? 10 : 2 }
     );
 

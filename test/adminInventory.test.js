@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   CHECKS,
-  OWNED_TYPES,
+  EXCLUDED_TYPES,
   checksFor,
   createInventoryStore,
   locationOf,
@@ -249,7 +249,15 @@ function fakeAirtable(records) {
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
-test("only our own units are asked for, and Sold is kept out of the working set", async () => {
+/*
+ * Asked for as "not Forwarding" rather than as a list of what is ours.
+ *
+ * A unit exists only because there was a deal, so every type but Forwarding
+ * became ours at some point - and naming the ones we want would have dropped
+ * the units whose type nobody has filled in, which are exactly the ones worth
+ * finding.
+ */
+test("everything but Forwarding is asked for, and Sold is kept out of the working set", async () => {
   const base = fakeAirtable([]);
   const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
 
@@ -258,8 +266,33 @@ test("only our own units are asked for, and Sold is kept out of the working set"
   const formula = base.asked[0].formula;
 
   assert.match(formula, /\{Availability Status\} != 'Sold'/);
-  for (const type of OWNED_TYPES) assert.ok(formula.includes(`{Type} = '${type}'`), `${type} missing`);
-  assert.ok(!formula.includes("Partner Consignment"), "partner stock is not ours to sell");
+  assert.deepEqual(EXCLUDED_TYPES, ["Forwarding"]);
+  assert.ok(formula.includes("{Type} != 'Forwarding'"), "forwarding is not ours");
+
+  for (const type of ["Direct", "Custom", "Return Service", "Consignment", "Partner Consignment"]) {
+    assert.ok(!formula.includes(`'${type}'`), `${type} should not be named at all`);
+  }
+});
+
+test("consignment and partner units belong here, a unit without a type is kept", async () => {
+  const base = fakeAirtable([
+    { id: "rec00000000000001", fields: sound({ "Item ID": "CS-000982", Type: "Consignment" }) },
+    { id: "rec00000000000002", fields: sound({ "Item ID": "PCS-008021", Type: "Partner Consignment" }) },
+    { id: "rec00000000000003", fields: sound({ "Item ID": "KC-003707", Type: "" }) }
+  ]);
+
+  const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
+  const all = await store.list({ view: "all" });
+
+  assert.equal(all.counts.all, 3);
+  assert.deepEqual(
+    all.units.map((u) => u.item_id).sort(),
+    ["CS-000982", "KC-003707", "PCS-008021"]
+  );
+
+  // Its own kind shows on the row, because it says how the pair arrived.
+  assert.equal(all.units.find((u) => u.item_id === "CS-000982").type, "Consignment");
+  assert.equal(all.units.find((u) => u.item_id === "KC-003707").type, "");
 });
 
 test("the views split the list by what the unit is", async () => {

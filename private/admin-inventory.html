@@ -273,6 +273,8 @@
      * lining up with its own row - in light mode that showed as a white
      * block sitting half a row low behind every status.
      */
+    td.kind { color: var(--muted); white-space: nowrap; }
+
     td.date, th.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
     /* The one header that needs explaining carries its own note on hover. */
@@ -383,6 +385,7 @@
               <th>Item</th>
               <th>Product</th>
               <th>Size</th>
+              <th>Type</th>
               <th>Status</th>
               <th class="money">Purchase price</th>
               <th>VAT type</th>
@@ -392,7 +395,7 @@
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="9">Loading…</td></tr>
+            <tr><td class="empty" colspan="10">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -501,7 +504,8 @@
 
       $("navWarehouse").innerHTML =
         `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
-        `<a class="nav-item active" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>`;
+        `<a class="nav-item active" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
+        `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
@@ -531,6 +535,13 @@
     /* ---------------- the stock ---------------- */
 
     const STATUS_PILL = { Available: "good", Reserved: "wait", Sold: "", Inactive: "bad", "": "bad" };
+
+    /*
+     * How the pair arrived, not who owns it now - a unit exists only
+     * because there was a deal. Shortened because the column sits between
+     * the size and the status and the full names are long.
+     */
+    const TYPE_SHORT = { "Return Service": "Return", "Partner Consignment": "Partner", Consignment: "Consignment", Direct: "Direct", Custom: "Custom", "": "no type" };
 
     function drawTabs() {
       for (const tab of document.querySelectorAll("#tabs .tab")) {
@@ -601,7 +612,7 @@
           : state.view === "checks"
             ? "Nothing disagrees — every own unit checks out."
             : "Nothing here.";
-        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${nothing}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${nothing}</td></tr>`;
         return;
       }
 
@@ -617,6 +628,7 @@
             </div>
           </td>
           <td>${esc(u.size || "—")}</td>
+          <td class="kind">${esc(TYPE_SHORT[u.type] ?? u.type ?? "—")}</td>
           <td class="where">
             <div class="stack">
               <span class="pill ${STATUS_PILL[u.availability] ?? ""}">${esc(u.availability || "none")}</span>
@@ -656,11 +668,11 @@
         drawGroups();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${esc(err.message)}</td></tr>`;
       }
     }
 
-    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="9">Looking…</td></tr>`; };
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="10">Looking…</td></tr>`; };
 
     $("tabs").addEventListener("click", (event) => {
       const tab = event.target.closest(".tab");
