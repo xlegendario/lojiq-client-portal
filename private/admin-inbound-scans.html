@@ -651,8 +651,17 @@
       location.href = "/admin";
     });
 
+    /*
+     * The sidebar gets its Store Orders and Member WTBs entries from here.
+     * Without it those two sections opened onto nothing, which reads as a
+     * dead button - they are the only groups the page does not know by
+     * heart.
+     */
     api("/api/admin/me")
-      .then((me) => { $("userName").textContent = me.user?.name || me.user?.email || ""; })
+      .then((me) => {
+        $("userName").textContent = me.user?.name || me.user?.email || "";
+        drawOtherSections(me.views);
+      })
       .catch(() => { $("userName").textContent = ""; });
   </script>
 </body>
