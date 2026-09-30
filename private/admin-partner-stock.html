@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Mollie Payouts · Lojiq Admin</title>
+  <title>Partner Stock · Lojiq Admin</title>
   <link rel="icon" href="/favicon.png">
   <script>
     try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
@@ -225,6 +225,83 @@
     .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
     .sidebar-foot strong { color: var(--text); }
     .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+
+    /* ---- Inbound Scans ---- */
+    .meta { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; margin: 0; font-size: 13px; }
+    .meta dt { color: var(--muted); }
+    .meta dd { margin: 0; color: var(--text); }
+    .sec { display: flex; flex-direction: column; gap: 10px; }
+    .sec + .sec { margin-top: 20px; }
+    .sec h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .line-what { display: flex; flex-direction: column; gap: 2px; }
+    .line-what .sub { font-size: 11px; }
+
+    /*
+     * The panel is narrower than the page: what is in the box wraps there
+     * rather than pushing the table sideways.
+     */
+    .panel-body table { width: 100%; }
+    .panel-body td { white-space: normal; vertical-align: top; }
+
+    /* Inventory: the view tabs and the reasons a pair is held back. */
+    .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; }
+    .tab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .tab:hover { color: var(--strong); background: var(--primary-tint); }
+    .tab[aria-selected="true"] { border-color: transparent; background: var(--primary-tint); color: var(--primary-soft); }
+    .tab small { font-variant-numeric: tabular-nums; font-weight: 600; opacity: 0.8; }
+
+    /*
+     * The reasons wrap instead of widening the table. Without a width of
+     * their own "Already shipped on order 11629" pushed the column off the
+     * screen and the sentence was cut in half, which is the half that says
+     * where to go and look.
+     */
+    table:not(.with-why) .col-why { display: none; }
+
+    .why { display: flex; flex-direction: column; gap: 3px; white-space: normal; min-width: 210px; max-width: 340px; }
+    .why span { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+    .why .block { color: var(--bad-text); }
+    .why .note { color: var(--muted); }
+
+    /*
+     * Status, and underneath it where the pair lies if that is not here.
+     * Stacked rather than left to flow: side by side the column grew to the
+     * width of both pills together on the few rows that have a location.
+     *
+     * The stacking goes on a box INSIDE the cell. Putting display:flex on
+     * the td itself takes it out of display:table-cell, so the cell stops
+     * lining up with its own row - in light mode that showed as a white
+     * block sitting half a row low behind every status.
+     */
+    td.kind { color: var(--muted); white-space: nowrap; }
+
+    td.date, th.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* The one header that needs explaining carries its own note on hover. */
+    th[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+    .where { white-space: normal; }
+    .where .stack { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+
+    .what { display: flex; flex-direction: column; gap: 1px; white-space: normal; max-width: 320px; }
+
+    /*
+     * Search sits above the tabs, the way Store Orders has it, so the row
+     * under them is free for the buttons and filters that come later.
+     */
+    .searchbar { display: flex; }
+    .searchbar .input { flex: 1; max-width: 520px; }
+
+    /* The check groups above the table, one per kind of disagreement. */
+    .groups { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; }
+    .group { display: flex; flex-direction: column; gap: 1px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: none; cursor: pointer; text-align: left; min-width: 150px; }
+    .group:hover { background: var(--primary-tint); }
+    .group[aria-pressed="true"] { border-color: transparent; background: var(--primary-tint); }
+    .group b { font-size: 12px; color: var(--strong); font-weight: 700; }
+    .group span { font-size: 11px; color: var(--muted); }
+    .group[aria-pressed="true"] b { color: var(--primary-soft); }
+    .group-todo { margin: 0; font-size: 12px; color: var(--muted); }
+    .group-todo strong { color: var(--strong); }
   </style>
 </head>
 <body>
@@ -263,11 +340,7 @@
       </div>
 
       <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
-      <div class="nav-group" id="navWarehouse" hidden>
-        <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
-        <a class="nav-item" href="/admin/inventory">Inventory <small data-nav-count="warehouse/inventory_checks"></small></a>
-        <a class="nav-item" href="/admin/partner-stock">Partner Stock <small data-nav-count="warehouse/partner_stock"></small></a>
-      </div>
+      <div class="nav-group" id="navWarehouse" hidden></div>
 
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName">…</strong></span>
@@ -278,22 +351,22 @@
 
     <main class="content">
       <div class="heading">
-        <span class="crumb">Finance</span>
-        <h1>Mollie Payouts</h1>
+        <span class="crumb">Warehouse</span>
+        <h1>Partner Stock</h1>
       </div>
 
-      <p class="sub" style="margin:0;max-width:780px">
-        Every amount Mollie paid out to ING, split into the payments in it: which order, want-to-buy or External Sale,
-        and the invoice number behind it. Book the payout in Rompslomp against those invoices, then tick it here so you
-        can see what is done.
-      </p>
+      <div class="searchbar">
+        <input class="input" id="search" type="search" placeholder="SKU, product, tracking number or partner…" autocomplete="off" aria-label="Search partner stock">
+      </div>
+
+      <div class="tabs" id="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" data-view="in_stock" aria-selected="false">On the shelf <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="sold" aria-selected="false">Sold <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="forwarded" aria-selected="false">Forwarded <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="all" aria-selected="false">All <small></small></button>
+      </div>
 
       <div class="filters">
-        <select class="select" id="statusFilter" aria-label="Show">
-          <option value="all" selected>All payouts</option>
-          <option value="open">Not booked yet</option>
-          <option value="booked">Booked</option>
-        </select>
         <span class="count" id="count"></span>
       </div>
 
@@ -301,48 +374,45 @@
         <table>
           <thead>
             <tr>
-              <th>Payout</th>
-              <th>Paid out</th>
-              <th class="money">Received</th>
-              <th class="money">Mollie fees</th>
-              <th class="money">To ING</th>
-              <th>Status</th>
-              <th>Rompslomp</th>
+              <th>Partner</th>
+              <th>Product</th>
+              <th>Size</th>
+              <th>How</th>
+              <th>State</th>
+              <th class="money" title="What the partner is paid when this pair sells. Ours only once it has sold — until then it is his stock on our shelf.">Partner price</th>
+              <th class="money">Markup</th>
+              <th>Parcel</th>
+              <th class="date">Received</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="7">Loading…</td></tr>
+            <tr><td class="empty" colspan="9">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </main>
   </div>
 
-  <div class="panel" id="panel" hidden aria-label="Payout">
-    <div class="panel-head">
-      <h2 id="panelTitle">Payout</h2>
-      <button class="btn ghost" type="button" id="closePanel" aria-label="Close">✕</button>
-    </div>
-    <div class="panel-actions">
-      <button class="btn" type="button" id="copyInvoices">Copy invoice numbers</button>
-      <button class="btn primary" type="button" id="bookedBtn">Mark booked in Rompslomp</button>
-    </div>
-    <div class="panel-body" id="panelBody"></div>
-  </div>
-
   <div class="toast" id="toast" hidden role="status"></div>
-
   <script>
     const $ = (id) => document.getElementById(id);
 
     const esc = (value) => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
-    const state = { payouts: [], payout: null, busy: false };
+    const VIEWS = ["in_stock", "sold", "forwarded", "all"];
+
+    function startingView() {
+      const asked = new URLSearchParams(location.search).get("view");
+      return VIEWS.includes(asked) ? asked : "in_stock";
+    }
+
+    const state = { units: [], counts: {}, totals: { units: 0, shown: 0, value: 0, on_the_shelf: 0 }, view: startingView(), q: "" };
 
     async function api(url, options = {}) {
       const response = await fetch(url, { credentials: "same-origin", ...options });
@@ -376,7 +446,7 @@
       if (Array.isArray(saved)) saved.forEach((section) => openNavSections.add(section));
     } catch {}
 
-    openNavSections.add("money");
+    openNavSections.add("warehouse");
 
     function saveNavSections() {
       try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
@@ -390,7 +460,7 @@
         const header = document.querySelector(`[data-nav-section="${section}"]`);
         $(groupId).hidden = !expanded;
         header.setAttribute("aria-expanded", String(expanded));
-        header.classList.toggle("current", section === "money");
+        header.classList.toggle("current", section === "warehouse");
       }
     }
 
@@ -411,7 +481,12 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
-        `<a class="nav-item active" href="/admin/mollie-payouts">Mollie Payouts</a>`;
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
+
+      $("navWarehouse").innerHTML =
+        `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
+        `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
+        `<a class="nav-item active" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
@@ -438,187 +513,106 @@
       drawNavSections();
     });
 
-    /* ---------------- list ---------------- */
+    /* ---------------- the shelf ---------------- */
 
-    const visible = () => {
-      const filter = $("statusFilter").value;
-      return state.payouts.filter((p) => (filter === "open" ? !p.booked_at : filter === "booked" ? p.booked_at : true));
-    };
+    const STATE_PILL = { in_stock: "good", sold: "", forwarded: "move" };
+
+    function drawTabs() {
+      for (const tab of document.querySelectorAll("#tabs .tab")) {
+        const view = tab.dataset.view;
+        tab.setAttribute("aria-selected", String(view === state.view));
+        const n = state.counts[view];
+        tab.querySelector("small").textContent = typeof n === "number" ? String(n) : "";
+      }
+    }
 
     function drawList() {
-      const rows = visible();
-      $("count").textContent = rows.length ? `${rows.length} payout${rows.length === 1 ? "" : "s"}` : "";
+      const units = state.units;
 
-      if (!rows.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="7">No payouts.</td></tr>`;
+      $("count").textContent = state.totals.units
+        ? `${state.totals.units} pair${state.totals.units === 1 ? "" : "s"}` +
+          (state.totals.on_the_shelf ? ` · ${money(state.totals.on_the_shelf)} owed on what is still here` : "") +
+          (state.totals.unlinked ? ` · ${state.totals.unlinked} sold without a purchase on them` : "")
+        : "";
+
+      if (!units.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${state.q ? "Nothing here under that." : "Nothing here."}</td></tr>`;
         return;
       }
 
-      $("rows").innerHTML = rows.map((p) => `
-        <tr data-id="${esc(p.id)}"${state.payout?.id === p.id ? ' class="selected"' : ""}>
-          <td class="id">${esc(p.reference || p.id)}</td>
-          <td>${esc(day(p.payout_date))}</td>
-          <td class="money">${esc(money(p.gross))}</td>
-          <td class="money">${esc(money(p.fees))}</td>
-          <td class="money">${esc(money(p.net))}</td>
-          <td>${p.status === "paidout" ? '<span class="pill good">Paid out</span>' : `<span class="pill wait">${esc(p.status || "open")}</span>`}</td>
-          <td>${p.booked_at ? `<span class="pill good">Booked</span>` : '<span class="pill">To book</span>'}</td>
+      $("rows").innerHTML = units.map((u) => `
+        <tr>
+          <td class="id">${esc(u.party || u.seller_id || "—")}</td>
+          <td>
+            <div class="what">
+              <strong>${esc(u.product_name || "—")}</strong>
+              <span class="sub">${esc(u.sku || "no SKU")}${u.brand ? ` · ${esc(u.brand)}` : ""}${u.vat_type ? ` · ${esc(u.vat_type)}` : ""}</span>
+            </div>
+          </td>
+          <td>${esc(u.size || "—")}</td>
+          <td class="kind">${esc(u.mode || "—")}</td>
+          <td class="where">
+            <div class="stack">
+              <span class="pill ${STATE_PILL[u.status] ?? ""}">${esc(u.state)}</span>
+              ${u.status === "sold" && !u.inventory_unit_id ? `<span class="pill bad" title="It sold, but the purchase it became was never written back onto this row.">no purchase</span>` : ""}
+            </div>
+          </td>
+          <td class="money">${u.partner_price === null ? "—" : esc(money(u.partner_price))}</td>
+          <td class="money">${u.markup ? esc(money(u.markup)) : "—"}</td>
+          <td class="sub">${esc(u.tracking || "—")}</td>
+          <td class="date">${esc(day(u.received_at))}</td>
         </tr>`).join("");
     }
 
-    $("rows").addEventListener("click", (event) => {
-      const row = event.target.closest("tr[data-id]");
-      if (row) openPayout(row.dataset.id);
-    });
-
-    $("statusFilter").addEventListener("change", drawList);
-
-    /* ---------------- one payout ---------------- */
-
-    const lineText = (line) => `${line.what}${line.who ? ` · ${line.who}` : ""}`;
-
-    function paymentCard(payment) {
-      const lines = payment.lines.length
-        ? `<ul class="pay-lines">${payment.lines.map((l) => `
-            <li><span>${esc(lineText(l))}${l.invoice ? ` <span class="inv">${esc(l.invoice)}</span>` : ""}</span><span>${esc(money(l.amount))}</span></li>`).join("")}</ul>`
-        : `<div class="sub">No invoice found for this payment${payment.batch ? "" : " — no Payment Batch knows it, so it was a link made by hand in Mollie"}.</div>`;
-
-      return `
-        <li class="pay${payment.batch ? "" : " unknown"}">
-          <div class="pay-head">
-            <strong>${esc(money(payment.amount))}</strong>
-            <span class="sub">${esc(payment.method || "mollie")} · ${esc(day(payment.paid_at))}</span>
-            <span class="sub">${payment.batch ? esc(payment.batch) : '<span class="off">Unmatched</span>'}</span>
-          </div>
-          ${payment.description ? `<div class="sub">${esc(payment.description)}</div>` : ""}
-          ${lines}
-        </li>`;
-    }
-
-    function drawPanel() {
-      const payout = state.payout;
-      $("panel").hidden = !payout;
-      if (!payout) return;
-
-      $("panelTitle").textContent = payout.reference || payout.id;
-      $("bookedBtn").textContent = payout.booked_at ? "Booked — undo" : "Mark booked in Rompslomp";
-      $("bookedBtn").classList.toggle("primary", !payout.booked_at);
-
-      const off = Math.round((Number(payout.invoiced_total || 0) - Number(payout.gross || 0)) * 100) / 100;
-
-      $("panelBody").innerHTML = `
-        <div class="group">
-          <h3>Payout</h3>
-          <div class="sum">
-            <span>Received from buyers</span><span class="big">${esc(money(payout.gross))}</span>
-            <span>Mollie fees</span><span>${esc(money(payout.fees))}</span>
-            <span>Paid out to ING</span><span class="big">${esc(money(payout.net))}</span>
-            <span>Paid out on</span><span>${esc(day(payout.payout_date))}</span>
-            <span>On invoices found here</span><span${off ? ' class="off"' : ""}>${esc(money(payout.invoiced_total))}</span>
-          </div>
-          ${off ? `<div class="sub off" style="margin-top:8px">${esc(money(Math.abs(off)))} ${off > 0 ? "more on invoices than came in" : "of this payout is not on an invoice here"}.</div>` : ""}
-          ${payout.booked_at ? `<div class="sub" style="margin-top:8px">Booked ${esc(day(payout.booked_at))}.</div>` : ""}
-        </div>
-
-        ${payout.unmatched.length ? `
-        <div class="group">
-          <h3>Not known here (${payout.unmatched.length})</h3>
-          <p class="sub" style="margin:0 0 8px">These payments are in no Payment Batch: made through a link created by hand in Mollie. Link them on External Sales › Checks, or book them by hand.</p>
-          <ul class="pay-list">${payout.unmatched.map(paymentCard).join("")}</ul>
-        </div>` : ""}
-
-        <div class="group">
-          <h3>Payments (${payout.payments.length})</h3>
-          <ul class="pay-list">${payout.payments.map(paymentCard).join("")}</ul>
-        </div>
-
-        <div class="group payout-note">
-          <h3>Note</h3>
-          <textarea class="input" id="noteInput" placeholder="Anything about this payout…">${esc(payout.note || "")}</textarea>
-          <button class="btn" type="button" id="saveNote">Save note</button>
-        </div>`;
-
-      $("saveNote").addEventListener("click", () => setBooked(Boolean(payout.booked_at), $("noteInput").value));
-    }
-
-    async function openPayout(id) {
-      state.payout = { id, reference: id, payments: [], unmatched: [], gross: 0, fees: 0, net: 0 };
-      drawList();
-      $("panel").hidden = false;
-      $("panelBody").innerHTML = '<div class="empty">Loading…</div>';
-
-      try {
-        const data = await api(`/api/admin/mollie-payouts/get?id=${encodeURIComponent(id)}`);
-        state.payout = data.payout;
-        drawPanel();
-      } catch (err) {
-        $("panelBody").innerHTML = `<div class="empty">${esc(err.message)}</div>`;
-      }
-    }
-
-    async function setBooked(booked, note) {
-      if (state.busy || !state.payout) return;
-      state.busy = true;
-
-      try {
-        const payout = state.payout;
-        const data = await api("/api/admin/mollie-payouts/booked", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: payout.id, reference: payout.reference, booked, note: note ?? payout.note })
-        });
-
-        payout.booked_at = data.payout?.booked_at || null;
-        payout.note = data.payout?.note || "";
-        const inList = state.payouts.find((p) => p.id === payout.id);
-        if (inList) { inList.booked_at = payout.booked_at; inList.note = payout.note; }
-
-        drawList();
-        drawPanel();
-        toast(booked ? "Payout marked as booked." : "Payout is open again.");
-      } catch (err) {
-        toast(err.message);
-      } finally {
-        state.busy = false;
-      }
-    }
-
-    $("bookedBtn").addEventListener("click", () => setBooked(!state.payout?.booked_at, state.payout?.note));
-
-    $("copyInvoices").addEventListener("click", async () => {
-      const invoices = state.payout?.invoices || [];
-      if (!invoices.length) return toast("No invoice numbers in this payout.");
-
-      try {
-        await navigator.clipboard.writeText(invoices.join("\n"));
-        toast(`${invoices.length} invoice number${invoices.length === 1 ? "" : "s"} copied.`);
-      } catch {
-        toast(invoices.join(", "));
-      }
-    });
-
-    $("closePanel").addEventListener("click", () => {
-      state.payout = null;
-      $("panel").hidden = true;
-      drawList();
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !$("panel").hidden) $("closePanel").click();
-    });
+    /* ---------------- loading ---------------- */
 
     async function load() {
       try {
-        const data = await api("/api/admin/mollie-payouts");
-        state.payouts = data.payouts || [];
+        const query = new URLSearchParams({ view: state.view });
+        if (state.q) query.set("q", state.q);
+
+        const data = await api(`/api/admin/partner-stock?${query}`);
+        state.units = data.units || [];
+        state.counts = data.counts || state.counts;
+        state.totals = data.totals || state.totals;
+        drawTabs();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="7">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${esc(err.message)}</td></tr>`;
       }
     }
 
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="9">Looking…</td></tr>`; };
+
+    $("tabs").addEventListener("click", (event) => {
+      const tab = event.target.closest(".tab");
+      if (!tab || tab.dataset.view === state.view) return;
+
+      state.view = tab.dataset.view;
+      drawTabs();
+      looking();
+
+      const url = new URL(location.href);
+      url.searchParams.set("view", state.view);
+      history.replaceState(null, "", url);
+
+      load();
+    });
+
+    let searchTimer = null;
+
+    $("search").addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        state.q = $("search").value.trim();
+        looking();
+        load();
+      }, 350);
+    });
+
     drawNavSections();
     drawOtherSections([]);
+    drawTabs();
     load();
     loadNavCounts();
 
@@ -647,12 +641,6 @@
       location.href = "/admin";
     });
 
-    /*
-     * The sidebar gets its Store Orders and Member WTBs entries from here.
-     * Without it those two sections opened onto nothing, which reads as a
-     * dead button - they are the only groups the page does not know by
-     * heart.
-     */
     api("/api/admin/me")
       .then((me) => {
         $("userName").textContent = me.user?.name || me.user?.email || "";

@@ -57,6 +57,7 @@ import { createExternalSalesStore, mountExternalSales } from "./adminExternalSal
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
 import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.js";
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
+import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 
@@ -464,6 +465,19 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-inventory.html") : ""
   });
 
+  // Partner Stock: what a partner keeps here that is not ours until it sells
+  // (admin/adminPartnerStock.js, private/admin-partner-stock.html). Kept out
+  // of Inventory, which is everything that DID become ours.
+  const partnerStock = createPartnerStockStore({
+    db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+    airtable
+  });
+
+  mountPartnerStock(router, {
+    store: partnerStock,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-partner-stock.html") : ""
+  });
+
   // unref: the timer never keeps the process (or a test) alive on its own.
   if (enabled && externalSalesStore.configured && externalSalesSyncMs > 0) {
     // Every ten minutes: which invoices Rompslomp now has as paid (block 5).
@@ -571,12 +585,19 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       }
     }
 
-    // Own units whose status contradicts what happened. Eleven Airtable
-    // calls, and the store holds the answer for a few minutes after.
+    // Units whose status contradicts what happened. Fourteen Airtable calls,
+    // and the store holds the answer for a few minutes after.
     try {
       tabs["warehouse/inventory_checks"] = (await inventory.count()).checks;
     } catch (err) {
       console.error("[admin] inventory counts failed:", err.message);
+    }
+
+    // One Supabase read; nothing on the Airtable rate limit.
+    try {
+      tabs["warehouse/partner_stock"] = (await partnerStock.count()).in_stock;
+    } catch (err) {
+      console.error("[admin] partner stock counts failed:", err.message);
     }
 
     return { tabs, at: new Date().toISOString() };
