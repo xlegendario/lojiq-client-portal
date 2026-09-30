@@ -333,14 +333,7 @@
         <h1>Inventory</h1>
       </div>
 
-      <p class="sub" style="margin:0;max-width:840px">
-        The pairs we own ourselves — bought outright, left over from an order, or taken over from a return. Checks lists
-        every unit whose status contradicts what actually happened, and says which field to put right. Nothing is stored
-        here: correct a unit in Airtable and it leaves the list by itself.
-      </p>
-
       <div class="tabs" id="tabs" role="tablist">
-        <button class="tab" type="button" role="tab" data-view="checks" aria-selected="false">Checks <small></small></button>
         <button class="tab" type="button" role="tab" data-view="in_stock" aria-selected="false">In stock <small></small></button>
         <button class="tab" type="button" role="tab" data-view="reserved" aria-selected="false">Reserved <small></small></button>
         <button class="tab" type="button" role="tab" data-view="elsewhere" aria-selected="false">At a store <small></small></button>
@@ -348,6 +341,7 @@
         <button class="tab" type="button" role="tab" data-view="inactive" aria-selected="false">Inactive <small></small></button>
         <button class="tab" type="button" role="tab" data-view="sold" aria-selected="false">Sold</button>
         <button class="tab" type="button" role="tab" data-view="all" aria-selected="false">All open <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="checks" aria-selected="false">Checks <small></small></button>
       </div>
 
       <div class="groups" id="groups" hidden></div>
@@ -389,12 +383,12 @@
 
     const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
 
-    const VIEWS = ["checks", "in_stock", "reserved", "elsewhere", "no_status", "inactive", "sold", "all"];
+    const VIEWS = ["in_stock", "reserved", "elsewhere", "no_status", "inactive", "sold", "all", "checks"];
 
     function fromAddress() {
       const asked = new URLSearchParams(location.search);
       const view = asked.get("view");
-      return { view: VIEWS.includes(view) ? view : "checks", check: asked.get("check") || "" };
+      return { view: VIEWS.includes(view) ? view : "in_stock", check: asked.get("check") || "" };
     }
 
     const state = {
