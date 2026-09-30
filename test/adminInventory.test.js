@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   CHECKS,
   EXCLUDED_TYPES,
+  kindOf,
   checksFor,
   createInventoryStore,
   locationOf,
@@ -199,6 +200,50 @@ test("several disagreements are all named", () => {
   });
 
   assert.deepEqual(codes(fields), ["shipped", "note", "stale"]);
+});
+
+/* ---------------- how it arrived ---------------- */
+
+/*
+ * Named the way Airtable names the Item ID - Source before Type, same order -
+ * so the column can never contradict the number sitting next to it.
+ */
+test("how a pair arrived is read off Source first, then Type", () => {
+  assert.equal(kindOf({ Type: "Direct", Source: "Regular" }), "Direct");
+  assert.equal(kindOf({ Type: "Custom", Source: "Outsourced" }), "Outsourced");
+  assert.equal(kindOf({ Type: "Consignment", Source: "Regular" }), "Consignment");
+  assert.equal(kindOf({ Type: "Partner Consignment", Source: "Regular" }), "Partner");
+  assert.equal(kindOf({ Type: "Return Service", Source: "Returned" }), "Return");
+});
+
+/*
+ * The 87 units that are Type Direct with Source Outsourced. They carry an
+ * OUT- number because the Item ID formula asks Source first, so the column
+ * has to say Outsourced or it would argue with the number beside it.
+ */
+test("a unit bought to fill an order reads as outsourced whatever its type says", () => {
+  assert.equal(kindOf({ Type: "Direct", Source: "Outsourced" }), "Outsourced");
+});
+
+/*
+ * Except where Airtable would not give it an OUT- number either: consignment
+ * and returns are decided before Source in that formula.
+ */
+test("consignment and returns are decided before Source, here too", () => {
+  assert.equal(kindOf({ Type: "Consignment", Source: "Outsourced" }), "Consignment");
+  assert.equal(kindOf({ Type: "Return Service", Source: "Outsourced" }), "Return");
+});
+
+test("a unit with nothing filled in says so", () => {
+  assert.equal(kindOf({}), "no type");
+  assert.equal(kindOf({ Type: "", Source: "Regular" }), "no type");
+});
+
+test("the row carries the name the screen shows", () => {
+  const row = unitRow({ id: "rec00000000000001", fields: sound({ Type: "Custom", Source: "Outsourced" }) }, TODAY);
+
+  assert.equal(row.type, "Custom", "Airtable's own value is kept");
+  assert.equal(row.kind, "Outsourced", "and this is what the screen says");
 });
 
 /* ---------------- where it lies ---------------- */

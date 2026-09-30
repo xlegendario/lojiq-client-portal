@@ -551,13 +551,6 @@
 
     const STATUS_PILL = { Available: "good", Reserved: "wait", Sold: "", Inactive: "bad", "": "bad" };
 
-    /*
-     * How the pair arrived, not who owns it now - a unit exists only
-     * because there was a deal. Shortened because the column sits between
-     * the size and the status and the full names are long.
-     */
-    const TYPE_SHORT = { "Return Service": "Return", "Partner Consignment": "Partner", Consignment: "Consignment", Direct: "Direct", Custom: "Custom", "": "no type" };
-
     function drawTabs() {
       for (const tab of document.querySelectorAll("#tabs .tab")) {
         const view = tab.dataset.view;
@@ -643,7 +636,7 @@
             </div>
           </td>
           <td>${esc(u.size || "—")}</td>
-          <td class="kind">${esc(TYPE_SHORT[u.type] ?? u.type ?? "—")}</td>
+          <td class="kind">${esc(u.kind || "—")}</td>
           <td class="where">
             <div class="stack">
               <span class="pill ${STATUS_PILL[u.availability] ?? ""}">${esc(u.availability || "none")}</span>

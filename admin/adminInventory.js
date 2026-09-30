@@ -273,6 +273,33 @@ export function locationOf(fields = {}) {
   return text(fields.Location) || "Our warehouse";
 }
 
+/*
+ * What to call how the pair arrived, worked out exactly the way Airtable
+ * works out the Item ID - Source before Type, in the same order.
+ *
+ * Two fields say this and they do not always agree: 87 units are Type Direct
+ * with Source Outsourced, and they carry an OUT- number because the Item ID
+ * formula asks Source first. Naming them the same way means the column can
+ * never contradict the number sitting next to it, and a pair bought to fill
+ * an order reads as "Outsourced" whatever its type happens to say.
+ *
+ * "Custom" stays the value in Airtable. This is what the screen calls it.
+ */
+export function kindOf(fields = {}) {
+  const type = text(fields.Type);
+
+  if (type === "Consignment") return "Consignment";
+  if (type === "Return Service") return "Return";
+  if (text(fields.Source) === "Outsourced") return "Outsourced";
+  if (type === "Partner Consignment") return "Partner";
+  if (type === "Forwarding") return "Forwarding";
+
+  // Anything Source does not claim keeps the name Airtable gives it. Every
+  // Custom unit there is today has Source Outsourced and is caught above; one
+  // that ever turns up without it would read as Custom, which is the truth.
+  return type || "no type";
+}
+
 export function unitRow(record, today = new Date(), baseId = "") {
   const fields = record.fields || {};
   const checks = checksFor(fields, today);
@@ -286,6 +313,7 @@ export function unitRow(record, today = new Date(), baseId = "") {
     brand: text(fields.Brand),
     type: text(fields.Type),
     source: text(fields.Source),
+    kind: kindOf(fields),
     vat_type: text(fields["VAT Type"]),
     availability: text(fields["Availability Status"]),
     verification: text(fields["Verification Status"]),
