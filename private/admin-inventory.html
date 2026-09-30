@@ -270,6 +270,13 @@
 
     .what { display: flex; flex-direction: column; gap: 1px; white-space: normal; max-width: 320px; }
 
+    /*
+     * Search sits above the tabs, the way Store Orders has it, so the row
+     * under them is free for the buttons and filters that come later.
+     */
+    .searchbar { display: flex; }
+    .searchbar .input { flex: 1; max-width: 520px; }
+
     /* The check groups above the table, one per kind of disagreement. */
     .groups { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; }
     .group { display: flex; flex-direction: column; gap: 1px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: none; cursor: pointer; text-align: left; min-width: 150px; }
@@ -333,6 +340,10 @@
         <h1>Inventory</h1>
       </div>
 
+      <div class="searchbar">
+        <input class="input" id="search" type="search" placeholder="SKU, item number, product or size…" autocomplete="off" aria-label="Search the inventory">
+      </div>
+
       <div class="tabs" id="tabs" role="tablist">
         <button class="tab" type="button" role="tab" data-view="in_stock" aria-selected="false">In stock <small></small></button>
         <button class="tab" type="button" role="tab" data-view="reserved" aria-selected="false">Reserved <small></small></button>
@@ -347,8 +358,8 @@
       <div class="groups" id="groups" hidden></div>
       <p class="group-todo" id="groupTodo" hidden></p>
 
-      <div class="filters">
-        <input class="input" id="search" type="search" placeholder="SKU, item number, product or size…" autocomplete="off">
+      <!-- Buttons and filters come here; for now it carries the count alone. -->
+      <div class="filters" id="filters">
         <span class="count" id="count"></span>
       </div>
 
@@ -691,8 +702,17 @@
       location.href = "/admin";
     });
 
+    /*
+     * The sidebar gets its Store Orders and Member WTBs entries from here.
+     * Without it those two sections opened onto nothing, which reads as a
+     * dead button - they are the only groups the page does not know by
+     * heart.
+     */
     api("/api/admin/me")
-      .then((me) => { $("userName").textContent = me.user?.name || me.user?.email || ""; })
+      .then((me) => {
+        $("userName").textContent = me.user?.name || me.user?.email || "";
+        drawOtherSections(me.views);
+      })
       .catch(() => { $("userName").textContent = ""; });
   </script>
 </body>
