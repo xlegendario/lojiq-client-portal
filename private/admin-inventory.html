@@ -267,8 +267,14 @@
      * Status, and underneath it where the pair lies if that is not here.
      * Stacked rather than left to flow: side by side the column grew to the
      * width of both pills together on the few rows that have a location.
+     *
+     * The stacking goes on a box INSIDE the cell. Putting display:flex on
+     * the td itself takes it out of display:table-cell, so the cell stops
+     * lining up with its own row - in light mode that showed as a white
+     * block sitting half a row low behind every status.
      */
-    .where { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; white-space: normal; }
+    .where { white-space: normal; }
+    .where .stack { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 
     .what { display: flex; flex-direction: column; gap: 1px; white-space: normal; max-width: 320px; }
 
@@ -601,8 +607,10 @@
           </td>
           <td>${esc(u.size || "—")}</td>
           <td class="where">
-            <span class="pill ${STATUS_PILL[u.availability] ?? ""}">${esc(u.availability || "none")}</span>
-            ${u.elsewhere ? `<span class="pill move">${esc(u.location)}</span>` : ""}
+            <div class="stack">
+              <span class="pill ${STATUS_PILL[u.availability] ?? ""}">${esc(u.availability || "none")}</span>
+              ${u.elsewhere ? `<span class="pill move">${esc(u.location)}</span>` : ""}
+            </div>
           </td>
           <td class="money">${u.cost > 0 ? esc(money(u.cost)) : "—"}</td>
           <td class="money">${u.floor > 0 ? esc(money(u.floor)) : "—"}</td>
