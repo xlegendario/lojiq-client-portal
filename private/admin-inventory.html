@@ -273,6 +273,11 @@
      * lining up with its own row - in light mode that showed as a white
      * block sitting half a row low behind every status.
      */
+    td.date, th.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* The one header that needs explaining carries its own note on hover. */
+    th[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+
     .where { white-space: normal; }
     .where .stack { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 
@@ -376,17 +381,18 @@
           <thead>
             <tr>
               <th>Item</th>
-              <th>What</th>
+              <th>Product</th>
               <th>Size</th>
               <th>Status</th>
-              <th class="money">Cost</th>
-              <th class="money">Floor</th>
-              <th class="money">Days</th>
+              <th class="money">Purchase price</th>
+              <th>VAT type</th>
+              <th class="money" title="The least we will sell it for: what it cost plus the margin set on the unit. A marketplace listing may come down to this price, never below it.">Floor</th>
+              <th class="date">Date</th>
               <th class="col-why">What disagrees</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="8">Loading…</td></tr>
+            <tr><td class="empty" colspan="9">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -401,6 +407,11 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
     const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+
+    // The purchase date, day precision: nobody buys a pair at a time of day
+    // that matters here.
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
     const VIEWS = ["in_stock", "reserved", "elsewhere", "no_status", "inactive", "sold", "all", "checks"];
 
@@ -590,7 +601,7 @@
           : state.view === "checks"
             ? "Nothing disagrees — every own unit checks out."
             : "Nothing here.";
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">${nothing}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${nothing}</td></tr>`;
         return;
       }
 
@@ -602,7 +613,7 @@
           <td>
             <div class="what">
               <strong>${esc(u.product_name || "—")}</strong>
-              <span class="sub">${esc(u.sku || "no SKU")}${u.brand ? ` · ${esc(u.brand)}` : ""}${u.vat_type && u.vat_type !== "Margin" ? ` · ${esc(u.vat_type)}` : ""}</span>
+              <span class="sub">${esc(u.sku || "no SKU")}${u.brand ? ` · ${esc(u.brand)}` : ""}</span>
             </div>
           </td>
           <td>${esc(u.size || "—")}</td>
@@ -613,8 +624,9 @@
             </div>
           </td>
           <td class="money">${u.cost > 0 ? esc(money(u.cost)) : "—"}</td>
+          <td>${esc(u.vat_type || "—")}</td>
           <td class="money">${u.floor > 0 ? esc(money(u.floor)) : "—"}</td>
-          <td class="money">${u.days === null ? "—" : u.days}</td>
+          <td class="date">${esc(day(u.purchase_date))}</td>
           <td class="col-why">${disagrees(u)}</td>
         </tr>`).join("");
     }
@@ -644,11 +656,11 @@
         drawGroups();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${esc(err.message)}</td></tr>`;
       }
     }
 
-    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="8">Looking…</td></tr>`; };
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="9">Looking…</td></tr>`; };
 
     $("tabs").addEventListener("click", (event) => {
       const tab = event.target.closest(".tab");
