@@ -337,6 +337,32 @@ test("Sold is fetched on its own terms, newest first", async () => {
   assert.match(base.asked.at(-1).formula, /FIND\('OUT-5'/);
 });
 
+/*
+ * Only the checks list says what is wrong, so only the checks list is
+ * ordered by it. Elsewhere the awkward units used to sit on top with no
+ * reason beside them, which reads as an arbitrary order.
+ */
+test("checks lead with the worst, the other views with the longest standing", async () => {
+  const base = fakeAirtable([
+    { id: "rec00000000000001", fields: sound({ "Item ID": "OUDSTE", "Purchase Date": "2024-01-01" }) },
+    { id: "rec00000000000002", fields: sound({ "Item ID": "NIEUWSTE", "Purchase Date": "2026-09-01" }) },
+    { id: "rec00000000000003", fields: sound({ "Item ID": "KAPOT", "Purchase Date": "2026-08-01", "Item Condition": "Box Damage" }) }
+  ]);
+
+  const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
+
+  assert.deepEqual(
+    (await store.list({ view: "in_stock" })).units.map((u) => u.item_id),
+    ["OUDSTE", "KAPOT", "NIEUWSTE"],
+    "longest standing first"
+  );
+
+  assert.equal((await store.list({ view: "checks" })).units[0].item_id, "KAPOT", "worst first");
+
+  // Picking a group keeps the to-do order, whichever view it came from.
+  assert.equal((await store.list({ view: "all", check: "stale" })).units[0].item_id, "OUDSTE");
+});
+
 test("a search looks through the item number, SKU, product and size", async () => {
   const base = fakeAirtable([
     { id: "rec00000000000001", fields: sound() },

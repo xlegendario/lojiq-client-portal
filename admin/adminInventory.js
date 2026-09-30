@@ -373,14 +373,23 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     row.size.toUpperCase() === needle;
 
   /*
-   * Worst first, because the list doubles as a to-do list. Within that the
-   * oldest leads: a unit that has stood here for two years is the one whose
-   * story nobody remembers any more.
+   * Worst first, because the checks list doubles as a to-do list. Within
+   * that the oldest leads: a unit that has stood here for two years is the
+   * one whose story nobody remembers any more.
    */
   const worstFirst = (a, b) =>
     Number(a.sellable) - Number(b.sellable) ||
     b.checks.length - a.checks.length ||
     (b.days ?? 0) - (a.days ?? 0);
+
+  /*
+   * Everywhere else the longest standing leads, and nothing else.
+   *
+   * The other views do not carry the column that says what is wrong, so
+   * sorting them by that put the awkward units on top with no reason given
+   * next to them - which reads as an arbitrary order.
+   */
+  const longestFirst = (a, b) => (b.days ?? 0) - (a.days ?? 0);
 
   function summarise(rows) {
     const counts = { all: rows.length };
@@ -424,7 +433,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
 
     if (needle) chosen = chosen.filter((row) => matches(row, needle));
 
-    chosen.sort(worstFirst);
+    chosen.sort(check || text(view) === "checks" ? worstFirst : longestFirst);
 
     const shown = chosen.slice(0, wanted);
 

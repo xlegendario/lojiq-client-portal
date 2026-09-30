@@ -256,6 +256,8 @@
      * screen and the sentence was cut in half, which is the half that says
      * where to go and look.
      */
+    table:not(.with-why) .col-why { display: none; }
+
     .why { display: flex; flex-direction: column; gap: 3px; white-space: normal; min-width: 210px; max-width: 340px; }
     .why span { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
     .why .block { color: var(--bad-text); }
@@ -374,7 +376,7 @@
               <th class="money">Cost</th>
               <th class="money">Floor</th>
               <th class="money">Days</th>
-              <th>What disagrees</th>
+              <th class="col-why">What disagrees</th>
             </tr>
           </thead>
           <tbody id="rows">
@@ -565,6 +567,11 @@
     function drawList() {
       const units = state.units;
 
+      // What disagrees belongs to the checks list, not to every view.
+      document.querySelector(".table-wrap table")
+        .classList.toggle("with-why", state.view === "checks" || Boolean(state.check));
+
+
       $("count").textContent = state.totals.units
         ? `${state.totals.units} unit${state.totals.units === 1 ? "" : "s"} · ${money(state.totals.cost)} at cost` +
           (state.totals.partial ? " · newest first, search to go further" : "") +
@@ -600,7 +607,7 @@
           <td class="money">${u.cost > 0 ? esc(money(u.cost)) : "—"}</td>
           <td class="money">${u.floor > 0 ? esc(money(u.floor)) : "—"}</td>
           <td class="money">${u.days === null ? "—" : u.days}</td>
-          <td>${disagrees(u)}</td>
+          <td class="col-why">${disagrees(u)}</td>
         </tr>`).join("");
     }
 
