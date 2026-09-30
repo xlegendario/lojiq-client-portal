@@ -56,6 +56,7 @@ import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
 import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.js";
+import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 
@@ -454,6 +455,15 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-inbound-scans.html") : ""
   });
 
+  // Inventory: the pairs we own ourselves, and what is in the way of selling
+  // them (admin/adminInventory.js, private/admin-inventory.html).
+  const inventory = createInventoryStore({ airtable });
+
+  mountInventory(router, {
+    store: inventory,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-inventory.html") : ""
+  });
+
   // unref: the timer never keeps the process (or a test) alive on its own.
   if (enabled && externalSalesStore.configured && externalSalesSyncMs > 0) {
     // Every ten minutes: which invoices Rompslomp now has as paid (block 5).
@@ -559,6 +569,13 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       } catch (err) {
         console.error("[admin] bol page counts failed:", err.message);
       }
+    }
+
+    // Own pairs still to be sorted out. Two Airtable calls: about 160 records.
+    try {
+      tabs["warehouse/inventory_flagged"] = (await inventory.count()).flagged;
+    } catch (err) {
+      console.error("[admin] inventory counts failed:", err.message);
     }
 
     return { tabs, at: new Date().toISOString() };
