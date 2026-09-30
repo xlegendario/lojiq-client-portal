@@ -457,7 +457,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
   // Inventory: the pairs we own ourselves, and what is in the way of selling
   // them (admin/adminInventory.js, private/admin-inventory.html).
-  const inventory = createInventoryStore({ airtable });
+  const inventory = createInventoryStore({ airtable, baseId: airtableBaseId });
 
   mountInventory(router, {
     store: inventory,
@@ -571,9 +571,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       }
     }
 
-    // Own pairs still to be sorted out. Two Airtable calls: about 160 records.
+    // Own units whose status contradicts what happened. Eleven Airtable
+    // calls, and the store holds the answer for a few minutes after.
     try {
-      tabs["warehouse/inventory_flagged"] = (await inventory.count()).flagged;
+      tabs["warehouse/inventory_checks"] = (await inventory.count()).checks;
     } catch (err) {
       console.error("[admin] inventory counts failed:", err.message);
     }
