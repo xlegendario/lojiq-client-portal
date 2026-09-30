@@ -281,9 +281,24 @@
     th[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
 
     .where { white-space: normal; }
-    .where .stack { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+    /*
+     * Side by side, never stacked: a second badge underneath made that row
+     * taller than the ones around it. nowrap keeps it on one line, and the
+     * column sizes itself to the widest pair - both values here are short.
+     */
+    .where .stack { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
 
-    .what { display: flex; flex-direction: column; gap: 1px; white-space: normal; max-width: 320px; }
+    /*
+     * One line each, cut off rather than wrapped.
+     *
+     * A product name that wrapped made its row taller than the ones around
+     * it, so the table stepped up and down with the length of a shoe's
+     * name. The whole name is on the cell's title attribute, so nothing is
+     * lost - it is one hover away.
+     */
+    .what { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 340px; }
+    .what strong, .what .sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .what strong { font-weight: 700; color: var(--strong); }
 
     /*
      * Search sits above the tabs, the way Store Orders has it, so the row
@@ -544,7 +559,7 @@
         <tr>
           <td class="id">${esc(u.party || u.seller_id || "—")}</td>
           <td>
-            <div class="what">
+            <div class="what" title="${esc([u.product_name, u.sku].filter(Boolean).join(" · "))}">
               <strong>${esc(u.product_name || "—")}</strong>
               <span class="sub">${esc(u.sku || "no SKU")}${u.brand ? ` · ${esc(u.brand)}` : ""}${u.vat_type ? ` · ${esc(u.vat_type)}` : ""}</span>
             </div>
