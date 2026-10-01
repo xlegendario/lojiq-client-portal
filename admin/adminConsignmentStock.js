@@ -152,10 +152,22 @@ export function groupRows(rows) {
  *   Current Lowest Source Price  the budget, so what we are willing to pay.
  *                                The offer is the smaller of this and his own
  *                                ask: never more than he wanted.
- *   Max Price                    the ceiling, in buyer terms.
- *   Offer Margin                 what is left between the two. Written out
- *                                rather than left blank, because every reader
- *                                of an empty one quietly falls back to ten.
+ *   Max Price                    what the buyer pays. It is the ceiling a
+ *                                counter is held to, and it is also what
+ *                                resolveMemberWtbAgreedBuyerPrice settles on
+ *                                when no counter round was accepted - so on a
+ *                                partner-run deal it IS the sale price.
+ *   Offer Margin                 the margin, NET. Airtable's "Offer To Buyer"
+ *                                reads it as `Lowest Offer + Offer Margin *
+ *                                1.21`, so the plain difference would make
+ *                                that formula overshoot by a fifth. Written
+ *                                out rather than left blank, because every
+ *                                reader of an empty one falls back to ten.
+ *
+ * Nothing here recomputes a price from our standard margin: both numbers are
+ * the partner's own. "Custom Offer" is deliberately left alone - it takes
+ * priority over everything and wants an "Offer VAT Type" beside it, and
+ * getting that pair wrong is a bug the portal has already been bitten by.
  *
  * "Auto Accept Seller Offers?" is true for the reason the KC portal gives it:
  * it is true exactly when the buyer named a price himself, and it is what
@@ -172,7 +184,7 @@ export function wantToBuyFields({ pair, buyerPrice, payout, filter, note }) {
     "Date": new Date().toISOString(),
 
     "Max Price": round2(buyerPrice),
-    "Offer Margin": round2(buyerPrice - payout),
+    "Offer Margin": round2((buyerPrice - payout) / 1.21),
     "Current Lowest Source Price": round2(payout),
 
     "Buying Inventory Filter": filter,

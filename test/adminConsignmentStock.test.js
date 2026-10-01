@@ -367,7 +367,9 @@ test("an offer makes a partner-run want-to-buy and asks the KC portal to run it"
   assert.equal(fields["Auto Accept Seller Offers?"], true, "without it the consignor is never asked");
   assert.equal(fields["Current Lowest Source Price"], 170, "the budget is what we are willing to pay");
   assert.equal(fields["Max Price"], 200, "the ceiling is what the buyer pays");
-  assert.equal(fields["Offer Margin"], 30);
+  // Net, because Airtable reads it as `Lowest Offer + Offer Margin * 1.21`.
+  assert.equal(fields["Offer Margin"], 24.79);
+  assert.equal(Math.round((170 + 24.79 * 1.21) * 100) / 100, 200, "and that formula lands on the buyer price");
   assert.equal(fields["Buying Inventory Filter"], "Margin Only");
   assert.equal(fields["Payment Status"], "Pending");
   assert.equal(fields.SKU, "FV5029-141");
