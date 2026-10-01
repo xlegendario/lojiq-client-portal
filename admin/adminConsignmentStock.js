@@ -350,17 +350,26 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
   }
 
   /*
-   * Bring out an offer on one consignor's pair.
+   * Bring out an offer on a pair - the shoe and the size, not a consignor.
+   *
+   * Which consignor hears it is not ours to decide and never was: the KC
+   * portal reads the stock itself, keeps whoever the VAT filter allows, and
+   * takes the lowest normalised price. That is the same choice the ordinary
+   * Buying page makes, and the first version of this screen quietly promised
+   * otherwise - it said "offer to this man" while the round could go to
+   * somebody cheaper.
    *
    * Read fresh rather than from the cached list: a price that moved while
-   * the screen was open would otherwise be offered at the old number, and
+   * the screen was open would otherwise be quoted at the old number, and
    * this is the one place where that becomes a promise.
    */
-  async function bringOutOffer({ id, buyerPrice, payout, filter = "all", note = "" } = {}) {
+  async function bringOutOffer({ sku, size, buyerPrice, payout, filter = "all", note = "" } = {}) {
     if (!askKickz) throw new ConsignmentStockError("Kickz Caviar is not reachable from this service.", 503);
 
-    const rowId = text(id);
-    if (!rowId) throw new ConsignmentStockError("Which pair?");
+    const style = text(sku).toUpperCase();
+    const which = text(size);
+
+    if (!style || !which) throw new ConsignmentStockError("Which pair?");
 
     const buyer = Number(buyerPrice);
     const owed = Number(payout);
@@ -371,27 +380,31 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
     const chosen = text(filter) in FILTER_LABELS ? text(filter) : "all";
     const label = FILTER_LABELS[chosen];
 
-    const [raw] = await db.get(
-      `consignment_inventory?select=${COLUMNS}&id=eq.${encodeURIComponent(rowId)}&limit=1`
+    const rows = await db.get(
+      `consignment_inventory?select=${COLUMNS}&sku=eq.${encodeURIComponent(style)}` +
+      `&size=eq.${encodeURIComponent(which)}&quantity=gt.0&selling_price_suggested=gt.0`
     );
 
-    if (!raw) throw new ConsignmentStockError("That pair is no longer in the consignment stock.", 404);
+    const holders = (rows || []).map(stockRow);
 
-    const pair = stockRow(raw);
+    if (!holders.length) throw new ConsignmentStockError(`${style} ${which} is no longer in the consignment stock.`, 409);
 
-    if (!(pair.quantity > 0)) throw new ConsignmentStockError(`${pair.sku} ${pair.size} is no longer in stock.`, 409);
+    // The same two things the portal will do with this pair, so the screen
+    // cannot claim one thing and the round do another.
+    const allowed = holders
+      .filter((row) => VAT_FILTERS[chosen].includes(row.vat_type))
+      .sort((a, b) => a.compare - b.compare);
 
-    /*
-     * His VAT scheme has to be one this offer is allowed to use. Picking
-     * Margin Only and then offering a VAT21 consignor would send out a
-     * promise the filter was there to prevent.
-     */
-    if (!VAT_FILTERS[chosen].includes(pair.vat_type)) {
-      throw new ConsignmentStockError(`${pair.seller_id} is ${pair.vat_type}, which ${label} leaves out.`);
+    if (!allowed.length) {
+      throw new ConsignmentStockError(
+        `Nobody holding ${style} ${which} is inside ${label}.`
+      );
     }
 
+    const likely = allowed[0];
+
     const wtb = await airtable.create("Member WTBs", wantToBuyFields({
-      pair,
+      pair: likely,
       buyerPrice: buyer,
       payout: owed,
       filter: label,
@@ -408,18 +421,21 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
      */
     const asked = await askKickz({
       member_wtb_record_id: wtb.id,
-      sku: pair.sku,
-      size: pair.size
+      sku: style,
+      size: which
     }).catch((err) => ({ ok: false, error: err.message }));
 
     return {
       member_wtb_record_id: wtb.id,
-      sku: pair.sku,
-      size: pair.size,
-      product_name: pair.product_name,
-      seller_id: pair.seller_id,
-      asks: pair.ask,
-      offered: Math.min(owed, pair.ask),
+      sku: style,
+      size: which,
+      product_name: likely.product_name,
+      // Who it will most likely reach. The portal picks at the moment it
+      // runs, so this is the answer as the stock stood a second ago.
+      seller_id: likely.seller_id,
+      asks: likely.ask,
+      offered: Math.min(owed, likely.ask),
+      consignors: allowed.length,
       buyer_price: round2(buyer),
       margin: round2(buyer - owed),
       filter: label,
@@ -461,7 +477,8 @@ export function mountConsignmentStock(router, { store, audit = null, pageFile })
   router.post("/api/admin/consignment-stock/offer", express.json({ limit: "20kb" }), async (req, res) => {
     try {
       const out = await store.bringOutOffer({
-        id: req.body?.id,
+        sku: req.body?.sku,
+        size: req.body?.size,
         buyerPrice: req.body?.buyer_price,
         payout: req.body?.payout,
         filter: req.body?.filter,

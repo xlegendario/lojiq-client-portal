@@ -338,10 +338,12 @@ function offerShop(rows, { kickz = async () => ({ ok: true }), created = [] } = 
       db: {
         get: async (q) => {
           asked.push(q);
-          // The single-row read the offer does, as opposed to the list.
-          if (/id=eq\./.test(q)) {
-            const id = decodeURIComponent(q.match(/id=eq\.([^&]+)/)[1]);
-            return rows.filter((r) => r.id === id);
+          // The single-pair read the offer does: by shoe and size, the way
+          // the portal will go looking for it too.
+          if (/sku=eq\./.test(q)) {
+            const sku = decodeURIComponent(q.match(/sku=eq\.([^&]+)/)[1]);
+            const size = decodeURIComponent(q.match(/size=eq\.([^&]+)/)[1]);
+            return rows.filter((r) => String(r.sku).toUpperCase() === sku && String(r.size) === size);
           }
           return base.db.get(q);
         }
@@ -358,7 +360,7 @@ test("an offer makes a partner-run want-to-buy and asks the KC portal to run it"
     kickz: async (body) => { sent.push(body); return { ok: true }; }
   });
 
-  const out = await shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170, filter: "margin" });
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170, filter: "margin" });
 
   const fields = created[0].fields;
 
@@ -386,7 +388,7 @@ test("an offer makes a partner-run want-to-buy and asks the KC portal to run it"
  */
 test("the offer shown is capped at what the consignor asks", async () => {
   const { shop } = offerShop([offer({ selling_price_suggested: 150 })]);
-  const out = await shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170 });
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170 });
 
   assert.equal(out.asks, 150);
   assert.equal(out.offered, 150);
@@ -400,8 +402,8 @@ test("a consignor the filter leaves out is refused, not quietly offered", async 
   const { shop, created } = offerShop([offer({ vat_type: "VAT21" })]);
 
   await assert.rejects(
-    shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170, filter: "margin" }),
-    /VAT21, which Margin Only leaves out/
+    shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170, filter: "margin" }),
+    /Nobody holding FV5029-141 44 is inside Margin Only/
   );
 
   assert.equal(created.length, 0, "nothing is created when it may not be offered");
@@ -411,18 +413,19 @@ test("a pair that has gone since the screen loaded is refused", async () => {
   const { shop } = offerShop([]);
 
   await assert.rejects(
-    shop.bringOutOffer({ id: "1f0c0000-0000-4000-8000-000000000001", buyerPrice: 200, payout: 170 }),
+    shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170 }),
     /no longer in the consignment stock/
   );
 });
 
 test("both numbers are needed, and both have to be real", async () => {
   const { shop } = offerShop([offer()]);
-  const id = offer().id;
+  const pair = { sku: "FV5029-141", size: "44" };
 
-  await assert.rejects(shop.bringOutOffer({ id, payout: 170 }), /What does the buyer pay/);
-  await assert.rejects(shop.bringOutOffer({ id, buyerPrice: 200 }), /What do we offer the consignor/);
-  await assert.rejects(shop.bringOutOffer({ id, buyerPrice: 0, payout: 170 }), /What does the buyer pay/);
+  await assert.rejects(shop.bringOutOffer({ ...pair, payout: 170 }), /What does the buyer pay/);
+  await assert.rejects(shop.bringOutOffer({ ...pair, buyerPrice: 200 }), /What do we offer the consignor/);
+  await assert.rejects(shop.bringOutOffer({ ...pair, buyerPrice: 0, payout: 170 }), /What does the buyer pay/);
+  await assert.rejects(shop.bringOutOffer({ sku: "", size: "44", buyerPrice: 200, payout: 170 }), /Which pair/);
 });
 
 /*
@@ -434,7 +437,7 @@ test("a round that cannot be started leaves the want-to-buy standing, and says s
     kickz: async () => { throw new Error("Kickz Caviar answered 502."); }
   });
 
-  const out = await shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170 });
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170 });
 
   assert.equal(created.length, 1);
   assert.equal(out.asked, false);
@@ -446,7 +449,71 @@ test("a service that cannot reach Kickz Caviar refuses rather than half-doing it
   const shop = createConsignmentStockStore({ db: fakeDb([offer()]).db, airtable: noNames });
 
   await assert.rejects(
-    shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170 }),
+    shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170 }),
     /not reachable/
   );
+});
+
+/*
+ * The portal reads the stock itself, keeps whoever the filter allows and
+ * takes the lowest normalised price - so the screen may not name anyone
+ * else. The first version of this did, and could have promised a man the
+ * round would never reach.
+ */
+test("the offer names the cheapest inside the filter, not whoever was clicked", async () => {
+  const { shop, created } = offerShop([
+    offer({ id: "1", seller_id: "SE-DEAREST", selling_price_suggested: 220 }),
+    offer({ id: "2", seller_id: "SE-CHEAPEST", selling_price_suggested: 165 }),
+    offer({ id: "3", seller_id: "SE-OTHER-SIZE", size: "45", selling_price_suggested: 100 })
+  ]);
+
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200 });
+
+  assert.equal(out.seller_id, "SE-CHEAPEST");
+  assert.equal(out.asks, 165);
+  assert.equal(out.offered, 165, "never more than he wanted");
+  assert.equal(out.consignors, 2, "the other size is a different pair");
+  assert.equal(created[0].fields.SKU, "FV5029-141");
+});
+
+/*
+ * Cheapest on what it COSTS us, which is the comparison the portal makes
+ * too: a VAT0 man asking 170 costs 205.70.
+ */
+test("cheapest means what it costs us, not what he asks", async () => {
+  const { shop } = offerShop([
+    offer({ id: "1", seller_id: "SE-LOOKS-CHEAP", selling_price_suggested: 170, vat_type: "VAT0" }),
+    offer({ id: "2", seller_id: "SE-REALLY-CHEAP", selling_price_suggested: 180, vat_type: "Margin" })
+  ]);
+
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200 });
+
+  assert.equal(out.seller_id, "SE-REALLY-CHEAP");
+});
+
+test("a filter that leaves everyone out refuses before anything is made", async () => {
+  const { shop, created } = offerShop([
+    offer({ id: "1", vat_type: "VAT21" }),
+    offer({ id: "2", vat_type: "VAT0", seller_id: "SE-B" })
+  ]);
+
+  await assert.rejects(
+    shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200, filter: "margin" }),
+    /Nobody holding FV5029-141 44 is inside Margin Only/
+  );
+
+  assert.equal(created.length, 0);
+});
+
+test("the filter decides who counts, so a B2B round ignores the cheaper margin man", async () => {
+  const { shop, created } = offerShop([
+    offer({ id: "1", seller_id: "SE-MARGIN", selling_price_suggested: 150, vat_type: "Margin" }),
+    offer({ id: "2", seller_id: "SE-B2B", selling_price_suggested: 190, vat_type: "VAT21" })
+  ]);
+
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200, filter: "b2b" });
+
+  assert.equal(out.seller_id, "SE-B2B");
+  assert.equal(out.consignors, 1);
+  assert.equal(created[0].fields["Buying Inventory Filter"], "B2B Only");
 });

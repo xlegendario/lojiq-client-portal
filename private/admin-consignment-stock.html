@@ -411,10 +411,11 @@
               <th class="money">Qty</th>
               <th class="money">Sources</th>
               <th class="date">Added</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="10">Loading…</td></tr>
+            <tr><td class="empty" colspan="11">Loading…</td></tr>
           </tbody>
         </table>
         <div class="sentinel" id="sentinel" aria-hidden="true"></div>
@@ -616,7 +617,6 @@
                   <th>VAT</th>
                   <th class="money">Costs us</th>
                   <th class="money">Qty</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -632,7 +632,6 @@
                     <td><span class="pill ${VAT_PILL[h.vat_type] ?? ""}">${esc(h.vat_type || "—")}</span></td>
                     <td class="money"><strong>${esc(money(h.compare))}</strong></td>
                     <td class="money">${h.quantity}</td>
-                    <td><button class="btn" type="button" data-offer="${esc(h.id)}">Offer</button></td>
                   </tr>`).join("")}
               </tbody>
             </table>
@@ -649,23 +648,24 @@
      * decision. The payout starts at what he asks: offering less is a choice
      * you make on purpose, not the default.
      */
-    function drawOffer(holder) {
+    function drawOffer(pair) {
       const box = $("offerBox");
-      box.hidden = !holder;
+      box.hidden = !pair;
 
-      if (!holder) return;
+      if (!pair) return;
 
       const filter = FILTER_NAMES[state.view] || FILTER_NAMES.all;
+      const reach = `${pair.consignors} ${pair.consignors === 1 ? "consignor" : "consignors"} in ${filter}`;
 
       box.innerHTML = `
-        <h3>Offer to ${esc(holder.party || holder.seller_id)}</h3>
+        <h3>Offer on ${esc(pair.sku)} ${esc(pair.size)}</h3>
         <dl class="meta">
           <div><dt>Buyer pays</dt><dd><input class="input" id="offerBuyer" type="number" min="0" step="0.01" inputmode="decimal"></dd></div>
-          <div><dt>Payout</dt><dd><input class="input" id="offerPayout" type="number" min="0" step="0.01" inputmode="decimal" value="${holder.ask}"></dd></div>
+          <div><dt>Payout</dt><dd><input class="input" id="offerPayout" type="number" min="0" step="0.01" inputmode="decimal" value="${pair.ask}"></dd></div>
           <div><dt>Your margin</dt><dd id="offerMargin">—</dd></div>
-          <div><dt>Looking at</dt><dd>${esc(filter)}</dd></div>
+          <div><dt>Goes to</dt><dd>${esc(reach)}</dd></div>
         </dl>
-        <p class="group-todo" id="offerNote">He is asked for the lower of your payout and his own ${esc(money(holder.ask))}.</p>
+        <p class="group-todo" id="offerNote"></p>
         <div class="panel-actions" style="padding:0;border:0">
           <button class="btn primary" type="button" id="sendOffer">Send the offer</button>
           <button class="btn ghost" type="button" id="cancelOffer">Cancel</button>
@@ -678,8 +678,15 @@
 
         $("offerMargin").textContent = buyer > 0 && payout > 0 ? money(margin) : "—";
         $("offerMargin").style.color = margin < 0 ? "var(--bad-text)" : "";
+        /*
+         * Which consignor hears it is the portal's choice, not ours: it
+         * keeps whoever the filter allows and takes the cheapest. So this
+         * names the one it would land on as the stock stands, rather than
+         * promising a man who might be undercut between now and sending.
+         */
         $("offerNote").textContent =
-          `He is asked for ${money(Math.min(payout || holder.ask, holder.ask))} - the lower of your payout and his own ${money(holder.ask)}.`;
+          `Goes to the cheapest of them - ${pair.party || pair.seller_id} as it stands, ` +
+          `for ${money(Math.min(payout || pair.ask, pair.ask))}.`;
       };
 
       $("offerBuyer").addEventListener("input", redraw);
@@ -699,7 +706,8 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              id: holder.id,
+              sku: pair.sku,
+              size: pair.size,
               buyer_price: Number($("offerBuyer").value),
               payout: Number($("offerPayout").value),
               filter: state.view
@@ -730,7 +738,7 @@
       $("sentinel").hidden = state.totals.shown >= state.totals.units;
 
       if (!units.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${state.q ? "Nobody is holding this." : "Nothing here."}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${state.q ? "Nobody is holding this." : "Nothing here."}</td></tr>`;
         return;
       }
 
@@ -758,6 +766,7 @@
           <td class="money">${u.quantity}</td>
           <td class="money">${u.consignors}</td>
           <td class="date">${esc(day(u.added_at))}</td>
+          <td><button class="btn" type="button" data-offer="${esc(u.key)}">Offer</button></td>
         </tr>`).join("");
     }
 
@@ -775,11 +784,11 @@
         drawTabs();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${esc(err.message)}</td></tr>`;
       }
     }
 
-    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="10">Looking…</td></tr>`; };
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="11">Looking…</td></tr>`; };
 
     $("tabs").addEventListener("click", (event) => {
       const tab = event.target.closest(".tab");
@@ -824,15 +833,10 @@
 
       state.pair = state.units.find((u) => u.key === row.dataset.pair) || null;
       drawPair();
-      drawOffer(null);
+      // Offer opens the pair as well, so you can see who has it while you
+      // decide; any other click is only a look.
+      drawOffer(event.target.closest("[data-offer]") ? state.pair : null);
       drawList();
-    });
-
-    $("panelBody").addEventListener("click", (event) => {
-      const button = event.target.closest("[data-offer]");
-      if (!button) return;
-
-      drawOffer(state.pair?.holders.find((h) => h.id === button.dataset.offer) || null);
     });
 
     $("closePanel").addEventListener("click", () => {
