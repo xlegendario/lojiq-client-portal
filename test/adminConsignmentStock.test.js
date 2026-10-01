@@ -383,18 +383,6 @@ test("an offer makes a partner-run want-to-buy and asks the KC portal to run it"
 });
 
 /*
- * Never more than he asked for. The machinery caps it too, but the screen
- * says what will happen and that number has to be the same one.
- */
-test("the offer shown is capped at what the consignor asks", async () => {
-  const { shop } = offerShop([offer({ selling_price_suggested: 150 })]);
-  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170 });
-
-  assert.equal(out.asks, 150);
-  assert.equal(out.offered, 150);
-});
-
-/*
  * Picking Margin Only and then offering a VAT21 consignor would send out the
  * promise the filter was there to prevent.
  */
@@ -467,11 +455,11 @@ test("the offer names the cheapest inside the filter, not whoever was clicked", 
     offer({ id: "3", seller_id: "SE-OTHER-SIZE", size: "45", selling_price_suggested: 100 })
   ]);
 
-  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200 });
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 160 });
 
   assert.equal(out.seller_id, "SE-CHEAPEST");
   assert.equal(out.asks, 165);
-  assert.equal(out.offered, 165, "never more than he wanted");
+  assert.equal(out.offered, 160, "never more than the budget");
   assert.equal(out.consignors, 2, "the other size is a different pair");
   assert.equal(created[0].fields.SKU, "FV5029-141");
 });
@@ -486,7 +474,7 @@ test("cheapest means what it costs us, not what he asks", async () => {
     offer({ id: "2", seller_id: "SE-REALLY-CHEAP", selling_price_suggested: 180, vat_type: "Margin" })
   ]);
 
-  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200 });
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 170 });
 
   assert.equal(out.seller_id, "SE-REALLY-CHEAP");
 });
@@ -511,7 +499,7 @@ test("the filter decides who counts, so a B2B round ignores the cheaper margin m
     offer({ id: "2", seller_id: "SE-B2B", selling_price_suggested: 190, vat_type: "VAT21" })
   ]);
 
-  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200, filter: "b2b" });
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 180, filter: "b2b" });
 
   assert.equal(out.seller_id, "SE-B2B");
   assert.equal(out.consignors, 1);
@@ -540,4 +528,24 @@ test("a pair carries how many consignors each filter would reach", async () => {
 
   const other = (await shop.list({ view: "margin" })).units.find((p) => p.size === "45");
   assert.deepEqual(other.by_filter, { all: 1, margin: 1, b2b: 0 });
+});
+
+/*
+ * The round goes to the cheapest man inside the filter and he is offered the
+ * lower of the budget and his own price, so anything above his ask buys
+ * nothing. A payout of 200 against an ask of 170 is a typo, not a plan.
+ */
+test("a payout above what he asks is refused, not quietly capped", async () => {
+  const { shop, created } = offerShop([offer({ selling_price_suggested: 170 })]);
+
+  await assert.rejects(
+    shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 200 }),
+    /asking 170; offering 200 would only ever pay him his own price/
+  );
+
+  assert.equal(created.length, 0);
+
+  // His own price exactly is fine: that is simply taking the listing.
+  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 250, payout: 170 });
+  assert.equal(out.offered, 170);
 });

@@ -708,7 +708,16 @@
 
         // Nothing is sent until there are two real numbers and somebody
         // to send it to.
-        $("sendOffer").disabled = !(buyer > 0 && payout > 0 && reach > 0);
+        // Above his ask the extra buys nothing: he is offered the lower
+        // of the two, so it would stand there as a number that never was.
+        const tooMuch = filter === state.view && payout > pair.ask;
+
+        if (tooMuch) {
+          $("offerNote").textContent =
+            `${pair.party || pair.seller_id} is asking ${money(pair.ask)} - offering more only ever pays him that.`;
+        }
+
+        $("sendOffer").disabled = !(buyer > 0 && payout > 0 && reach > 0) || tooMuch;
       };
 
       $("offerBuyer").addEventListener("input", redraw);

@@ -426,6 +426,21 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
 
     const likely = allowed[0];
 
+    /*
+     * Never offer more than he is asking.
+     *
+     * The round goes to the cheapest man inside the filter and he is offered
+     * the lower of the budget and his own price, so anything above his ask
+     * buys nothing - it just stands on the want-to-buy as a number that
+     * never happened. Refused rather than silently capped, because a payout
+     * of 200 against an ask of 170 is a typo, not an intention.
+     */
+    if (owed > likely.ask) {
+      throw new ConsignmentStockError(
+        `${likely.seller_id} is asking ${round2(likely.ask)}; offering ${round2(owed)} would only ever pay him his own price.`
+      );
+    }
+
     const wtb = await airtable.create("Member WTBs", wantToBuyFields({
       pair: likely,
       buyerPrice: buyer,
