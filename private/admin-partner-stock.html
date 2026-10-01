@@ -501,7 +501,8 @@
       $("navWarehouse").innerHTML =
         `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
         `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
-        `<a class="nav-item active" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>`;
+        `<a class="nav-item active" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
+        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Inbound Scans · Lojiq Admin</title>
+  <title>Consignment Stock · Lojiq Admin</title>
   <link rel="icon" href="/favicon.png">
   <script>
     try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
@@ -242,7 +242,81 @@
      */
     .panel-body table { width: 100%; }
     .panel-body td { white-space: normal; vertical-align: top; }
-    .panel-body .line-what span { overflow-wrap: anywhere; }
+
+    /* Inventory: the view tabs and the reasons a pair is held back. */
+    .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; }
+    .tab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .tab:hover { color: var(--strong); background: var(--primary-tint); }
+    .tab[aria-selected="true"] { border-color: transparent; background: var(--primary-tint); color: var(--primary-soft); }
+    .tab small { font-variant-numeric: tabular-nums; font-weight: 600; opacity: 0.8; }
+
+    /*
+     * The reasons wrap instead of widening the table. Without a width of
+     * their own "Already shipped on order 11629" pushed the column off the
+     * screen and the sentence was cut in half, which is the half that says
+     * where to go and look.
+     */
+    table:not(.with-why) .col-why { display: none; }
+
+    .why { display: flex; flex-direction: column; gap: 3px; white-space: normal; min-width: 210px; max-width: 340px; }
+    .why span { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+    .why .block { color: var(--bad-text); }
+    .why .note { color: var(--muted); }
+
+    /*
+     * Status, and underneath it where the pair lies if that is not here.
+     * Stacked rather than left to flow: side by side the column grew to the
+     * width of both pills together on the few rows that have a location.
+     *
+     * The stacking goes on a box INSIDE the cell. Putting display:flex on
+     * the td itself takes it out of display:table-cell, so the cell stops
+     * lining up with its own row - in light mode that showed as a white
+     * block sitting half a row low behind every status.
+     */
+    td.kind { color: var(--muted); white-space: nowrap; }
+
+    td.date, th.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* The one header that needs explaining carries its own note on hover. */
+    th[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+    .where { white-space: normal; }
+    /*
+     * Side by side, never stacked: a second badge underneath made that row
+     * taller than the ones around it. nowrap keeps it on one line, and the
+     * column sizes itself to the widest pair - both values here are short.
+     */
+    .where .stack { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+
+    /*
+     * One line each, cut off rather than wrapped.
+     *
+     * A product name that wrapped made its row taller than the ones around
+     * it, so the table stepped up and down with the length of a shoe's
+     * name. The whole name is on the cell's title attribute, so nothing is
+     * lost - it is one hover away.
+     */
+    .what { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 340px; }
+    .what strong, .what .sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .what strong { font-weight: 700; color: var(--strong); }
+
+    /*
+     * Search sits above the tabs, the way Store Orders has it, so the row
+     * under them is free for the buttons and filters that come later.
+     */
+    .searchbar { display: flex; }
+    .searchbar .input { flex: 1; max-width: 520px; }
+
+    /* The check groups above the table, one per kind of disagreement. */
+    .groups { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; }
+    .group { display: flex; flex-direction: column; gap: 1px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: none; cursor: pointer; text-align: left; min-width: 150px; }
+    .group:hover { background: var(--primary-tint); }
+    .group[aria-pressed="true"] { border-color: transparent; background: var(--primary-tint); }
+    .group b { font-size: 12px; color: var(--strong); font-weight: 700; }
+    .group span { font-size: 11px; color: var(--muted); }
+    .group[aria-pressed="true"] b { color: var(--primary-soft); }
+    .group-todo { margin: 0; font-size: 12px; color: var(--muted); }
+    .group-todo strong { color: var(--strong); }
   </style>
 </head>
 <body>
@@ -281,9 +355,7 @@
       </div>
 
       <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
-      <div class="nav-group" id="navWarehouse" hidden>
-        <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
-      </div>
+      <div class="nav-group" id="navWarehouse" hidden></div>
 
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName">…</strong></span>
@@ -295,16 +367,20 @@
     <main class="content">
       <div class="heading">
         <span class="crumb">Warehouse</span>
-        <h1>Inbound Scans</h1>
+        <h1>Consignment Stock</h1>
       </div>
 
-      <p class="sub" style="margin:0;max-width:780px">
-        What came out of every parcel that was scanned in the warehouse, by tracking number: a partner's pairs from his
-        shelf and everything else from Incoming Stock. Open one to check it against the packing slip.
-      </p>
+      <div class="searchbar">
+        <input class="input" id="search" type="search" placeholder="SKU, product, size or consignor…" autocomplete="off" aria-label="Search consignment stock">
+      </div>
+
+      <div class="tabs" id="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" data-view="all" aria-selected="false">All <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="margin" aria-selected="false">Margin only <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="b2b" aria-selected="false">B2B only <small></small></button>
+      </div>
 
       <div class="filters">
-        <input class="input" id="search" type="search" placeholder="Tracking number, SKU or seller…" autocomplete="off">
         <span class="count" id="count"></span>
       </div>
 
@@ -312,33 +388,23 @@
         <table>
           <thead>
             <tr>
-              <th>Parcel</th>
-              <th>Scanned</th>
-              <th>From</th>
-              <th>Type</th>
-              <th class="money">Pairs</th>
-              <th class="money">SKUs</th>
-              <th class="money">Partner value</th>
-              <th>Since then</th>
+              <th>Product</th>
+              <th>Size</th>
+              <th>Consignor</th>
+              <th class="money">Asks</th>
+              <th>VAT type</th>
+              <th class="money" title="What the pair really costs us once the consignor's VAT scheme is counted in. A VAT0 consignor asking 100 costs 121, so this is the number to compare on.">Costs us</th>
+              <th class="money">Qty</th>
+              <th>Also at</th>
+              <th class="date">Added</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="8">Loading…</td></tr>
+            <tr><td class="empty" colspan="9">Loading…</td></tr>
           </tbody>
         </table>
       </div>
     </main>
-  </div>
-
-  <div class="panel" id="panel" hidden aria-label="Parcel">
-    <div class="panel-head">
-      <h2 id="panelTitle">Parcel</h2>
-      <button class="btn ghost" type="button" id="closePanel" aria-label="Close">✕</button>
-    </div>
-    <div class="panel-actions">
-      <button class="btn" type="button" id="copyTracking">Copy tracking number</button>
-    </div>
-    <div class="panel-body" id="panelBody"></div>
   </div>
 
   <div class="toast" id="toast" hidden role="status"></div>
@@ -348,11 +414,25 @@
     const esc = (value) => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
-    const state = { parcels: [], totals: { parcels: 0, pairs: 0, value: 0 }, parcel: null, q: "" };
+    const VIEWS = ["all", "margin", "b2b"];
+
+    function startingView() {
+      const asked = new URLSearchParams(location.search).get("view");
+      return VIEWS.includes(asked) ? asked : "all";
+    }
+
+    const state = {
+      units: [],
+      counts: {},
+      totals: { units: 0, shown: 0, pairs: 0, consignors: 0, cheapest: 0 },
+      view: startingView(),
+      q: ""
+    };
 
     async function api(url, options = {}) {
       const response = await fetch(url, { credentials: "same-origin", ...options });
@@ -424,10 +504,10 @@
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       $("navWarehouse").innerHTML =
-        `<a class="nav-item active" href="/admin/inbound-scans">Inbound Scans</a>` +
+        `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
         `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
         `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
-        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;
+        `<a class="nav-item active" href="/admin/consignment-stock">Consignment Stock</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
@@ -454,177 +534,106 @@
       drawNavSections();
     });
 
-    /* ---------------- the parcels ---------------- */
+    /* ---------------- the stock ---------------- */
 
-    const SOURCE = {
-      partner: ["Partner stock", "good"],
-      warehouse: ["Incoming Stock", ""]
-    };
+    const VAT_PILL = { Margin: "good", VAT0: "wait", VAT21: "move" };
 
-    function sinceThen(p) {
-      if (p.source !== "partner") return p.status ? `<span class="pill">${esc(p.status)}</span>` : "—";
-
-      return [
-        p.in_stock ? `<span class="pill good">${p.in_stock} in stock</span>` : "",
-        p.sold ? `<span class="pill">${p.sold} sold</span>` : "",
-        p.forwarded ? `<span class="pill">${p.forwarded} forwarded</span>` : ""
-      ].filter(Boolean).join(" ") || "—";
+    function drawTabs() {
+      for (const tab of document.querySelectorAll("#tabs .tab")) {
+        const view = tab.dataset.view;
+        tab.setAttribute("aria-selected", String(view === state.view));
+        const n = state.counts[view];
+        tab.querySelector("small").textContent = typeof n === "number" ? String(n) : "";
+      }
     }
 
     function drawList() {
-      const parcels = state.parcels;
-      $("count").textContent = parcels.length
-        ? `${parcels.length} parcel${parcels.length === 1 ? "" : "s"} · ${state.totals.pairs} pairs`
+      const units = state.units;
+
+      $("count").textContent = state.totals.units
+        ? `${state.totals.units} offer${state.totals.units === 1 ? "" : "s"} · ${state.totals.pairs} different pair${state.totals.pairs === 1 ? "" : "s"} · ${state.totals.consignors} consignors` +
+          (state.q && state.totals.cheapest ? ` · cheapest ${money(state.totals.cheapest)}` : "") +
+          (state.totals.shown < state.totals.units ? ` · showing ${state.totals.shown}` : "")
         : "";
 
-      if (!parcels.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">${state.q ? "Nothing scanned under that." : "Nothing scanned yet."}</td></tr>`;
+      if (!units.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${state.q ? "Nobody is holding this." : "Nothing here."}</td></tr>`;
         return;
       }
 
-      $("rows").innerHTML = parcels.map((p) => `
-        <tr data-tracking="${esc(p.tracking)}"${state.parcel?.tracking === p.tracking ? ' class="selected"' : ""}>
-          <td class="id">${esc(p.tracking)}</td>
-          <td>${esc(day(p.received_at))}</td>
-          <td>${esc(p.party || p.seller_id || "—")}</td>
-          <td><span class="pill ${SOURCE[p.source]?.[1] || ""}">${esc(p.type || SOURCE[p.source]?.[0] || "—")}</span></td>
-          <td class="money">${p.pairs}</td>
-          <td class="money">${p.skus}</td>
-          <td class="money">${p.value > 0 ? esc(money(p.value)) : "—"}</td>
-          <td>${sinceThen(p)}</td>
-        </tr>`).join("");
-    }
-
-    $("rows").addEventListener("click", (event) => {
-      const row = event.target.closest("tr[data-tracking]");
-      if (row) openParcel(row.dataset.tracking);
-    });
-
-    /* ---------------- one parcel ---------------- */
-
-    function lineRow(line, source) {
-      const what = [line.product_name, line.barcode].filter(Boolean).join(" · ");
-      const became = source === "partner"
-        ? [
-            line.in_stock ? `${line.in_stock} in stock` : "",
-            line.sold ? `${line.sold} sold${line.refs.length ? ` (${line.refs.map(esc).join(", ")})` : ""}` : "",
-            line.forwarded ? `${line.forwarded} forwarded` : ""
-          ].filter(Boolean).join(" · ")
-        : esc(line.status || "");
-
-      return `
+      $("rows").innerHTML = units.map((u) => `
         <tr>
           <td>
-            <div class="line-what">
-              <span>${esc(line.sku || "—")}${line.size ? ` · size ${esc(line.size)}` : ""}</span>
-              ${what ? `<span class="sub">${esc(what)}</span>` : ""}
+            <div class="what" title="${esc([u.product_name, u.sku].filter(Boolean).join(" · "))}">
+              <strong>${esc(u.product_name || "—")}</strong>
+              <span class="sub">${esc(u.sku || "no SKU")}${u.brand ? ` · ${esc(u.brand)}` : ""}</span>
             </div>
           </td>
-          <td class="money">${line.quantity}</td>
-          <td class="money">
-            ${line.partner_price === null || line.partner_price === undefined ? "—" : esc(money(line.partner_price))}
-            ${line.markup ? `<div class="sub">+ ${esc(money(line.markup))} markup</div>` : ""}
+          <td>${esc(u.size || "—")}</td>
+          <td class="where">
+            <div class="stack">
+              <span class="id">${esc(u.party || u.seller_id || "—")}</span>
+              ${u.partner ? `<span class="pill move" title="A partner pair: this is already on our own shelf, no parcel has to come from anywhere.">on our shelf</span>` : ""}
+            </div>
           </td>
-          <td>${became || "—"}</td>
-        </tr>`;
+          <td class="money">${u.ask > 0 ? esc(money(u.ask)) : "—"}</td>
+          <td><span class="pill ${VAT_PILL[u.vat_type] ?? ""}">${esc(u.vat_type || "—")}</span></td>
+          <td class="money"><strong>${u.compare > 0 ? esc(money(u.compare)) : "—"}</strong></td>
+          <td class="money">${u.quantity}</td>
+          <td class="sub">${u.alternatives ? `${u.alternatives} more ${u.alternatives === 1 ? "consignor" : "consignors"}` : "—"}</td>
+          <td class="date">${esc(day(u.added_at))}</td>
+        </tr>`).join("");
     }
-
-    function drawParcel(parcel) {
-      $("panelTitle").textContent = parcel.tracking;
-
-      $("panelBody").innerHTML = `
-        <section class="sec">
-          <dl class="meta">
-            <div><dt>Scanned</dt><dd>${esc(day(parcel.received_at))}</dd></div>
-            <div><dt>From</dt><dd>${esc(parcel.party || "—")}${parcel.seller_id ? ` <span class="sub">${esc(parcel.seller_id)}</span>` : ""}</dd></div>
-            <div><dt>Type</dt><dd>${esc(parcel.type || SOURCE[parcel.source]?.[0] || "—")}</dd></div>
-            <div><dt>In the box</dt><dd><strong>${parcel.pairs}</strong> pair${parcel.pairs === 1 ? "" : "s"} over ${parcel.skus} SKU${parcel.skus === 1 ? "" : "s"}</dd></div>
-            ${parcel.value > 0 ? `<div><dt>Partner value</dt><dd>${esc(money(parcel.value))}</dd></div>` : ""}
-          </dl>
-        </section>
-
-        <section class="sec">
-          <h3>What was in it</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th class="money">Pairs</th>
-                  <th class="money">Partner €</th>
-                  <th>Since then</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${parcel.lines.length
-                  ? parcel.lines.map((line) => lineRow(line, parcel.source)).join("")
-                  : `<tr><td class="empty" colspan="4">Received, but nothing was scanned into it yet.</td></tr>`}
-              </tbody>
-            </table>
-          </div>
-        </section>`;
-
-      $("panel").hidden = false;
-    }
-
-    async function openParcel(tracking) {
-      try {
-        const { parcel } = await api(`/api/admin/inbound-scans/get?tracking=${encodeURIComponent(tracking)}`);
-        state.parcel = parcel;
-        drawList();
-        drawParcel(parcel);
-      } catch (err) {
-        toast(err.message);
-      }
-    }
-
-    $("closePanel").addEventListener("click", () => {
-      $("panel").hidden = true;
-      state.parcel = null;
-      drawList();
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !$("panel").hidden) $("closePanel").click();
-    });
-
-    $("copyTracking").addEventListener("click", async () => {
-      if (!state.parcel) return;
-      try {
-        await navigator.clipboard.writeText(state.parcel.tracking);
-        toast("Tracking number copied.");
-      } catch {
-        toast("Could not copy it here.");
-      }
-    });
 
     /* ---------------- loading ---------------- */
 
     async function load() {
       try {
-        const data = await api(`/api/admin/inbound-scans${state.q ? `?q=${encodeURIComponent(state.q)}` : ""}`);
-        state.parcels = data.parcels || [];
-        state.totals = data.totals || { parcels: 0, pairs: 0, value: 0 };
+        const query = new URLSearchParams({ view: state.view });
+        if (state.q) query.set("q", state.q);
+
+        const data = await api(`/api/admin/consignment-stock?${query}`);
+        state.units = data.units || [];
+        state.counts = data.counts || state.counts;
+        state.totals = data.totals || state.totals;
+        drawTabs();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${esc(err.message)}</td></tr>`;
       }
     }
 
-    // A search waits for the typing to stop: every parcel is one request.
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="9">Looking…</td></tr>`; };
+
+    $("tabs").addEventListener("click", (event) => {
+      const tab = event.target.closest(".tab");
+      if (!tab || tab.dataset.view === state.view) return;
+
+      state.view = tab.dataset.view;
+      drawTabs();
+      looking();
+
+      const url = new URL(location.href);
+      url.searchParams.set("view", state.view);
+      history.replaceState(null, "", url);
+
+      load();
+    });
+
     let searchTimer = null;
 
     $("search").addEventListener("input", () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
         state.q = $("search").value.trim();
-        $("rows").innerHTML = `<tr><td class="empty" colspan="8">Looking…</td></tr>`;
+        looking();
         load();
       }, 350);
     });
 
     drawNavSections();
     drawOtherSections([]);
+    drawTabs();
     load();
     loadNavCounts();
 
@@ -653,12 +662,6 @@
       location.href = "/admin";
     });
 
-    /*
-     * The sidebar gets its Store Orders and Member WTBs entries from here.
-     * Without it those two sections opened onto nothing, which reads as a
-     * dead button - they are the only groups the page does not know by
-     * heart.
-     */
     api("/api/admin/me")
       .then((me) => {
         $("userName").textContent = me.user?.name || me.user?.email || "";
