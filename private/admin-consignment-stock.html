@@ -654,16 +654,19 @@
 
       if (!pair) return;
 
-      const filter = FILTER_NAMES[state.view] || FILTER_NAMES.all;
-      const reach = `${pair.consignors} ${pair.consignors === 1 ? "consignor" : "consignors"} in ${filter}`;
-
       box.innerHTML = `
         <h3>Offer on ${esc(pair.sku)} ${esc(pair.size)}</h3>
         <dl class="meta">
           <div><dt>Buyer pays</dt><dd><input class="input" id="offerBuyer" type="number" min="0" step="0.01" inputmode="decimal"></dd></div>
           <div><dt>Payout</dt><dd><input class="input" id="offerPayout" type="number" min="0" step="0.01" inputmode="decimal" value="${pair.ask}"></dd></div>
           <div><dt>Your margin</dt><dd id="offerMargin">—</dd></div>
-          <div><dt>Goes to</dt><dd>${esc(reach)}</dd></div>
+          <div><dt>Goes to</dt><dd>
+            <select class="select" id="offerFilter">
+              ${Object.entries(FILTER_NAMES).map(([key, name]) =>
+                `<option value="${esc(key)}"${key === state.view ? " selected" : ""}>${esc(name)}</option>`).join("")}
+            </select>
+            <span class="sub" id="offerReach"></span>
+          </dd></div>
         </dl>
         <p class="group-todo" id="offerNote"></p>
         <div class="panel-actions" style="padding:0;border:0">
@@ -675,6 +678,8 @@
         const buyer = Number($("offerBuyer").value);
         const payout = Number($("offerPayout").value);
         const margin = buyer - payout;
+        const filter = $("offerFilter").value;
+        const reach = pair.by_filter?.[filter] ?? 0;
 
         $("offerMargin").textContent = buyer > 0 && payout > 0 ? money(margin) : "—";
         $("offerMargin").style.color = margin < 0 ? "var(--bad-text)" : "";
@@ -684,13 +689,31 @@
          * names the one it would land on as the stock stands, rather than
          * promising a man who might be undercut between now and sending.
          */
-        $("offerNote").textContent =
-          `Goes to the cheapest of them - ${pair.party || pair.seller_id} as it stands, ` +
-          `for ${money(Math.min(payout || pair.ask, pair.ask))}.`;
+        $("offerReach").textContent = reach
+          ? `${reach} ${reach === 1 ? "consignor" : "consignors"}`
+          : "nobody";
+
+        /*
+         * Who hears it is the portal's choice, not ours: it keeps whoever
+         * the filter allows and takes the cheapest. On the filter this
+         * page is showing we know who that is; on another we do not, so
+         * it says what will happen instead of naming the wrong man.
+         */
+        $("offerNote").textContent = !reach
+          ? `Nobody holding this pair is inside ${FILTER_NAMES[filter]}.`
+          : filter === state.view
+            ? `Goes to the cheapest of them - ${pair.party || pair.seller_id} as it stands, ` +
+              `for ${money(Math.min(payout || pair.ask, pair.ask))}.`
+            : `Goes to the cheapest of them, for at most ${money(payout || pair.ask)}.`;
+
+        // Nothing is sent until there are two real numbers and somebody
+        // to send it to.
+        $("sendOffer").disabled = !(buyer > 0 && payout > 0 && reach > 0);
       };
 
       $("offerBuyer").addEventListener("input", redraw);
       $("offerPayout").addEventListener("input", redraw);
+      $("offerFilter").addEventListener("change", redraw);
       $("offerBuyer").focus();
       redraw();
 
@@ -710,7 +733,7 @@
               size: pair.size,
               buyer_price: Number($("offerBuyer").value),
               payout: Number($("offerPayout").value),
-              filter: state.view
+              filter: $("offerFilter").value
             })
           });
 

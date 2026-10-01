@@ -302,6 +302,29 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
     const pairs = groupRows(chosen);
 
     /*
+     * How many consignors each pair has under EACH filter, counted over the
+     * whole stock rather than over this tab.
+     *
+     * The list is grouped after the tab's filter, so a line on Margin Only
+     * knows nothing about the B2B men holding the same shoe. The offer form
+     * lets you switch filter without leaving the page, and it has to be able
+     * to say what that would reach.
+     */
+    const reach = new Map();
+
+    for (const row of all) {
+      const key = `${row.sku}|${row.size}`;
+      if (!reach.has(key)) reach.set(key, { all: 0, margin: 0, b2b: 0 });
+
+      const counts = reach.get(key);
+      for (const [name, types] of Object.entries(VAT_FILTERS)) {
+        if (types.includes(row.vat_type)) counts[name] += 1;
+      }
+    }
+
+    for (const pair of pairs) pair.by_filter = reach.get(pair.key) || { all: 0, margin: 0, b2b: 0 };
+
+    /*
      * Cheapest first, because that is the man to ask - but a pair whose SIZE
      * matches leads whatever it costs. Searching "44" otherwise turned up
      * cheap pairs in other sizes, because "HQ4409" contains a 44 too.

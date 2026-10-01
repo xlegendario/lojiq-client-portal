@@ -517,3 +517,27 @@ test("the filter decides who counts, so a B2B round ignores the cheaper margin m
   assert.equal(out.consignors, 1);
   assert.equal(created[0].fields["Buying Inventory Filter"], "B2B Only");
 });
+
+/*
+ * The list is grouped after the tab's filter, so a line on Margin Only knows
+ * nothing about the B2B men holding the same shoe. The offer form lets you
+ * switch filter without leaving the page, and has to be able to say what
+ * that would reach.
+ */
+test("a pair carries how many consignors each filter would reach", async () => {
+  const shop = store([
+    offer({ id: "1", vat_type: "Margin" }),
+    offer({ id: "2", vat_type: "Margin", seller_id: "SE-B" }),
+    offer({ id: "3", vat_type: "VAT0", seller_id: "SE-C" }),
+    offer({ id: "4", vat_type: "VAT21", seller_id: "SE-D" }),
+    offer({ id: "5", vat_type: "Margin", size: "45" })
+  ]);
+
+  const onMargin = (await shop.list({ view: "margin" })).units.find((p) => p.size === "44");
+
+  assert.equal(onMargin.consignors, 2, "the line itself is what this tab shows");
+  assert.deepEqual(onMargin.by_filter, { all: 4, margin: 2, b2b: 2 }, "and this is what the others would reach");
+
+  const other = (await shop.list({ view: "margin" })).units.find((p) => p.size === "45");
+  assert.deepEqual(other.by_filter, { all: 1, margin: 1, b2b: 0 });
+});
