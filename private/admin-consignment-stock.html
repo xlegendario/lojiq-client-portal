@@ -275,6 +275,9 @@
      */
     tbody tr[data-pair] { cursor: pointer; }
 
+    /* Where the next page is asked for; see the observer below. */
+    .sentinel { height: 1px; }
+
     .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
     /* Not "empty": that class is the padded "nothing here" cell, and its
        40px of padding stretched the placeholder to twice the row height. */
@@ -388,7 +391,6 @@
       </div>
 
       <div class="filters">
-        <button class="btn ghost" id="showMore" type="button" hidden>Show more</button>
         <span class="count" id="count"></span>
       </div>
 
@@ -404,7 +406,7 @@
               <th>VAT type</th>
               <th class="money" title="What the pair really costs us once the consignor's VAT scheme is counted in. A VAT0 consignor asking 100 costs 121, so this is the number to compare on.">Costs us</th>
               <th class="money">Qty</th>
-              <th>Consignors</th>
+              <th class="money">Sources</th>
               <th class="date">Added</th>
             </tr>
           </thead>
@@ -412,6 +414,7 @@
             <tr><td class="empty" colspan="10">Loading…</td></tr>
           </tbody>
         </table>
+        <div class="sentinel" id="sentinel" aria-hidden="true"></div>
       </div>
     </main>
   </div>
@@ -636,8 +639,7 @@
           (state.totals.shown < state.totals.units ? ` · showing ${state.totals.shown}` : "")
         : "";
 
-      $("showMore").hidden = state.totals.shown >= state.totals.units;
-      $("showMore").textContent = `Show ${Math.min(PAGE, state.totals.units - state.totals.shown)} more`;
+      $("sentinel").hidden = state.totals.shown >= state.totals.units;
 
       if (!units.length) {
         $("rows").innerHTML = `<tr><td class="empty" colspan="10">${state.q ? "Nobody is holding this." : "Nothing here."}</td></tr>`;
@@ -666,7 +668,7 @@
           <td><span class="pill ${VAT_PILL[u.vat_type] ?? ""}">${esc(u.vat_type || "—")}</span></td>
           <td class="money"><strong>${u.compare > 0 ? esc(money(u.compare)) : "—"}</strong></td>
           <td class="money">${u.quantity}</td>
-          <td class="sub">${u.alternatives ? `${u.alternatives} more` : "only this one"}</td>
+          <td class="money">${u.consignors}</td>
           <td class="date">${esc(day(u.added_at))}</td>
         </tr>`).join("");
     }
@@ -709,10 +711,24 @@
       load();
     });
 
-    $("showMore").addEventListener("click", () => {
+    /*
+     * The next page loads when you scroll to the end of this one.
+     *
+     * The sentinel sits INSIDE the table box, because that is what
+     * scrolls here - the page itself never does. Watching the viewport
+     * instead would see a sentinel that never moves.
+     */
+    let loadingMore = false;
+
+    new IntersectionObserver(async (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (loadingMore || state.totals.shown >= state.totals.units) return;
+
+      loadingMore = true;
       state.limit += PAGE;
-      load();
-    });
+      await load();
+      loadingMore = false;
+    }, { root: document.querySelector(".table-wrap"), rootMargin: "600px" }).observe($("sentinel"));
 
     $("rows").addEventListener("click", (event) => {
       const row = event.target.closest("tr[data-pair]");
