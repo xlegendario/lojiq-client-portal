@@ -31,7 +31,14 @@ const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 export const STATES = {
   open: { say: "Waiting for him", yours: false },
   store_pending: { say: "He countered", yours: true },
-  accepted: { say: "Confirmed", yours: false },
+  /*
+   * His yes, and nothing booked yet. The buying side is settled and the
+   * selling side is not: the partner closes with his buyer and finishes
+   * it, and until he does there is no unit and no invoice line.
+   */
+  partner_agreed: { say: "Agreed, not closed", yours: true, closable: true },
+  processing: { say: "Closing…", yours: false },
+  accepted: { say: "Done", yours: false },
   denied: { say: "He declined", yours: false },
   store_denied: { say: "You declined", yours: false },
   closed: { say: "Closed", yours: false },
@@ -89,6 +96,8 @@ export function dealRow(offer, wtb = {}) {
     state: state.say,
     // Whether the partner is the one holding this up.
     yours: state.yours,
+    // And whether what he owes it is the last step rather than an answer.
+    closable: state.closable === true,
     fulfillment: text(wtb["Fulfillment Status"]),
     // Set once the deal is booked: then the sale price lives here too.
     inventory_unit_record_id: first(wtb["Linked Inventory Unit"]),
@@ -101,6 +110,7 @@ export function dealRow(offer, wtb = {}) {
 
 export const VIEWS = {
   yours: (row) => row.yours,
+  closing: (row) => row.closable,
   waiting: (row) => row.status === "open",
   settled: (row) => !row.yours && row.status !== "open",
   all: () => true
@@ -303,13 +313,31 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
       return { ok: true, did: "priced", buyer_price: buyer, seller_id: offer.seller_id };
     }
 
+    /*
+     * Closing it. The consignor said yes a while ago; this is the moment
+     * the deal becomes real - the unit, the pair off his shelf, his Ready
+     * To Ship step. So the buyer price is not optional here.
+     */
+    if (action === "finalize") {
+      if (!offer.closable) {
+        throw new PartnerDealsError(`Nothing to close: ${offer.state.toLowerCase()}.`, 409);
+      }
+
+      const buyer = await setBuyerPrice(offer, buyerPrice);
+
+      await tellKickz("/api/internal/partner-deal/finalize", { offer_id: offerId });
+      forget();
+
+      return { ok: true, did: "closed", payout: offer.payout, buyer_price: buyer, seller_id: offer.seller_id };
+    }
+
     if (!offer.yours) throw new PartnerDealsError(`Nothing to answer: ${offer.state.toLowerCase()}.`, 409);
 
     if (action === "accept") {
       /*
-       * The buyer price comes with the acceptance when it is given, and it
-       * is written FIRST - accepting is what books the deal, and whatever
-       * stands on the want-to-buy at that moment is what the invoice says.
+       * Accepting no longer books anything: it settles with the consignor
+       * and the deal waits to be closed. A buyer price may come with it
+       * when he already knows one, but it is not needed to agree.
        */
       const buyer = buyerPrice === undefined || buyerPrice === null || buyerPrice === ""
         ? offer.buyer_price
@@ -317,7 +345,7 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
 
       await tellKickz(`/api/consignment/offers/${encodeURIComponent(offerId)}/store-accept`, {});
       forget();
-      return { ok: true, did: "accepted", payout: offer.payout, buyer_price: buyer, seller_id: offer.seller_id };
+      return { ok: true, did: "agreed", payout: offer.payout, buyer_price: buyer, seller_id: offer.seller_id };
     }
 
     if (action === "deny") {

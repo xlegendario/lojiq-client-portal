@@ -137,7 +137,7 @@ test("the views split what is on him from what is on us", async () => {
 
   const all = await store.list({ view: "all" });
 
-  assert.deepEqual(all.counts, { all: 4, yours: 1, waiting: 1, settled: 2 });
+  assert.deepEqual(all.counts, { all: 4, yours: 1, closing: 0, waiting: 1, settled: 2 });
   assert.deepEqual((await store.list({ view: "yours" })).offers.map((o) => o.id), ["2"]);
   assert.deepEqual((await store.list({ view: "waiting" })).offers.map((o) => o.id), ["1"]);
   assert.deepEqual(await store.count(), { yours: 1 });
@@ -181,7 +181,7 @@ test("accepting goes to the portal that owns the round", async () => {
   const out = await store.answer({ id: offer().id, action: "accept" });
 
   assert.deepEqual(sent, [{ pathName: `/api/consignment/offers/${offer().id}/store-accept`, body: {} }]);
-  assert.equal(out.did, "accepted");
+  assert.equal(out.did, "agreed");
   assert.equal(out.payout, 235);
 });
 
@@ -349,4 +349,66 @@ test("before it is booked there is no unit to move, and no final price to write"
 
   assert.equal(writes.length, 1);
   assert.ok(!("Final Buying Price" in writes[0].fields));
+});
+
+/* ---------------- agreed is not booked ---------------- */
+
+/*
+ * His yes settles what we pay and nothing else. Until the partner has his
+ * buyer there is no unit, no pair off the consignor's shelf and no invoice
+ * line - buyers drop out often enough that booking there would leave a
+ * trail of deals that never were.
+ */
+test("a consignor's yes leaves the deal waiting on the partner", () => {
+  const row = dealRow(offer({ status: "partner_agreed" }), WTB.fields);
+
+  assert.equal(row.state, "Agreed, not closed");
+  assert.equal(row.yours, true);
+  assert.equal(row.closable, true);
+});
+
+test("closing needs a buyer price, and sends the offer to the portal", async () => {
+  const { store, writes } = pricingShop([offer({ status: "partner_agreed", offer_price: 160 })]);
+  const sent = [];
+
+  const shop = createPartnerDealsStore({
+    db: { get: async () => [offer({ status: "partner_agreed", offer_price: 160 })] },
+    airtable: {
+      async select() { return { records: [WTB], offset: "" }; },
+      async byIds() { return new Map(); },
+      async update(table, id, fields) { writes.push({ table, id, fields }); return { id }; }
+    },
+    tellKickz: async (pathName, body) => { sent.push({ pathName, body }); return { ok: true }; },
+    cacheMs: 0
+  });
+
+  await assert.rejects(shop.answer({ id: offer().id, action: "finalize" }), /What does the buyer pay/);
+  assert.equal(sent.length, 0, "nothing is closed without a price");
+
+  const out = await shop.answer({ id: offer().id, action: "finalize", buyerPrice: 175 });
+
+  assert.equal(out.did, "closed");
+  assert.equal(out.payout, 160);
+  assert.equal(out.buyer_price, 175);
+  assert.deepEqual(sent, [{ pathName: "/api/internal/partner-deal/finalize", body: { offer_id: offer().id } }]);
+  assert.equal(writes.at(-1).fields["Max Price"], 175, "the price goes on before the deal is closed");
+});
+
+test("a deal that is not waiting to be closed cannot be closed", async () => {
+  const { store } = pricingShop([offer({ status: "open", offer_price: 160 })]);
+
+  await assert.rejects(
+    store.answer({ id: offer().id, action: "finalize", buyerPrice: 175 }),
+    /Nothing to close: waiting for him/
+  );
+});
+
+test("accepting a counter agrees with him and books nothing", async () => {
+  const { store, writes } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  const out = await store.answer({ id: offer().id, action: "accept" });
+
+  assert.equal(out.did, "agreed");
+  assert.equal(out.payout, 170);
+  assert.equal(writes.length, 0);
 });

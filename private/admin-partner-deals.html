@@ -555,6 +555,8 @@
     /* ---------------- the offers ---------------- */
 
     const STATE_PILL = {
+      partner_agreed: "wait",
+      processing: "move",
       store_pending: "wait",
       open: "move",
       accepted: "good",
@@ -615,11 +617,13 @@
           <td class="money"><button class="linky" type="button" data-do="price" data-id="${esc(o.id)}">${o.buyer_price > 0 ? esc(money(o.buyer_price)) : "set"}</button></td>
           <td class="money" style="${o.margin !== null && o.margin < 0 ? "color:var(--bad-text)" : ""}">${o.margin === null ? "—" : esc(money(o.margin))}</td>
           <td><span class="pill ${STATE_PILL[o.status] ?? ""}">${esc(o.state)}</span></td>
-          <td class="answer">${o.yours
-            ? `<button class="btn primary" type="button" data-do="accept" data-id="${esc(o.id)}">Accept</button>
-               <button class="btn" type="button" data-do="counter" data-id="${esc(o.id)}">Counter</button>
-               <button class="btn ghost" type="button" data-do="deny" data-id="${esc(o.id)}">Decline</button>`
-            : "—"}</td>
+          <td class="answer">${o.closable
+            ? `<button class="btn primary" type="button" data-do="finalize" data-id="${esc(o.id)}">Close the deal</button>`
+            : o.yours
+              ? `<button class="btn primary" type="button" data-do="accept" data-id="${esc(o.id)}">Accept</button>
+                 <button class="btn" type="button" data-do="counter" data-id="${esc(o.id)}">Counter</button>
+                 <button class="btn ghost" type="button" data-do="deny" data-id="${esc(o.id)}">Decline</button>`
+              : "—"}</td>
         </tr>`).join("");
     }
 
@@ -665,12 +669,12 @@
        */
       let buyerPrice;
 
-      if (what === "price" || what === "accept") {
+      if (what === "price" || what === "finalize") {
         const payout = offer.countered ?? offer.offered;
 
         const typed = window.prompt(
-          what === "accept"
-            ? `Accepting ${money(payout)} to ${offer.party || offer.seller_id}.\n\nWhat does your buyer pay?`
+          what === "finalize"
+            ? `Closing ${offer.sku} ${offer.size}. ${offer.party || offer.seller_id} gets ${money(payout)}.\n\nWhat does your buyer pay?`
             : `What does your buyer pay for ${offer.sku} ${offer.size}?\n\n${offer.party || offer.seller_id} is on ${money(payout)}.`,
           String(offer.buyer_price || "")
         );
@@ -689,11 +693,22 @@
           return;
         }
 
-        if (what === "accept" && !window.confirm(
-          `Accept ${money(payout)} to ${offer.party || offer.seller_id}, selling at ${money(buyerPrice)}?\n\n` +
-          `You keep ${money(buyerPrice - payout)}.`
+        /*
+         * Closing is the irreversible one: it makes the unit, takes the pair
+         * off his shelf and sends him his shipping step. So it is the one
+         * that spells out what is about to happen.
+         */
+        if (what === "finalize" && !window.confirm(
+          `Close this deal?\n\n` +
+          `${offer.party || offer.seller_id} is paid ${money(payout)} and ships it.\n` +
+          `Your buyer pays ${money(buyerPrice)}, so you keep ${money(buyerPrice - payout)}.`
         )) return;
       }
+
+      if (what === "accept" && !window.confirm(
+        `Agree ${money(offer.countered ?? offer.offered)} with ${offer.party || offer.seller_id}?\n\n` +
+        `Nothing is booked yet - you close the deal once your buyer is in.`
+      )) return;
 
       if (what === "deny" && !window.confirm(
         `Decline ${offer.party || offer.seller_id} on ${offer.sku} ${offer.size}?`
@@ -710,11 +725,13 @@
 
         toast(out.did === "countered"
           ? `${money(out.payout)} countered to ${out.seller_id}.`
-          : out.did === "accepted"
-            ? `${money(out.payout)} to ${out.seller_id}, selling at ${money(out.buyer_price)}.`
-            : out.did === "priced"
-              ? `Buyer pays ${money(out.buyer_price)}.`
-              : `${out.seller_id} declined.`);
+          : out.did === "agreed"
+            ? `${out.seller_id} is on ${money(out.payout)}. Close it when your buyer is in.`
+            : out.did === "closed"
+              ? `Done - ${out.seller_id} gets ${money(out.payout)}, selling at ${money(out.buyer_price)}.`
+              : out.did === "priced"
+                ? `Buyer pays ${money(out.buyer_price)}.`
+                : `${out.seller_id} declined.`);
 
         await load();
         loadNavCounts();
