@@ -316,3 +316,135 @@ test("the sidebar count is pairs, the same thing the list shows", async () => {
 
   assert.deepEqual(await shop.count(), { all: 2 });
 });
+
+/* ---------------- bringing out an offer ---------------- */
+
+function offerShop(rows, { kickz = async () => ({ ok: true }), created = [] } = {}) {
+  const base = fakeDb(rows);
+  const asked = [];
+
+  const airtable = {
+    ...noNames,
+    async create(table, fields) {
+      created.push({ table, fields });
+      return { id: "recNEWWANTTOBUY12" };
+    }
+  };
+
+  return {
+    created,
+    asked,
+    shop: createConsignmentStockStore({
+      db: {
+        get: async (q) => {
+          asked.push(q);
+          // The single-row read the offer does, as opposed to the list.
+          if (/id=eq\./.test(q)) {
+            const id = decodeURIComponent(q.match(/id=eq\.([^&]+)/)[1]);
+            return rows.filter((r) => r.id === id);
+          }
+          return base.db.get(q);
+        }
+      },
+      airtable,
+      askKickz: kickz
+    })
+  };
+}
+
+test("an offer makes a partner-run want-to-buy and asks the KC portal to run it", async () => {
+  const sent = [];
+  const { shop, created } = offerShop([offer({ selling_price_suggested: 180 })], {
+    kickz: async (body) => { sent.push(body); return { ok: true }; }
+  });
+
+  const out = await shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170, filter: "margin" });
+
+  const fields = created[0].fields;
+
+  assert.equal(created[0].table, "Member WTBs");
+  assert.equal(fields["Partner Run?"], true);
+  assert.equal(fields["Auto Accept Seller Offers?"], true, "without it the consignor is never asked");
+  assert.equal(fields["Current Lowest Source Price"], 170, "the budget is what we are willing to pay");
+  assert.equal(fields["Max Price"], 200, "the ceiling is what the buyer pays");
+  assert.equal(fields["Offer Margin"], 30);
+  assert.equal(fields["Buying Inventory Filter"], "Margin Only");
+  assert.equal(fields["Payment Status"], "Pending");
+  assert.equal(fields.SKU, "FV5029-141");
+  assert.ok(!("Buyer Seller ID" in fields), "there is no buyer yet");
+
+  assert.deepEqual(sent, [{ member_wtb_record_id: "recNEWWANTTOBUY12", sku: "FV5029-141", size: "44" }]);
+  assert.equal(out.asked, true);
+  assert.equal(out.margin, 30);
+});
+
+/*
+ * Never more than he asked for. The machinery caps it too, but the screen
+ * says what will happen and that number has to be the same one.
+ */
+test("the offer shown is capped at what the consignor asks", async () => {
+  const { shop } = offerShop([offer({ selling_price_suggested: 150 })]);
+  const out = await shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170 });
+
+  assert.equal(out.asks, 150);
+  assert.equal(out.offered, 150);
+});
+
+/*
+ * Picking Margin Only and then offering a VAT21 consignor would send out the
+ * promise the filter was there to prevent.
+ */
+test("a consignor the filter leaves out is refused, not quietly offered", async () => {
+  const { shop, created } = offerShop([offer({ vat_type: "VAT21" })]);
+
+  await assert.rejects(
+    shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170, filter: "margin" }),
+    /VAT21, which Margin Only leaves out/
+  );
+
+  assert.equal(created.length, 0, "nothing is created when it may not be offered");
+});
+
+test("a pair that has gone since the screen loaded is refused", async () => {
+  const { shop } = offerShop([]);
+
+  await assert.rejects(
+    shop.bringOutOffer({ id: "1f0c0000-0000-4000-8000-000000000001", buyerPrice: 200, payout: 170 }),
+    /no longer in the consignment stock/
+  );
+});
+
+test("both numbers are needed, and both have to be real", async () => {
+  const { shop } = offerShop([offer()]);
+  const id = offer().id;
+
+  await assert.rejects(shop.bringOutOffer({ id, payout: 170 }), /What does the buyer pay/);
+  await assert.rejects(shop.bringOutOffer({ id, buyerPrice: 200 }), /What do we offer the consignor/);
+  await assert.rejects(shop.bringOutOffer({ id, buyerPrice: 0, payout: 170 }), /What does the buyer pay/);
+});
+
+/*
+ * The want-to-buy carries the numbers. Throwing it away because the round
+ * could not be started would lose them and tell nobody.
+ */
+test("a round that cannot be started leaves the want-to-buy standing, and says so", async () => {
+  const { shop, created } = offerShop([offer()], {
+    kickz: async () => { throw new Error("Kickz Caviar answered 502."); }
+  });
+
+  const out = await shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170 });
+
+  assert.equal(created.length, 1);
+  assert.equal(out.asked, false);
+  assert.match(out.error, /502/);
+  assert.equal(out.member_wtb_record_id, "recNEWWANTTOBUY12");
+});
+
+test("a service that cannot reach Kickz Caviar refuses rather than half-doing it", async () => {
+  const shop = createConsignmentStockStore({ db: fakeDb([offer()]).db, airtable: noNames });
+
+  await assert.rejects(
+    shop.bringOutOffer({ id: offer().id, buyerPrice: 200, payout: 170 }),
+    /not reachable/
+  );
+});

@@ -485,8 +485,29 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   mountConsignmentStock(router, {
     store: createConsignmentStockStore({
       db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
-      airtable
+      airtable,
+
+      /*
+       * The offer round is the KC portal's, unchanged. It already takes a
+       * member WTB as one of its two sources and does the rest itself: the
+       * Seller Offer, the counter round, the sweeps, the embeds.
+       *
+       * `service` and `post` are both declared further down; by the time a
+       * request reaches here they are long since assigned.
+       */
+      askKickz: (body) => {
+        const base = service(services.kickzBaseUrl);
+
+        if (!base || !text(services.counterOffersSecret)) {
+          throw new Error("Kickz Caviar is not configured on this service.");
+        }
+
+        return post(`${base}/api/consignment/auto-offer/create`, body, {
+          "x-kc-secret": services.counterOffersSecret
+        });
+      }
     }),
+    audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-consignment-stock.html") : ""
   });
 

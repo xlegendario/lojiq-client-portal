@@ -141,11 +141,65 @@ export function groupRows(rows) {
 }
 
 /*
+ * What a partner-run want-to-buy looks like the moment it is made.
+ *
+ * It is an ordinary member WTB in every way the consignor can see - the same
+ * Seller Offer, the same counter round, the same embeds - and differs only on
+ * the buyer's side, which the partner handles himself.
+ *
+ * Three numbers decide everything downstream:
+ *
+ *   Current Lowest Source Price  the budget, so what we are willing to pay.
+ *                                The offer is the smaller of this and his own
+ *                                ask: never more than he wanted.
+ *   Max Price                    the ceiling, in buyer terms.
+ *   Offer Margin                 what is left between the two. Written out
+ *                                rather than left blank, because every reader
+ *                                of an empty one quietly falls back to ten.
+ *
+ * "Auto Accept Seller Offers?" is true for the reason the KC portal gives it:
+ * it is true exactly when the buyer named a price himself, and it is what
+ * makes the consignor be asked now instead of after a buyer accepts. A
+ * partner-run deal has no buyer in there to accept, so without it the
+ * consignor would never hear anything at all.
+ */
+export function wantToBuyFields({ pair, buyerPrice, payout, filter, note }) {
+  return {
+    "Product Name": pair.product_name || pair.sku,
+    "SKU": pair.sku,
+    "Size": pair.size,
+    ...(pair.brand ? { Brand: pair.brand } : {}),
+    "Date": new Date().toISOString(),
+
+    "Max Price": round2(buyerPrice),
+    "Offer Margin": round2(buyerPrice - payout),
+    "Current Lowest Source Price": round2(payout),
+
+    "Buying Inventory Filter": filter,
+    "Fulfillment Status": "Outsource",
+    "Purchase Status": "Offers Sent",
+    "Payment Status": "Pending",
+    "Auto Accept Seller Offers?": true,
+    "Partner Run?": true,
+
+    ...(note ? { "Buyer Notes": note } : {})
+  };
+}
+
+// The three the screen offers, as Airtable spells them.
+export const FILTER_LABELS = {
+  all: "All Inventory",
+  margin: "Margin Only",
+  b2b: "B2B Only"
+};
+
+/*
  * deps:
  *   db        createSupabaseRest - consignment_inventory
- *   airtable  byIds - Sellers Database, for the consignor's name
+ *   airtable  byIds, create - Sellers Database, Member WTBs
+ *   askKickz  posts to the KC portal's auto-offer endpoint
  */
-export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 }) {
+export function createConsignmentStockStore({ db, airtable, askKickz = null, cacheMs = 180_000 }) {
   const COLUMNS =
     "id,seller_id,seller_record_id,sku,size,product_name,brand,vat_type," +
     "selling_price_suggested,payout_price,quantity,image_url,created_at";
@@ -283,10 +337,89 @@ export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 })
     return { all: new Set(all.map((r) => `${r.sku}|${r.size}`)).size };
   }
 
-  return { list, count };
+  /*
+   * Bring out an offer on one consignor's pair.
+   *
+   * Read fresh rather than from the cached list: a price that moved while
+   * the screen was open would otherwise be offered at the old number, and
+   * this is the one place where that becomes a promise.
+   */
+  async function bringOutOffer({ id, buyerPrice, payout, filter = "all", note = "" } = {}) {
+    if (!askKickz) throw new ConsignmentStockError("Kickz Caviar is not reachable from this service.", 503);
+
+    const rowId = text(id);
+    if (!rowId) throw new ConsignmentStockError("Which pair?");
+
+    const buyer = Number(buyerPrice);
+    const owed = Number(payout);
+
+    if (!(buyer > 0)) throw new ConsignmentStockError("What does the buyer pay?");
+    if (!(owed > 0)) throw new ConsignmentStockError("What do we offer the consignor?");
+
+    const chosen = text(filter) in FILTER_LABELS ? text(filter) : "all";
+    const label = FILTER_LABELS[chosen];
+
+    const [raw] = await db.get(
+      `consignment_inventory?select=${COLUMNS}&id=eq.${encodeURIComponent(rowId)}&limit=1`
+    );
+
+    if (!raw) throw new ConsignmentStockError("That pair is no longer in the consignment stock.", 404);
+
+    const pair = stockRow(raw);
+
+    if (!(pair.quantity > 0)) throw new ConsignmentStockError(`${pair.sku} ${pair.size} is no longer in stock.`, 409);
+
+    /*
+     * His VAT scheme has to be one this offer is allowed to use. Picking
+     * Margin Only and then offering a VAT21 consignor would send out a
+     * promise the filter was there to prevent.
+     */
+    if (!VAT_FILTERS[chosen].includes(pair.vat_type)) {
+      throw new ConsignmentStockError(`${pair.seller_id} is ${pair.vat_type}, which ${label} leaves out.`);
+    }
+
+    const wtb = await airtable.create("Member WTBs", wantToBuyFields({
+      pair,
+      buyerPrice: buyer,
+      payout: owed,
+      filter: label,
+      note
+    }));
+
+    /*
+     * The offer round itself is the KC portal's, unchanged: a real Seller
+     * Offer, a real counter round, the sweeps. Everything the consignor
+     * sees is what he has always seen.
+     *
+     * The want-to-buy is left standing when this fails. It carries the
+     * numbers and can be asked again; throwing it away would lose them.
+     */
+    const asked = await askKickz({
+      member_wtb_record_id: wtb.id,
+      sku: pair.sku,
+      size: pair.size
+    }).catch((err) => ({ ok: false, error: err.message }));
+
+    return {
+      member_wtb_record_id: wtb.id,
+      sku: pair.sku,
+      size: pair.size,
+      product_name: pair.product_name,
+      seller_id: pair.seller_id,
+      asks: pair.ask,
+      offered: Math.min(owed, pair.ask),
+      buyer_price: round2(buyer),
+      margin: round2(buyer - owed),
+      filter: label,
+      asked: asked?.ok !== false,
+      error: asked?.ok === false ? text(asked.error) : ""
+    };
+  }
+
+  return { list, count, bringOutOffer };
 }
 
-export function mountConsignmentStock(router, { store, pageFile }) {
+export function mountConsignmentStock(router, { store, audit = null, pageFile }) {
   const page = pageFile && fs.existsSync(pageFile) ? fs.readFileSync(pageFile, "utf8") : "";
 
   const send = (res, err) => {
@@ -308,6 +441,31 @@ export function mountConsignmentStock(router, { store, pageFile }) {
         q: text(req.query.q),
         limit: req.query.limit
       }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/consignment-stock/offer", express.json({ limit: "20kb" }), async (req, res) => {
+    try {
+      const out = await store.bringOutOffer({
+        id: req.body?.id,
+        buyerPrice: req.body?.buyer_price,
+        payout: req.body?.payout,
+        filter: req.body?.filter,
+        note: text(req.body?.note)
+      });
+
+      audit?.record({
+        actor: req.admin,
+        action: "consignment_offer",
+        source: "consignment_stock",
+        recordId: out.member_wtb_record_id,
+        label: `${out.sku} ${out.size}`,
+        details: { seller_id: out.seller_id, offered: out.offered, buyer_price: out.buyer_price, asked: out.asked }
+      })?.catch?.(() => {});
+
+      res.json({ ok: true, ...out });
     } catch (err) {
       send(res, err);
     }

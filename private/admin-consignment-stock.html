@@ -564,6 +564,9 @@
 
     const VAT_PILL = { Margin: "good", VAT0: "wait", VAT21: "move" };
 
+    // The three as Airtable spells them; the tab you are on decides which.
+    const FILTER_NAMES = { all: "All Inventory", margin: "Margin Only", b2b: "B2B Only" };
+
     function drawTabs() {
       for (const tab of document.querySelectorAll("#tabs .tab")) {
         const view = tab.dataset.view;
@@ -608,6 +611,7 @@
                   <th>VAT</th>
                   <th class="money">Costs us</th>
                   <th class="money">Qty</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -623,11 +627,90 @@
                     <td><span class="pill ${VAT_PILL[h.vat_type] ?? ""}">${esc(h.vat_type || "—")}</span></td>
                     <td class="money"><strong>${esc(money(h.compare))}</strong></td>
                     <td class="money">${h.quantity}</td>
+                    <td><button class="btn" type="button" data-offer="${esc(h.id)}">Offer</button></td>
                   </tr>`).join("")}
               </tbody>
             </table>
           </div>
-        </section>`;
+        </section>
+
+        <section class="sec" id="offerBox" hidden></section>`;
+    }
+
+    /*
+     * What we would be sending, before it is sent.
+     *
+     * Two numbers and the margin between them, because that is the whole
+     * decision. The payout starts at what he asks: offering less is a choice
+     * you make on purpose, not the default.
+     */
+    function drawOffer(holder) {
+      const box = $("offerBox");
+      box.hidden = !holder;
+
+      if (!holder) return;
+
+      const filter = FILTER_NAMES[state.view] || FILTER_NAMES.all;
+
+      box.innerHTML = `
+        <h3>Offer to ${esc(holder.party || holder.seller_id)}</h3>
+        <dl class="meta">
+          <div><dt>Buyer pays</dt><dd><input class="input" id="offerBuyer" type="number" min="0" step="0.01" inputmode="decimal"></dd></div>
+          <div><dt>Payout</dt><dd><input class="input" id="offerPayout" type="number" min="0" step="0.01" inputmode="decimal" value="${holder.ask}"></dd></div>
+          <div><dt>Your margin</dt><dd id="offerMargin">—</dd></div>
+          <div><dt>Looking at</dt><dd>${esc(filter)}</dd></div>
+        </dl>
+        <p class="group-todo" id="offerNote">He is asked for the lower of your payout and his own ${esc(money(holder.ask))}.</p>
+        <div class="panel-actions" style="padding:0;border:0">
+          <button class="btn primary" type="button" id="sendOffer">Send the offer</button>
+          <button class="btn ghost" type="button" id="cancelOffer">Cancel</button>
+        </div>`;
+
+      const redraw = () => {
+        const buyer = Number($("offerBuyer").value);
+        const payout = Number($("offerPayout").value);
+        const margin = buyer - payout;
+
+        $("offerMargin").textContent = buyer > 0 && payout > 0 ? money(margin) : "—";
+        $("offerMargin").style.color = margin < 0 ? "var(--bad-text)" : "";
+        $("offerNote").textContent =
+          `He is asked for ${money(Math.min(payout || holder.ask, holder.ask))} - the lower of your payout and his own ${money(holder.ask)}.`;
+      };
+
+      $("offerBuyer").addEventListener("input", redraw);
+      $("offerPayout").addEventListener("input", redraw);
+      $("offerBuyer").focus();
+      redraw();
+
+      $("cancelOffer").addEventListener("click", () => drawOffer(null));
+
+      $("sendOffer").addEventListener("click", async () => {
+        const button = $("sendOffer");
+        button.disabled = true;
+        button.textContent = "Sending…";
+
+        try {
+          const out = await api("/api/admin/consignment-stock/offer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: holder.id,
+              buyer_price: Number($("offerBuyer").value),
+              payout: Number($("offerPayout").value),
+              filter: state.view
+            })
+          });
+
+          drawOffer(null);
+          toast(out.asked
+            ? `${money(out.offered)} offered to ${out.seller_id}.`
+            : `Want-to-buy made, but the offer round did not start: ${out.error}`);
+        } catch (err) {
+          toast(err.message);
+          button.disabled = false;
+          button.textContent = "Send the offer";
+        }
+      });
     }
 
     function drawList() {
@@ -736,11 +819,20 @@
 
       state.pair = state.units.find((u) => u.key === row.dataset.pair) || null;
       drawPair();
+      drawOffer(null);
       drawList();
+    });
+
+    $("panelBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-offer]");
+      if (!button) return;
+
+      drawOffer(state.pair?.holders.find((h) => h.id === button.dataset.offer) || null);
     });
 
     $("closePanel").addEventListener("click", () => {
       state.pair = null;
+      drawOffer(null);
       drawPair();
       drawList();
     });
