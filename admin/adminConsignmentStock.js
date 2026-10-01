@@ -155,7 +155,7 @@ export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 })
   }
 
   async function list({ view = "all", q = "", limit = 400 } = {}) {
-    const wanted = Math.min(Math.max(Number(limit) || 400, 10), 2000);
+    const wanted = Math.min(Math.max(Number(limit) || 400, 10), 5000);
     const needle = text(q).toUpperCase();
     const all = await loaded();
 

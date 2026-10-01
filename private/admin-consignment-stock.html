@@ -273,6 +273,15 @@
      * lining up with its own row - in light mode that showed as a white
      * block sitting half a row low behind every status.
      */
+    /* Reads as a link, is a button: it narrows the search to this pair. */
+    .linky { border: 0; background: none; padding: 0; font: inherit; color: var(--primary-soft); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+    .linky:hover { color: var(--strong); }
+
+    .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
+    /* Not "empty": that class is the padded "nothing here" cell, and its
+       40px of padding stretched the placeholder to twice the row height. */
+    .thumb.blank { background: var(--panel-2); border: 1px dashed var(--border); }
+
     td.kind { color: var(--muted); white-space: nowrap; }
 
     td.date, th.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -381,6 +390,7 @@
       </div>
 
       <div class="filters">
+        <button class="btn ghost" id="showMore" type="button" hidden>Show more</button>
         <span class="count" id="count"></span>
       </div>
 
@@ -388,6 +398,7 @@
         <table>
           <thead>
             <tr>
+              <th></th>
               <th>Product</th>
               <th>Size</th>
               <th>Consignor</th>
@@ -400,7 +411,7 @@
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="9">Loading…</td></tr>
+            <tr><td class="empty" colspan="10">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -421,6 +432,10 @@
 
     const VIEWS = ["all", "margin", "b2b"];
 
+    // How many rows a page shows. Every row carries a picture, so the
+    // whole list at once is thousands of images nobody scrolls past.
+    const PAGE = 400;
+
     function startingView() {
       const asked = new URLSearchParams(location.search).get("view");
       return VIEWS.includes(asked) ? asked : "all";
@@ -431,7 +446,8 @@
       counts: {},
       totals: { units: 0, shown: 0, pairs: 0, consignors: 0, cheapest: 0 },
       view: startingView(),
-      q: ""
+      q: "",
+      limit: PAGE
     };
 
     async function api(url, options = {}) {
@@ -556,13 +572,19 @@
           (state.totals.shown < state.totals.units ? ` · showing ${state.totals.shown}` : "")
         : "";
 
+      $("showMore").hidden = state.totals.shown >= state.totals.units;
+      $("showMore").textContent = `Show ${Math.min(PAGE, state.totals.units - state.totals.shown)} more`;
+
       if (!units.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${state.q ? "Nobody is holding this." : "Nothing here."}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${state.q ? "Nobody is holding this." : "Nothing here."}</td></tr>`;
         return;
       }
 
       $("rows").innerHTML = units.map((u) => `
         <tr>
+          <td>${u.image_url
+            ? `<img class="thumb" src="${esc(u.image_url)}" alt="" loading="lazy">`
+            : `<span class="thumb blank" aria-hidden="true"></span>`}</td>
           <td>
             <div class="what" title="${esc([u.product_name, u.sku].filter(Boolean).join(" · "))}">
               <strong>${esc(u.product_name || "—")}</strong>
@@ -580,7 +602,9 @@
           <td><span class="pill ${VAT_PILL[u.vat_type] ?? ""}">${esc(u.vat_type || "—")}</span></td>
           <td class="money"><strong>${u.compare > 0 ? esc(money(u.compare)) : "—"}</strong></td>
           <td class="money">${u.quantity}</td>
-          <td class="sub">${u.alternatives ? `${u.alternatives} more ${u.alternatives === 1 ? "consignor" : "consignors"}` : "—"}</td>
+          <td class="sub">${u.alternatives
+            ? `<button class="linky" type="button" data-pair="${esc(u.sku)} ${esc(u.size)}">${u.alternatives} more ${u.alternatives === 1 ? "consignor" : "consignors"}</button>`
+            : "—"}</td>
           <td class="date">${esc(day(u.added_at))}</td>
         </tr>`).join("");
     }
@@ -589,7 +613,7 @@
 
     async function load() {
       try {
-        const query = new URLSearchParams({ view: state.view });
+        const query = new URLSearchParams({ view: state.view, limit: String(state.limit) });
         if (state.q) query.set("q", state.q);
 
         const data = await api(`/api/admin/consignment-stock?${query}`);
@@ -599,17 +623,18 @@
         drawTabs();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="9">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${esc(err.message)}</td></tr>`;
       }
     }
 
-    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="9">Looking…</td></tr>`; };
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="10">Looking…</td></tr>`; };
 
     $("tabs").addEventListener("click", (event) => {
       const tab = event.target.closest(".tab");
       if (!tab || tab.dataset.view === state.view) return;
 
       state.view = tab.dataset.view;
+      state.limit = PAGE;
       drawTabs();
       looking();
 
@@ -620,12 +645,34 @@
       load();
     });
 
+    $("showMore").addEventListener("click", () => {
+      state.limit += PAGE;
+      load();
+    });
+
+    /*
+     * "2 more consignors" narrows the list to that one pair, so the others
+     * line up underneath with their prices. Cheaper than a second screen,
+     * and it leaves the search box saying what you are looking at.
+     */
+    $("rows").addEventListener("click", (event) => {
+      const pair = event.target.closest("[data-pair]");
+      if (!pair) return;
+
+      $("search").value = pair.dataset.pair;
+      state.q = pair.dataset.pair;
+      state.limit = PAGE;
+      looking();
+      load();
+    });
+
     let searchTimer = null;
 
     $("search").addEventListener("input", () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
         state.q = $("search").value.trim();
+        state.limit = PAGE;
         looking();
         load();
       }, 350);
