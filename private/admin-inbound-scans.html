@@ -275,6 +275,9 @@
         <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
       </div>
 
+      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Partner</button>
+      <div class="nav-group" id="navPartner" hidden></div>
+
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
       <div class="nav-group" id="navMarketplaces" hidden>
         <a class="nav-item" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
@@ -377,7 +380,7 @@
 
     /* ---------------- sidebar ---------------- */
 
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", partner: "navPartner", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 
@@ -422,6 +425,8 @@
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
+
+      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
 
       $("navWarehouse").innerHTML =
         `<a class="nav-item active" href="/admin/inbound-scans">Inbound Scans</a>` +

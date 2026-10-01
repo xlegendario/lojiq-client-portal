@@ -59,6 +59,7 @@ import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createConsignmentStockStore, mountConsignmentStock } from "./adminConsignmentStock.js";
+import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 
@@ -511,6 +512,30 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-consignment-stock.html") : ""
   });
 
+  // Partner Deals: the offers a partner has out, and the counters that come
+  // back (admin/adminPartnerDeals.js, private/admin-partner-deals.html).
+  // Answering goes back through the KC portal, which owns the round.
+  const partnerDeals = createPartnerDealsStore({
+    db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+    airtable,
+
+    tellKickz: (pathName, body) => {
+      const base = service(services.kickzBaseUrl);
+
+      if (!base || !text(services.counterOffersSecret)) {
+        throw new Error("Kickz Caviar is not configured on this service.");
+      }
+
+      return post(`${base}${pathName}`, body, { "x-kc-secret": services.counterOffersSecret });
+    }
+  });
+
+  mountPartnerDeals(router, {
+    store: partnerDeals,
+    audit,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-partner-deals.html") : ""
+  });
+
   // unref: the timer never keeps the process (or a test) alive on its own.
   if (enabled && externalSalesStore.configured && externalSalesSyncMs > 0) {
     // Every ten minutes: which invoices Rompslomp now has as paid (block 5).
@@ -631,6 +656,14 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       tabs["warehouse/partner_stock"] = (await partnerStock.count()).in_stock;
     } catch (err) {
       console.error("[admin] partner stock counts failed:", err.message);
+    }
+
+    // Counters sitting on the partner, which is the one count he wants to
+    // see from anywhere in the portal.
+    try {
+      tabs["partner/deals_yours"] = (await partnerDeals.count()).yours;
+    } catch (err) {
+      console.error("[admin] partner deals counts failed:", err.message);
     }
 
     return { tabs, at: new Date().toISOString() };

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Mollie Payouts · Lojiq Admin</title>
+  <title>Partner Deals · Lojiq Admin</title>
   <link rel="icon" href="/favicon.png">
   <script>
     try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
@@ -225,6 +225,108 @@
     .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
     .sidebar-foot strong { color: var(--text); }
     .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+
+    /* ---- Inbound Scans ---- */
+    .meta { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; margin: 0; font-size: 13px; }
+    .meta dt { color: var(--muted); }
+    .meta dd { margin: 0; color: var(--text); }
+    .sec { display: flex; flex-direction: column; gap: 10px; }
+    .sec + .sec { margin-top: 20px; }
+    .sec h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .line-what { display: flex; flex-direction: column; gap: 2px; }
+    .line-what .sub { font-size: 11px; }
+
+    /*
+     * The panel is narrower than the page: what is in the box wraps there
+     * rather than pushing the table sideways.
+     */
+    .panel-body table { width: 100%; }
+    .panel-body td { white-space: normal; vertical-align: top; }
+
+    /* Inventory: the view tabs and the reasons a pair is held back. */
+    .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; }
+    .tab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .tab:hover { color: var(--strong); background: var(--primary-tint); }
+    .tab[aria-selected="true"] { border-color: transparent; background: var(--primary-tint); color: var(--primary-soft); }
+    .tab small { font-variant-numeric: tabular-nums; font-weight: 600; opacity: 0.8; }
+
+    /*
+     * The reasons wrap instead of widening the table. Without a width of
+     * their own "Already shipped on order 11629" pushed the column off the
+     * screen and the sentence was cut in half, which is the half that says
+     * where to go and look.
+     */
+    table:not(.with-why) .col-why { display: none; }
+
+    .why { display: flex; flex-direction: column; gap: 3px; white-space: normal; min-width: 210px; max-width: 340px; }
+    .why span { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+    .why .block { color: var(--bad-text); }
+    .why .note { color: var(--muted); }
+
+    /*
+     * Status, and underneath it where the pair lies if that is not here.
+     * Stacked rather than left to flow: side by side the column grew to the
+     * width of both pills together on the few rows that have a location.
+     *
+     * The stacking goes on a box INSIDE the cell. Putting display:flex on
+     * the td itself takes it out of display:table-cell, so the cell stops
+     * lining up with its own row - in light mode that showed as a white
+     * block sitting half a row low behind every status.
+     */
+    tbody tr[data-pair] { cursor: pointer; }
+
+    /* Where the next page is asked for; see the observer below. */
+    .sentinel { height: 1px; }
+
+    .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
+    /* Not "empty": that class is the padded "nothing here" cell, and its
+       40px of padding stretched the placeholder to twice the row height. */
+    .thumb.blank { background: var(--panel-2); border: 1px dashed var(--border); }
+
+    td.kind { color: var(--muted); white-space: nowrap; }
+
+    td.date, th.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* The one header that needs explaining carries its own note on hover. */
+    th[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+    .where { white-space: normal; }
+    /*
+     * Side by side, never stacked: a second badge underneath made that row
+     * taller than the ones around it. nowrap keeps it on one line, and the
+     * column sizes itself to the widest pair - both values here are short.
+     */
+    .where .stack { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+
+    /*
+     * One line each, cut off rather than wrapped.
+     *
+     * A product name that wrapped made its row taller than the ones around
+     * it, so the table stepped up and down with the length of a shoe's
+     * name. The whole name is on the cell's title attribute, so nothing is
+     * lost - it is one hover away.
+     */
+    .what { display: flex; flex-direction: column; gap: 1px; min-width: 0; max-width: 340px; }
+    .what strong, .what .sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .what strong { font-weight: 700; color: var(--strong); }
+
+    /*
+     * Search sits above the tabs, the way Store Orders has it, so the row
+     * under them is free for the buttons and filters that come later.
+     */
+    .searchbar { display: flex; }
+    .searchbar .input { flex: 1; max-width: 520px; }
+
+    /* The check groups above the table, one per kind of disagreement. */
+    .groups { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; }
+    .group { display: flex; flex-direction: column; gap: 1px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: none; cursor: pointer; text-align: left; min-width: 150px; }
+    .group:hover { background: var(--primary-tint); }
+    .group[aria-pressed="true"] { border-color: transparent; background: var(--primary-tint); }
+    .group b { font-size: 12px; color: var(--strong); font-weight: 700; }
+    .group span { font-size: 11px; color: var(--muted); }
+    .group[aria-pressed="true"] b { color: var(--primary-soft); }
+    .group-todo { margin: 0; font-size: 12px; color: var(--muted); }
+    .group-todo strong { color: var(--strong); }
   </style>
 </head>
 <body>
@@ -266,12 +368,7 @@
       </div>
 
       <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
-      <div class="nav-group" id="navWarehouse" hidden>
-        <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
-        <a class="nav-item" href="/admin/inventory">Inventory <small data-nav-count="warehouse/inventory_checks"></small></a>
-        <a class="nav-item" href="/admin/partner-stock">Partner Stock <small data-nav-count="warehouse/partner_stock"></small></a>
-        <a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>
-      </div>
+      <div class="nav-group" id="navWarehouse" hidden></div>
 
       <div class="sidebar-foot">
         <span>Signed in as <strong id="userName">…</strong></span>
@@ -282,22 +379,22 @@
 
     <main class="content">
       <div class="heading">
-        <span class="crumb">Finance</span>
-        <h1>Mollie Payouts</h1>
+        <span class="crumb">Partner</span>
+        <h1>Partner Deals</h1>
       </div>
 
-      <p class="sub" style="margin:0;max-width:780px">
-        Every amount Mollie paid out to ING, split into the payments in it: which order, want-to-buy or External Sale,
-        and the invoice number behind it. Book the payout in Rompslomp against those invoices, then tick it here so you
-        can see what is done.
-      </p>
+      <div class="searchbar">
+        <input class="input" id="search" type="search" placeholder="SKU, product, consignor or MWTB…" autocomplete="off" aria-label="Search partner deals">
+      </div>
+
+      <div class="tabs" id="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" data-view="yours" aria-selected="false">Needs you <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="waiting" aria-selected="false">Waiting on him <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="settled" aria-selected="false">Settled <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="all" aria-selected="false">All <small></small></button>
+      </div>
 
       <div class="filters">
-        <select class="select" id="statusFilter" aria-label="Show">
-          <option value="all" selected>All payouts</option>
-          <option value="open">Not booked yet</option>
-          <option value="booked">Booked</option>
-        </select>
         <span class="count" id="count"></span>
       </div>
 
@@ -305,48 +402,48 @@
         <table>
           <thead>
             <tr>
-              <th>Payout</th>
-              <th>Paid out</th>
-              <th class="money">Received</th>
-              <th class="money">Mollie fees</th>
-              <th class="money">To ING</th>
-              <th>Status</th>
-              <th>Rompslomp</th>
+              <th>Product</th>
+              <th>Size</th>
+              <th>Consignor</th>
+              <th class="money">He asks</th>
+              <th class="money">You offered</th>
+              <th class="money">He wants</th>
+              <th class="money">Buyer pays</th>
+              <th class="money">Margin</th>
+              <th>State</th>
+              <th>Answer</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="7">Loading…</td></tr>
+            <tr><td class="empty" colspan="10">Loading…</td></tr>
           </tbody>
+          <tfoot><tr><td colspan="10" style="padding:0;border:0"><div class="sentinel" id="sentinel" aria-hidden="true"></div></td></tr></tfoot>
         </table>
       </div>
     </main>
   </div>
 
-  <div class="panel" id="panel" hidden aria-label="Payout">
-    <div class="panel-head">
-      <h2 id="panelTitle">Payout</h2>
-      <button class="btn ghost" type="button" id="closePanel" aria-label="Close">✕</button>
-    </div>
-    <div class="panel-actions">
-      <button class="btn" type="button" id="copyInvoices">Copy invoice numbers</button>
-      <button class="btn primary" type="button" id="bookedBtn">Mark booked in Rompslomp</button>
-    </div>
-    <div class="panel-body" id="panelBody"></div>
-  </div>
-
   <div class="toast" id="toast" hidden role="status"></div>
-
   <script>
     const $ = (id) => document.getElementById(id);
 
     const esc = (value) => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
-    const state = { payouts: [], payout: null, busy: false };
+    const VIEWS = ["yours", "waiting", "settled", "all"];
+    const PAGE = 300;
+
+    function startingView() {
+      const asked = new URLSearchParams(location.search).get("view");
+      return VIEWS.includes(asked) ? asked : "yours";
+    }
+
+    const state = { offers: [], counts: {}, totals: { offers: 0, shown: 0, deals: 0 }, view: startingView(), q: "", limit: PAGE };
 
     async function api(url, options = {}) {
       const response = await fetch(url, { credentials: "same-origin", ...options });
@@ -366,7 +463,7 @@
       $("toast").textContent = message;
       $("toast").hidden = false;
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4000);
+      toastTimer = setTimeout(() => { $("toast").hidden = true; }, 5000);
     }
 
     /* ---------------- sidebar ---------------- */
@@ -380,7 +477,7 @@
       if (Array.isArray(saved)) saved.forEach((section) => openNavSections.add(section));
     } catch {}
 
-    openNavSections.add("money");
+    openNavSections.add("partner");
 
     function saveNavSections() {
       try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
@@ -394,7 +491,7 @@
         const header = document.querySelector(`[data-nav-section="${section}"]`);
         $(groupId).hidden = !expanded;
         header.setAttribute("aria-expanded", String(expanded));
-        header.classList.toggle("current", section === "money");
+        header.classList.toggle("current", section === "partner");
       }
     }
 
@@ -415,9 +512,16 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
-        `<a class="nav-item active" href="/admin/mollie-payouts">Mollie Payouts</a>`;
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
-      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
+      $("navPartner").innerHTML =
+        `<a class="nav-item active" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
+
+      $("navWarehouse").innerHTML =
+        `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
+        `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
+        `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
+        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
@@ -444,189 +548,215 @@
       drawNavSections();
     });
 
-    /* ---------------- list ---------------- */
+    /* ---------------- the offers ---------------- */
 
-    const visible = () => {
-      const filter = $("statusFilter").value;
-      return state.payouts.filter((p) => (filter === "open" ? !p.booked_at : filter === "booked" ? p.booked_at : true));
+    const STATE_PILL = {
+      store_pending: "wait",
+      open: "move",
+      accepted: "good",
+      denied: "bad",
+      store_denied: "bad",
+      closed: "",
+      cancelled: "",
+      expired: ""
     };
 
-    function drawList() {
-      const rows = visible();
-      $("count").textContent = rows.length ? `${rows.length} payout${rows.length === 1 ? "" : "s"}` : "";
+    function drawTabs() {
+      for (const tab of document.querySelectorAll("#tabs .tab")) {
+        const view = tab.dataset.view;
+        tab.setAttribute("aria-selected", String(view === state.view));
+        const n = state.counts[view];
+        tab.querySelector("small").textContent = typeof n === "number" ? String(n) : "";
+      }
+    }
 
-      if (!rows.length) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="7">No payouts.</td></tr>`;
+    function drawList() {
+      const offers = state.offers;
+
+      $("sentinel").hidden = state.totals.shown >= state.totals.offers;
+
+      $("count").textContent = state.totals.offers
+        ? `${state.totals.offers} offer${state.totals.offers === 1 ? "" : "s"} over ${state.totals.deals} deal${state.totals.deals === 1 ? "" : "s"}` +
+          (state.totals.shown < state.totals.offers ? ` · showing ${state.totals.shown}` : "")
+        : "";
+
+      if (!offers.length) {
+        const nothing = state.q
+          ? "Nothing here under that."
+          : state.view === "yours"
+            ? "Nobody is waiting on you."
+            : "Nothing here.";
+        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${nothing}</td></tr>`;
         return;
       }
 
-      $("rows").innerHTML = rows.map((p) => `
-        <tr data-id="${esc(p.id)}"${state.payout?.id === p.id ? ' class="selected"' : ""}>
-          <td class="id">${esc(p.reference || p.id)}</td>
-          <td>${esc(day(p.payout_date))}</td>
-          <td class="money">${esc(money(p.gross))}</td>
-          <td class="money">${esc(money(p.fees))}</td>
-          <td class="money">${esc(money(p.net))}</td>
-          <td>${p.status === "paidout" ? '<span class="pill good">Paid out</span>' : `<span class="pill wait">${esc(p.status || "open")}</span>`}</td>
-          <td>${p.booked_at ? `<span class="pill good">Booked</span>` : '<span class="pill">To book</span>'}</td>
+      $("rows").innerHTML = offers.map((o) => `
+        <tr${o.yours ? ' class="selected"' : ""}>
+          <td>
+            <div class="what" title="${esc([o.product_name, o.sku, o.wtb_id].filter(Boolean).join(" · "))}">
+              <strong>${esc(o.product_name || "—")}</strong>
+              <span class="sub">${esc(o.sku || "no SKU")}${o.wtb_id ? ` · ${esc(o.wtb_id)}` : ""}</span>
+            </div>
+          </td>
+          <td>${esc(o.size || "—")}</td>
+          <td>
+            <div class="what" title="${esc(o.seller_id)}">
+              <strong>${esc(o.party || o.seller_id || "—")}</strong>
+              <span class="sub">${esc(o.vat_type || "")}${o.countered_at ? ` · countered ${esc(day(o.countered_at))}` : ` · sent ${esc(day(o.created_at))}`}</span>
+            </div>
+          </td>
+          <td class="money">${o.asks > 0 ? esc(money(o.asks)) : "—"}</td>
+          <td class="money">${o.offered > 0 ? esc(money(o.offered)) : "—"}</td>
+          <td class="money">${o.countered ? `<strong>${esc(money(o.countered))}</strong>` : "—"}</td>
+          <td class="money">${o.buyer_price > 0 ? esc(money(o.buyer_price)) : "—"}</td>
+          <td class="money" style="${o.margin !== null && o.margin < 0 ? "color:var(--bad-text)" : ""}">${o.margin === null ? "—" : esc(money(o.margin))}</td>
+          <td><span class="pill ${STATE_PILL[o.status] ?? ""}">${esc(o.state)}</span></td>
+          <td class="answer">${o.yours
+            ? `<button class="btn primary" type="button" data-do="accept" data-id="${esc(o.id)}">Accept</button>
+               <button class="btn" type="button" data-do="counter" data-id="${esc(o.id)}">Counter</button>
+               <button class="btn ghost" type="button" data-do="deny" data-id="${esc(o.id)}">Decline</button>`
+            : "—"}</td>
         </tr>`).join("");
     }
 
-    $("rows").addEventListener("click", (event) => {
-      const row = event.target.closest("tr[data-id]");
-      if (row) openPayout(row.dataset.id);
-    });
+    /*
+     * Answering, with the number spelled out before it goes.
+     *
+     * Accepting and declining are one click because the amount is already on
+     * the row; a counter asks for the figure, in whole euros - the portal
+     * takes nothing else.
+     */
+    async function answer(id, what) {
+      const offer = state.offers.find((o) => o.id === id);
+      if (!offer) return;
 
-    $("statusFilter").addEventListener("change", drawList);
+      let price;
 
-    /* ---------------- one payout ---------------- */
+      if (what === "counter") {
+        const typed = window.prompt(
+          `Counter ${offer.party || offer.seller_id} on ${offer.sku} ${offer.size}.\n\n` +
+          `He wants ${money(offer.countered ?? offer.asks)}, you offered ${money(offer.offered)}.\n` +
+          `Whole euros only.`,
+          String(Math.round(offer.offered || 0))
+        );
 
-    const lineText = (line) => `${line.what}${line.who ? ` · ${line.who}` : ""}`;
+        if (typed === null) return;
 
-    function paymentCard(payment) {
-      const lines = payment.lines.length
-        ? `<ul class="pay-lines">${payment.lines.map((l) => `
-            <li><span>${esc(lineText(l))}${l.invoice ? ` <span class="inv">${esc(l.invoice)}</span>` : ""}</span><span>${esc(money(l.amount))}</span></li>`).join("")}</ul>`
-        : `<div class="sub">No invoice found for this payment${payment.batch ? "" : " — no Payment Batch knows it, so it was a link made by hand in Mollie"}.</div>`;
+        price = Number(typed);
 
-      return `
-        <li class="pay${payment.batch ? "" : " unknown"}">
-          <div class="pay-head">
-            <strong>${esc(money(payment.amount))}</strong>
-            <span class="sub">${esc(payment.method || "mollie")} · ${esc(day(payment.paid_at))}</span>
-            <span class="sub">${payment.batch ? esc(payment.batch) : '<span class="off">Unmatched</span>'}</span>
-          </div>
-          ${payment.description ? `<div class="sub">${esc(payment.description)}</div>` : ""}
-          ${lines}
-        </li>`;
-    }
-
-    function drawPanel() {
-      const payout = state.payout;
-      $("panel").hidden = !payout;
-      if (!payout) return;
-
-      $("panelTitle").textContent = payout.reference || payout.id;
-      $("bookedBtn").textContent = payout.booked_at ? "Booked — undo" : "Mark booked in Rompslomp";
-      $("bookedBtn").classList.toggle("primary", !payout.booked_at);
-
-      const off = Math.round((Number(payout.invoiced_total || 0) - Number(payout.gross || 0)) * 100) / 100;
-
-      $("panelBody").innerHTML = `
-        <div class="group">
-          <h3>Payout</h3>
-          <div class="sum">
-            <span>Received from buyers</span><span class="big">${esc(money(payout.gross))}</span>
-            <span>Mollie fees</span><span>${esc(money(payout.fees))}</span>
-            <span>Paid out to ING</span><span class="big">${esc(money(payout.net))}</span>
-            <span>Paid out on</span><span>${esc(day(payout.payout_date))}</span>
-            <span>On invoices found here</span><span${off ? ' class="off"' : ""}>${esc(money(payout.invoiced_total))}</span>
-          </div>
-          ${off ? `<div class="sub off" style="margin-top:8px">${esc(money(Math.abs(off)))} ${off > 0 ? "more on invoices than came in" : "of this payout is not on an invoice here"}.</div>` : ""}
-          ${payout.booked_at ? `<div class="sub" style="margin-top:8px">Booked ${esc(day(payout.booked_at))}.</div>` : ""}
-        </div>
-
-        ${payout.unmatched.length ? `
-        <div class="group">
-          <h3>Not known here (${payout.unmatched.length})</h3>
-          <p class="sub" style="margin:0 0 8px">These payments are in no Payment Batch: made through a link created by hand in Mollie. Link them on External Sales › Checks, or book them by hand.</p>
-          <ul class="pay-list">${payout.unmatched.map(paymentCard).join("")}</ul>
-        </div>` : ""}
-
-        <div class="group">
-          <h3>Payments (${payout.payments.length})</h3>
-          <ul class="pay-list">${payout.payments.map(paymentCard).join("")}</ul>
-        </div>
-
-        <div class="group payout-note">
-          <h3>Note</h3>
-          <textarea class="input" id="noteInput" placeholder="Anything about this payout…">${esc(payout.note || "")}</textarea>
-          <button class="btn" type="button" id="saveNote">Save note</button>
-        </div>`;
-
-      $("saveNote").addEventListener("click", () => setBooked(Boolean(payout.booked_at), $("noteInput").value));
-    }
-
-    async function openPayout(id) {
-      state.payout = { id, reference: id, payments: [], unmatched: [], gross: 0, fees: 0, net: 0 };
-      drawList();
-      $("panel").hidden = false;
-      $("panelBody").innerHTML = '<div class="empty">Loading…</div>';
-
-      try {
-        const data = await api(`/api/admin/mollie-payouts/get?id=${encodeURIComponent(id)}`);
-        state.payout = data.payout;
-        drawPanel();
-      } catch (err) {
-        $("panelBody").innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+        if (!Number.isInteger(price) || price <= 0) {
+          toast("A counter is a whole number of euros.");
+          return;
+        }
       }
-    }
 
-    async function setBooked(booked, note) {
-      if (state.busy || !state.payout) return;
-      state.busy = true;
+      if (what === "accept" && !window.confirm(
+        `Accept ${money(offer.countered ?? offer.offered)} to ${offer.party || offer.seller_id}?\n\n` +
+        `Your buyer pays ${money(offer.buyer_price)}, so you keep ${money(offer.buyer_price - (offer.countered ?? offer.offered))}.`
+      )) return;
+
+      if (what === "deny" && !window.confirm(
+        `Decline ${offer.party || offer.seller_id} on ${offer.sku} ${offer.size}?`
+      )) return;
+
+      for (const button of document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`)) button.disabled = true;
 
       try {
-        const payout = state.payout;
-        const data = await api("/api/admin/mollie-payouts/booked", {
+        const out = await api("/api/admin/partner-deals/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: payout.id, reference: payout.reference, booked, note: note ?? payout.note })
+          body: JSON.stringify({ id, action: what, price })
         });
 
-        payout.booked_at = data.payout?.booked_at || null;
-        payout.note = data.payout?.note || "";
-        const inList = state.payouts.find((p) => p.id === payout.id);
-        if (inList) { inList.booked_at = payout.booked_at; inList.note = payout.note; }
+        toast(out.did === "countered"
+          ? `${money(out.payout)} countered to ${out.seller_id}.`
+          : out.did === "accepted"
+            ? `${money(out.payout)} accepted for ${out.seller_id}.`
+            : `${out.seller_id} declined.`);
 
-        drawList();
-        drawPanel();
-        toast(booked ? "Payout marked as booked." : "Payout is open again.");
+        await load();
+        loadNavCounts();
       } catch (err) {
         toast(err.message);
-      } finally {
-        state.busy = false;
+        for (const button of document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`)) button.disabled = false;
       }
     }
 
-    $("bookedBtn").addEventListener("click", () => setBooked(!state.payout?.booked_at, state.payout?.note));
+    $("rows").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-do]");
+      if (!button) return;
 
-    $("copyInvoices").addEventListener("click", async () => {
-      const invoices = state.payout?.invoices || [];
-      if (!invoices.length) return toast("No invoice numbers in this payout.");
-
-      try {
-        await navigator.clipboard.writeText(invoices.join("\n"));
-        toast(`${invoices.length} invoice number${invoices.length === 1 ? "" : "s"} copied.`);
-      } catch {
-        toast(invoices.join(", "));
-      }
+      answer(button.dataset.id, button.dataset.do);
     });
 
-    $("closePanel").addEventListener("click", () => {
-      state.payout = null;
-      $("panel").hidden = true;
-      drawList();
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !$("panel").hidden) $("closePanel").click();
-    });
+    /* ---------------- loading ---------------- */
 
     async function load() {
       try {
-        const data = await api("/api/admin/mollie-payouts");
-        state.payouts = data.payouts || [];
+        const query = new URLSearchParams({ view: state.view, limit: String(state.limit) });
+        if (state.q) query.set("q", state.q);
+
+        const data = await api(`/api/admin/partner-deals?${query}`);
+        state.offers = data.offers || [];
+        state.counts = data.counts || state.counts;
+        state.totals = data.totals || state.totals;
+        drawTabs();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="7">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${esc(err.message)}</td></tr>`;
       }
     }
 
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="10">Looking…</td></tr>`; };
+
+    let loadingMore = false;
+
+    new IntersectionObserver(async (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (loadingMore || state.totals.shown >= state.totals.offers) return;
+
+      loadingMore = true;
+      state.limit += PAGE;
+      await load();
+      loadingMore = false;
+    }, { root: document.querySelector(".table-wrap"), rootMargin: "600px" }).observe($("sentinel"));
+
+    $("tabs").addEventListener("click", (event) => {
+      const tab = event.target.closest(".tab");
+      if (!tab || tab.dataset.view === state.view) return;
+
+      state.view = tab.dataset.view;
+      state.limit = PAGE;
+      drawTabs();
+      looking();
+
+      const url = new URL(location.href);
+      url.searchParams.set("view", state.view);
+      history.replaceState(null, "", url);
+
+      load();
+    });
+
+    let searchTimer = null;
+
+    $("search").addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        state.q = $("search").value.trim();
+        state.limit = PAGE;
+        looking();
+        load();
+      }, 350);
+    });
+
     drawNavSections();
     drawOtherSections([]);
+    drawTabs();
     load();
     loadNavCounts();
+
+    // A counter can land while he is looking at the screen.
+    setInterval(() => { if (!document.hidden) load(); }, 60_000);
 
     /* ---------------- who is signed in, theme, log out ---------------- */
 
@@ -653,12 +783,6 @@
       location.href = "/admin";
     });
 
-    /*
-     * The sidebar gets its Store Orders and Member WTBs entries from here.
-     * Without it those two sections opened onto nothing, which reads as a
-     * dead button - they are the only groups the page does not know by
-     * heart.
-     */
     api("/api/admin/me")
       .then((me) => {
         $("userName").textContent = me.user?.name || me.user?.email || "";
