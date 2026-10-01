@@ -273,9 +273,7 @@
      * lining up with its own row - in light mode that showed as a white
      * block sitting half a row low behind every status.
      */
-    /* Reads as a link, is a button: it narrows the search to this pair. */
-    .linky { border: 0; background: none; padding: 0; font: inherit; color: var(--primary-soft); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-    .linky:hover { color: var(--strong); }
+    tbody tr[data-pair] { cursor: pointer; }
 
     .thumb { width: 38px; height: 38px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
     /* Not "empty": that class is the padded "nothing here" cell, and its
@@ -406,7 +404,7 @@
               <th>VAT type</th>
               <th class="money" title="What the pair really costs us once the consignor's VAT scheme is counted in. A VAT0 consignor asking 100 costs 121, so this is the number to compare on.">Costs us</th>
               <th class="money">Qty</th>
-              <th>Also at</th>
+              <th>Consignors</th>
               <th class="date">Added</th>
             </tr>
           </thead>
@@ -416,6 +414,14 @@
         </table>
       </div>
     </main>
+  </div>
+
+  <div class="panel" id="panel" hidden aria-label="Pair">
+    <div class="panel-head">
+      <h2 id="panelTitle">Pair</h2>
+      <button class="btn ghost" type="button" id="closePanel" aria-label="Close">✕</button>
+    </div>
+    <div class="panel-body" id="panelBody"></div>
   </div>
 
   <div class="toast" id="toast" hidden role="status"></div>
@@ -445,6 +451,7 @@
       units: [],
       counts: {},
       totals: { units: 0, shown: 0, pairs: 0, consignors: 0, cheapest: 0 },
+      pair: null,
       view: startingView(),
       q: "",
       limit: PAGE
@@ -563,11 +570,68 @@
       }
     }
 
+    /*
+     * Every consignor holding this pair, cheapest first - the list you
+     * work down when the first one says no. "Costs us" leads over what he
+     * asks, because that is the number the choice is made on.
+     */
+    function drawPair() {
+      const pair = state.pair;
+      $("panel").hidden = !pair;
+
+      if (!pair) return;
+
+      $("panelTitle").textContent = pair.product_name || pair.sku || "Pair";
+
+      $("panelBody").innerHTML = `
+        <section class="sec">
+          <dl class="meta">
+            <div><dt>SKU</dt><dd>${esc(pair.sku || "—")}</dd></div>
+            <div><dt>Size</dt><dd>${esc(pair.size || "—")}</dd></div>
+            ${pair.brand ? `<div><dt>Brand</dt><dd>${esc(pair.brand)}</dd></div>` : ""}
+            <div><dt>Cheapest</dt><dd><strong>${esc(money(pair.compare))}</strong></dd></div>
+            <div><dt>Held by</dt><dd>${pair.consignors} ${pair.consignors === 1 ? "consignor" : "consignors"} · ${pair.quantity} ${pair.quantity === 1 ? "pair" : "pairs"}</dd></div>
+          </dl>
+        </section>
+
+        <section class="sec">
+          <h3>Who has it</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Consignor</th>
+                  <th class="money">Asks</th>
+                  <th>VAT</th>
+                  <th class="money">Costs us</th>
+                  <th class="money">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pair.holders.map((h) => `
+                  <tr>
+                    <td>
+                      <div class="what" title="${esc(h.seller_id)}">
+                        <strong>${esc(h.party || h.seller_id || "—")}</strong>
+                        <span class="sub">${esc(h.seller_id)}${h.partner ? " · on our shelf" : ""} · added ${esc(day(h.added_at))}</span>
+                      </div>
+                    </td>
+                    <td class="money">${esc(money(h.ask))}</td>
+                    <td><span class="pill ${VAT_PILL[h.vat_type] ?? ""}">${esc(h.vat_type || "—")}</span></td>
+                    <td class="money"><strong>${esc(money(h.compare))}</strong></td>
+                    <td class="money">${h.quantity}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </section>`;
+    }
+
     function drawList() {
       const units = state.units;
 
       $("count").textContent = state.totals.units
-        ? `${state.totals.units} offer${state.totals.units === 1 ? "" : "s"} · ${state.totals.pairs} different pair${state.totals.pairs === 1 ? "" : "s"} · ${state.totals.consignors} consignors` +
+        ? `${state.totals.units} pair${state.totals.units === 1 ? "" : "s"} · ${state.totals.offers} offer${state.totals.offers === 1 ? "" : "s"} · ${state.totals.consignors} consignors` +
           (state.q && state.totals.cheapest ? ` · cheapest ${money(state.totals.cheapest)}` : "") +
           (state.totals.shown < state.totals.units ? ` · showing ${state.totals.shown}` : "")
         : "";
@@ -581,7 +645,7 @@
       }
 
       $("rows").innerHTML = units.map((u) => `
-        <tr>
+        <tr data-pair="${esc(u.key)}"${state.pair?.key === u.key ? ' class="selected"' : ""}>
           <td>${u.image_url
             ? `<img class="thumb" src="${esc(u.image_url)}" alt="" loading="lazy">`
             : `<span class="thumb blank" aria-hidden="true"></span>`}</td>
@@ -602,9 +666,7 @@
           <td><span class="pill ${VAT_PILL[u.vat_type] ?? ""}">${esc(u.vat_type || "—")}</span></td>
           <td class="money"><strong>${u.compare > 0 ? esc(money(u.compare)) : "—"}</strong></td>
           <td class="money">${u.quantity}</td>
-          <td class="sub">${u.alternatives
-            ? `<button class="linky" type="button" data-pair="${esc(u.sku)} ${esc(u.size)}">${u.alternatives} more ${u.alternatives === 1 ? "consignor" : "consignors"}</button>`
-            : "—"}</td>
+          <td class="sub">${u.alternatives ? `${u.alternatives} more` : "only this one"}</td>
           <td class="date">${esc(day(u.added_at))}</td>
         </tr>`).join("");
     }
@@ -635,6 +697,8 @@
 
       state.view = tab.dataset.view;
       state.limit = PAGE;
+      state.pair = null;
+      drawPair();
       drawTabs();
       looking();
 
@@ -650,20 +714,23 @@
       load();
     });
 
-    /*
-     * "2 more consignors" narrows the list to that one pair, so the others
-     * line up underneath with their prices. Cheaper than a second screen,
-     * and it leaves the search box saying what you are looking at.
-     */
     $("rows").addEventListener("click", (event) => {
-      const pair = event.target.closest("[data-pair]");
-      if (!pair) return;
+      const row = event.target.closest("tr[data-pair]");
+      if (!row) return;
 
-      $("search").value = pair.dataset.pair;
-      state.q = pair.dataset.pair;
-      state.limit = PAGE;
-      looking();
-      load();
+      state.pair = state.units.find((u) => u.key === row.dataset.pair) || null;
+      drawPair();
+      drawList();
+    });
+
+    $("closePanel").addEventListener("click", () => {
+      state.pair = null;
+      drawPair();
+      drawList();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("panel").hidden) $("closePanel").click();
     });
 
     let searchTimer = null;
@@ -673,6 +740,8 @@
       searchTimer = setTimeout(() => {
         state.q = $("search").value.trim();
         state.limit = PAGE;
+        state.pair = null;
+        drawPair();
         looking();
         load();
       }, 350);

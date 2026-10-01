@@ -76,9 +76,68 @@ export function stockRow(row = {}) {
     quantity: Number(row.quantity) || 0,
     image_url: text(row.image_url),
     added_at: text(row.created_at) || null,
-    // Filled in below: how many other consignors hold this same pair.
-    alternatives: 0
   };
+}
+
+/*
+ * One line per shoe and size, with every consignor holding it underneath.
+ *
+ * A consignor is not a thing you are looking for, a pair is - so the list is
+ * a list of pairs, and who has it is what you open it to find out. The
+ * cheapest of them is hoisted onto the line, because that is the one you
+ * would ask first.
+ *
+ * Grouped AFTER the VAT filter, so "2 more consignors" on a Margin Only list
+ * means two more margin consignors and not two you are not allowed to use.
+ */
+export function groupRows(rows) {
+  const groups = new Map();
+
+  for (const row of rows) {
+    const key = `${row.sku}|${row.size}`;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        sku: row.sku,
+        size: row.size,
+        product_name: row.product_name,
+        brand: row.brand,
+        image_url: row.image_url,
+        holders: []
+      });
+    }
+
+    const group = groups.get(key);
+
+    group.holders.push(row);
+    // A row without a picture or a name should not decide how the pair looks.
+    if (!group.image_url) group.image_url = row.image_url;
+    if (!group.product_name) group.product_name = row.product_name;
+    if (!group.brand) group.brand = row.brand;
+  }
+
+  for (const group of groups.values()) {
+    group.holders.sort((a, b) => a.compare - b.compare || text(a.seller_id).localeCompare(text(b.seller_id)));
+
+    const best = group.holders[0];
+
+    group.ask = best.ask;
+    group.compare = best.compare;
+    group.vat_type = best.vat_type;
+    group.seller_id = best.seller_id;
+    group.seller_record_id = best.seller_record_id;
+    group.consignors = group.holders.length;
+    group.alternatives = group.holders.length - 1;
+    group.partner = group.holders.some((h) => h.partner);
+    group.quantity = group.holders.reduce((sum, h) => sum + h.quantity, 0);
+    group.added_at = group.holders.reduce(
+      (newest, h) => (text(h.added_at) > text(newest) ? h.added_at : newest),
+      group.holders[0].added_at
+    );
+  }
+
+  return [...groups.values()];
 }
 
 /*
@@ -112,18 +171,7 @@ export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 })
       if (!page || page.length < 1000) break;
     }
 
-    const out = rows.map(stockRow);
-
-    // How many OTHER consignors hold the same pair - the fallback when the
-    // first one says no, which is the question a declined offer raises.
-    const holders = new Map();
-    for (const row of out) {
-      const key = `${row.sku}|${row.size}`;
-      holders.set(key, (holders.get(key) || 0) + 1);
-    }
-    for (const row of out) row.alternatives = holders.get(`${row.sku}|${row.size}`) - 1;
-
-    return out;
+    return rows.map(stockRow);
   }
 
   function loaded() {
@@ -159,9 +207,12 @@ export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 })
     const needle = text(q).toUpperCase();
     const all = await loaded();
 
-    const counts = { all: all.length };
+    // Counted in pairs, because that is what the list shows.
+    const counts = {};
     for (const [name, types] of Object.entries(VAT_FILTERS)) {
-      counts[name] = all.filter((r) => types.includes(r.vat_type)).length;
+      counts[name] = new Set(
+        all.filter((r) => types.includes(r.vat_type)).map((r) => `${r.sku}|${r.size}`)
+      ).size;
     }
 
     const types = VAT_FILTERS[text(view)] || VAT_FILTERS.all;
@@ -182,33 +233,40 @@ export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 })
 
     if (words.length) chosen = chosen.filter((row) => words.every((word) => hits(row, word)));
 
+    const pairs = groupRows(chosen);
+
     /*
-     * Cheapest first, because that is the man to ask - but a row whose SIZE
+     * Cheapest first, because that is the man to ask - but a pair whose SIZE
      * matches leads whatever it costs. Searching "44" otherwise turned up
      * cheap pairs in other sizes, because "HQ4409" contains a 44 too.
      *
      * Without a search there is no shoe yet, so the newest arrivals lead.
      */
-    const onSize = (row) => (words.some((word) => row.size.toUpperCase() === word) ? 0 : 1);
+    const onSize = (pair) => (words.some((word) => pair.size.toUpperCase() === word) ? 0 : 1);
 
-    chosen.sort(words.length
+    pairs.sort(words.length
       ? (a, b) => onSize(a) - onSize(b) || a.compare - b.compare || a.sku.localeCompare(b.sku)
       : (a, b) => text(b.added_at).localeCompare(text(a.added_at)));
 
-    // The rows that match on size, when any do - the ones the search is
+    // The pairs that match on size, when any do - the ones the search is
     // really about. Without a size in the query that is simply everything.
-    const onSizeRows = chosen.filter((row) => onSize(row) === 0);
-    const leading = words.length && onSizeRows.length ? onSizeRows : chosen;
+    const onSizeRows = pairs.filter((pair) => onSize(pair) === 0);
+    const leading = words.length && onSizeRows.length ? onSizeRows : pairs;
 
-    const shown = await withNames(chosen.slice(0, wanted));
+    const shown = pairs.slice(0, wanted);
+
+    // Names for every holder on screen, not only the cheapest: the panel
+    // lists them all and an id there would read as a different kind of thing.
+    await withNames(shown.flatMap((pair) => pair.holders));
+    for (const pair of shown) pair.party = pair.holders[0].party;
 
     return {
       units: shown,
       counts,
       totals: {
-        units: chosen.length,
+        units: pairs.length,
         shown: shown.length,
-        pairs: new Set(chosen.map((r) => `${r.sku}|${r.size}`)).size,
+        offers: chosen.length,
         consignors: new Set(chosen.map((r) => r.seller_id)).size,
         /*
          * The cheapest of the ones actually asked for. Searching a size also
@@ -221,7 +279,8 @@ export function createConsignmentStockStore({ db, airtable, cacheMs = 180_000 })
   }
 
   async function count() {
-    return { all: (await loaded()).length };
+    const all = await loaded();
+    return { all: new Set(all.map((r) => `${r.sku}|${r.size}`)).size };
   }
 
   return { list, count };
