@@ -238,3 +238,115 @@ test("a service that cannot reach the portal refuses rather than half-doing it",
 
   await assert.rejects(store.answer({ id: "x", action: "accept" }), /not reachable/);
 });
+
+/* ---------------- the buyer price is the partner's, always ---------------- */
+
+function pricingShop(offers, { wtbs = [WTB] } = {}) {
+  const writes = [];
+
+  const airtable = {
+    async select() { return { records: wtbs, offset: "" }; },
+    async byIds() { return new Map(); },
+    async update(table, id, fields) { writes.push({ table, id, fields }); return { id }; }
+  };
+
+  return {
+    writes,
+    store: createPartnerDealsStore({
+      db: { get: async () => offers },
+      airtable,
+      tellKickz: async () => ({ ok: true }),
+      cacheMs: 0
+    })
+  };
+}
+
+/*
+ * He is standing between two people he haggles with separately. The
+ * consignor settles at 170, he goes back to his buyer, and whatever they
+ * agree is the price - never something worked out from the payout.
+ */
+test("the buyer price can be set at any point, on its own", async () => {
+  const { store, writes } = pricingShop([offer({ status: "open", offer_price: 160 })]);
+
+  const out = await store.answer({ id: offer().id, action: "price", buyerPrice: 175 });
+
+  assert.equal(out.did, "priced");
+  assert.equal(out.buyer_price, 175);
+  assert.equal(writes[0].table, "Member WTBs");
+  assert.equal(writes[0].fields["Max Price"], 175);
+});
+
+test("the margin is kept in step, net, because Airtable reads it that way", async () => {
+  const { store, writes } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  await store.answer({ id: offer().id, action: "price", buyerPrice: 175 });
+
+  assert.equal(writes[0].fields["Offer Margin"], 4.13);
+  assert.equal(Math.round((170 + 4.13 * 1.21) * 100) / 100, 175);
+});
+
+test("a price that does not cover the payout is refused", async () => {
+  const { store, writes } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  await assert.rejects(
+    store.answer({ id: offer().id, action: "price", buyerPrice: 165 }),
+    /165 does not cover the 170 going to SE-00412/
+  );
+
+  await assert.rejects(store.answer({ id: offer().id, action: "price", buyerPrice: 0 }), /What does the buyer pay/);
+  assert.equal(writes.length, 0);
+});
+
+/*
+ * Accepting is what books the deal, so whatever stands on the want-to-buy
+ * at that moment is what the invoice says. The price goes on first.
+ */
+test("accepting takes the buyer price with it, and writes it before accepting", async () => {
+  const { store, writes } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  const out = await store.answer({ id: offer().id, action: "accept", buyerPrice: 175 });
+
+  assert.equal(writes.length, 1, "written before the portal was told");
+  assert.equal(writes[0].fields["Max Price"], 175);
+  assert.equal(out.payout, 170);
+  assert.equal(out.buyer_price, 175);
+});
+
+test("accepting without a price keeps the one that was already there", async () => {
+  const { store, writes } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  const out = await store.answer({ id: offer().id, action: "accept" });
+
+  assert.equal(writes.length, 0);
+  assert.equal(out.buyer_price, 250, "the one on the want-to-buy");
+});
+
+/*
+ * A consignor who simply accepts books the deal himself, there and then.
+ * After that Max Price decides nothing: the number the invoice reads was
+ * written at confirmation, onto the want-to-buy and onto the unit.
+ */
+test("a booked deal can still be priced, and the unit moves with it", async () => {
+  const { store, writes } = pricingShop(
+    [offer({ status: "accepted", offer_price: 160 })],
+    { wtbs: [{ ...WTB, fields: { ...WTB.fields, "Linked Inventory Unit": ["recUNIT123456789"] } }] }
+  );
+
+  const out = await store.answer({ id: offer().id, action: "price", buyerPrice: 175 });
+
+  assert.equal(out.buyer_price, 175);
+  assert.deepEqual(writes.map((w) => w.table), ["Member WTBs", "Inventory Units"]);
+  assert.equal(writes[0].fields["Final Buying Price"], 175);
+  assert.equal(writes[1].id, "recUNIT123456789");
+  assert.equal(writes[1].fields["Selling Price"], 175);
+});
+
+test("before it is booked there is no unit to move, and no final price to write", async () => {
+  const { store, writes } = pricingShop([offer({ status: "open", offer_price: 160 })]);
+
+  await store.answer({ id: offer().id, action: "price", buyerPrice: 175 });
+
+  assert.equal(writes.length, 1);
+  assert.ok(!("Final Buying Price" in writes[0].fields));
+});

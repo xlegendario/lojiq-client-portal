@@ -50,7 +50,7 @@ export const WTB_FIELDS = [
   "Member WTB ID", "Product Name", "SKU", "Size", "Brand",
   "Max Price", "Current Lowest Source Price", "Offer Margin", "Final Buying Price",
   "Fulfillment Status", "Purchase Status", "Payment Status",
-  "Buyer Seller ID", "Buyer Name", "Date"
+  "Buyer Seller ID", "Buyer Name", "Date", "Linked Inventory Unit"
 ];
 
 /*
@@ -90,6 +90,8 @@ export function dealRow(offer, wtb = {}) {
     // Whether the partner is the one holding this up.
     yours: state.yours,
     fulfillment: text(wtb["Fulfillment Status"]),
+    // Set once the deal is booked: then the sale price lives here too.
+    inventory_unit_record_id: first(wtb["Linked Inventory Unit"]),
     payment: text(wtb["Payment Status"]),
     buyer: first(wtb["Buyer Name"]),
     created_at: text(offer.created_at) || null,
@@ -240,7 +242,47 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
    * consignor, and moves the want-to-buy on. Doing any of that from this
    * side would be a second set of rules that drifts from the first.
    */
-  async function answer({ id, action, price } = {}) {
+  /*
+   * What the buyer pays, written on the want-to-buy.
+   *
+   * It is never worked out from the payout on a partner-run deal: the
+   * partner is standing between two people he negotiates with separately,
+   * so both numbers are his to set. Max Price is what the confirmation
+   * settles on, and Offer Margin is kept in step with it because Airtable's
+   * own "Offer To Buyer" reads it as `payout + margin * 1.21`.
+   */
+  async function setBuyerPrice(offer, buyerPrice) {
+    const buyer = Number(buyerPrice);
+
+    if (!(buyer > 0)) throw new PartnerDealsError("What does the buyer pay?");
+
+    if (!(buyer > offer.payout)) {
+      throw new PartnerDealsError(
+        `${round2(buyer)} does not cover the ${round2(offer.payout)} going to ${offer.seller_id}.`
+      );
+    }
+
+    await airtable.update("Member WTBs", offer.member_wtb_record_id, {
+      "Max Price": round2(buyer),
+      "Offer Margin": round2((buyer - offer.payout) / 1.21),
+      // Once the deal is booked Max Price decides nothing any more - the
+      // number the invoice reads was written at confirmation. So it is
+      // moved too, and the unit it was copied onto with it.
+      ...(offer.inventory_unit_record_id ? { "Final Buying Price": round2(buyer) } : {})
+    });
+
+    if (offer.inventory_unit_record_id) {
+      await airtable.update("Inventory Units", offer.inventory_unit_record_id, {
+        "Selling Price": round2(buyer)
+      });
+    }
+
+    forget();
+
+    return round2(buyer);
+  }
+
+  async function answer({ id, action, price, buyerPrice } = {}) {
     if (!tellKickz) throw new PartnerDealsError("Kickz Caviar is not reachable from this service.", 503);
 
     const offerId = text(id);
@@ -250,12 +292,32 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
     const offer = rows.find((row) => row.id === offerId);
 
     if (!offer) throw new PartnerDealsError("That offer is not one of yours.", 404);
+
+    /*
+     * Setting the price is not answering the consignor, so it is allowed on
+     * a deal that is still waiting on him. Up to the moment the deal is
+     * booked the partner can still be haggling on the other side.
+     */
+    if (action === "price") {
+      const buyer = await setBuyerPrice(offer, buyerPrice);
+      return { ok: true, did: "priced", buyer_price: buyer, seller_id: offer.seller_id };
+    }
+
     if (!offer.yours) throw new PartnerDealsError(`Nothing to answer: ${offer.state.toLowerCase()}.`, 409);
 
     if (action === "accept") {
+      /*
+       * The buyer price comes with the acceptance when it is given, and it
+       * is written FIRST - accepting is what books the deal, and whatever
+       * stands on the want-to-buy at that moment is what the invoice says.
+       */
+      const buyer = buyerPrice === undefined || buyerPrice === null || buyerPrice === ""
+        ? offer.buyer_price
+        : await setBuyerPrice(offer, buyerPrice);
+
       await tellKickz(`/api/consignment/offers/${encodeURIComponent(offerId)}/store-accept`, {});
       forget();
-      return { ok: true, did: "accepted", payout: offer.payout, seller_id: offer.seller_id };
+      return { ok: true, did: "accepted", payout: offer.payout, buyer_price: buyer, seller_id: offer.seller_id };
     }
 
     if (action === "deny") {
@@ -316,7 +378,8 @@ export function mountPartnerDeals(router, { store, audit = null, pageFile }) {
       const out = await store.answer({
         id: req.body?.id,
         action: text(req.body?.action),
-        price: req.body?.price
+        price: req.body?.price,
+        buyerPrice: req.body?.buyer_price
       });
 
       audit?.record({
@@ -325,7 +388,7 @@ export function mountPartnerDeals(router, { store, audit = null, pageFile }) {
         source: "partner_deals",
         recordId: text(req.body?.id),
         label: out.seller_id,
-        details: { payout: out.payout ?? null }
+        details: { payout: out.payout ?? null, buyer_price: out.buyer_price ?? null }
       })?.catch?.(() => {});
 
       res.json(out);

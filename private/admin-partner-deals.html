@@ -273,6 +273,10 @@
      * lining up with its own row - in light mode that showed as a white
      * block sitting half a row low behind every status.
      */
+    /* Reads as a price, is a button: it opens the buyer price for editing. */
+    .linky { border: 0; background: none; padding: 0; font: inherit; color: var(--primary-soft); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-variant-numeric: tabular-nums; }
+    .linky:hover { color: var(--strong); }
+
     tbody tr[data-pair] { cursor: pointer; }
 
     /* Where the next page is asked for; see the observer below. */
@@ -608,7 +612,7 @@
           <td class="money">${o.asks > 0 ? esc(money(o.asks)) : "—"}</td>
           <td class="money">${o.offered > 0 ? esc(money(o.offered)) : "—"}</td>
           <td class="money">${o.countered ? `<strong>${esc(money(o.countered))}</strong>` : "—"}</td>
-          <td class="money">${o.buyer_price > 0 ? esc(money(o.buyer_price)) : "—"}</td>
+          <td class="money"><button class="linky" type="button" data-do="price" data-id="${esc(o.id)}">${o.buyer_price > 0 ? esc(money(o.buyer_price)) : "set"}</button></td>
           <td class="money" style="${o.margin !== null && o.margin < 0 ? "color:var(--bad-text)" : ""}">${o.margin === null ? "—" : esc(money(o.margin))}</td>
           <td><span class="pill ${STATE_PILL[o.status] ?? ""}">${esc(o.state)}</span></td>
           <td class="answer">${o.yours
@@ -650,10 +654,46 @@
         }
       }
 
-      if (what === "accept" && !window.confirm(
-        `Accept ${money(offer.countered ?? offer.offered)} to ${offer.party || offer.seller_id}?\n\n` +
-        `Your buyer pays ${money(offer.buyer_price)}, so you keep ${money(offer.buyer_price - (offer.countered ?? offer.offered))}.`
-      )) return;
+      /*
+       * The buyer price is asked for again at the moment of accepting, and
+       * on its own whenever he wants it.
+       *
+       * He is haggling on two sides at once: the consignor settles at 170,
+       * he goes back to his buyer, and the number he comes back with is
+       * whatever they agreed - never worked out from the payout. Accepting
+       * is what books the deal, so this is the last moment it can be said.
+       */
+      let buyerPrice;
+
+      if (what === "price" || what === "accept") {
+        const payout = offer.countered ?? offer.offered;
+
+        const typed = window.prompt(
+          what === "accept"
+            ? `Accepting ${money(payout)} to ${offer.party || offer.seller_id}.\n\nWhat does your buyer pay?`
+            : `What does your buyer pay for ${offer.sku} ${offer.size}?\n\n${offer.party || offer.seller_id} is on ${money(payout)}.`,
+          String(offer.buyer_price || "")
+        );
+
+        if (typed === null) return;
+
+        buyerPrice = Number(String(typed).replace(",", "."));
+
+        if (!(buyerPrice > 0)) {
+          toast("What does the buyer pay?");
+          return;
+        }
+
+        if (buyerPrice <= payout) {
+          toast(`${money(buyerPrice)} does not cover the ${money(payout)} going to ${offer.seller_id}.`);
+          return;
+        }
+
+        if (what === "accept" && !window.confirm(
+          `Accept ${money(payout)} to ${offer.party || offer.seller_id}, selling at ${money(buyerPrice)}?\n\n` +
+          `You keep ${money(buyerPrice - payout)}.`
+        )) return;
+      }
 
       if (what === "deny" && !window.confirm(
         `Decline ${offer.party || offer.seller_id} on ${offer.sku} ${offer.size}?`
@@ -665,14 +705,16 @@
         const out = await api("/api/admin/partner-deals/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, action: what, price })
+          body: JSON.stringify({ id, action: what, price, buyer_price: buyerPrice })
         });
 
         toast(out.did === "countered"
           ? `${money(out.payout)} countered to ${out.seller_id}.`
           : out.did === "accepted"
-            ? `${money(out.payout)} accepted for ${out.seller_id}.`
-            : `${out.seller_id} declined.`);
+            ? `${money(out.payout)} to ${out.seller_id}, selling at ${money(out.buyer_price)}.`
+            : out.did === "priced"
+              ? `Buyer pays ${money(out.buyer_price)}.`
+              : `${out.seller_id} declined.`);
 
         await load();
         loadNavCounts();
