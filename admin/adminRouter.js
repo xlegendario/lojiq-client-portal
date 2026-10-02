@@ -60,6 +60,7 @@ import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createConsignmentStockStore, mountConsignmentStock } from "./adminConsignmentStock.js";
 import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
+import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 
@@ -480,6 +481,41 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-partner-stock.html") : ""
   });
 
+  /*
+   * Deals: one buyer, several pairs, bought from consignors as the deal is
+   * made (admin/adminBrokerDeals.js, private/admin-deals.html).
+   *
+   * The deal is an External Sale with a negotiation in front of it, so
+   * everything after the last pair is agreed - invoice, payment, parcels,
+   * crediting - is the machinery that is already there. Only the round
+   * with the consignor is new, and that belongs to the KC portal.
+   */
+  const brokerDeals = createBrokerDealsStore({
+    db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+    airtable,
+
+    tellKickz: (pathName, body) => {
+      const base = service(services.kickzBaseUrl);
+
+      if (!base || !text(services.counterOffersSecret)) {
+        throw new Error("Kickz Caviar is not configured on this service.");
+      }
+
+      return post(`${base}${pathName}`, body, { "x-kc-secret": services.counterOffersSecret });
+    },
+
+    // Read when a deal is opened, not now: `service` is assigned further
+    // down the file.
+    signupUrl: () => {
+      const base = service(services.kickzBaseUrl);
+      return base ? `${base}/signup` : "";
+    }
+  });
+
+  // No page of its own: the deals being made are the Draft tab of External
+  // Sales, which is where they turn into a sale.
+  mountBrokerDeals(router, { store: brokerDeals, audit });
+
   // Consignment Stock: what consignors hold for us, and for how much
   // (admin/adminConsignmentStock.js, private/admin-consignment-stock.html).
   // Not ours until we buy it, so it is its own screen rather than Inventory.
@@ -489,24 +525,11 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       airtable,
 
       /*
-       * The offer round is the KC portal's, unchanged. It already takes a
-       * member WTB as one of its two sources and does the rest itself: the
-       * Seller Offer, the counter round, the sweeps, the embeds.
-       *
-       * `service` and `post` are both declared further down; by the time a
-       * request reaches here they are long since assigned.
+       * Offering from this screen makes a deal with one pair on it. The
+       * round itself is the KC portal's, unchanged, and the deal is where
+       * everything after it happens - so there is one road, not two.
        */
-      askKickz: (body) => {
-        const base = service(services.kickzBaseUrl);
-
-        if (!base || !text(services.counterOffersSecret)) {
-          throw new Error("Kickz Caviar is not configured on this service.");
-        }
-
-        return post(`${base}/api/consignment/auto-offer/create`, body, {
-          "x-kc-secret": services.counterOffersSecret
-        });
-      }
+      deals: brokerDeals
     }),
     audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-consignment-stock.html") : ""
@@ -664,6 +687,14 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       tabs["partner/deals_yours"] = (await partnerDeals.count()).yours;
     } catch (err) {
       console.error("[admin] partner deals counts failed:", err.message);
+    }
+
+    // And the deals being made: how many are waiting on him, which is what
+    // the Draft tab is for.
+    try {
+      tabs["external/draft"] = (await brokerDeals.count()).yours;
+    } catch (err) {
+      console.error("[admin] broker deals counts failed:", err.message);
     }
 
     return { tabs, at: new Date().toISOString() };

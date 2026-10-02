@@ -1019,7 +1019,7 @@
     $("navMoney").insertAdjacentHTML("beforeend", `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments${navCount("money/forwarding_payments")}</a>` +
       `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`);
 
-      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
+      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/external-sales?tab=draft">Deals ${navCount("external/draft")}</a>`;
 
     document.querySelectorAll("[data-nav-count]").forEach((el) => {
       el.textContent = navCountText(el.dataset.navCount);

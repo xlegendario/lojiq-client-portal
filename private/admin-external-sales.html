@@ -383,6 +383,7 @@
 
       <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
       <div class="nav-group" id="navExternal" hidden>
+        <button class="nav-item" type="button" data-tab="draft">Draft <small data-nav-count="external/draft"></small></button>
         <button class="nav-item" type="button" data-tab="pending">Pending <small data-nav-count="external/pending"></small></button>
         <button class="nav-item" type="button" data-tab="ready">Ready to Ship <small data-nav-count="external/ready"></small></button>
         <button class="nav-item" type="button" data-tab="shipped">Shipped</button>
@@ -390,7 +391,7 @@
         <button class="nav-item" type="button" data-tab="checks">Checks <small data-nav-count="external/checks"></small></button>
       </div>
 
-      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Partner</button>
+      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Deals</button>
       <div class="nav-group" id="navPartner" hidden></div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -458,6 +459,7 @@
       </div>
 
       <div class="checks" id="checks" hidden></div>
+      <div class="checks" id="draftView" hidden></div>
     </main>
   </div>
 
@@ -610,6 +612,10 @@
     const when = (value) => { const d = new Date(value); return value && !isNaN(d) ? whenFmt.format(d) : ""; };
 
     const TABS = {
+      // The deals still being made: a buyer, some pairs, and consignors who
+      // have not all answered yet. They become an ordinary sale the moment
+      // the broker confirms, and only then do the other tabs see them.
+      draft: "Draft",
       pending: "Pending",
       ready: "Ready to Ship",
       shipped: "Shipped",
@@ -691,7 +697,7 @@
       $("navMoney").innerHTML = finance.map(link).join("") + `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
-      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
+      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/external-sales?tab=draft">Deals ${navCount("external/draft")}</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
@@ -835,13 +841,21 @@
 
     async function load() {
       const checks = state.tab === "checks";
+      const drafts = state.tab === "draft";
+
       $("checks").hidden = !checks;
-      $("tableWrap").hidden = checks;
-      $("listFilters").hidden = checks;
+      $("draftView").hidden = !drafts;
+      $("tableWrap").hidden = checks || drafts;
+      $("listFilters").hidden = checks || drafts;
       $("statusSelect").hidden = state.tab !== "all";
       $("viewTitle").textContent = TABS[state.tab];
 
       if (checks) return loadChecks();
+
+      if (drafts) {
+        $("draftView").innerHTML = `<p class="empty">Loading…</p>`;
+        return openDraft(new URLSearchParams(location.search).get("deal") || "");
+      }
 
       $("rows").innerHTML = `<tr><td class="empty" colspan="11">Loading…</td></tr>`;
 
@@ -859,6 +873,474 @@
       const row = event.target.closest("tr[data-id]");
       if (row) openPanel(row.dataset.id);
     });
+
+    /* ---------------- Draft: the deals still being made ---------------- */
+
+    /*
+     * A broker deal is an External Sale with a negotiation in front of it.
+     * Until he draws the line it has no total, nothing to invoice and
+     * nothing to ship - so it lives here, on its own tab, and only moves
+     * into Pending when he says "this is the deal".
+     *
+     * Everything on this tab goes through the broker store; nothing it does
+     * touches the sales the other tabs read.
+     */
+    const draft = { deals: [], dealId: "", deal: null, lines: [], signup: "", buyerEmail: "" };
+
+    const LINE_PILL = {
+      draft: "", open: "move", store_pending: "wait", partner_agreed: "wait",
+      processing: "move", accepted: "good", denied: "bad", store_denied: "bad",
+      closed: "", cancelled: "", expired: ""
+    };
+
+    // How long a round has left. The portal sweeps what is past it within
+    // ten minutes, so "out of time" is a thing you see for minutes.
+    function clockText(due) {
+      const left = new Date(due).getTime() - Date.now();
+      if (!Number.isFinite(left)) return "";
+      if (left <= 0) return "out of time";
+      const minutes = Math.round(left / 60000);
+      return minutes < 60 ? `${minutes}m left` : `${Math.round(minutes / 60)}h left`;
+    }
+
+    function lineButtons(o) {
+      if (o.done) return "—";
+
+      if (o.offerable) {
+        return `<button class="btn primary" type="button" data-draft="offer" data-id="${esc(o.id)}">Offer</button>
+                <button class="btn ghost" type="button" data-draft="remove" data-id="${esc(o.id)}">Remove</button>`;
+      }
+
+      if (o.closable) {
+        return `<button class="btn primary" type="button" data-draft="finalize" data-id="${esc(o.id)}">Buy it</button>
+                <button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
+      }
+
+      if (o.yours) {
+        return `<button class="btn primary" type="button" data-draft="accept" data-id="${esc(o.id)}">Accept</button>
+                <button class="btn" type="button" data-draft="counter" data-id="${esc(o.id)}">Counter</button>
+                <button class="btn ghost" type="button" data-draft="deny" data-id="${esc(o.id)}">Decline</button>`;
+      }
+
+      if (o.stoppable) {
+        return `<button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
+      }
+
+      return "—";
+    }
+
+    function drawDraftList() {
+      const deals = draft.deals;
+
+      $("count").textContent = deals.length ? `${deals.length} deal${deals.length === 1 ? "" : "s"}` : "";
+
+      if (!deals.length) {
+        $("draftView").innerHTML = `
+          <div class="filters"><button class="btn primary" type="button" data-draft="new">+ New deal</button></div>
+          <p class="empty">No deals being made right now.</p>`;
+        return;
+      }
+
+      $("draftView").innerHTML = `
+        <div class="filters"><button class="btn primary" type="button" data-draft="new">+ New deal</button></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Deal</th><th>Buyer</th><th>Pairs</th><th>Needs you</th>
+              <th class="money">Buyer pays</th><th class="money">We pay</th><th class="money">Margin</th>
+            </tr></thead>
+            <tbody>
+              ${deals.map((d) => `
+                <tr class="clickable" data-draft="open" data-id="${esc(d.id)}">
+                  <td><strong>${esc(d.deal_id)}</strong></td>
+                  <td>${esc(d.buyer)}</td>
+                  <td>${d.bought} of ${d.pairs}</td>
+                  <td>${d.yours ? `<span class="pill wait">${d.yours}</span>` : "—"}</td>
+                  <td class="money">${d.selling > 0 ? esc(euro(d.selling)) : "—"}</td>
+                  <td class="money">${d.paying > 0 ? esc(euro(d.paying)) : "—"}</td>
+                  <td class="money">${d.selling > 0 ? esc(euro(d.selling - d.paying)) : "—"}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    function drawDraftDeal() {
+      const deal = draft.deal;
+      const lines = draft.lines;
+
+      const bought = lines.filter((l) => l.done).length;
+      const running = lines.filter((l) => !l.done && l.status !== "cancelled").length;
+      const waiting = lines.filter((l) => l.offerable).length;
+
+      $("count").textContent = "";
+
+      $("draftView").innerHTML = `
+        <div class="filters">
+          <button class="btn ghost" type="button" data-draft="back">← All drafts</button>
+          <span class="count">${esc(deal ? `${deal.deal_id} · ${deal.buyer}` : "")} · ${bought} of ${lines.length} bought</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Product</th><th>Size</th><th>Consignor</th>
+              <th class="money">He asks</th><th class="money">You offered</th><th class="money">He wants</th>
+              <th class="money">Buyer pays</th><th class="money">Margin</th><th>State</th><th>Answer</th>
+            </tr></thead>
+            <tbody>
+              ${lines.length ? lines.map((o) => `
+                <tr${o.yours ? ' class="selected"' : ""}>
+                  <td>
+                    <strong>${esc(o.product_name || o.sku || "—")}</strong>
+                    <div class="sub">${esc(o.product_name ? o.sku : "nobody is holding this")}${o.vat_filter !== "all" ? ` · ${esc(o.vat_filter)}` : ""}</div>
+                  </td>
+                  <td>${esc(o.size || "—")}</td>
+                  <td>${esc(o.party || o.seller_id || "—")}<div class="sub">${esc(o.vat_type || "")}</div></td>
+                  <td class="money">${o.asks > 0 ? esc(euro(o.asks)) : "—"}</td>
+                  <td class="money">${o.offered > 0 ? esc(euro(o.offered)) : "—"}</td>
+                  <td class="money">${o.countered ? `<strong>${esc(euro(o.countered))}</strong>` : "—"}</td>
+                  <td class="money"><button class="linky" type="button" data-draft="price" data-id="${esc(o.id)}">${o.buyer_price > 0 ? esc(euro(o.buyer_price)) : "set"}</button></td>
+                  <td class="money">${o.margin === null ? "—" : esc(euro(o.margin))}</td>
+                  <td>
+                    <span class="pill ${LINE_PILL[o.status] ?? ""}">${esc(o.state)}</span>
+                    ${o.due_at ? ` <button class="linky" type="button" data-draft="extend" data-id="${esc(o.id)}" title="Runs out ${esc(when(o.due_at))}. Click to give it another 24 hours.">${esc(clockText(o.due_at))}</button>` : ""}
+                  </td>
+                  <td>${lineButtons(o)}</td>
+                </tr>`).join("") : `<tr><td class="empty" colspan="10">No pairs on this deal yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+
+        <form class="filters" id="draftAdd">
+          <input class="input" name="sku" placeholder="SKU" autocomplete="off" required style="width:150px">
+          <input class="input" name="size" placeholder="Size" autocomplete="off" required style="width:90px">
+          <input class="input" name="payout" type="number" step="0.01" min="0" placeholder="We pay" required style="width:110px">
+          <input class="input" name="buyer_price" type="number" step="0.01" min="0" placeholder="Buyer pays" style="width:120px">
+          <select class="select" name="vat_filter">
+            <option value="all">All stock</option>
+            <option value="margin">Margin only</option>
+            <option value="b2b">B2B only</option>
+          </select>
+          <button class="btn" type="submit">Add a pair</button>
+        </form>
+
+        <div class="filters">
+          <button class="btn" type="button" data-draft="submit"${waiting ? "" : " disabled"}>Send ${waiting || "no"} offer${waiting === 1 ? "" : "s"}</button>
+          <button class="btn primary" type="button" data-draft="confirm"${deal?.confirmable ? "" : " disabled"}>Confirm the deal</button>
+          <button class="btn ghost" type="button" data-draft="invite">Invite the buyer</button>
+          <span class="count">${bought ? `${bought} bought${running ? `, ${running} would be let go` : ""}` : "Nothing bought yet"}</span>
+        </div>`;
+    }
+
+    async function openDraft(id) {
+      draft.dealId = id || "";
+
+      if (!draft.dealId) {
+        try {
+          draft.deals = (await api("/api/admin/broker-deals?view=all")).deals || [];
+        } catch (err) {
+          $("draftView").innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+          return;
+        }
+
+        drawDraftList();
+        return;
+      }
+
+      try {
+        const data = await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}`);
+        draft.deal = data.deal;
+        draft.lines = data.lines || [];
+        draft.signup = data.signup_url || "";
+        draft.buyerEmail = data.buyer_email || "";
+      } catch (err) {
+        $("draftView").innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+        return;
+      }
+
+      drawDraftDeal();
+    }
+
+    /*
+     * Answering a consignor.
+     *
+     * The buyer price is asked for again at the moment of buying, and on
+     * its own whenever he wants it: he is haggling on two sides at once and
+     * the number he comes back with is whatever they agreed - never worked
+     * out from the payout.
+     */
+    async function answerLine(id, what) {
+      const line = draft.lines.find((o) => o.id === id);
+      if (!line) return;
+
+      const who = line.party || line.seller_id || "the consignor";
+      let price;
+      let buyerPrice;
+
+      if (what === "remove") {
+        if (!window.confirm(`Take ${line.sku} ${line.size} off this deal?`)) return;
+
+        try {
+          await api(`/api/admin/broker-deals/lines/${encodeURIComponent(id)}`, { method: "DELETE" });
+          await openDraft(draft.dealId);
+        } catch (err) {
+          toast(err.message);
+        }
+
+        return;
+      }
+
+      if (what === "counter") {
+        const typed = window.prompt(
+          `Counter ${who} on ${line.sku} ${line.size}.\n\n` +
+          `He wants ${euro(line.countered ?? line.asks)}, you offered ${euro(line.offered)}.\nWhole euros only.`,
+          String(Math.round(line.offered || 0))
+        );
+
+        if (typed === null) return;
+        price = Number(typed);
+
+        if (!Number.isInteger(price) || price <= 0) {
+          toast("A counter is a whole number of euros.");
+          return;
+        }
+      }
+
+      if (what === "price" || what === "finalize") {
+        const typed = window.prompt(
+          what === "finalize"
+            ? `Buying ${line.sku} ${line.size}. ${who} gets ${euro(line.payout)}.\n\nWhat does your buyer pay?`
+            : `What does your buyer pay for ${line.sku} ${line.size}?`,
+          String(line.buyer_price || "")
+        );
+
+        if (typed === null) return;
+        buyerPrice = Number(String(typed).replace(",", "."));
+
+        if (!(buyerPrice > 0)) { toast("What does the buyer pay?"); return; }
+
+        if (line.payout > 0 && buyerPrice <= line.payout) {
+          toast(`${euro(buyerPrice)} does not cover the ${euro(line.payout)} going to ${who}.`);
+          return;
+        }
+
+        // Buying is the irreversible one: it makes the unit, takes the pair
+        // off his shelf and puts it on the sale.
+        if (what === "finalize" && !window.confirm(
+          `Buy this pair?\n\n${who} is paid ${euro(line.payout)} and ships it.\n` +
+          `Your buyer pays ${euro(buyerPrice)}, so you keep ${euro(buyerPrice - line.payout)}.`
+        )) return;
+      }
+
+      if (what === "accept" && !window.confirm(
+        `Agree ${euro(line.countered ?? line.offered)} with ${who}?\n\nNothing is bought yet - you close it once your buyer is in.`
+      )) return;
+
+      if (what === "deny" && !window.confirm(`Decline ${who} on ${line.sku} ${line.size}?`)) return;
+
+      if (what === "extend" && !window.confirm(
+        `Give ${line.sku} ${line.size} another 24 hours?\n\nIt runs out ${when(line.due_at)} as it stands.`
+      )) return;
+
+      if (what === "discard" && !window.confirm(
+        `Drop this pair?\n\n` +
+        (line.closable
+          ? `${who} confirmed it, so he is told it is not going ahead and the pair stays his.`
+          : `${who} never confirmed, so he is not told anything.`)
+      )) return;
+
+      try {
+        const out = await api(`/api/admin/broker-deals/lines/${encodeURIComponent(id)}/answer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: what, price, buyer_price: buyerPrice })
+        });
+
+        toast(
+          out.did === "offered" ? `Offered to ${out.seller_id}.`
+          : out.did === "countered" ? `${euro(out.payout)} countered to ${out.seller_id}.`
+          : out.did === "agreed" ? `${out.seller_id} is on ${euro(out.payout)}. Buy it when your buyer is in.`
+          : out.did === "bought" ? `Bought as ${out.item_id} - ${out.seller_id} gets ${euro(out.payout)}, selling at ${euro(out.buyer_price)}.`
+          : out.did === "priced" ? `Buyer pays ${euro(out.buyer_price)}.`
+          : out.did === "extended" ? `Another 24 hours - runs out ${when(out.until)}.`
+          : out.did === "discarded" ? (out.told ? `Dropped. ${out.seller_id} has been told.` : "Dropped.")
+          : `${out.seller_id} declined.`
+        );
+
+        await openDraft(draft.dealId);
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    async function newDraftDeal() {
+      let buyers = [];
+
+      try {
+        buyers = (await api("/api/admin/buyers")).options || [];
+      } catch (err) {
+        toast(err.message);
+        return;
+      }
+
+      if (!buyers.length) {
+        toast("There are no buyers yet. Add one in the outbound first.");
+        return;
+      }
+
+      const typed = window.prompt(
+        `Which buyer?\n\nType a name or part of one.\n\n` +
+        buyers.slice(0, 12).map((b) => `· ${b.label}`).join("\n") +
+        (buyers.length > 12 ? `\n… and ${buyers.length - 12} more` : "")
+      );
+
+      if (typed === null) return;
+
+      const needle = String(typed).trim().toLowerCase();
+      const hits = buyers.filter((b) => String(b.label).toLowerCase().includes(needle));
+
+      if (!needle || !hits.length) { toast("No buyer by that name."); return; }
+      if (hits.length > 1) { toast(`${hits.length} buyers match that. Be more specific.`); return; }
+
+      try {
+        const out = await api("/api/admin/broker-deals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ buyer_id: hits[0].value || hits[0].id })
+        });
+
+        toast(`${out.deal_id} started for ${hits[0].label}.`);
+        await openDraft(out.id);
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    $("draftView").addEventListener("submit", async (event) => {
+      if (event.target.id !== "draftAdd") return;
+      event.preventDefault();
+
+      const form = new FormData(event.target);
+
+      try {
+        await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}/lines`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sku: form.get("sku"),
+            size: form.get("size"),
+            payout: Number(form.get("payout")),
+            buyer_price: form.get("buyer_price") ? Number(form.get("buyer_price")) : null,
+            vat_filter: form.get("vat_filter")
+          })
+        });
+
+        await openDraft(draft.dealId);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+
+    $("draftView").addEventListener("click", async (event) => {
+      const el = event.target.closest("[data-draft]");
+      if (!el) return;
+
+      const what = el.dataset.draft;
+
+      if (what === "new") return newDraftDeal();
+      if (what === "back") return openDraft("");
+      if (what === "open") return openDraft(el.dataset.id);
+
+      if (what === "submit") {
+        const waiting = draft.lines.filter((line) => line.offerable);
+
+        if (!window.confirm(
+          `Send ${waiting.length} offer${waiting.length === 1 ? "" : "s"}?\n\n` +
+          `Each pair goes to whoever is holding it cheapest, and he has 24 hours to answer.`
+        )) return;
+
+        el.disabled = true;
+
+        try {
+          const out = await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}/submit`, { method: "POST" });
+          const failed = out.lines.filter((line) => !line.ok);
+
+          toast(failed.length
+            ? `${out.sent} sent, ${failed.length} could not: ${failed[0].error}`
+            : `${out.sent} offer${out.sent === 1 ? "" : "s"} sent.`);
+
+          await openDraft(draft.dealId);
+        } catch (err) {
+          toast(err.message);
+          el.disabled = false;
+        }
+
+        return;
+      }
+
+      /*
+       * "This is the deal." Everything still running is let go, and a
+       * consignor who already agreed to one of those pairs is told - so the
+       * dialog says that out loud rather than leaving him to find out.
+       */
+      if (what === "confirm") {
+        const bought = draft.lines.filter((line) => line.done).length;
+        const running = draft.lines.filter((line) => !line.done && line.status !== "cancelled");
+        const agreed = running.filter((line) => line.closable).length;
+
+        if (!window.confirm(
+          `Confirm this deal with ${bought} pair${bought === 1 ? "" : "s"}?\n\n` +
+          (running.length
+            ? `${running.length} pair${running.length === 1 ? "" : "s"} still running ${running.length === 1 ? "is" : "are"} let go` +
+              (agreed ? `, and ${agreed} consignor${agreed === 1 ? "" : "s"} who already agreed ${agreed === 1 ? "is" : "are"} told.` : ".")
+            : "Nothing is still running.") +
+          `\n\nAfter this it moves to Pending: invoice, payment and shipping.`
+        )) return;
+
+        el.disabled = true;
+
+        try {
+          const out = await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}/confirm`, { method: "POST" });
+
+          toast(`${out.deal_id} confirmed with ${out.pairs} pair${out.pairs === 1 ? "" : "s"}` +
+            (out.dropped ? `, ${out.dropped} let go${out.told ? ` (${out.told} told)` : ""}.` : "."));
+
+          // It is a sale now, so it belongs on the tab where sales live.
+          state.tab = "pending";
+          location.href = "/admin/external-sales?tab=pending";
+        } catch (err) {
+          toast(err.message);
+          el.disabled = false;
+        }
+
+        return;
+      }
+
+      /*
+       * The point of the whole exercise: a buyer who liked this deal should
+       * be placing his own want-to-buys next time. Copied rather than sent,
+       * because reaching him is a WhatsApp message nine times out of ten.
+       */
+      if (what === "invite") {
+        if (!draft.signup) {
+          toast("Kickz Caviar is not configured on this service, so there is no sign-up link.");
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(draft.signup);
+          toast(`Sign-up link copied${draft.buyerEmail ? ` - send it to ${draft.buyerEmail}` : ""}.`);
+        } catch {
+          window.prompt("Send this to your buyer:", draft.signup);
+        }
+
+        return;
+      }
+
+      if (el.dataset.id) answerLine(el.dataset.id, what);
+    });
+
 
     $("checks").addEventListener("click", async (event) => {
       const linkBtn = event.target.closest("[data-link-mollie]");
@@ -917,6 +1399,14 @@
 
       try {
         state.detail = await api(`/api/admin/external-sales/get?id=${encodeURIComponent(id)}`);
+
+        /*
+         * And what is still to come in from consignors, which only a
+         * brokered deal has. An ordinary sale answers "not a broker deal"
+         * and the section simply is not drawn.
+         */
+        state.inbound = await api(`/api/admin/broker-deals/${encodeURIComponent(id)}/shipments`).catch(() => null);
+
         drawPanel();
       } catch (err) {
         $("panelBody").innerHTML = `<p class="sub">${esc(err.message)}</p>`;
@@ -1102,6 +1592,46 @@
       return `<span class="pill ${state.tone}"${title ? ` title="${esc(title)}"` : ""}>${state.text}${parcel.status === "delivered" && when ? ` ${esc(dayFmt.format(new Date(when)))}` : ""}</span>`;
     };
 
+    /*
+     * The pairs still sitting with their consignors.
+     *
+     * Grouped per consignor and never per pair: three pairs from one man
+     * are one parcel on one label, and three labels would mean three boxes.
+     * He sees the same grouping in his own dashboard.
+     */
+    function inboundSection() {
+      const groups = state.inbound?.groups || [];
+
+      if (!groups.length) return "";
+
+      return `
+        <section class="sec">
+          <h3>Coming in from consignors</h3>
+          ${groups.map((g) => `
+            <div class="pairs" style="margin-bottom:10px">
+              <div class="inline" style="justify-content:space-between">
+                <strong>${esc(g.party || g.seller_id || "—")}</strong>
+                <span class="sub">${g.pairs.length} pair${g.pairs.length === 1 ? "" : "s"}${g.shipment_group ? ` · ${esc(g.shipment_group)}` : ""}</span>
+              </div>
+              <div class="sub">${g.pairs.map((p) => `${esc(p.sku)} ${esc(p.size)}`).join(" · ")}</div>
+
+              ${g.step === "Ready to Ship" ? `
+                <div class="inline" style="gap:8px;margin-top:6px">
+                  <span class="pill ${g.shipped ? "good" : "move"}">${g.shipped ? "Shipped" : "Label sent"}</span>
+                  ${g.label_url ? `<a class="btn ghost" href="${esc(g.label_url)}" target="_blank" rel="noopener">Label</a>` : ""}
+                  <span class="sub mono">${esc(g.tracking_url || "")}</span>
+                  ${g.shipped ? "" : `<button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}">Mark shipped</button>`}
+                </div>`
+              : `
+                <form class="inline" style="gap:8px;margin-top:6px" data-inbound="ship" data-seller="${esc(g.seller_record_id)}">
+                  <input class="input" type="file" name="label" accept="application/pdf,image/*" required style="max-width:200px">
+                  <input class="input" name="tracking" placeholder="Tracking number" autocomplete="off" required style="width:180px">
+                  <button class="btn primary" type="submit">Send the label</button>
+                </form>`}
+            </div>`).join("")}
+        </section>`;
+    }
+
     function drawPanel() {
       const { sale: s, pairs, parcels, invoices, money, next, due_date } = state.detail;
       const locked = ["invoiced", "credited"].includes(s.bookkeeping_status);
@@ -1270,6 +1800,8 @@
           ${next.key === "label" ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel</button>' : ""}
           ${next.key === "overdue" ? '<button class="btn primary" type="button" data-pay="reminder">Send reminder</button>' : ""}
         </div>`}
+
+        ${inboundSection()}
 
         <section class="sec">
           <h3>Pairs</h3>
@@ -1683,6 +2215,71 @@
     }
 
     /* ----- actions in the panel ----- */
+
+    /*
+     * The label for everything one consignor is sending.
+     *
+     * Read here rather than uploaded straight to storage: the server picks
+     * the path, writes it on every pair in the group and tells him on
+     * Discord, so one answer either does all of it or none.
+     */
+    $("panelBody").addEventListener("submit", async (event) => {
+      const form = event.target.closest('[data-inbound="ship"]');
+      if (!form) return;
+
+      event.preventDefault();
+
+      const file = form.elements.label.files[0];
+      const tracking = form.elements.tracking.value.trim();
+
+      if (!file || !tracking) return;
+
+      const button = form.querySelector("button");
+      button.disabled = true;
+      button.textContent = "Sending…";
+
+      try {
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+          reader.onerror = () => reject(new Error("That file could not be read."));
+          reader.readAsDataURL(file);
+        });
+
+        const out = await postJson(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/ship`, {
+          seller_record_id: form.dataset.seller,
+          tracking,
+          label: { name: file.name, type: file.type, data }
+        });
+
+        toast(`${out.pairs} pair${out.pairs === 1 ? "" : "s"} on one label${out.told ? " - he has been told." : ", but he was not reachable on Discord."}`);
+        openPanel(state.selected);
+      } catch (err) {
+        toast(err.message);
+        button.disabled = false;
+        button.textContent = "Send the label";
+      }
+    });
+
+    $("panelBody").addEventListener("click", async (event) => {
+      const shipped = event.target.closest('[data-inbound="shipped"]');
+      if (!shipped) return;
+
+      if (!confirm("Mark this parcel as shipped?")) return;
+
+      shipped.disabled = true;
+
+      try {
+        await postJson(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/shipped`, {
+          seller_record_id: shipped.dataset.seller
+        });
+
+        openPanel(state.selected);
+      } catch (err) {
+        toast(err.message);
+        shipped.disabled = false;
+      }
+    });
 
     $("panelBody").addEventListener("change", async (event) => {
 

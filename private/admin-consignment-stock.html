@@ -359,7 +359,7 @@
         <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
       </div>
 
-      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Partner</button>
+      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Deals</button>
       <div class="nav-group" id="navPartner" hidden></div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -533,7 +533,7 @@
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
-      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
+      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/external-sales?tab=draft">Deals ${navCount("external/draft")}</a>`;
 
       $("navWarehouse").innerHTML =
         `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
@@ -648,6 +648,26 @@
      * decision. The payout starts at what he asks: offering less is a choice
      * you make on purpose, not the default.
      */
+    /*
+     * The buyers a deal can be made for.
+     *
+     * Read once and kept: the list is short, it changes rarely, and the
+     * offer box must not wait on a round trip before it can be filled in.
+     */
+    let buyerOptions = null;
+
+    async function loadBuyers() {
+      if (buyerOptions) return buyerOptions;
+
+      try {
+        buyerOptions = (await api("/api/admin/buyers")).options || [];
+      } catch {
+        buyerOptions = [];
+      }
+
+      return buyerOptions;
+    }
+
     function drawOffer(pair) {
       const box = $("offerBox");
       box.hidden = !pair;
@@ -657,6 +677,9 @@
       box.innerHTML = `
         <h3>Offer on ${esc(pair.sku)} ${esc(pair.size)}</h3>
         <dl class="meta">
+          <div><dt>Buyer</dt><dd>
+            <select class="select" id="offerFor"><option value="">Loading…</option></select>
+          </dd></div>
           <div><dt>Buyer pays</dt><dd><input class="input" id="offerBuyer" type="number" min="0" step="0.01" inputmode="decimal"></dd></div>
           <div><dt>Payout</dt><dd><input class="input" id="offerPayout" type="number" min="0" step="0.01" inputmode="decimal" value="${pair.ask}"></dd></div>
           <div><dt>Your margin</dt><dd id="offerMargin">—</dd></div>
@@ -670,7 +693,7 @@
         </dl>
         <p class="group-todo" id="offerNote"></p>
         <div class="panel-actions" style="padding:0;border:0">
-          <button class="btn primary" type="button" id="sendOffer">Send the offer</button>
+          <button class="btn primary" type="button" id="sendOffer">Start the deal</button>
           <button class="btn ghost" type="button" id="cancelOffer">Cancel</button>
         </div>`;
 
@@ -717,9 +740,24 @@
             `${pair.party || pair.seller_id} is asking ${money(pair.ask)} - offering more only ever pays him that.`;
         }
 
-        $("sendOffer").disabled = !(buyer > 0 && payout > 0 && reach > 0) || tooMuch;
+        // A deal needs somebody to be for, so the buyer is as required as
+        // the two prices.
+        $("sendOffer").disabled = !($("offerFor").value && buyer > 0 && payout > 0 && reach > 0) || tooMuch;
       };
 
+      loadBuyers().then((options) => {
+        const select = $("offerFor");
+        if (!select) return;
+
+        select.innerHTML = `<option value="">Which buyer?</option>` +
+          options.map((b) => `<option value="${esc(b.value || b.id)}">${esc(b.label)}</option>`).join("");
+
+        if (!options.length) select.innerHTML = `<option value="">No buyers yet - add one in the outbound</option>`;
+
+        redraw();
+      });
+
+      $("offerFor").addEventListener("change", redraw);
       $("offerBuyer").addEventListener("input", redraw);
       $("offerPayout").addEventListener("input", redraw);
       $("offerFilter").addEventListener("change", redraw);
@@ -742,18 +780,24 @@
               size: pair.size,
               buyer_price: Number($("offerBuyer").value),
               payout: Number($("offerPayout").value),
-              filter: $("offerFilter").value
+              filter: $("offerFilter").value,
+              buyer_id: $("offerFor").value
             })
           });
 
           drawOffer(null);
+
           toast(out.asked
-            ? `${money(out.offered)} offered to ${out.seller_id}.`
-            : `Want-to-buy made, but the offer round did not start: ${out.error}`);
+            ? `${money(out.offered)} offered to ${out.seller_id}. Opening the deal…`
+            : `The deal is made, but the offer round did not start: ${out.error}`);
+
+          // Everything after this - the counter, the buyer price, buying it,
+          // the invoice - happens on the deal, so that is where he goes.
+          setTimeout(() => { location.href = `/admin/external-sales?tab=draft&deal=${encodeURIComponent(out.deal_id)}`; }, 1200);
         } catch (err) {
           toast(err.message);
           button.disabled = false;
-          button.textContent = "Send the offer";
+          button.textContent = "Start the deal";
         }
       });
     }

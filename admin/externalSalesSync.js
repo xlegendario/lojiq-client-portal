@@ -145,12 +145,46 @@ export function createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl = fetch 
     return data;
   }
 
+  /*
+   * A file into Supabase Storage, which is a different road than the tables
+   * above: another prefix, a raw body, and the bucket in the path.
+   *
+   * Public, because what goes in here is downloaded by the person it is
+   * meant for - a consignor fetching his shipping label - and he has no
+   * session on this service.
+   */
+  async function upload(path, base64, contentType = "application/octet-stream", bucket = "consignment-applications") {
+    if (!configured) throw new ExternalSalesError("Uploading needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on this service.", 503);
+
+    const body = Buffer.from(String(base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+
+    const response = await fetchImpl(`${base}/storage/v1/object/${bucket}/${path}`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": contentType,
+        "x-upsert": "true"
+      },
+      body,
+      signal: AbortSignal.timeout(30_000)
+    });
+
+    if (!response.ok) {
+      const raw = await response.text().catch(() => "");
+      throw new ExternalSalesError(`Supabase storage answered ${response.status}: ${raw.slice(0, 200)}`, 502);
+    }
+
+    return `${base}/storage/v1/object/public/${bucket}/${path}`;
+  }
+
   return {
     configured,
     get: (path) => request(path),
     insert: (table, rows, prefer = "return=representation") => request(table, { method: "POST", body: rows, prefer }),
     patch: (path, fields) => request(path, { method: "PATCH", body: fields, prefer: "return=representation" }),
-    remove: (path) => request(path, { method: "DELETE" })
+    remove: (path) => request(path, { method: "DELETE" }),
+    upload
   };
 }
 

@@ -302,6 +302,13 @@
      */
     .where .stack { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
 
+    /* Same rule for the state cell: the clock sits beside the pill, never
+       under it. */
+    .state { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+    .clock { border: 0; background: none; padding: 0; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .clock:hover { color: var(--strong); text-decoration: underline; text-underline-offset: 2px; }
+    .clock.soon { color: var(--bad-text); font-weight: 700; }
+
     /*
      * One line each, cut off rather than wrapped.
      *
@@ -363,7 +370,7 @@
         <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
       </div>
 
-      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Partner</button>
+      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Deals</button>
       <div class="nav-group" id="navPartner" hidden></div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -438,6 +445,30 @@
 
     const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
+
+    // The deadline is a moment in the day, not a date: "runs out 02-10" is
+    // no use to someone deciding whether to chase a buyer this afternoon.
+    const whenFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const when = (value) => (value ? whenFmt.format(new Date(value)) : "—");
+
+    /*
+     * How long it has left, short enough to sit next to a pill.
+     *
+     * Twenty-four hours from the last sign of life, and the portal sweeps
+     * what is past it within ten minutes - so "overdue" is a thing you see
+     * for minutes, not a state anything sits in.
+     */
+    function clockText(due) {
+      const left = new Date(due).getTime() - Date.now();
+
+      if (!Number.isFinite(left)) return "";
+      if (left <= 0) return "out of time";
+
+      const minutes = Math.round(left / 60000);
+      if (minutes < 60) return `${minutes}m left`;
+
+      return `${Math.round(minutes / 60)}h left`;
+    }
 
     const VIEWS = ["yours", "waiting", "settled", "all"];
     const PAGE = 300;
@@ -616,14 +647,25 @@
           <td class="money">${o.countered ? `<strong>${esc(money(o.countered))}</strong>` : "—"}</td>
           <td class="money"><button class="linky" type="button" data-do="price" data-id="${esc(o.id)}">${o.buyer_price > 0 ? esc(money(o.buyer_price)) : "set"}</button></td>
           <td class="money" style="${o.margin !== null && o.margin < 0 ? "color:var(--bad-text)" : ""}">${o.margin === null ? "—" : esc(money(o.margin))}</td>
-          <td><span class="pill ${STATE_PILL[o.status] ?? ""}">${esc(o.state)}</span></td>
+          <td>
+            <div class="state">
+              <span class="pill ${STATE_PILL[o.status] ?? ""}">${esc(o.state)}</span>
+              ${o.due_at ? `<button class="clock${new Date(o.due_at).getTime() - Date.now() < 2 * 3600 * 1000 ? " soon" : ""}" type="button" data-do="extend" data-id="${esc(o.id)}" title="Runs out ${esc(when(o.due_at))}${o.extended ? " · already extended once or more" : ""}. Click to give it another 24 hours.">${esc(clockText(o.due_at))}</button>` : ""}
+            </div>
+          </td>
           <td class="answer">${o.closable
-            ? `<button class="btn primary" type="button" data-do="finalize" data-id="${esc(o.id)}">Close the deal</button>`
+            ? `<button class="btn primary" type="button" data-do="finalize" data-id="${esc(o.id)}">Close the deal</button>
+               <button class="btn ghost" type="button" data-do="discard" data-id="${esc(o.id)}">Drop</button>`
             : o.yours
               ? `<button class="btn primary" type="button" data-do="accept" data-id="${esc(o.id)}">Accept</button>
                  <button class="btn" type="button" data-do="counter" data-id="${esc(o.id)}">Counter</button>
                  <button class="btn ghost" type="button" data-do="deny" data-id="${esc(o.id)}">Decline</button>`
-              : "—"}</td>
+              /* Waiting on him: nothing to answer, but it can still be
+                 dropped - his counter has a Decline for that, this one has
+                 nothing else. */
+              : o.due_at
+                ? `<button class="btn ghost" type="button" data-do="discard" data-id="${esc(o.id)}">Drop</button>`
+                : "—"}</td>
         </tr>`).join("");
     }
 
@@ -705,6 +747,36 @@
         )) return;
       }
 
+      /*
+       * Another day, on purpose.
+       *
+       * The one sign of life the offer row cannot see: his buyer saying
+       * "hold it until tomorrow" happens on WhatsApp.
+       */
+      if (what === "extend" && !window.confirm(
+        `Give ${offer.sku} ${offer.size} another 24 hours?
+
+` +
+        `It runs out ${when(offer.due_at)} as it stands.`
+      )) return;
+
+      /*
+       * And dropping it. Spelled out because what the consignor hears
+       * depends on what he did: a man who confirmed gets told, a man who
+       * never answered does not.
+       */
+      if (what === "discard" && !window.confirm(
+        `Drop this deal?
+
+` +
+        (offer.closable
+          ? `${offer.party || offer.seller_id} confirmed it, so he is told it is not going ahead and the pair stays his.`
+          : `${offer.party || offer.seller_id} never confirmed, so he is not told anything.`) +
+        `
+
+The want-to-buy is cancelled. Nothing was booked, so there is nothing to undo.`
+      )) return;
+
       if (what === "accept" && !window.confirm(
         `Agree ${money(offer.countered ?? offer.offered)} with ${offer.party || offer.seller_id}?\n\n` +
         `Nothing is booked yet - you close the deal once your buyer is in.`
@@ -731,7 +803,11 @@
               ? `Done - ${out.seller_id} gets ${money(out.payout)}, selling at ${money(out.buyer_price)}.`
               : out.did === "priced"
                 ? `Buyer pays ${money(out.buyer_price)}.`
-                : `${out.seller_id} declined.`);
+                : out.did === "extended"
+                  ? `Another 24 hours - runs out ${when(out.until)}.`
+                  : out.did === "discarded"
+                    ? (out.told ? `Dropped. ${out.seller_id} has been told.` : "Dropped.")
+                    : `${out.seller_id} declined.`);
 
         await load();
         loadNavCounts();

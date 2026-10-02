@@ -257,7 +257,7 @@
         <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
       </div>
 
-      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Partner</button>
+      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Deals</button>
       <div class="nav-group" id="navPartner" hidden></div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -417,7 +417,7 @@
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
         `<a class="nav-item active" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
-      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;
+      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/external-sales?tab=draft">Deals ${navCount("external/draft")}</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];

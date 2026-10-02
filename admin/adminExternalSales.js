@@ -251,7 +251,10 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
   async function loadAll() {
     const [sales, pairs, parcels, links, invoices] = await Promise.all([
-      db.get("external_sales?select=*&order=deal_number.desc&limit=10000"),
+      // stage: a broker deal that is still being negotiated is not a sale
+      // yet - it has no pairs, no total and nothing to invoice - so it
+      // stays on its own screen until the first pair is really bought.
+      db.get("external_sales?select=*&stage=eq.open&order=deal_number.desc&limit=10000"),
       db.get("external_sale_pairs?select=*&limit=50000"),
       db.get("shipments?select=*&external_sale_id=not.is.null&order=created_at.asc&limit=50000"),
       db.get("external_sale_invoice_deals?select=*&limit=50000"),

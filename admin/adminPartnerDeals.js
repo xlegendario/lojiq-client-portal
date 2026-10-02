@@ -46,6 +46,55 @@ export const STATES = {
   expired: { say: "Expired", yours: false }
 };
 
+/*
+ * The clock.
+ *
+ * A deal between two people neither of whom works here cannot be left
+ * standing open: a consignor who answered a day ago deserves to know he is
+ * free, and an offer nobody replied to is not a deal, it is a reminder.
+ *
+ * Twenty-four hours from the last sign of life, whoever gave it. Every move
+ * already stamps its own time, so the deadline is read off the row rather
+ * than stored on it - which means it cannot go stale when a round moves on.
+ *
+ * `extended_until` is the one thing written: the buyer saying "give me till
+ * tomorrow" is not a sign of life the offer row would otherwise see.
+ *
+ * The same rule is enforced in the KC portal's partner-run sweep. It has to
+ * live in both - that service owns the offers and the Discord side, this one
+ * is where the partner watches the time run out - so if one changes, change
+ * the other.
+ */
+export const CLOCK_HOURS = 24;
+
+/*
+ * Whose move it is waiting on, and the stamp that move left.
+ *
+ * A status that is not here is finished, and a finished offer has no clock.
+ */
+export const CLOCK_WATCHES = {
+  open: "created_at",
+  store_pending: "consignor_counter_at",
+  partner_agreed: "accepted_at"
+};
+
+export function dealDeadline(offer, hours = CLOCK_HOURS) {
+  const watched = CLOCK_WATCHES[text(offer.status)];
+
+  if (!watched) return null;
+
+  // The round's own start stands in when the stamp is missing: a row from
+  // before this existed still has a created_at.
+  const since = Date.parse(text(offer[watched]) || text(offer.created_at));
+
+  if (!Number.isFinite(since)) return null;
+
+  const due = since + hours * 3_600_000;
+  const extended = Date.parse(text(offer.extended_until));
+
+  return new Date(Number.isFinite(extended) && extended > due ? extended : due).toISOString();
+}
+
 export class PartnerDealsError extends Error {
   constructor(message, status = 400) {
     super(message);
@@ -104,7 +153,12 @@ export function dealRow(offer, wtb = {}) {
     payment: text(wtb["Payment Status"]),
     buyer: first(wtb["Buyer Name"]),
     created_at: text(offer.created_at) || null,
-    countered_at: text(offer.consignor_counter_at) || null
+    countered_at: text(offer.consignor_counter_at) || null,
+    // When it runs out, and whether somebody already bought it time. Null
+    // on anything finished, which is also what says it can still be
+    // stopped by hand.
+    due_at: dealDeadline(offer),
+    extended: Boolean(text(offer.extended_until))
   };
 }
 
@@ -311,6 +365,55 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
     if (action === "price") {
       const buyer = await setBuyerPrice(offer, buyerPrice);
       return { ok: true, did: "priced", buyer_price: buyer, seller_id: offer.seller_id };
+    }
+
+    /*
+     * Buying it another day.
+     *
+     * For the one case the clock cannot see: the buyer says "hold on until
+     * tomorrow", which leaves no trace on the offer. As often as he likes -
+     * a partner keeping a deal alive on purpose is not the thing the clock
+     * is there to catch.
+     */
+    if (action === "extend") {
+      if (!offer.due_at) {
+        throw new PartnerDealsError(`Nothing is running out: ${offer.state.toLowerCase()}.`, 409);
+      }
+
+      const until = new Date(Date.now() + CLOCK_HOURS * 3_600_000).toISOString();
+
+      await db.patch(`consignment_offers?id=eq.${encodeURIComponent(offer.id)}`, {
+        extended_until: until,
+        updated_at: new Date().toISOString()
+      });
+
+      forget();
+
+      return { ok: true, did: "extended", until, seller_id: offer.seller_id };
+    }
+
+    /*
+     * Dropping it, before the clock gets there.
+     *
+     * The buyer walked away, and the consignor should not be left holding
+     * a pair for a deal that is off. Run by the portal rather than here,
+     * because whether he hears about it depends on whether he ever said
+     * yes - and his Discord is that service's, not ours.
+     */
+    if (action === "discard") {
+      if (!offer.due_at) {
+        throw new PartnerDealsError(`Nothing to drop: ${offer.state.toLowerCase()}.`, 409);
+      }
+
+      const out = await tellKickz("/api/internal/partner-deal/discard", { offer_id: offerId });
+      forget();
+
+      return {
+        ok: true,
+        did: "discarded",
+        told: out?.told_consignor === true,
+        seller_id: offer.seller_id
+      };
     }
 
     /*

@@ -319,15 +319,30 @@ test("the sidebar count is pairs, the same thing the list shows", async () => {
 
 /* ---------------- bringing out an offer ---------------- */
 
-function offerShop(rows, { kickz = async () => ({ ok: true }), created = [] } = {}) {
+/*
+ * The deal an offer from this screen lands in. `created` collects what was
+ * made, so a test can say "nothing was created" as plainly as before.
+ */
+function offerShop(rows, { kickz = null, created = [] } = {}) {
   const base = fakeDb(rows);
   const asked = [];
+  const airtable = noNames;
 
-  const airtable = {
-    ...noNames,
-    async create(table, fields) {
-      created.push({ table, fields });
-      return { id: "recNEWWANTTOBUY12" };
+  const deals = {
+    async create(input) {
+      created.push({ what: "deal", ...input });
+      return { id: "deal-00000001", deal_id: "EXTD-000001" };
+    },
+    async addLine(input) {
+      created.push({ what: "line", ...input });
+      return { id: "line-00000001", ...input };
+    },
+    async answer(input) {
+      created.push({ what: "answer", ...input });
+      // No seller named on purpose: the portal picks at the moment it runs,
+      // so what comes back here is what the screen predicted - which is
+      // exactly what these tests are about.
+      return kickz ? kickz(input) : { ok: true, did: "offered" };
     }
   };
 
@@ -349,37 +364,47 @@ function offerShop(rows, { kickz = async () => ({ ok: true }), created = [] } = 
         }
       },
       airtable,
-      askKickz: kickz
+      deals
     })
   };
 }
 
-test("an offer makes a partner-run want-to-buy and asks the KC portal to run it", async () => {
-  const sent = [];
-  const { shop, created } = offerShop([offer({ selling_price_suggested: 180 })], {
-    kickz: async (body) => { sent.push(body); return { ok: true }; }
+test("an offer makes a deal with this pair on it and sends the round out", async () => {
+  const { shop, created } = offerShop([offer({ selling_price_suggested: 180 })]);
+
+  const out = await shop.bringOutOffer({
+    sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170, filter: "margin", buyerId: "buyer-1"
   });
 
-  const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170, filter: "margin" });
+  const [deal, line, answer] = created;
 
-  const fields = created[0].fields;
+  assert.equal(deal.what, "deal");
+  assert.equal(deal.buyerId, "buyer-1");
 
-  assert.equal(created[0].table, "Member WTBs");
-  assert.equal(fields["Partner Run?"], true);
-  assert.equal(fields["Auto Accept Seller Offers?"], true, "without it the consignor is never asked");
-  assert.equal(fields["Current Lowest Source Price"], 170, "the budget is what we are willing to pay");
-  assert.equal(fields["Max Price"], 200, "the ceiling is what the buyer pays");
-  // Net, because Airtable reads it as `Lowest Offer + Offer Margin * 1.21`.
-  assert.equal(fields["Offer Margin"], 24.79);
-  assert.equal(Math.round((170 + 24.79 * 1.21) * 100) / 100, 200, "and that formula lands on the buyer price");
-  assert.equal(fields["Buying Inventory Filter"], "Margin Only");
-  assert.equal(fields["Payment Status"], "Pending");
-  assert.equal(fields.SKU, "FV5029-141");
-  assert.ok(!("Buyer Seller ID" in fields), "there is no buyer yet");
+  assert.equal(line.what, "line");
+  assert.equal(line.saleId, "deal-00000001");
+  assert.equal(line.sku, "FV5029-141");
+  assert.equal(line.size, "44");
+  assert.equal(line.payout, 170, "the budget is what we are willing to pay");
+  assert.equal(line.buyerPrice, 200, "and that is what the buyer pays - never worked out from the other");
+  assert.equal(line.vatFilter, "margin");
 
-  assert.deepEqual(sent, [{ member_wtb_record_id: "recNEWWANTTOBUY12", sku: "FV5029-141", size: "44" }]);
+  assert.deepEqual(answer, { what: "answer", lineId: "line-00000001", action: "offer" });
+
+  assert.equal(out.deal_id, "deal-00000001");
   assert.equal(out.asked, true);
   assert.equal(out.margin, 30);
+});
+
+test("a pair added to a deal that is already running does not start a second one", async () => {
+  const { shop, created } = offerShop([offer({ selling_price_suggested: 180 })]);
+
+  await shop.bringOutOffer({
+    sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170, dealId: "deal-already"
+  });
+
+  assert.ok(!created.some((row) => row.what === "deal"), "no new deal");
+  assert.equal(created[0].saleId, "deal-already");
 });
 
 /*
@@ -420,17 +445,19 @@ test("both numbers are needed, and both have to be real", async () => {
  * The want-to-buy carries the numbers. Throwing it away because the round
  * could not be started would lose them and tell nobody.
  */
-test("a round that cannot be started leaves the want-to-buy standing, and says so", async () => {
+test("a round that cannot be started leaves the line standing, and says so", async () => {
   const { shop, created } = offerShop([offer()], {
     kickz: async () => { throw new Error("Kickz Caviar answered 502."); }
   });
 
   const out = await shop.bringOutOffer({ sku: "FV5029-141", size: "44", buyerPrice: 200, payout: 170 });
 
-  assert.equal(created.length, 1);
   assert.equal(out.asked, false);
   assert.match(out.error, /502/);
-  assert.equal(out.member_wtb_record_id, "recNEWWANTTOBUY12");
+  // The deal and its line are still there, with both prices on them, so it
+  // can be offered again instead of typed in a second time.
+  assert.deepEqual(created.map((row) => row.what), ["deal", "line", "answer"]);
+  assert.equal(out.deal_line_id, "line-00000001");
 });
 
 test("a service that cannot reach Kickz Caviar refuses rather than half-doing it", async () => {
@@ -461,7 +488,7 @@ test("the offer names the cheapest inside the filter, not whoever was clicked", 
   assert.equal(out.asks, 165);
   assert.equal(out.offered, 160, "never more than the budget");
   assert.equal(out.consignors, 2, "the other size is a different pair");
-  assert.equal(created[0].fields.SKU, "FV5029-141");
+  assert.equal(created.find((row) => row.what === "line").sku, "FV5029-141");
 });
 
 /*
@@ -503,7 +530,7 @@ test("the filter decides who counts, so a B2B round ignores the cheaper margin m
 
   assert.equal(out.seller_id, "SE-B2B");
   assert.equal(out.consignors, 1);
-  assert.equal(created[0].fields["Buying Inventory Filter"], "B2B Only");
+  assert.equal(created.find((row) => row.what === "line").vatFilter, "b2b", "and the line carries it, so the round asks the same people");
 });
 
 /*

@@ -140,64 +140,6 @@ export function groupRows(rows) {
   return [...groups.values()];
 }
 
-/*
- * What a partner-run want-to-buy looks like the moment it is made.
- *
- * It is an ordinary member WTB in every way the consignor can see - the same
- * Seller Offer, the same counter round, the same embeds - and differs only on
- * the buyer's side, which the partner handles himself.
- *
- * Three numbers decide everything downstream:
- *
- *   Current Lowest Source Price  the budget, so what we are willing to pay.
- *                                The offer is the smaller of this and his own
- *                                ask: never more than he wanted.
- *   Max Price                    what the buyer pays. It is the ceiling a
- *                                counter is held to, and it is also what
- *                                resolveMemberWtbAgreedBuyerPrice settles on
- *                                when no counter round was accepted - so on a
- *                                partner-run deal it IS the sale price.
- *   Offer Margin                 the margin, NET. Airtable's "Offer To Buyer"
- *                                reads it as `Lowest Offer + Offer Margin *
- *                                1.21`, so the plain difference would make
- *                                that formula overshoot by a fifth. Written
- *                                out rather than left blank, because every
- *                                reader of an empty one falls back to ten.
- *
- * Nothing here recomputes a price from our standard margin: both numbers are
- * the partner's own. "Custom Offer" is deliberately left alone - it takes
- * priority over everything and wants an "Offer VAT Type" beside it, and
- * getting that pair wrong is a bug the portal has already been bitten by.
- *
- * "Auto Accept Seller Offers?" is true for the reason the KC portal gives it:
- * it is true exactly when the buyer named a price himself, and it is what
- * makes the consignor be asked now instead of after a buyer accepts. A
- * partner-run deal has no buyer in there to accept, so without it the
- * consignor would never hear anything at all.
- */
-export function wantToBuyFields({ pair, buyerPrice, payout, filter, note }) {
-  return {
-    "Product Name": pair.product_name || pair.sku,
-    "SKU": pair.sku,
-    "Size": pair.size,
-    ...(pair.brand ? { Brand: pair.brand } : {}),
-    "Date": new Date().toISOString(),
-
-    "Max Price": round2(buyerPrice),
-    "Offer Margin": round2((buyerPrice - payout) / 1.21),
-    "Current Lowest Source Price": round2(payout),
-
-    "Buying Inventory Filter": filter,
-    "Fulfillment Status": "Outsource",
-    "Purchase Status": "Offers Sent",
-    "Payment Status": "Pending",
-    "Auto Accept Seller Offers?": true,
-    "Partner Run?": true,
-
-    ...(note ? { "Buyer Notes": note } : {})
-  };
-}
-
 // The three the screen offers, as Airtable spells them.
 export const FILTER_LABELS = {
   all: "All Inventory",
@@ -208,10 +150,10 @@ export const FILTER_LABELS = {
 /*
  * deps:
  *   db        createSupabaseRest - consignment_inventory
- *   airtable  byIds, create - Sellers Database, Member WTBs
- *   askKickz  posts to the KC portal's auto-offer endpoint
+ *   airtable  byIds - Sellers Database
+ *   deals     createBrokerDealsStore - the deal this pair is bought for
  */
-export function createConsignmentStockStore({ db, airtable, askKickz = null, cacheMs = 180_000 }) {
+export function createConsignmentStockStore({ db, airtable, deals = null, cacheMs = 180_000 }) {
   const COLUMNS =
     "id,seller_id,seller_record_id,sku,size,product_name,brand,vat_type," +
     "selling_price_suggested,payout_price,quantity,image_url,created_at";
@@ -386,8 +328,19 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
    * the screen was open would otherwise be quoted at the old number, and
    * this is the one place where that becomes a promise.
    */
-  async function bringOutOffer({ sku, size, buyerPrice, payout, filter = "all", note = "" } = {}) {
-    if (!askKickz) throw new ConsignmentStockError("Kickz Caviar is not reachable from this service.", 503);
+  /*
+   * A pair from this list, into a deal.
+   *
+   * The deal is the thing that is really being made: a buyer, this pair,
+   * and the offer that goes out to whoever is holding it cheapest. Starting
+   * one from here is the short way round for the common case - one pair,
+   * one buyer - and anything more goes on the deal's own screen.
+   *
+   * `dealId` adds it to a deal that is already running; without one a new
+   * deal is made for `buyerId`.
+   */
+  async function bringOutOffer({ sku, size, buyerPrice, payout, filter = "all", note = "", buyerId = "", dealId = "" } = {}) {
+    if (!deals) throw new ConsignmentStockError("Deals are not reachable from this service.", 503);
 
     const style = text(sku).toUpperCase();
     const which = text(size);
@@ -441,38 +394,43 @@ export function createConsignmentStockStore({ db, airtable, askKickz = null, cac
       );
     }
 
-    const wtb = await airtable.create("Member WTBs", wantToBuyFields({
-      pair: likely,
+    const deal = text(dealId)
+      ? { id: text(dealId) }
+      : await deals.create({ buyerId, note });
+
+    const line = await deals.addLine({
+      saleId: deal.id,
+      sku: style,
+      size: which,
       buyerPrice: buyer,
       payout: owed,
-      filter: label,
-      note
-    }));
+      vatFilter: chosen,
+      productName: likely.product_name,
+      brand: likely.brand
+    });
 
     /*
-     * The offer round itself is the KC portal's, unchanged: a real Seller
-     * Offer, a real counter round, the sweeps. Everything the consignor
+     * The offer round itself is the KC portal's, unchanged: the same embed,
+     * the same buttons, the same counter rounds. Everything the consignor
      * sees is what he has always seen.
      *
-     * The want-to-buy is left standing when this fails. It carries the
-     * numbers and can be asked again; throwing it away would lose them.
+     * The line is left standing when this fails. It carries the numbers and
+     * can be offered again from the deal; throwing it away would lose them.
      */
-    const asked = await askKickz({
-      member_wtb_record_id: wtb.id,
-      sku: style,
-      size: which
-    }).catch((err) => ({ ok: false, error: err.message }));
+    const asked = await deals.answer({ lineId: line.id, action: "offer" })
+      .catch((err) => ({ ok: false, error: err.message }));
 
     return {
-      member_wtb_record_id: wtb.id,
+      deal_id: deal.id,
+      deal_line_id: line.id,
       sku: style,
       size: which,
       product_name: likely.product_name,
       // Who it will most likely reach. The portal picks at the moment it
       // runs, so this is the answer as the stock stood a second ago.
-      seller_id: likely.seller_id,
+      seller_id: asked?.seller_id || likely.seller_id,
       asks: likely.ask,
-      offered: Math.min(owed, likely.ask),
+      offered: asked?.payout ?? Math.min(owed, likely.ask),
       consignors: allowed.length,
       buyer_price: round2(buyer),
       margin: round2(buyer - owed),
@@ -520,16 +478,18 @@ export function mountConsignmentStock(router, { store, audit = null, pageFile })
         buyerPrice: req.body?.buyer_price,
         payout: req.body?.payout,
         filter: req.body?.filter,
-        note: text(req.body?.note)
+        note: text(req.body?.note),
+        buyerId: req.body?.buyer_id,
+        dealId: req.body?.deal_id
       });
 
       audit?.record({
         actor: req.admin,
         action: "consignment_offer",
         source: "consignment_stock",
-        recordId: out.member_wtb_record_id,
+        recordId: out.deal_line_id,
         label: `${out.sku} ${out.size}`,
-        details: { seller_id: out.seller_id, offered: out.offered, buyer_price: out.buyer_price, asked: out.asked }
+        details: { deal_id: out.deal_id, seller_id: out.seller_id, offered: out.offered, buyer_price: out.buyer_price, asked: out.asked }
       })?.catch?.(() => {});
 
       res.json({ ok: true, ...out });

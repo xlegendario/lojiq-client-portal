@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { STATES, createPartnerDealsStore, dealRow } from "../admin/adminPartnerDeals.js";
+import { CLOCK_HOURS, STATES, createPartnerDealsStore, dealDeadline, dealRow } from "../admin/adminPartnerDeals.js";
 
 const WTB = {
   id: "recWANTTOBUY12345",
@@ -49,9 +49,13 @@ function shop(offers, { wtbs = [WTB], kickz = null } = {}) {
   };
 
   const asked = [];
+  const patched = [];
 
   const store = createPartnerDealsStore({
-    db: { get: async (q) => { asked.push(q); return offers; } },
+    db: {
+      get: async (q) => { asked.push(q); return offers; },
+      patch: async (path, fields) => { patched.push({ path, fields }); return [fields]; }
+    },
     airtable,
     tellKickz: kickz === null
       ? async (pathName, body) => { sent.push({ pathName, body }); return { ok: true }; }
@@ -59,7 +63,7 @@ function shop(offers, { wtbs = [WTB], kickz = null } = {}) {
     cacheMs: 0
   });
 
-  return { store, sent, asked };
+  return { store, sent, asked, patched };
 }
 
 /* ---------------- what an offer is waiting on ---------------- */
@@ -411,4 +415,131 @@ test("accepting a counter agrees with him and books nothing", async () => {
   assert.equal(out.did, "agreed");
   assert.equal(out.payout, 170);
   assert.equal(writes.length, 0);
+});
+
+
+/* ---------------- the clock ---------------- */
+
+const HOUR = 3600 * 1000;
+const hoursAgo = (n) => new Date(Date.now() - n * HOUR).toISOString();
+
+/*
+ * The deadline is read off the row, never stored on it: whose move it is
+ * decides which stamp counts, and that changes as the round moves.
+ */
+test("the clock runs from whoever moved last", () => {
+  const sent = dealDeadline(offer({ created_at: "2026-10-01T10:00:00.000Z" }));
+  assert.equal(sent, "2026-10-02T10:00:00.000Z", "waiting on him: 24h from the offer");
+
+  const countered = dealDeadline(offer({
+    status: "store_pending",
+    created_at: "2026-10-01T10:00:00.000Z",
+    consignor_counter_at: "2026-10-01T18:30:00.000Z"
+  }));
+
+  assert.equal(countered, "2026-10-02T18:30:00.000Z", "his counter reset it");
+
+  const agreed = dealDeadline(offer({
+    status: "partner_agreed",
+    created_at: "2026-10-01T10:00:00.000Z",
+    consignor_counter_at: "2026-10-01T18:30:00.000Z",
+    accepted_at: "2026-10-01T20:00:00.000Z"
+  }));
+
+  assert.equal(agreed, "2026-10-02T20:00:00.000Z", "and his yes reset it again");
+});
+
+test("a finished offer has no clock, which is also what says it can be dropped", () => {
+  for (const status of ["accepted", "denied", "store_denied", "closed", "cancelled", "expired", "processing"]) {
+    assert.equal(dealDeadline(offer({ status })), null, status);
+    assert.equal(dealRow(offer({ status }), WTB.fields).due_at, null, status);
+  }
+
+  assert.ok(dealRow(offer(), WTB.fields).due_at, "a live one does have one");
+});
+
+test("an extension only ever pushes the deadline out", () => {
+  const later = dealDeadline(offer({
+    created_at: "2026-10-01T10:00:00.000Z",
+    extended_until: "2026-10-03T09:00:00.000Z"
+  }));
+
+  assert.equal(later, "2026-10-03T09:00:00.000Z");
+
+  // An extension that has been overtaken by a fresh sign of life is not
+  // allowed to pull the deadline back in.
+  const overtaken = dealDeadline(offer({
+    status: "store_pending",
+    created_at: "2026-10-01T10:00:00.000Z",
+    consignor_counter_at: "2026-10-03T12:00:00.000Z",
+    extended_until: "2026-10-02T09:00:00.000Z"
+  }));
+
+  assert.equal(overtaken, "2026-10-04T12:00:00.000Z");
+});
+
+test("extending writes the new time and nothing else", async () => {
+  const { store, patched, sent } = shop([offer({ created_at: hoursAgo(20) })]);
+
+  const out = await store.answer({ id: offer().id, action: "extend" });
+
+  assert.equal(out.did, "extended");
+  assert.equal(patched.length, 1);
+  assert.equal(patched[0].path, `consignment_offers?id=eq.${offer().id}`);
+
+  const pushed = new Date(patched[0].fields.extended_until).getTime() - Date.now();
+  assert.ok(pushed > (CLOCK_HOURS - 0.1) * HOUR && pushed <= CLOCK_HOURS * HOUR, "24 hours from now");
+
+  assert.deepEqual(sent, [], "the portal is not told: nobody has to hear about this");
+});
+
+test("there is nothing to extend on a deal that is over", async () => {
+  const { store } = shop([offer({ status: "accepted" })]);
+
+  await assert.rejects(
+    store.answer({ id: offer().id, action: "extend" }),
+    /Nothing is running out/
+  );
+});
+
+/* ---------------- dropping it ---------------- */
+
+/*
+ * Whether the consignor hears about it is the portal's call, not this
+ * screen's: it depends on whether he ever said yes, and his Discord is that
+ * service's.
+ */
+test("dropping a deal goes to the portal, and says whether he was told", async () => {
+  const { store, sent } = shop(
+    [offer({ status: "partner_agreed", accepted_at: hoursAgo(3) })],
+    { kickz: async (pathName, body) => { sent.push({ pathName, body }); return { ok: true, told_consignor: true }; } }
+  );
+
+  const out = await store.answer({ id: offer().id, action: "discard" });
+
+  assert.equal(out.did, "discarded");
+  assert.equal(out.told, true);
+  assert.equal(sent[0].pathName, "/api/internal/partner-deal/discard");
+  assert.deepEqual(sent[0].body, { offer_id: offer().id });
+});
+
+test("an offer nobody has answered can be dropped too", async () => {
+  const { store, sent } = shop([offer({ created_at: hoursAgo(2) })]);
+
+  const out = await store.answer({ id: offer().id, action: "discard" });
+
+  assert.equal(out.did, "discarded");
+  assert.equal(out.told, false, "he never confirmed, so he hears nothing");
+  assert.equal(sent[0].pathName, "/api/internal/partner-deal/discard");
+});
+
+test("a booked deal cannot be dropped", async () => {
+  const { store, sent } = shop([offer({ status: "accepted" })]);
+
+  await assert.rejects(
+    store.answer({ id: offer().id, action: "discard" }),
+    /Nothing to drop/
+  );
+
+  assert.deepEqual(sent, []);
 });
