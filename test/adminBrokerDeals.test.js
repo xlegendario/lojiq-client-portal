@@ -148,7 +148,16 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = nul
     }
   };
 
+  const written = [];
+
   const airtable = {
+    async update(table, id, fields) {
+      written.push({ table, id, fields });
+      return { id, fields };
+    },
+    async select() {
+      return { records: [] };
+    },
     async byIds(table, ids) {
       if (table === "Sellers Database") return new Map(ids.map((id) => [id, { "Seller ID": "SE-00281", "Full Name": "Dario Bouman" }]));
 
@@ -158,7 +167,9 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = nul
         Size: "44",
         "Product Name": "Jordan 1 Retro High OG Chicago",
         "VAT Type": "Margin",
-        "Final Purchase Price": 150
+        "Final Purchase Price": 150,
+        "Availability Status": "Available",
+        Brand: "Jordan"
       }]));
     }
   };
@@ -198,7 +209,7 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = nul
     }
   });
 
-  return { store, sent, tables, uploads };
+  return { store, sent, tables, uploads, written };
 }
 
 /* ---------------- what a line is waiting on ---------------- */
@@ -829,6 +840,61 @@ test("a deal on a name alone cannot be confirmed", async () => {
   assert.equal(deal.confirmable, false, "the button says so before he clicks it");
 
   await assert.rejects(store.confirmDeal(SALE.id), /still running on the name "Mike from Antwerp"/);
+});
+
+/* ---------------- a pair of our own ---------------- */
+
+/*
+ * There is nobody to ask: the pair is already ours. So it goes on the deal
+ * locked, reserved in Airtable, and nothing is bought until the deal is.
+ */
+test("a pair of our own goes on locked and is reserved", async () => {
+  const { store, tables, written, sent } = shop({ lines: [] });
+
+  const row = await store.addOwnLine({
+    saleId: SALE.id,
+    unitRecordId: "recUNIT0000000001",
+    buyerPrice: 220
+  });
+
+  assert.equal(row.status, "locked");
+  assert.equal(row.source, "own");
+  assert.equal(row.payout, 150, "what it cost us, off the unit");
+
+  assert.deepEqual(sent, [], "nobody is asked anything");
+  assert.equal(written[0].fields["Availability Status"], "Reserved");
+
+  const [line] = tables.deal_lines;
+  assert.equal(line.inventory_unit_record_id, "recUNIT0000000001");
+});
+
+test("a buyer price under our own cost is refused", async () => {
+  const { store } = shop({ lines: [] });
+
+  await assert.rejects(
+    store.addOwnLine({ saleId: SALE.id, unitRecordId: "recUNIT0000000001", buyerPrice: 120 }),
+    /does not cover/
+  );
+});
+
+test("confirming a deal of our own stock buys nothing", async () => {
+  const { store, tables, sent } = shop({
+    lines: [line({
+      id: "l1", status: "locked", source: "own", offer_id: null,
+      inventory_unit_record_id: "recUNIT0000000001", buyer_price: 220, payout: 150
+    })],
+    offers: []
+  });
+
+  const out = await store.confirmDeal(SALE.id);
+
+  assert.equal(out.pairs, 1);
+  assert.equal(sent.filter((call) => call.path.includes("finalize")).length, 0, "nothing is purchased");
+
+  const [pair] = tables.external_sale_pairs;
+  assert.equal(pair.inventory_unit_record_id, "recUNIT0000000001");
+  assert.equal(pair.selling_price, 220);
+  assert.equal(tables.external_sales[0].stage, "open");
 });
 
 /* ---------------- settling for his earlier price ---------------- */

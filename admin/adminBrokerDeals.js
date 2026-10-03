@@ -57,6 +57,8 @@ export const LINE_STATES = {
   locked: { say: "Locked", yours: false, stoppable: true },
   processing: { say: "Closing…", yours: false },
   accepted: { say: "Bought", yours: false, done: true },
+  // A pair of our own has no round to read, so the line says it itself.
+  confirmed: { say: "Bought", yours: false, done: true },
   denied: { say: "He declined", yours: true, offerable: true },
   store_denied: { say: "You declined", yours: true, offerable: true },
   closed: { say: "Closed", yours: false },
@@ -104,6 +106,9 @@ export function lineRow(line, offer = null, previous = null) {
     brand: text(line.brand) || text(offer?.brand),
     image_url: text(line.image_url),
     vat_filter: text(line.vat_filter) || "all",
+    // Which shelf it comes from. A consignment pair has a man to ask; ours
+    // has nobody, so it is locked from the moment it goes on the deal.
+    source: text(line.source) || "consignment",
 
     offer_id: text(line.offer_id),
     seller_id: text(offer?.seller_id),
@@ -497,6 +502,66 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   }
 
   /*
+   * Our own shelf, for a buyer who wants a pair we already have.
+   *
+   * Only what is plainly Available: a unit on another deal, sold, or held
+   * back for a reason is not ours to promise. Searched in Airtable because
+   * that is where our own stock lives - the consignment search reads
+   * Supabase, which knows nothing about it.
+   */
+  async function ownStock({ q = "", limit = 25 } = {}) {
+    const typed = text(q);
+
+    if (typed.length < 2) return { units: [] };
+
+    const words = typed.toUpperCase().split(/\s+/).filter(Boolean);
+    // A bare number or half-size is a size, not part of a name.
+    const sizes = words.filter((word) => /^\d{1,2}([.,]5)?$/.test(word));
+    const rest = words.filter((word) => !sizes.includes(word));
+    const quote = (value) => value.replace(/'/g, "\\'");
+
+    const parts = rest.map((word) =>
+      `OR(FIND('${quote(word)}', UPPER({SKU} & '')) > 0, FIND('${quote(word)}', UPPER({Product Name} & '')) > 0)`
+    );
+
+    const formula = `AND({Availability Status} = 'Available'${parts.length ? `, ${parts.join(", ")}` : ""})`;
+
+    const answer = await airtable.select("Inventory Units", {
+      fields: [...UNIT_FIELDS, "Brand", "Availability Status", "Type"],
+      formula,
+      pageSize: 100
+    }).catch(() => ({ records: [] }));
+
+    const wanted = sizes.map((size) => size.replace(",", "."));
+
+    const units = (answer.records || [])
+      .map((record) => {
+        const fields = record.fields || {};
+        const vat = text(fields["VAT Type"]);
+        const cost = round2(vat === "VAT21" ? fields["Final Purchase Price (ex. VAT)"] : fields["Final Purchase Price"]);
+
+        return {
+          source: "own",
+          inventory_unit_record_id: record.id,
+          item_id: text(fields["Item ID"]),
+          sku: text(fields["SKU"]).toUpperCase(),
+          size: text(fields["Size"]),
+          product_name: text(fields["Product Name"]),
+          brand: text(fields["Brand"]),
+          image_url: text(first(fields["Picture"])?.url),
+          vat_type: vat,
+          cost
+        };
+      })
+      .filter((unit) => unit.sku && unit.size && unit.cost > 0)
+      .filter((unit) => !wanted.length || wanted.includes(unit.size.replace(",", ".")))
+      .sort((a, b) => a.sku.localeCompare(b.sku) || Number(a.size) - Number(b.size))
+      .slice(0, Math.min(Math.max(Number(limit) || 25, 1), 50));
+
+    return { units };
+  }
+
+  /*
    * A pair the buyer wants.
    *
    * Both prices are typed, and the only rule between them is the one that
@@ -560,10 +625,95 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     return lineRow(line, null);
   }
 
+  /*
+   * A pair of ours onto the deal.
+   *
+   * There is nobody to ask, so there is no round and nothing to agree: it
+   * goes straight on as locked, and the unit is Reserved in Airtable the
+   * same way an outbound reserves one. Dropping the line gives it back.
+   *
+   * What we paid is what it cost us, read off the unit rather than typed -
+   * the margin on this line has to be the real one.
+   */
+  async function addOwnLine({ saleId, unitRecordId, buyerPrice } = {}) {
+    const sale = await loadSale(saleId);
+
+    if (!/^rec[A-Za-z0-9]{14}$/.test(text(unitRecordId))) throw new BrokerDealsError("Which pair?");
+
+    const taken = await db.get(`deal_lines?select=id&inventory_unit_record_id=eq.${text(unitRecordId)}&status=neq.cancelled`);
+
+    if (taken.length) throw new BrokerDealsError("That pair is already on a deal.", 409);
+
+    const units = await airtable.byIds("Inventory Units", [text(unitRecordId)], [...UNIT_FIELDS, "Brand", "Availability Status"]);
+    const fields = units.get(text(unitRecordId));
+
+    if (!fields) throw new BrokerDealsError("That pair is not in Inventory Units.", 404);
+
+    const status = text(fields["Availability Status"]);
+
+    if (status !== "Available") throw new BrokerDealsError(`That pair is ${status || "not available"}, not Available.`, 409);
+
+    const vat = text(fields["VAT Type"]);
+    const cost = round2(vat === "VAT21" ? fields["Final Purchase Price (ex. VAT)"] : fields["Final Purchase Price"]);
+
+    if (!(cost > 0)) throw new BrokerDealsError("That pair has no purchase price in Inventory Units.", 409);
+
+    const buyer = Number(buyerPrice);
+
+    if (buyer > 0 && !(buyer > cost)) {
+      throw new BrokerDealsError(`${round2(buyer)} does not cover the ${round2(cost)} it cost us.`);
+    }
+
+    const [line] = await db.insert("deal_lines", [{
+      sale_id: sale.id,
+      source: "own",
+      sku: text(fields["SKU"]).toUpperCase(),
+      size: text(fields["Size"]),
+      product_name: text(fields["Product Name"]) || null,
+      brand: text(fields["Brand"]) || null,
+      vat_filter: "all",
+      buyer_price: buyer > 0 ? round2(buyer) : null,
+      payout: cost,
+      inventory_unit_record_id: text(unitRecordId),
+      status: "locked"
+    }]);
+
+    // Off the shelf for anything else, exactly as an outbound reserves one.
+    await airtable.update("Inventory Units", text(unitRecordId), {
+      "Availability Status": "Reserved",
+      "External Deal ID": dealId(sale)
+    }).catch(async (err) => {
+      await db.remove(`deal_lines?id=eq.${line.id}`).catch(() => {});
+      throw new BrokerDealsError(`That pair could not be reserved: ${err.message}`, 502);
+    });
+
+    return lineRow(line, null);
+  }
+
+  // Back on the shelf: the deal is not having it after all.
+  async function releaseOwn(line) {
+    if (text(line.source) !== "own" || !text(line.inventory_unit_record_id)) return false;
+
+    await airtable.update("Inventory Units", text(line.inventory_unit_record_id), {
+      "Availability Status": "Available",
+      "External Deal ID": ""
+    }).catch((err) => console.error(`[admin broker deals] ${line.inventory_unit_record_id} not released:`, err.message));
+
+    return true;
+  }
+
   // Only before anything was asked of a consignor. Once a round is out it
   // is dropped, not deleted - somebody is holding a pair on our word.
   async function removeLine(lineId) {
     const { line, row } = await loadLine(lineId);
+
+    // A pair of ours was never asked of anybody: it just goes back on the
+    // shelf and off the deal.
+    if (row.source === "own" && row.status === "locked") {
+      await releaseOwn(line);
+      await db.remove(`deal_lines?id=eq.${line.id}`);
+      return { ok: true };
+    }
 
     if (row.status !== "draft") {
       throw new BrokerDealsError(`That pair is already out with ${row.party || "a consignor"}. Drop it instead.`, 409);
@@ -813,7 +963,9 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   async function shipments(saleId) {
     const sale = await loadSale(saleId);
     const lines = (await linesOf([text(sale.id)])).get(text(sale.id)) || [];
-    const bought = await withNames(lines.filter((line) => line.done && line.inventory_unit_record_id));
+    const bought = await withNames(
+      lines.filter((line) => line.done && line.inventory_unit_record_id && line.source === "consignment")
+    );
 
     if (!bought.length) return { deal: dealRow(sale, lines), groups: [] };
 
@@ -1313,16 +1465,33 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     for (const line of locked) {
       try {
-        const got = await kickz("/api/internal/broker/finalize", {
-          deal_line_id: line.id,
-          buyer_price: round2(line.buyer_price)
-        });
+        if (!(round2(line.buyer_price) > 0)) throw new Error("no buyer price");
 
-        await attachPair({
-          line,
-          unitRecordId: text(got.inventory_unit_record_id),
-          buyerPrice: round2(line.buyer_price)
-        });
+        /*
+         * Ours already: nothing is bought, the unit only changes hands
+         * from the shelf to this sale. A consignment pair is a purchase,
+         * and the portal makes the unit for it.
+         */
+        const unitRecordId = line.source === "own"
+          ? line.inventory_unit_record_id
+          : text((await kickz("/api/internal/broker/finalize", {
+              deal_line_id: line.id,
+              buyer_price: round2(line.buyer_price)
+            }))?.inventory_unit_record_id);
+
+        await attachPair({ line, unitRecordId, buyerPrice: round2(line.buyer_price) });
+
+        if (line.source === "own") {
+          await db.patch(`deal_lines?id=eq.${line.id}`, { status: "confirmed", updated_at: new Date().toISOString() });
+
+          await airtable.update("Inventory Units", text(unitRecordId), {
+            "Availability Status": "Sold",
+            "Selling Method": "Kickz Caviar",
+            "Selling Price": round2(line.buyer_price),
+            "External Deal ID": dealId(sale),
+            "Ticket Number": dealId(sale)
+          }).catch((err) => console.error(`[admin broker deals] ${unitRecordId} not marked sold:`, err.message));
+        }
       } catch (err) {
         failed.push(`${line.sku} ${line.size}: ${err.message}`);
       }
@@ -1345,6 +1514,9 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     let told = 0;
 
     for (const line of dropping) {
+      // Ours goes back on the shelf; a consignor's round is let go below.
+      if (line.source === "own") await releaseOwn(line);
+
       if (line.offer_id) {
         const out = await kickz("/api/internal/partner-deal/discard", { offer_id: line.offer_id })
           .catch((err) => {
@@ -1415,7 +1587,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   }
 
   return {
-    list, count, get, create, attachBuyer, createBuyer, addLine, removeLine, priceLine, submit, answer, confirmDeal, buyers,
+    list, count, get, create, attachBuyer, createBuyer, addLine, addOwnLine, ownStock, removeLine, priceLine, submit, answer, confirmDeal, buyers,
     shipments, shipConsignor, unship, markShipped
   };
 }
@@ -1467,6 +1639,37 @@ export function mountBrokerDeals(router, { store, audit = null }) {
         source: "broker_deals",
         recordId: out.id,
         label: out.deal_id
+      })?.catch?.(() => {});
+
+      res.json(out);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Our own shelf, for the deal dialog.
+  router.get("/api/admin/broker-deals/own-stock", json, async (req, res) => {
+    try {
+      res.json(await store.ownStock({ q: req.query?.q, limit: req.query?.limit }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/broker-deals/:id/own-lines", json, async (req, res) => {
+    try {
+      const out = await store.addOwnLine({
+        saleId: req.params.id,
+        unitRecordId: req.body?.inventory_unit_record_id,
+        buyerPrice: req.body?.buyer_price
+      });
+
+      audit?.record({
+        actor: req.admin,
+        action: "broker_deal_own_line",
+        source: "broker_deals",
+        recordId: text(req.params.id),
+        label: `${out.sku} ${out.size}`
       })?.catch?.(() => {});
 
       res.json(out);

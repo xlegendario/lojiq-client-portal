@@ -565,6 +565,10 @@
         <label for="dealSearch">Pairs</label>
         <div class="filters" style="gap:8px">
           <input class="input" id="dealSearch" placeholder="Product, SKU or size" autocomplete="off" style="flex:1 1 auto">
+          <select class="select" id="dealSource" style="flex:0 0 160px">
+            <option value="consignment">Consignment stock</option>
+            <option value="own">Our own stock</option>
+          </select>
           <select class="select" id="dealFilter" style="flex:0 0 140px">
             <option value="all">All stock</option>
             <option value="margin">Margin only</option>
@@ -1480,13 +1484,23 @@
       row.className = "deal-pair";
       row.dataset.sku = pair.sku;
       row.dataset.size = pair.size;
+      row.dataset.source = pair.source === "own" ? "own" : "consignment";
+      if (pair.inventory_unit_record_id) row.dataset.unit = pair.inventory_unit_record_id;
+
+      /*
+       * What a pair of ours costs is not a matter of opinion: it is on the
+       * unit. Shown, not asked for, so nobody types a margin that is not
+       * there.
+       */
+      const ours = pair.source === "own";
+      const cost = ours ? pair.cost : pair.ask;
 
       row.innerHTML = `
         <div class="what" title="${esc(`${pair.product_name || pair.sku} · ${pair.sku} · ${pair.size}`)}">
           <strong>${esc(pair.product_name || pair.sku)}</strong>
-          <span class="sub">${esc(pair.sku)} · ${esc(pair.size)} · asks ${esc(euro(pair.ask))}</span>
+          <span class="sub">${esc(pair.sku)} · ${esc(pair.size)} · ${ours ? `ours · cost ${esc(euro(cost))}` : `asks ${esc(euro(cost))}`}</span>
         </div>
-        <input class="input cash" name="payout" type="number" step="0.01" min="0" placeholder="We pay" value="${pair.ask || ""}">
+        <input class="input cash" name="payout" type="number" step="0.01" min="0" placeholder="We pay" value="${cost || ""}"${ours ? " readonly" : ""}>
         <input class="input cash" name="buyer_price" type="number" step="0.01" min="0" placeholder="Buyer pays">
         <button class="btn ghost drop" type="button" data-droprow aria-label="Take this pair off">✕</button>`;
 
@@ -1514,22 +1528,33 @@
         return;
       }
 
+      // The VAT filter is a consignment question: it decides whose pair we
+      // may ask for. Our own shelf is ours whatever scheme it sits under.
+      const own = $("dealSource").value === "own";
+      $("dealFilter").hidden = own;
+
       try {
-        const out = await api(`/api/admin/consignment-stock?q=${encodeURIComponent(needle)}&view=${encodeURIComponent($("dealFilter").value)}&limit=40`);
+        const out = own
+          ? await api(`/api/admin/broker-deals/own-stock?q=${encodeURIComponent(needle)}&limit=40`)
+          : await api(`/api/admin/consignment-stock?q=${encodeURIComponent(needle)}&view=${encodeURIComponent($("dealFilter").value)}&limit=40`);
+
         const pairs = (out.units || []).slice(0, 25);
 
         if (!pairs.length) {
-          $("dealHits").innerHTML = `<p class="deal-empty">Nobody is holding that.</p>`;
+          $("dealHits").innerHTML = `<p class="deal-empty">${own ? "Nothing of ours matches that." : "Nobody is holding that."}</p>`;
           return;
         }
 
         // Kept whole, because a click wants the holders behind the row and
         // an attribute full of JSON is a bad place to keep them.
-        draft.hits = new Map(pairs.map((pair) => [`${pair.sku}|${pair.size}`, pair]));
+        draft.hits = new Map(pairs.map((pair) => [
+          own ? `own|${pair.inventory_unit_record_id}` : `${pair.sku}|${pair.size}`,
+          pair
+        ]));
 
         $("dealHits").innerHTML = pairs.map((pair) => {
-          const key = `${pair.sku}|${pair.size}`;
-          const more = pair.consignors > 1;
+          const key = own ? `own|${pair.inventory_unit_record_id}` : `${pair.sku}|${pair.size}`;
+          const more = !own && pair.consignors > 1;
 
           return `
           <div class="deal-hit${more ? " more" : ""}"${more ? ` data-holders="${esc(key)}"` : ""}>
@@ -1537,9 +1562,11 @@
             ${pair.image_url ? `<img src="${esc(pair.image_url)}" alt="">` : `<span class="deal-hit-blank"></span>`}
             <div class="what">
               <strong>${esc(pair.product_name || pair.sku)}</strong>
-              <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)} · ${pair.consignors} consignor${pair.consignors === 1 ? "" : "s"}${pair.vat_type ? ` · ${esc(pair.vat_type)}` : ""}</span>
+              <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)} · ${own
+                ? `${esc(pair.item_id || "ours")}`
+                : `${pair.consignors} consignor${pair.consignors === 1 ? "" : "s"}`}${pair.vat_type ? ` · ${esc(pair.vat_type)}` : ""}</span>
             </div>
-            <span class="ask sub">${more ? "from " : "asks "}${esc(euro(pair.ask))}</span>
+            <span class="ask sub">${own ? `cost ${esc(euro(pair.cost))}` : `${more ? "from " : "asks "}${esc(euro(pair.ask))}`}</span>
             <button class="btn" type="button" data-pick="${esc(key)}">+</button>
           </div>`;
         }).join("");
@@ -1613,6 +1640,8 @@
 
       return box;
     }
+
+    $("dealSource").addEventListener("change", () => searchStock($("dealSearch").value));
 
     $("dealFilter").addEventListener("change", () => {
       searchStock($("dealSearch").value);
@@ -1694,6 +1723,8 @@
       const fresh = picked ? null : named;
 
       const rows = [...$("dealPairs").children].map((row) => ({
+        source: row.dataset.source || "consignment",
+        inventory_unit_record_id: row.dataset.unit || "",
         sku: row.dataset.sku,
         size: row.dataset.size,
         payout: Number(row.querySelector('[name="payout"]').value),
@@ -1733,10 +1764,14 @@
         const failed = [];
 
         for (const row of rows) {
-          await api(`/api/admin/broker-deals/${encodeURIComponent(out.id)}/lines`, {
+          const ours = row.source === "own";
+
+          await api(`/api/admin/broker-deals/${encodeURIComponent(out.id)}/${ours ? "own-lines" : "lines"}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(row)
+            body: JSON.stringify(ours
+              ? { inventory_unit_record_id: row.inventory_unit_record_id, buyer_price: row.buyer_price }
+              : row)
           }).catch((err) => failed.push(`${row.sku} ${row.size}: ${err.message}`));
         }
 
