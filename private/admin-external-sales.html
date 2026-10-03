@@ -160,14 +160,22 @@
      * as an image: a see-through sticky cell would show the columns
      * sliding past behind the buttons.
      */
-    .deal-table th.act, .deal-table td.act { position: sticky; right: 0; background-color: var(--panel); border-left: 1px solid var(--border); }
-    .deal-table td.act { z-index: 3; }
-    .deal-table th.act { z-index: 5; background-color: var(--panel-2); }
-    .deal-table tbody tr:hover td.act { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
-    .deal-table tbody tr.selected td.act { background-image: linear-gradient(rgba(102, 179, 255, 0.12), rgba(102, 179, 255, 0.12)); }
-    .deal-table td.act { display: table-cell; }
-    .deal-table .act .btn { margin-right: 4px; }
-    .deal-table .act .btn:last-child { margin-right: 0; }
+    /*
+     * Deliberately not .act: that is a button class on this page, and a
+     * cell wearing it became a button itself - its own border, its own
+     * background, and a pointing hand over the whole column.
+     */
+    .deal-table th.acts, .deal-table td.acts { position: sticky; right: 0; background-color: var(--panel); border-left: 1px solid var(--border); }
+    .deal-table td.acts { z-index: 3; }
+    .deal-table th.acts { z-index: 5; background-color: var(--panel-2); }
+    .deal-table tbody tr:hover td.acts { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+    .deal-table tbody tr.selected td.acts { background-image: linear-gradient(rgba(102, 179, 255, 0.12), rgba(102, 179, 255, 0.12)); }
+    .deal-table .acts .btn { height: 30px; padding: 0 11px; font-size: 12px; margin-right: 5px; }
+    .deal-table .acts .btn:last-child { margin-right: 0; }
+    /* Every one of them is a thing you can press, so every one of them
+       looks pressable - a borderless Drop next to a filled Buy it reads as
+       a caption, not as the other half of the choice. */
+    .deal-table .acts .btn.ghost { border-color: var(--border); background: var(--panel-2); color: var(--strong); }
 
     /* Side panel, as on the Store Orders and Member WTBs tabs. */
     .panel { position: fixed; top: 0; right: 0; width: min(480px, 100%); height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -20px 0 50px var(--shadow); z-index: 40; display: flex; flex-direction: column; }
@@ -1113,7 +1121,7 @@
             <thead><tr>
               <th>Product</th><th>Size</th><th>Consignor</th>
               <th class="money">He asks</th><th class="money">You offered</th><th class="money">He wants</th>
-              <th class="money">Buyer pays</th><th class="money">Margin</th><th>State</th><th class="act">Actions</th>
+              <th class="money">Buyer pays</th><th class="money">Margin</th><th>State</th><th class="acts">Actions</th>
             </tr></thead>
             <tbody>
               ${lines.length ? lines.map((o) => `
@@ -1133,7 +1141,7 @@
                     <span class="pill ${LINE_PILL[o.status] ?? ""}">${esc(o.state)}</span>
                     ${o.due_at ? ` <span class="sub" title="Runs out ${esc(when(o.due_at))}">${esc(clockText(o.due_at))}</span>` : ""}
                   </td>
-                  <td class="act">${lineButtons(o)}</td>
+                  <td class="acts">${lineButtons(o)}</td>
                 </tr>`).join("") : `<tr><td class="empty" colspan="10">No pairs on this deal yet.</td></tr>`}
             </tbody>
           </table>
