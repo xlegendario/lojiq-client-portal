@@ -206,6 +206,18 @@
     .label-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
     .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
 
+    /* Het venster waarin een deal gemaakt wordt: breder, want de paren
+       staan er met hun twee prijzen naast elkaar in. */
+    #dealDialog { width: min(760px, calc(100vw - 32px)); }
+    .deal-pairs { display: flex; flex-direction: column; gap: 6px; }
+    .deal-pair { display: flex; gap: 6px; align-items: center; }
+    .deal-pair .input, .deal-pair .select { height: 32px; }
+    .deal-pair .sku { flex: 1 1 140px; min-width: 110px; }
+    .deal-pair .size { flex: 0 0 72px; }
+    .deal-pair .cash { flex: 0 0 100px; }
+    .deal-pair .filter { flex: 0 0 120px; }
+    .deal-pair .drop { flex: 0 0 auto; padding: 0 8px; }
+
     .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; max-width: min(560px, calc(100vw - 32px)); background: var(--toast-bg); border: 1px solid var(--toast-border); color: var(--toast-text); padding: 12px 16px; border-radius: 10px; box-shadow: 0 16px 40px var(--shadow); }
 
     @media (max-width: 860px) {
@@ -467,6 +479,36 @@
     </div>
     <div class="panel-body" id="panelBody"></div>
   </aside>
+
+  <dialog id="dealDialog">
+    <form class="dialog-body" id="dealForm" method="dialog">
+      <h2>New deal</h2>
+
+      <div class="field">
+        <label for="dealBuyer">Buyer</label>
+        <input class="input" id="dealBuyer" list="dealBuyers" name="buyer"
+               placeholder="Pick a buyer, or type who it is for" autocomplete="off" required>
+        <datalist id="dealBuyers"></datalist>
+        <span class="sub">Someone we have not sold to before? Just type the name - you pick the real buyer before you confirm the deal.</span>
+      </div>
+
+      <div class="field">
+        <label>Pairs</label>
+        <div class="deal-pairs" id="dealPairs"></div>
+        <button class="btn ghost" type="button" id="dealAddRow" style="align-self:flex-start">+ Another pair</button>
+      </div>
+
+      <div class="field">
+        <label for="dealNote">Note</label>
+        <input class="input" id="dealNote" name="note" placeholder="Anything worth remembering about this deal" autocomplete="off">
+      </div>
+
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="dealCancel">Cancel</button>
+        <button class="btn primary" type="submit" id="dealGo">Create the deal</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="invoiceDialog">
     <div class="dialog-body">
@@ -932,8 +974,7 @@
       const top = `
         <div class="filters">
           <button class="btn primary" type="button" data-draft="new">+ New deal</button>
-        </div>
-        ${newDealForm()}`;
+        </div>`;
 
       if (!deals.length) {
         $("draftView").innerHTML = `${top}<p class="empty">No deals being made right now.</p>`;
@@ -962,31 +1003,6 @@
             </tbody>
           </table>
         </div>`;
-    }
-
-    /*
-     * Who the deal is for.
-     *
-     * Not a label: the invoice is made out to this buyer, his country and
-     * VAT number decide which of the three VAT routes it takes, and the
-     * payment link and its reminders go to his address. It is the same
-     * list the outbound in the WMS picks from.
-     *
-     * A datalist rather than a dropdown of seventy-odd names: three letters
-     * narrow it down, and the arrow still opens the whole list for when he
-     * only half remembers who it was.
-     */
-    function newDealForm() {
-      return `
-        <form class="filters" id="draftNew" hidden>
-          <input class="input" id="draftBuyerInput" list="draftBuyers" name="buyer"
-                 placeholder="Buyer - type a few letters, or open the list"
-                 autocomplete="off" required style="width:340px">
-          <datalist id="draftBuyers">${draft.buyers.map((b) => `<option value="${esc(b.label)}"></option>`).join("")}</datalist>
-          <input class="input" name="note" placeholder="Note (optional)" autocomplete="off" style="width:240px">
-          <button class="btn primary" type="submit">Start the deal</button>
-          <button class="btn ghost" type="button" data-draft="cancelnew">Cancel</button>
-        </form>`;
     }
 
     function drawDraftDeal() {
@@ -1272,12 +1288,124 @@
       return true;
     }
 
-    async function openNewDealForm() {
+    /*
+     * One row per pair, the same four numbers the deal page asks for.
+     *
+     * Empty rows are ignored on submit, so he can add three and fill in two
+     * without being told off - he is typing what a buyer just said on the
+     * phone, not filling in a form.
+     */
+    function dealPairRow() {
+      const row = document.createElement("div");
+      row.className = "deal-pair";
+      row.innerHTML = `
+        <input class="input sku" name="sku" placeholder="SKU" autocomplete="off">
+        <input class="input size" name="size" placeholder="Size" autocomplete="off">
+        <input class="input cash" name="payout" type="number" step="0.01" min="0" placeholder="We pay">
+        <input class="input cash" name="buyer_price" type="number" step="0.01" min="0" placeholder="Buyer pays">
+        <select class="select filter" name="vat_filter">
+          <option value="all">All stock</option>
+          <option value="margin">Margin only</option>
+          <option value="b2b">B2B only</option>
+        </select>
+        <button class="btn ghost drop" type="button" data-droprow aria-label="Remove this pair">✕</button>`;
+
+      return row;
+    }
+
+    async function openDealDialog() {
       if (!(await loadBuyers())) return;
 
-      $("draftNew").hidden = false;
-      $("draftBuyerInput").focus();
+      $("dealBuyers").innerHTML = draft.buyers
+        .map((b) => `<option value="${esc(b.label)}"></option>`).join("");
+
+      $("dealForm").reset();
+      $("dealPairs").innerHTML = "";
+      for (let i = 0; i < 2; i += 1) $("dealPairs").append(dealPairRow());
+
+      $("dealDialog").showModal();
+      $("dealBuyer").focus();
     }
+
+    $("dealAddRow").addEventListener("click", () => {
+      $("dealPairs").append(dealPairRow());
+      $("dealPairs").lastElementChild.querySelector(".sku").focus();
+    });
+
+    $("dealPairs").addEventListener("click", (event) => {
+      const drop = event.target.closest("[data-droprow]");
+
+      // Never the last one: an empty row is the invitation to type.
+      if (drop && $("dealPairs").children.length > 1) drop.closest(".deal-pair").remove();
+    });
+
+    $("dealCancel").addEventListener("click", () => $("dealDialog").close());
+
+    /*
+     * The whole deal in one go: who it is for, and what he wants.
+     *
+     * The pairs are added one by one because each is its own line with its
+     * own prices - and if one of them is refused, the ones before it still
+     * stand and he sees which one was the problem.
+     */
+    $("dealForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const { buyer, fresh, error } = buyerFromTyped($("dealBuyer").value);
+
+      if (error) { toast(error); return; }
+
+      const rows = [...$("dealPairs").children].map((row) => ({
+        sku: row.querySelector('[name="sku"]').value.trim(),
+        size: row.querySelector('[name="size"]').value.trim(),
+        payout: Number(row.querySelector('[name="payout"]').value),
+        buyer_price: row.querySelector('[name="buyer_price"]').value ? Number(row.querySelector('[name="buyer_price"]').value) : null,
+        vat_filter: row.querySelector('[name="vat_filter"]').value
+      })).filter((row) => row.sku || row.size || row.payout);
+
+      const half = rows.find((row) => !row.sku || !row.size || !(row.payout > 0));
+
+      if (half) {
+        toast(`${half.sku || "That pair"} needs a SKU, a size and what we pay for it.`);
+        return;
+      }
+
+      $("dealGo").disabled = true;
+
+      try {
+        const out = await api("/api/admin/broker-deals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            buyer_id: buyer ? (buyer.value || buyer.id) : null,
+            buyer_name: fresh || null,
+            note: $("dealNote").value
+          })
+        });
+
+        const failed = [];
+
+        for (const row of rows) {
+          await api(`/api/admin/broker-deals/${encodeURIComponent(out.id)}/lines`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(row)
+          }).catch((err) => failed.push(`${row.sku} ${row.size}: ${err.message}`));
+        }
+
+        $("dealDialog").close();
+
+        toast(failed.length
+          ? `${out.deal_id} made, but ${failed.length} pair${failed.length === 1 ? "" : "s"} did not go on: ${failed[0]}`
+          : `${out.deal_id} for ${buyer ? buyer.label : fresh}${rows.length ? ` · ${rows.length} pair${rows.length === 1 ? "" : "s"}` : ""}.`);
+
+        await openDraft(out.id);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        $("dealGo").disabled = false;
+      }
+    });
 
     /*
      * The typed name back to a buyer.
@@ -1309,47 +1437,6 @@
     }
 
     $("draftView").addEventListener("submit", async (event) => {
-      if (event.target.id === "draftNew") {
-        event.preventDefault();
-
-        const { buyer, fresh, error } = buyerFromTyped(event.target.elements.buyer.value);
-
-        if (error) { toast(error); return; }
-
-        /*
-         * Someone we have not sold to before. His invoice address only
-         * arrives once the deal is struck, so the name stands in until
-         * then - and Confirm is where a real buyer becomes required.
-         */
-        if (fresh && !window.confirm(
-          `"${fresh}" is not in your buyers list.\n\n` +
-          `Start the deal on that name? You pick the real buyer, or add him, before you confirm it.`
-        )) return;
-
-        const button = event.target.querySelector("button");
-        button.disabled = true;
-
-        try {
-          const out = await api("/api/admin/broker-deals", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              buyer_id: buyer ? (buyer.value || buyer.id) : null,
-              buyer_name: fresh || null,
-              note: event.target.elements.note.value
-            })
-          });
-
-          toast(`${out.deal_id} started for ${buyer ? buyer.label : fresh}.`);
-          await openDraft(out.id);
-        } catch (err) {
-          toast(err.message);
-          button.disabled = false;
-        }
-
-        return;
-      }
-
       // The buyer picked from the list, onto the deal.
       if (event.target.id === "draftPickBuyer") {
         event.preventDefault();
@@ -1445,8 +1532,7 @@
 
       const what = el.dataset.draft;
 
-      if (what === "new") return openNewDealForm();
-      if (what === "cancelnew") { $("draftNew").hidden = true; return; }
+      if (what === "new") return openDealDialog();
 
       if (what === "pickbuyer") {
         await loadBuyers();
