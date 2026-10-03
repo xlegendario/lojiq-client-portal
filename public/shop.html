@@ -1415,6 +1415,7 @@
       const singleSize =
         /^\d{1,2}(\.5)?$/.test(size) ||
         /^\d{1,2} [12]\/3$/.test(size) ||
+        /^\d{1,2}-\d{1,2}$/.test(size) ||
         /^(XXXS|XXS|XS|S|M|L|XL|XXL|XXXL)$/.test(size) ||
         /^(S\/M|M\/L|L\/XL)$/.test(size);
 

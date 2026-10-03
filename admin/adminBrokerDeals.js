@@ -66,6 +66,13 @@ export const LINE_STATES = {
   expired: { say: "Expired", yours: true, offerable: true }
 };
 
+/*
+ * A word that is a size rather than part of a name. A pair of numbers is
+ * one too: Crocs are sold as 41-42, and typing that should narrow the
+ * search instead of being hunted for in the product name.
+ */
+const SIZE_WORD = /^\d{1,2}([.,]5)?$|^\d{1,2}-\d{1,2}$/;
+
 export const UNIT_FIELDS = [
   "Item ID", "SKU", "Size", "Product Name", "Picture", "VAT Type",
   "Final Purchase Price", "Final Purchase Price (ex. VAT)"
@@ -519,7 +526,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     const words = typed.toUpperCase().split(/\s+/).filter(Boolean);
     // A bare number or half-size is a size, not part of a name.
-    const sizes = words.filter((word) => /^\d{1,2}([.,]5)?$/.test(word));
+    const sizes = words.filter((word) => SIZE_WORD.test(word));
     const rest = words.filter((word) => !sizes.includes(word));
     const quote = (value) => value.replace(/'/g, "\\'");
 
@@ -578,8 +585,8 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     if (typed.length < 2) return { units: [] };
 
     const words = typed.toUpperCase().split(/\s+/).filter(Boolean);
-    const sizes = words.filter((word) => /^\d{1,2}([.,]5)?$/.test(word)).map((size) => size.replace(",", "."));
-    const rest = words.filter((word) => !/^\d{1,2}([.,]5)?$/.test(word));
+    const sizes = words.filter((word) => SIZE_WORD.test(word)).map((size) => size.replace(",", "."));
+    const rest = words.filter((word) => !SIZE_WORD.test(word));
 
     const rows = await db.get(
       `partner_stock?select=id,sku,size,product_name,brand,image_url,vat_type,partner_price,seller_id,seller_record_id` +

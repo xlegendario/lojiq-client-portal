@@ -3004,7 +3004,8 @@ function cleanSkuInput(value) {
 }
 
 function cleanSizeInput(value) {
-  return String(value || "").toUpperCase().replace(/[^A-Z0-9.\/ ]/g, "").trim();
+  // The hyphen is a size, not a typo: Crocs are sold as 41-42.
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9.\/\- ]/g, "").trim();
 }
 
 function cleanWholeNumberInput(value) {
