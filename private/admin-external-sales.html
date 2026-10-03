@@ -2860,7 +2860,12 @@
           <span class="pick">
             <span class="sub money">${esc(pairPrice(p))}</span>
             <select class="select slim" data-outcome="${esc(p.id)}">
-              ${CANCEL_OUTCOMES.map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}
+              ${[
+                ...CANCEL_OUTCOMES,
+                /* Only his pair can go back to him, and only while he has not
+                   been paid - after that it is ours like any other. */
+                ...(p.consignor_fulfillment_status ? [["to_consignor", "Back to the consignor"]] : [])
+              ].map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}
             </select>
           </span>
         </label>`).join("");

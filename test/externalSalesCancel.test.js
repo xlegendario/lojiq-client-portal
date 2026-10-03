@@ -47,7 +47,10 @@ test("only a pair that comes back to us is sellable again and puts its stock bac
       ["return", true, true, true],
       ["store_consign", true, true, false],
       ["lost", false, false, false],
-      ["written_off", false, false, false]
+      ["written_off", false, false, false],
+      // The fifth undoes the buying instead of keeping the pair: only for a
+      // consignor, and only while he was not paid.
+      ["to_consignor", false, true, false]
     ]
   );
 });

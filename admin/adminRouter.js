@@ -410,8 +410,20 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   // External Sales: deals, parcels, money and checks, in Supabase
   // (admin/adminExternalSales.js, admin/externalSalesSync.js,
   // private/admin-external-sales.html).
+  /* The Kickz Caviar portal, which owns a consignor and his stock. */
+  const tellKickz = (pathName, body) => {
+    const base = service(services.kickzBaseUrl);
+
+    if (!base || !text(services.counterOffersSecret)) {
+      throw new Error("Kickz Caviar is not configured on this service.");
+    }
+
+    return post(`${base}${pathName}`, body, { "x-kc-secret": services.counterOffersSecret });
+  };
+
   const externalSalesStore = createExternalSalesStore({
     airtable,
+    tellKickz,
     supabaseUrl,
     serviceKey,
     callWms: (pathName, body) => deps.callWms(pathName, body),
@@ -499,15 +511,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     // correction taking out stock that was never put in.
     bookPurchases: (id) => externalSalesStore.bookPurchases(id),
 
-    tellKickz: (pathName, body) => {
-      const base = service(services.kickzBaseUrl);
-
-      if (!base || !text(services.counterOffersSecret)) {
-        throw new Error("Kickz Caviar is not configured on this service.");
-      }
-
-      return post(`${base}${pathName}`, body, { "x-kc-secret": services.counterOffersSecret });
-    },
+    tellKickz,
 
     // Read when a deal is opened, not now: `service` is assigned further
     // down the file.

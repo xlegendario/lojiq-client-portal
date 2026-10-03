@@ -191,7 +191,7 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   return checks;
 }
 
-export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", selfBilling = null, fetchImpl = fetch }) {
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", selfBilling = null, tellKickz = null, fetchImpl = fetch }) {
   const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
   const rompslomp = createRompslomp({ token: rompslompToken, companyId: rompslompCompanyId, fetchImpl });
 
@@ -589,7 +589,20 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
   // Taking a pair off a deal: credit, new invoice, the unit back where the
   // pair now is, and the refund that may follow.
-  const cancelling = createExternalSalesCancel({ db, airtable, invoicing, purchases });
+  const cancelling = createExternalSalesCancel({
+    db,
+    airtable,
+    invoicing,
+    purchases,
+
+    /*
+     * Putting a consignor's pair back is the Kickz Caviar portal's work:
+     * it owns his stock and the conversation we have with him.
+     */
+    returnToConsignor: tellKickz
+      ? (body) => tellKickz("/api/internal/broker/pair-returned", body)
+      : null
+  });
 
   /*
    * One pass over Rompslomp's suppliers, giving the ones that are sellers

@@ -42,7 +42,24 @@ export const CANCEL_OUTCOMES = {
   return: { status: "Return", available: true, stockBack: true, toPartner: true, say: (buyer) => `Return from ${buyer}` },
   store_consign: { status: "Store Consign", available: true, stockBack: true, toPartner: false, say: (buyer) => `At ${buyer}` },
   lost: { status: "Lost", available: false, stockBack: false, toPartner: false, say: (buyer) => `Lost on the way to ${buyer}` },
-  written_off: { status: "Written Off", available: false, stockBack: false, toPartner: false, say: (buyer) => `Written off, kept by ${buyer}` }
+  written_off: { status: "Written Off", available: false, stockBack: false, toPartner: false, say: (buyer) => `Written off, kept by ${buyer}` },
+  /*
+   * The fifth, and only for a pair that came from a consignor: we are not
+   * buying it after all. He keeps the shoe and we keep nothing - no unit to
+   * sell, no payout to make, and the purchase credited.
+   *
+   * The other four all mean the pair is ours: that is what a cancel is when
+   * we bought a shoe and the sale fell through. This one undoes the buying
+   * itself, which only makes sense while the pair never really left him.
+   */
+  to_consignor: {
+    status: "Return",
+    available: false,
+    stockBack: true,
+    toPartner: false,
+    toConsignor: true,
+    say: (buyer) => `Back to the consignor (${buyer} cancelled)`
+  }
 };
 
 export const buyerOf = (sale) => text(sale.buyer_company) || text(sale.buyer_name) || "the buyer";
@@ -205,7 +222,7 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
  *   invoicing   credit, invoice (admin/externalSalesInvoicing.js)
  *   purchases   createPurchaseExpense - the purchase of a partner pair
  */
-export function createExternalSalesCancel({ db, airtable, invoicing, purchases = null }) {
+export function createExternalSalesCancel({ db, airtable, invoicing, purchases = null, returnToConsignor = null }) {
   async function load(id) {
     if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown deal.");
     const [sale] = await db.get(`external_sales?select=*&id=eq.${text(id)}`);
@@ -252,6 +269,47 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
        * still owe him for it: once paid it is ours, and with Store Consign
        * we took it over on purpose.
        */
+      /*
+       * Back to the consignor: the purchase is undone.
+       *
+       * Only while we still owe him - once he has been paid the pair is
+       * ours and this is an ordinary return. The portal puts his stock
+       * back and tells him, but only if the shoe never left his hands;
+       * from the post he puts it back himself.
+       */
+      if (rule.toConsignor && text(pair.consignor_fulfillment_status) && !paidToPartner) {
+        if (purchases && text(pair.purchase_expense_id)) {
+          await purchases
+            .credit({ expenseId: text(pair.purchase_expense_id), deal: dealId(sale) })
+            .catch((err) => console.error(`[external sales] the purchase of ${pair.item_id} was not credited:`, err.message));
+        }
+
+        const [line] = await db.get(`deal_lines?select=id&external_sale_pair_id=eq.${pair.id}`).catch(() => []);
+
+        if (returnToConsignor && line?.id) {
+          await returnToConsignor({
+            deal_line_id: line.id,
+            deal_id: dealId(sale),
+            shipped: text(pair.consignor_shipping_status) === "Shipped"
+          }).catch((err) => console.error(`[external sales] ${pair.item_id} was not returned to the consignor:`, err.message));
+        }
+
+        try {
+          await airtable.update("Inventory Units", unitId, {
+            "Availability Status": "Inactive",
+            "Cancel Status": rule.status,
+            // Off the payout list: there is no purchase left to pay for.
+            "Payment Status": "Paid",
+            "Payment Note": `Cancelled: ${dealId(sale)} went back to the consignor`,
+            "Item Condition": conditionWith(conditionNote(sale, outcome), text(unit["Item Condition"]))
+          });
+        } catch (err) {
+          failed.push(`${pair.item_id || unitId}: ${err.message}`);
+        }
+
+        continue;
+      }
+
       if (pair.partner_stock_id && rule.toPartner && !paidToPartner) {
         if (purchases && text(pair.purchase_expense_id)) {
           await purchases
