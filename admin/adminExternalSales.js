@@ -851,11 +851,45 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   }
 
   // Shipped: the WMS sets the units on Sold, as it does for every outbound.
-  async function packShipShip(id, itemsPerParcel) {
+  /*
+   * Shipped, and what went in which box.
+   *
+   * The packer is the one who knows: he is standing at the boxes. He has
+   * always been able to say so in a note, which is read back on the deal;
+   * sent as pairs per tracking number it becomes the real thing instead,
+   * and Pack & Ship, a delivery and the panel all read the same answer.
+   *
+   * The note is kept either way - it is what deals from before this have.
+   */
+  async function packShipShip(id, itemsPerParcel, perParcel = null) {
     const sale = await saleById(id);
     if (sale.shipping_status !== "ready_to_ship") {
       throw new ExternalSalesError(`${dealId(sale)} is ${sale.shipping_status.replace(/_/g, " ")}, not ready to ship.`, 409);
     }
+
+    if (Array.isArray(perParcel) && perParcel.length) {
+      const parcels = await db.get(`shipments?select=id,tracking_number&external_sale_id=eq.${sale.id}`);
+      const pairs = await db.get(`external_sale_pairs?select=id,inventory_unit_record_id,consignor_fulfillment_status&sale_id=eq.${sale.id}&cancelled_at=is.null`);
+
+      const clean = (value) => text(value).replace(/s+/g, "").toUpperCase();
+
+      for (const box of perParcel) {
+        const parcel = parcels.find((row) => clean(row.tracking_number) === clean(box?.tracking_number));
+
+        if (!parcel) continue;
+
+        for (const wanted of Array.isArray(box?.pairs) ? box.pairs : []) {
+          // Either the pair itself or the unit on it: the WMS knows units.
+          const pair = pairs.find((row) =>
+            text(row.id) === text(wanted) || text(row.inventory_unit_record_id) === text(wanted));
+
+          if (!pair || text(pair.consignor_fulfillment_status)) continue;
+
+          await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { shipment_id: parcel.id });
+        }
+      }
+    }
+
     const [saved] = await db.patch(`external_sales?id=eq.${sale.id}`, {
       shipping_status: "shipped",
       shipped_at: new Date().toISOString(),
@@ -1198,7 +1232,7 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
   router.post("/api/internal/external-sales/pack-ship/ship", express.json({ limit: "20kb" }), async (req, res) => {
     if (!fromWms(req, res)) return;
     try {
-      const sale = await store.packShipShip(req.body?.id, req.body?.items_per_parcel);
+      const sale = await store.packShipShip(req.body?.id, req.body?.items_per_parcel, req.body?.parcels);
       await audit.record({
         actor: { email: "wms", name: "WMS Pack & Ship" },
         action: "external_sale_shipped",
