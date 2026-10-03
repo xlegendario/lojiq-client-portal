@@ -2969,9 +2969,7 @@
       const back = event.target.closest('[data-inbound="unship"]');
       if (!back) return;
 
-      if (!confirm("Take this label back?
-
-The pairs go back to waiting and he is told not to post it. Only do this if it is still on his desk.")) return;
+      if (!confirm("Take this label back?\n\nThe pairs go back to waiting and he is told not to post it. Only do this if it is still on his desk.")) return;
 
       back.disabled = true;
 
