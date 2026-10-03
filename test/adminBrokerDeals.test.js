@@ -5,8 +5,39 @@ import {
   LINE_STATES,
   createBrokerDealsStore,
   dealRow,
-  lineRow
+  lineRow,
+  mountBrokerDeals
 } from "../admin/adminBrokerDeals.js";
+
+/*
+ * The routes, with the body the page actually sends.
+ *
+ * Worth its own harness: everything else here talks to the store, and a
+ * field the route forgets to pass on is invisible from there.
+ */
+function routes(store) {
+  const handlers = new Map();
+  const keep = (verb) => (path, ...fns) => handlers.set(`${verb} ${path}`, fns[fns.length - 1]);
+  const router = { get: keep("GET"), post: keep("POST"), delete: keep("DELETE") };
+
+  mountBrokerDeals(router, { store });
+
+  return async (verb, path, body = {}, params = {}) => {
+    const handler = handlers.get(`${verb} ${path}`);
+
+    if (!handler) throw new Error(`no route for ${verb} ${path}`);
+
+    let sent = null;
+    let code = 200;
+
+    await handler(
+      { body, params, admin: { email: "test@lojiq.com" } },
+      { json: (out) => { sent = out; }, status: (c) => { code = c; return { json: (out) => { sent = out; } }; } }
+    );
+
+    return { body: sent, status: code };
+  };
+}
 
 const SALE = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -629,6 +660,15 @@ test("a deal can begin on a name alone", async () => {
   assert.equal(sale.buyer_name, "Mike from Antwerp");
   assert.equal(sale.buyer_uuid, null, "nobody in the system yet");
   assert.equal(sale.stage, "negotiating");
+});
+
+test("the route hands the typed name on", async () => {
+  const { store, tables } = shop({ sales: [] });
+  const call = routes(store);
+
+  await call("POST", "/api/admin/broker-deals", { buyer_name: "KrouKrouKrou", note: "Test" });
+
+  assert.equal(tables.external_sales[0]?.buyer_name, "KrouKrouKrou");
 });
 
 test("a deal needs a who, even if only a name", async () => {

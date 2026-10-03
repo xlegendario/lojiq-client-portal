@@ -1114,7 +1114,11 @@ export function mountBrokerDeals(router, { store, audit = null }) {
 
   router.post("/api/admin/broker-deals", json, async (req, res) => {
     try {
-      const out = await store.create({ buyerId: req.body?.buyer_id, note: req.body?.note });
+      const out = await store.create({
+        buyerId: req.body?.buyer_id,
+        buyerName: req.body?.buyer_name,
+        note: req.body?.note
+      });
 
       audit?.record({
         actor: req.admin,
