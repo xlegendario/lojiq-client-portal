@@ -595,7 +595,7 @@
         <div class="row keep"><span>Profit</span><span id="buyProfit">—</span></div>
       </div>
 
-      <span class="sub">The pair comes off his stock, so nowhere else can sell it.</span>
+      <span class="sub">It comes off his stock so nowhere else can sell it. Nothing is bought until you confirm the deal.</span>
 
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="buyCancel">Cancel</button>
@@ -1379,7 +1379,7 @@
           out.did === "offered" ? `Offered to ${out.seller_id}.`
           : out.did === "countered" ? `${euro(out.payout)} countered to ${out.seller_id}.`
           : out.did === "agreed" ? `${out.seller_id} is on ${euro(out.payout)}. Confirm it when your buyer is in.`
-          : out.did === "bought" ? `Bought as ${out.item_id} - ${out.seller_id} gets ${euro(out.payout)}, selling at ${euro(out.buyer_price)}.`
+          : out.did === "locked" ? `Locked. ${out.seller_id} gets ${euro(out.payout)}, your buyer pays ${euro(out.buyer_price)}.`
           : out.did === "priced" ? `Buyer pays ${euro(out.buyer_price)}.`
           : out.did === "extended" ? `Another 24 hours - runs out ${when(out.until)}.`
           : out.did === "fellback" ? `${out.seller_id} is on ${euro(out.payout)}. Confirm it when your buyer is in.`
@@ -1904,12 +1904,18 @@
        * dialog says that out loud rather than leaving him to find out.
        */
       if (what === "confirm") {
-        const bought = draft.lines.filter((line) => line.done).length;
-        const running = draft.lines.filter((line) => !line.done && line.status !== "cancelled");
+        const taken = draft.lines.filter((line) => line.done || line.locked);
+        const buying = draft.lines.filter((line) => line.locked);
+        const running = draft.lines.filter((line) => !line.done && !line.locked && line.status !== "cancelled");
         const agreed = running.filter((line) => line.closable).length;
 
+        const owed = buying.reduce((sum, line) => sum + (line.payout || 0), 0);
+
         if (!window.confirm(
-          `Confirm this deal with ${bought} pair${bought === 1 ? "" : "s"}?\n\n` +
+          `Confirm this deal with ${taken.length} pair${taken.length === 1 ? "" : "s"}?\n\n` +
+          (buying.length
+            ? `${buying.length} pair${buying.length === 1 ? "" : "s"} ${buying.length === 1 ? "is" : "are"} bought now - ${euro(owed)} owed to the consignors.\n`
+            : "") +
           (running.length
             ? `${running.length} pair${running.length === 1 ? "" : "s"} still running ${running.length === 1 ? "is" : "are"} let go` +
               (agreed ? `, and ${agreed} consignor${agreed === 1 ? "" : "s"} who already agreed ${agreed === 1 ? "is" : "are"} told.` : ".")

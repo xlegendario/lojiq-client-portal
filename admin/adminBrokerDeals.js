@@ -47,6 +47,14 @@ export const LINE_STATES = {
   open: { say: "Waiting for him", yours: false, stoppable: true },
   store_pending: { say: "He countered", yours: true, stoppable: true },
   partner_agreed: { say: "Agreed, not closed", yours: true, closable: true, stoppable: true },
+  /*
+   * Taken out of the market, not bought.
+   *
+   * Nobody else can sell it and nothing is owed yet. It asks nothing of
+   * the broker either - the next move is confirming the deal, which is
+   * about all of them at once, not about this pair.
+   */
+  locked: { say: "Locked", yours: false, stoppable: true },
   processing: { say: "Closing…", yours: false },
   accepted: { say: "Bought", yours: false, done: true },
   denied: { say: "He declined", yours: true, offerable: true },
@@ -71,7 +79,11 @@ export const UNIT_FIELDS = [
 export function lineRow(line, offer = null, previous = null) {
   // The round decides while there is one. A line whose round ended goes
   // back to draft with its offer cleared, so there is nothing to prefer.
-  const key = offer ? text(offer.status) : text(line.status);
+  //
+  // Except once the pair is locked: the haggling is over, the round is
+  // only history, and what the line says is what is true.
+  const locked = text(line.status) === "locked";
+  const key = locked ? "locked" : offer ? text(offer.status) : text(line.status);
 
   const state = LINE_STATES[key] || { say: key || "—", yours: false };
 
@@ -119,6 +131,8 @@ export function lineRow(line, offer = null, previous = null) {
 
     status: key,
     state: state.say,
+    // Off the consignor's stock, not yet bought.
+    locked,
     // Whether the broker is the one holding this up, and what he owes it.
     yours: state.yours === true,
     offerable: state.offerable === true,
@@ -140,8 +154,16 @@ export function lineRow(line, offer = null, previous = null) {
  * of my deals needs me right now.
  */
 export function dealRow(sale, lines = []) {
-  const bought = lines.filter((line) => line.done);
-  const live = lines.filter((line) => !line.done && line.status !== "cancelled");
+  /*
+   * Locked counts as in.
+   *
+   * It is what the broker means when he says he has three of the five: the
+   * pair is his, nobody else can sell it, and the only thing left is
+   * saying the deal is done. Whether the purchase is already booked is a
+   * question about bookkeeping, not about the deal.
+   */
+  const bought = lines.filter((line) => line.done || line.locked);
+  const live = lines.filter((line) => !line.done && !line.locked && line.status !== "cancelled");
 
   return {
     id: text(sale.id),
@@ -695,16 +717,26 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     if (action === "discard") {
       if (!row.stoppable) throw new BrokerDealsError(`Nothing to drop: ${row.state.toLowerCase()}.`, 409);
 
+      // A locked pair goes back on his stock first: dropping it without
+      // that would leave him holding something he can no longer sell.
+      if (row.locked) await kickz("/api/internal/broker/unlock", { deal_line_id: line.id });
+
       const result = await kickz("/api/internal/partner-deal/discard", { offer_id: text(offer.id) });
 
       return { ok: true, did: "discarded", told: result?.told_consignor === true, seller_id: row.seller_id };
     }
 
     /*
-     * Closing it. The consignor said yes a while ago; this is the moment
-     * the pair becomes ours - and the only moment anything exists that
-     * would have to be undone if the buyer walked away. So the buyer price
-     * is not optional here.
+     * Taking the pair out of the market.
+     *
+     * The consignor said yes a while ago; this is the broker saying he
+     * wants it. The pair comes off the consignment stock so nowhere else
+     * can sell it, and nothing is bought - that waits for the deal to be
+     * confirmed, which is the moment there is a sale to buy it for.
+     *
+     * The buyer price is not optional even so: it is what the margin is
+     * checked against, and locking a pair that cannot be sold at a profit
+     * is how a deal quietly loses money.
      */
     if (action === "finalize") {
       if (!row.closable) throw new BrokerDealsError(`Nothing to close: ${row.state.toLowerCase()}.`, 409);
@@ -721,17 +753,14 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
         );
       }
 
-      const bought = await kickz("/api/internal/broker/finalize", {
+      await kickz("/api/internal/broker/lock", {
         deal_line_id: line.id,
         buyer_price: round2(buyer)
       });
 
-      await attachPair({ line, unitRecordId: text(bought.inventory_unit_record_id), buyerPrice: round2(buyer) });
-
       return {
         ok: true,
-        did: "bought",
-        item_id: text(bought.item_id),
+        did: "locked",
         payout: row.payout,
         buyer_price: round2(buyer),
         seller_id: row.seller_id
@@ -1051,19 +1080,58 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     }
 
     const lines = (await linesOf([text(sale.id)])).get(text(sale.id)) || [];
-    const bought = lines.filter((line) => line.done);
+    const locked = lines.filter((line) => line.locked);
+    const already = lines.filter((line) => line.done);
 
-    if (!bought.length) {
-      throw new BrokerDealsError("Nothing has been bought on this deal yet.", 409);
+    if (!locked.length && !already.length) {
+      throw new BrokerDealsError("Nothing has been confirmed on this deal yet.", 409);
     }
 
     if (lines.some((line) => line.status === "processing")) {
       throw new BrokerDealsError("A pair is being bought right now. Try again in a moment.", 409);
     }
 
+    /*
+     * And here everything that was locked is actually bought.
+     *
+     * One at a time, because each is its own purchase with its own margin
+     * check, and a pair that cannot go through must not take the others
+     * with it. A pair that did go through comes back as bought, so
+     * confirming again after a fix picks up where this left off.
+     */
+    const failed = [];
+
+    for (const line of locked) {
+      try {
+        const got = await kickz("/api/internal/broker/finalize", {
+          deal_line_id: line.id,
+          buyer_price: round2(line.buyer_price)
+        });
+
+        await attachPair({
+          line,
+          unitRecordId: text(got.inventory_unit_record_id),
+          buyerPrice: round2(line.buyer_price)
+        });
+      } catch (err) {
+        failed.push(`${line.sku} ${line.size}: ${err.message}`);
+      }
+    }
+
+    if (failed.length) {
+      throw new BrokerDealsError(
+        `${failed.length} pair${failed.length === 1 ? "" : "s"} could not be bought, so the deal is not confirmed: ${failed[0]}`,
+        409
+      );
+    }
+
+    const bought = [...already, ...locked];
+
     // What is still out there, dropped the same way a single pair is - so a
     // consignor hears about it on exactly the same terms.
-    const dropping = lines.filter((line) => !line.done && line.status !== "cancelled");
+    // Read before the buying above, so the pairs that were locked still
+    // look locked here - and must not be dropped as leftovers.
+    const dropping = lines.filter((line) => !line.done && !line.locked && line.status !== "cancelled");
     let told = 0;
 
     for (const line of dropping) {

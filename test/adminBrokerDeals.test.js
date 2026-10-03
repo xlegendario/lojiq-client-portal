@@ -371,7 +371,7 @@ test("countering takes whole euros only, and is not sent otherwise", async () =>
   assert.deepEqual(sent[0].body, { price: 157 });
 });
 
-test("closing needs a buyer price and hands the pair to the sale", async () => {
+test("locking needs a buyer price, and takes the pair out of the market", async () => {
   const { store, sent, tables } = shop({
     lines: [line({ status: "agreed", offer_id: offer().id, buyer_price: null })],
     offers: [offer({ status: "partner_agreed", accepted_at: "2026-10-02T13:00:00.000Z" })]
@@ -382,24 +382,21 @@ test("closing needs a buyer price and hands the pair to the sale", async () => {
 
   const out = await store.answer({ lineId: line().id, action: "finalize", buyerPrice: 180 });
 
-  assert.equal(out.did, "bought");
-  assert.equal(sent[0].path, "/api/internal/broker/finalize");
+  assert.equal(out.did, "locked");
+  assert.equal(sent[0].path, "/api/internal/broker/lock");
   assert.deepEqual(sent[0].body, { deal_line_id: line().id, buyer_price: 180 });
 
-  const [pair] = tables.external_sale_pairs;
-  assert.equal(pair.inventory_unit_record_id, "recUNIT0000000001");
-  assert.equal(pair.selling_price, 180);
-  assert.equal(pair.purchase_price_ex_vat, 150, "the purchase as the unit fixed it");
-  assert.equal(pair.purchase_vat_type, "Margin");
-  assert.equal(pair.consignor_fulfillment_status, "Allocated", "the step his Confirmed tab filters on");
+  // Nothing is bought here. The pair is off his stock, which the portal
+  // does, and that is all that happened.
+  assert.deepEqual(tables.external_sale_pairs, [], "no sale line yet");
 });
 
 /*
- * A deal with one of five pairs bought is not a deal yet. Letting it turn
+ * A deal with one of five pairs locked is not a deal yet. Letting it turn
  * into a sale by itself would put it in Pending, where it can be invoiced
  * and paid, while four pairs are still being haggled over.
  */
-test("buying a pair does not turn the negotiation into a sale by itself", async () => {
+test("locking a pair books nothing at all", async () => {
   const { store, tables } = shop({
     lines: [line({ status: "agreed", offer_id: offer().id })],
     offers: [offer({ status: "partner_agreed" })]
@@ -409,7 +406,67 @@ test("buying a pair does not turn the negotiation into a sale by itself", async 
 
   assert.equal(tables.external_sales[0].stage, "negotiating", "the broker decides when it is a deal");
   assert.equal(tables.external_sales[0].bookkeeping_status, "not_invoiced");
-  assert.equal(tables.external_sales[0].total_selling_price, 180, "but the total is what is really on it");
+  assert.deepEqual(tables.external_sale_pairs, [], "and there is nothing to unwind if the buyer walks");
+});
+
+/*
+ * The pair is his, nobody else can sell it, and the purchase is the last
+ * thing to happen - at the end, for all of them at once.
+ */
+test("confirming buys every locked pair", async () => {
+  const { store, tables, sent } = shop({
+    lines: [
+      line({ id: "l1", status: "locked", offer_id: "o1", buyer_price: 180 }),
+      line({ id: "l2", status: "locked", offer_id: "o2", buyer_price: 210 })
+    ],
+    offers: [
+      offer({ id: "o1", status: "partner_agreed" }),
+      offer({ id: "o2", status: "partner_agreed" })
+    ]
+  });
+
+  const out = await store.confirmDeal(SALE.id);
+
+  assert.equal(out.pairs, 2);
+  assert.equal(out.dropped, 0, "nothing was still running");
+
+  const buys = sent.filter((call) => call.path === "/api/internal/broker/finalize");
+  assert.equal(buys.length, 2, "one purchase per pair");
+  assert.deepEqual(buys[0].body, { deal_line_id: "l1", buyer_price: 180 });
+
+  assert.equal(tables.external_sale_pairs.length, 2);
+  assert.equal(tables.external_sales[0].stage, "open");
+  assert.equal(tables.external_sales[0].bookkeeping_status, "to_invoice");
+});
+
+/*
+ * One pair refused - a buyer price that no longer covers the payout, say -
+ * must not leave half a deal invoiceable. The ones that did go through
+ * stay bought, so fixing the number and confirming again carries on.
+ */
+test("a pair that cannot be bought holds the whole confirmation", async () => {
+  const { store, tables } = shop({
+    lines: [
+      line({ id: "l1", status: "locked", offer_id: "o1", buyer_price: 180 }),
+      line({ id: "l2", status: "locked", offer_id: "o2", buyer_price: 210 })
+    ],
+    offers: [
+      offer({ id: "o1", status: "partner_agreed" }),
+      offer({ id: "o2", status: "partner_agreed" })
+    ],
+    kickz: async (path, body) => {
+      if (path === "/api/internal/broker/finalize" && body.deal_line_id === "l2") {
+        throw new Error("210 does not cover the 220 going to SE-00281.");
+      }
+
+      return { ok: true, inventory_unit_record_id: "recUNIT0000000001", item_id: "CS-001234" };
+    }
+  });
+
+  await assert.rejects(store.confirmDeal(SALE.id), /not confirmed/);
+
+  assert.equal(tables.external_sales[0].stage, "negotiating", "still a negotiation");
+  assert.equal(tables.external_sale_pairs.length, 1, "and the one that did go through stays bought");
 });
 
 test("confirming draws the line: what is bought becomes the sale", async () => {
@@ -446,13 +503,13 @@ test("confirming draws the line: what is bought becomes the sale", async () => {
   assert.equal(tables.external_sales[0].sale_date, new Date().toISOString().slice(0, 10));
 });
 
-test("a deal with nothing bought cannot be confirmed", async () => {
+test("a deal with nothing confirmed cannot be confirmed", async () => {
   const { store, sent } = shop({
     lines: [line({ status: "offered", offer_id: offer().id })],
     offers: [offer()]
   });
 
-  await assert.rejects(store.confirmDeal(SALE.id), /Nothing has been bought/);
+  await assert.rejects(store.confirmDeal(SALE.id), /Nothing has been confirmed/);
   assert.deepEqual(sent, [], "and nobody is dropped over it");
 });
 
