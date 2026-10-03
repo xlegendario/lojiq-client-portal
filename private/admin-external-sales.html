@@ -880,7 +880,7 @@
      * Everything on this tab goes through the broker store; nothing it does
      * touches the sales the other tabs read.
      */
-    const draft = { deals: [], dealId: "", deal: null, lines: [], signup: "", buyerEmail: "" };
+    const draft = { deals: [], dealId: "", deal: null, lines: [], signup: "", buyerEmail: "", buyers: [] };
 
     const LINE_PILL = {
       draft: "", open: "move", store_pending: "wait", partner_agreed: "wait",
@@ -929,15 +929,19 @@
 
       $("count").textContent = deals.length ? `${deals.length} deal${deals.length === 1 ? "" : "s"}` : "";
 
+      const top = `
+        <div class="filters">
+          <button class="btn primary" type="button" data-draft="new">+ New deal</button>
+        </div>
+        ${newDealForm()}`;
+
       if (!deals.length) {
-        $("draftView").innerHTML = `
-          <div class="filters"><button class="btn primary" type="button" data-draft="new">+ New deal</button></div>
-          <p class="empty">No deals being made right now.</p>`;
+        $("draftView").innerHTML = `${top}<p class="empty">No deals being made right now.</p>`;
         return;
       }
 
       $("draftView").innerHTML = `
-        <div class="filters"><button class="btn primary" type="button" data-draft="new">+ New deal</button></div>
+        ${top}
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -958,6 +962,31 @@
             </tbody>
           </table>
         </div>`;
+    }
+
+    /*
+     * Who the deal is for.
+     *
+     * Not a label: the invoice is made out to this buyer, his country and
+     * VAT number decide which of the three VAT routes it takes, and the
+     * payment link and its reminders go to his address. It is the same
+     * list the outbound in the WMS picks from.
+     *
+     * A datalist rather than a dropdown of seventy-odd names: three letters
+     * narrow it down, and the arrow still opens the whole list for when he
+     * only half remembers who it was.
+     */
+    function newDealForm() {
+      return `
+        <form class="filters" id="draftNew" hidden>
+          <input class="input" id="draftBuyerInput" list="draftBuyers" name="buyer"
+                 placeholder="Buyer - type a few letters, or open the list"
+                 autocomplete="off" required style="width:340px">
+          <datalist id="draftBuyers">${draft.buyers.map((b) => `<option value="${esc(b.label)}"></option>`).join("")}</datalist>
+          <input class="input" name="note" placeholder="Note (optional)" autocomplete="off" style="width:240px">
+          <button class="btn primary" type="submit">Start the deal</button>
+          <button class="btn ghost" type="button" data-draft="cancelnew">Cancel</button>
+        </form>`;
     }
 
     function drawDraftDeal() {
@@ -1169,50 +1198,83 @@
       }
     }
 
-    async function newDraftDeal() {
-      let buyers = [];
+    async function openNewDealForm() {
+      if (!draft.buyers.length) {
+        try {
+          draft.buyers = (await api("/api/admin/buyers")).options || [];
+        } catch (err) {
+          toast(err.message);
+          return;
+        }
 
-      try {
-        buyers = (await api("/api/admin/buyers")).options || [];
-      } catch (err) {
-        toast(err.message);
-        return;
+        if (!draft.buyers.length) {
+          toast("There are no buyers yet. Add one in the outbound first.");
+          return;
+        }
+
+        // The list is only known now, so the form is drawn again with it.
+        drawDraftList();
       }
 
-      if (!buyers.length) {
-        toast("There are no buyers yet. Add one in the outbound first.");
-        return;
+      $("draftNew").hidden = false;
+      $("draftBuyerInput").focus();
+    }
+
+    /*
+     * The typed name back to a buyer.
+     *
+     * Exactly as the list spells it when he picked one from it; otherwise
+     * whatever he typed, as long as one buyer is left standing. Two matches
+     * is a question, not a guess - invoicing the wrong company is not
+     * something to be clever about.
+     */
+    function buyerFromTyped(typed) {
+      const needle = String(typed || "").trim().toLowerCase();
+
+      if (!needle) return { error: "Which buyer?" };
+
+      const exact = draft.buyers.find((b) => String(b.label).toLowerCase() === needle);
+      if (exact) return { buyer: exact };
+
+      const hits = draft.buyers.filter((b) => String(b.label).toLowerCase().includes(needle));
+
+      if (!hits.length) return { error: "No buyer by that name." };
+
+      if (hits.length > 1) {
+        return { error: `${hits.length} buyers match that: ${hits.slice(0, 3).map((b) => b.label).join(", ")}${hits.length > 3 ? "…" : ""}` };
       }
 
-      const typed = window.prompt(
-        `Which buyer?\n\nType a name or part of one.\n\n` +
-        buyers.slice(0, 12).map((b) => `· ${b.label}`).join("\n") +
-        (buyers.length > 12 ? `\n… and ${buyers.length - 12} more` : "")
-      );
-
-      if (typed === null) return;
-
-      const needle = String(typed).trim().toLowerCase();
-      const hits = buyers.filter((b) => String(b.label).toLowerCase().includes(needle));
-
-      if (!needle || !hits.length) { toast("No buyer by that name."); return; }
-      if (hits.length > 1) { toast(`${hits.length} buyers match that. Be more specific.`); return; }
-
-      try {
-        const out = await api("/api/admin/broker-deals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ buyer_id: hits[0].value || hits[0].id })
-        });
-
-        toast(`${out.deal_id} started for ${hits[0].label}.`);
-        await openDraft(out.id);
-      } catch (err) {
-        toast(err.message);
-      }
+      return { buyer: hits[0] };
     }
 
     $("draftView").addEventListener("submit", async (event) => {
+      if (event.target.id === "draftNew") {
+        event.preventDefault();
+
+        const { buyer, error } = buyerFromTyped(event.target.elements.buyer.value);
+
+        if (error) { toast(error); return; }
+
+        const button = event.target.querySelector("button");
+        button.disabled = true;
+
+        try {
+          const out = await api("/api/admin/broker-deals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ buyer_id: buyer.value || buyer.id, note: event.target.elements.note.value })
+          });
+
+          toast(`${out.deal_id} started for ${buyer.label}.`);
+          await openDraft(out.id);
+        } catch (err) {
+          toast(err.message);
+          button.disabled = false;
+        }
+
+        return;
+      }
+
       if (event.target.id !== "draftAdd") return;
       event.preventDefault();
 
@@ -1243,7 +1305,8 @@
 
       const what = el.dataset.draft;
 
-      if (what === "new") return newDraftDeal();
+      if (what === "new") return openNewDealForm();
+      if (what === "cancelnew") { $("draftNew").hidden = true; return; }
       if (what === "back") return openDraft("");
       if (what === "open") return openDraft(el.dataset.id);
 
