@@ -284,6 +284,12 @@
     .deal-pair .cash { flex: 0 0 104px; }
     .deal-pair .filter { flex: 0 0 120px; }
     .deal-pair .drop { flex: 0 0 auto; padding: 0 8px; }
+    /* What the two amounts are, over the columns they sit in. Placeholders
+       cannot do this job: they are gone the moment a number is typed. */
+    .deal-heads { display: flex; gap: 6px; align-items: center; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding-bottom: 2px; }
+    .deal-heads .what { flex: 1 1 auto; }
+    .deal-heads .cash { flex: 0 0 100px; text-align: left; }
+    .deal-heads .drop { flex: 0 0 29px; }
 
     .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; max-width: min(560px, calc(100vw - 32px)); background: var(--toast-bg); border: 1px solid var(--toast-border); color: var(--toast-text); padding: 12px 16px; border-radius: 10px; box-shadow: 0 16px 40px var(--shadow); }
 
@@ -581,6 +587,12 @@
 
       <div class="field" id="dealChosenField" hidden>
         <label>Chosen</label>
+        <div class="deal-heads">
+          <span class="what"></span>
+          <span class="cash">Our offer</span>
+          <span class="cash">Ask price</span>
+          <span class="drop"></span>
+        </div>
         <div class="deal-pairs" id="dealPairs"></div>
       </div>
 
@@ -2163,7 +2175,11 @@
      * there - or simply kept, since it always says the same thing.
      */
     const selfBillingLink = (pair) => {
-      if (!pair.partner_stock_id || !pair.inventory_unit_record_id) return "";
+      // Any pair we bought from somebody has one: a partner's, and a
+      // consignor's on a broker deal. Our own was bought at its own time
+      // and has its document there.
+      if (!pair.inventory_unit_record_id) return "";
+      if (!pair.partner_stock_id && !pair.consignor_fulfillment_status) return "";
       const url = `/api/admin/self-billing/pdf?unit=${encodeURIComponent(pair.inventory_unit_record_id)}`;
       return ` <a class="act" href="${url}" target="_blank" rel="noopener" title="The self-billing purchase invoice for this pair">Self-billing</a>`;
     };
@@ -2374,6 +2390,17 @@
     function drawPanel() {
       const { sale: s, pairs, parcels, invoices, money, next, due_date } = state.detail;
       const locked = ["invoiced", "credited"].includes(s.bookkeeping_status);
+
+      /*
+       * Whether there is anything here for us to put in a box.
+       *
+       * A consignor posts his own pairs, and the label we send him makes
+       * the parcel - so on a deal that is entirely his, Add parcel is a
+       * second way to do a thing that is already being done, and the two
+       * would not know about each other.
+       */
+      const consignorPairs = (state.detail.pairs || []).filter((p) => p.consignor_fulfillment_status).length;
+      const weShip = !consignorPairs || consignorPairs < (state.detail.pairs || []).length;
       const shipped = ["shipped", "delivered", "cancelled"].includes(s.shipping_status);
       const unpaid = ["pending", "partially_paid"].includes(s.payment_status);
 
@@ -2536,7 +2563,7 @@
         <div class="next ${NEXT_TONE[next.tone] || ""}">
           <span>${esc(next.text)}</span>
           ${next.key === "invoice" ? '<button class="btn primary" id="invoiceBtn" type="button">Create invoice</button>' : ""}
-          ${next.key === "label" ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel</button>' : ""}
+          ${next.key === "label" && weShip ? '<button class="btn primary" id="addParcelBtn2" type="button">Add parcel</button>' : ""}
           ${next.key === "overdue" ? '<button class="btn primary" type="button" data-pay="reminder">Send reminder</button>' : ""}
         </div>`}
 
@@ -2562,7 +2589,7 @@
         </section>
 
         <section class="sec">
-          <div class="sec-head"><h3>Shipping</h3>${shipped ? "" : '<button class="act" id="addParcelBtn" type="button">Add parcel</button>'}</div>
+          <div class="sec-head"><h3>Shipping</h3>${shipped || !weShip ? "" : '<button class="act" id="addParcelBtn" type="button">Add parcel</button>'}</div>
           ${parcelCards}
           ${unmatchedPacking}
         </section>
