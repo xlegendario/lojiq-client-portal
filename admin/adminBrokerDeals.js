@@ -947,6 +947,21 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     if (!number) throw new BrokerDealsError("What is the tracking number?");
 
+    /*
+     * One number, one box.
+     *
+     * Reusing a tracking number would have Aftership follow one parcel and
+     * silently answer for both, so the second box would read as delivered
+     * the moment the first arrives - and nobody would go looking for it.
+     */
+    const already = await db.get(
+      `shipments?select=id&external_sale_id=eq.${deal.id}&tracking_number=eq.${encodeURIComponent(number)}`
+    ).catch(() => []);
+
+    if (already.length) {
+      throw new BrokerDealsError(`${number} is already on this deal. Every parcel needs its own number.`, 409);
+    }
+
     // Numbered when he is sending more than one: two parcels from the
     // same man on the same deal must not share a name, or his dashboard
     // folds them back into one.

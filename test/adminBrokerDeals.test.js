@@ -707,6 +707,39 @@ test("a consignor can be given one label per pair", async () => {
   assert.notEqual(tables.external_sale_pairs.find((pair) => pair.id === "p2").consignor_shipping_status, "Shipped");
 });
 
+test("two parcels cannot share a tracking number", async () => {
+  const { store } = shipShop();
+
+  await store.shipConsignor({
+    saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", pairIds: ["p1"],
+    labelUrl: "https://x/one.pdf", tracking: "3SSAME"
+  });
+
+  await assert.rejects(
+    store.shipConsignor({
+      saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", pairIds: ["p2"],
+      labelUrl: "https://x/two.pdf", tracking: "3SSAME"
+    }),
+    /already on this deal/
+  );
+});
+
+/*
+ * Two consignors in one box is not a thing: each man packs his own, and a
+ * label only ever covers what he is holding.
+ */
+test("a label only covers the pairs of the consignor it is for", async () => {
+  const { store } = shipShop();
+
+  await assert.rejects(
+    store.shipConsignor({
+      saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", pairIds: ["p3"],
+      labelUrl: "https://x/one.pdf", tracking: "3SOTHER"
+    }),
+    /none of those pairs is his/i
+  );
+});
+
 test("the same label cannot be sent twice", async () => {
   const { store } = shipShop();
 
