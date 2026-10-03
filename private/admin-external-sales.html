@@ -1120,7 +1120,7 @@
           <table class="deal-table">
             <thead><tr>
               <th>Product</th><th>Size</th><th>Consignor</th>
-              <th class="money">He asks</th><th class="money">You offered</th><th class="money">He wants</th>
+              <th class="money">Listed at</th><th class="money">We offer</th><th class="money">He counters</th>
               <th class="money">Buyer pays</th><th class="money">Margin</th><th>State</th><th class="acts">Actions</th>
             </tr></thead>
             <tbody>
@@ -1134,7 +1134,13 @@
                   <td>${esc(o.party || o.seller_id || "—")}<div class="sub">${esc(o.vat_type || "")}</div></td>
                   <td class="money">${o.asks > 0 ? esc(euro(o.asks)) : "—"}</td>
                   <td class="money">${o.offered > 0 ? esc(euro(o.offered)) : "—"}</td>
-                  <td class="money">${o.countered ? `<strong>${esc(euro(o.countered))}</strong>` : "—"}</td>
+                  <td class="money">${o.countered
+                    ? `<strong>${esc(euro(o.countered))}</strong>`
+                    : o.fallback > 0
+                      /* His last word, from before we countered under it -
+                         greyed, because it is not what is on the table. */
+                      ? `<span class="sub" title="What he wanted before we countered">${esc(euro(o.fallback))}</span>`
+                      : "—"}</td>
                   <td class="money"><button class="linky" type="button" data-draft="price" data-id="${esc(o.id)}">${o.buyer_price > 0 ? esc(euro(o.buyer_price)) : "set"}</button></td>
                   <td class="money">${o.margin === null ? "—" : esc(euro(o.margin))}</td>
                   <td>
