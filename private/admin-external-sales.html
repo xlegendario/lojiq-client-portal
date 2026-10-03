@@ -498,30 +498,29 @@
       <h2>New deal</h2>
 
       <div class="field">
-        <label for="dealBuyerPick">Buyer</label>
+        <label for="dealBuyerName">Buyer</label>
         <div class="filters" style="gap:8px">
+          <input class="input" id="dealBuyerName" placeholder="Name" autocomplete="off" style="flex:1 1 220px">
           <select class="select" id="dealBuyerPick" style="flex:1 1 300px">
-            <option value="">Someone new - type the name →</option>
+            <option value="">or pick one</option>
           </select>
-          <input class="input" id="dealBuyerName" placeholder="Who it is for" autocomplete="off" style="flex:1 1 220px">
         </div>
-        <span class="sub">Pick him if we have sold to him before. Otherwise the name is enough for now - you put the real buyer on before you confirm the deal.</span>
       </div>
 
       <div class="field">
         <label for="dealSearch">Pairs</label>
-        <input class="input" id="dealSearch" placeholder="Search the consignment stock - product, SKU or size" autocomplete="off">
-        <div class="deal-hits" id="dealHits"><p class="deal-empty">Type to search what consignors are holding.</p></div>
+        <input class="input" id="dealSearch" placeholder="Product, SKU or size" autocomplete="off">
+        <div class="deal-hits" id="dealHits"><p class="deal-empty">Search the stock.</p></div>
       </div>
 
       <div class="field" id="dealChosenField" hidden>
-        <label>On this deal</label>
+        <label>Chosen</label>
         <div class="deal-pairs" id="dealPairs"></div>
       </div>
 
       <div class="field">
         <label for="dealNote">Note</label>
-        <input class="input" id="dealNote" name="note" placeholder="Anything worth remembering about this deal" autocomplete="off">
+        <input class="input" id="dealNote" name="note" autocomplete="off">
       </div>
 
       <div class="dialog-foot">
@@ -1045,7 +1044,7 @@
         ${deal?.needs_buyer ? `
         <div class="filters" style="gap:8px">
           <span class="pill wait">No buyer yet</span>
-          <span class="sub">Running on the name "${esc(deal.buyer)}". Needed before you can confirm the deal.</span>
+          <span class="sub">Running on "${esc(deal.buyer)}" - needed before you can confirm.</span>
           <button class="btn" type="button" data-draft="pickbuyer">Pick the buyer</button>
           <button class="btn ghost" type="button" data-draft="newbuyer">+ Add him</button>
         </div>
@@ -1255,7 +1254,7 @@
       return `
         <form class="filters" id="draftPickBuyer" hidden>
           <input class="input" id="draftPickInput" list="draftBuyersPick" name="buyer"
-                 placeholder="Buyer - type a few letters, or open the list"
+                 placeholder="Buyer"
                  autocomplete="off" required style="width:340px">
           <datalist id="draftBuyersPick">${draft.buyers.map((b) => `<option value="${esc(b.label)}"></option>`).join("")}</datalist>
           <button class="btn primary" type="submit">Put him on the deal</button>
@@ -1274,19 +1273,18 @@
           <div class="filters" style="gap:8px">
             <input class="input" name="company_name" placeholder="Company name" autocomplete="off" style="width:220px">
             <input class="input" name="full_name" placeholder="Contact name" autocomplete="off" style="width:200px">
-            <input class="input" name="email" type="email" placeholder="E-mail (the invoice goes there)" autocomplete="off" required style="width:260px">
+            <input class="input" name="email" type="email" placeholder="E-mail" autocomplete="off" required style="width:260px">
           </div>
           <div class="filters" style="gap:8px">
             <input class="input" name="address" placeholder="Address" autocomplete="off" required style="width:280px">
             <input class="input" name="zipcode" placeholder="Zipcode" autocomplete="off" required style="width:120px">
             <input class="input" name="city" placeholder="City" autocomplete="off" required style="width:180px">
             <input class="input" name="country" placeholder="Country" autocomplete="off" required style="width:160px">
-            <input class="input" name="vat_id" placeholder="VAT number (optional)" autocomplete="off" style="width:180px">
+            <input class="input" name="vat_id" placeholder="VAT number" autocomplete="off" style="width:180px">
           </div>
           <div class="filters" style="gap:8px">
-            <button class="btn primary" type="submit">Add him and put him on the deal</button>
+            <button class="btn primary" type="submit">Add him</button>
             <button class="btn ghost" type="button" data-draft="cancelnewbuyer">Cancel</button>
-            <span class="sub">A company name or a contact name - one of the two is enough.</span>
           </div>
         </form>`;
     }
@@ -1357,7 +1355,7 @@
       const needle = String(q || "").trim();
 
       if (needle.length < 2) {
-        $("dealHits").innerHTML = `<p class="deal-empty">Type to search what consignors are holding.</p>`;
+        $("dealHits").innerHTML = `<p class="deal-empty">Search the stock.</p>`;
         return;
       }
 
@@ -1366,7 +1364,7 @@
         const pairs = (out.units || []).slice(0, 25);
 
         if (!pairs.length) {
-          $("dealHits").innerHTML = `<p class="deal-empty">Nobody is holding anything like that.</p>`;
+          $("dealHits").innerHTML = `<p class="deal-empty">Nobody is holding that.</p>`;
           return;
         }
 
@@ -1388,12 +1386,12 @@
     async function openDealDialog() {
       if (!(await loadBuyers())) return;
 
-      $("dealBuyerPick").innerHTML = `<option value="">Someone new - type the name →</option>` +
+      $("dealBuyerPick").innerHTML = `<option value="">or pick one</option>` +
         draft.buyers.map((b) => `<option value="${esc(b.value || b.id)}">${esc(b.label)}</option>`).join("");
 
       $("dealForm").reset();
       $("dealPairs").innerHTML = "";
-      $("dealHits").innerHTML = `<p class="deal-empty">Type to search what consignors are holding.</p>`;
+      $("dealHits").innerHTML = `<p class="deal-empty">Search the stock.</p>`;
       drawChosen();
 
       $("dealDialog").showModal();
