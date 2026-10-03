@@ -2914,18 +2914,20 @@
       button.textContent = "Sending…";
 
       try {
-        const data = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-          reader.onerror = () => reject(new Error("That file could not be read."));
-          reader.readAsDataURL(file);
+        // The file itself is the body, the rest is in the query - the same
+        // way a parcel label is sent from this page.
+        const query = new URLSearchParams({
+          seller: form.dataset.seller,
+          tracking,
+          name: file.name
         });
 
-        const out = await postJson(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/ship`, {
-          seller_record_id: form.dataset.seller,
-          pair_ids: picked,
-          tracking,
-          label: { name: file.name, type: file.type, data }
+        if (picked.length) query.set("pairs", picked.join(","));
+
+        const out = await api(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/ship?${query}`, {
+          method: "POST",
+          headers: { "Content-Type": labelContentType(file) },
+          body: file
         });
 
         toast(`${out.pairs} pair${out.pairs === 1 ? "" : "s"} on one label${out.told ? " - he has been told." : ", but he was not reachable on Discord."}`);

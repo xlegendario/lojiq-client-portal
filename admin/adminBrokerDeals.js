@@ -1345,15 +1345,36 @@ export function mountBrokerDeals(router, { store, audit = null }) {
 
   // A label can be a few hundred kilobytes of PDF, so this one route takes
   // more than the rest.
-  router.post("/api/admin/broker-deals/:id/ship", express.json({ limit: "12mb" }), async (req, res) => {
+  /*
+   * The label travels as the body, not inside JSON.
+   *
+   * This service parses every JSON body at the default 100kb, long before
+   * a route's own limit is consulted, so a base64 label came back 413 -
+   * and base64 makes it a third bigger on the way. Raw with the facts in
+   * the query is what the parcel labels on this page already do.
+   */
+  const LABEL_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+
+  router.post("/api/admin/broker-deals/:id/ship",
+    express.raw({ type: [...LABEL_TYPES, "application/octet-stream"], limit: "10mb" }),
+    async (req, res) => {
     try {
+      const file = Buffer.isBuffer(req.body) && req.body.length ? req.body : null;
+      const picked = text(req.query?.pairs);
+
       const out = await store.shipConsignor({
         saleId: req.params.id,
-        sellerRecordId: req.body?.seller_record_id,
-        pairIds: req.body?.pair_ids,
-        label: req.body?.label,
-        labelUrl: req.body?.label_url,
-        tracking: req.body?.tracking
+        sellerRecordId: req.query?.seller,
+        pairIds: picked ? picked.split(",").filter(Boolean) : null,
+        label: file
+          ? {
+              name: text(req.query?.name) || "label.pdf",
+              type: text(req.headers["content-type"]) || "application/pdf",
+              data: file.toString("base64")
+            }
+          : null,
+        labelUrl: req.query?.label_url,
+        tracking: req.query?.tracking
       });
 
       audit?.record({
