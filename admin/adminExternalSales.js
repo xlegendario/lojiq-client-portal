@@ -377,8 +377,18 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     return tracking || null;
   };
 
-  // A new parcel: a label, a tracking number, or both.
-  async function addParcel(id, { file, tracking }) {
+  /*
+   * A new parcel: a label, a tracking number, or both - and what is in it.
+   *
+   * Which pairs go in the box is the part that was missing: without it a
+   * deal in two boxes could say there were two, and nothing more. Pack &
+   * Ship had to show every pair against every tracking number, and a
+   * delivery could not name what had arrived.
+   *
+   * Left out, everything that is not in a box yet goes in this one, which
+   * is the ordinary case and what the button always did.
+   */
+  async function addParcel(id, { file, tracking, pairIds = null }) {
     const sale = await saleById(id);
     const number = cleanTracking(tracking);
     const kind = file ? labelUpload(file) : null;
@@ -390,13 +400,28 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       if (number && parcels.some((p) => p.tracking_number === number)) throw new ExternalSalesError(`${number} is already on this deal.`);
 
       const stored = kind ? await storeLabel({ dealId: dealId(fresh), filename: `${number || "label"}.${kind.ext}`, mime: kind.mime, bytes: file }) : null;
-      await db.insert("shipments", [{
+
+      const [parcel] = await db.insert("shipments", [{
         external_sale_id: fresh.id,
         tracking_number: number,
         label_url: stored?.url || null,
         label_filename: stored?.filename || null,
         airtable_attachment_id: null
       }]);
+
+      if (!parcel?.id) return;
+
+      const all = await db.get(`external_sale_pairs?select=id,shipment_id,consignor_fulfillment_status&sale_id=eq.${fresh.id}&cancelled_at=is.null`);
+
+      const wanted = Array.isArray(pairIds) && pairIds.length
+        ? all.filter((pair) => pairIds.map((x) => text(x)).includes(text(pair.id)))
+        // A consignor posts his own, so his pairs are never in a box of
+        // ours - not even when nobody said which pairs these are.
+        : all.filter((pair) => !text(pair.shipment_id) && !text(pair.consignor_fulfillment_status));
+
+      for (const pair of wanted) {
+        await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { shipment_id: parcel.id });
+      }
     });
   }
 
@@ -779,12 +804,20 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       shipping_status: sale.shipping_status,
       tracking_numbers: parcels.map((p) => p.tracking_number).filter(Boolean),
       labels: parcels.filter((p) => p.label_url).map((p) => ({ url: p.label_url, filename: p.label_filename || "label.pdf" })),
+      /*
+       * Which box each pair belongs in, so three pairs in two boxes can be
+       * packed as three pairs in two boxes. Empty on a deal from before
+       * parcels knew what was in them - then it is one list, as it was.
+       */
       items: pairs.map((p) => ({
         id: p.inventory_unit_record_id,
         gtin: text(units.get(p.inventory_unit_record_id)?.["Product GTIN"]),
         product_name: text(p.product_name),
         sku: text(p.sku),
-        size: text(p.size)
+        size: text(p.size),
+        parcel: text(parcels.find((parcel) => parcel.id === p.shipment_id)?.tracking_number),
+        // His own box, which nobody here packs.
+        from_consignor: Boolean(text(p.consignor_fulfillment_status))
       }))
     };
   }
@@ -936,7 +969,13 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
   router.post("/api/admin/external-sales/parcel", express.raw({ type: [...LABEL_TYPES, "application/octet-stream"], limit: "10mb" }), async (req, res) => {
     try {
       const file = Buffer.isBuffer(req.body) && req.body.length ? req.body : null;
-      const sale = await store.addParcel(req.query.sale, { file, tracking: req.query.tracking });
+      const chosen = text(req.query.pairs);
+
+      const sale = await store.addParcel(req.query.sale, {
+        file,
+        tracking: req.query.tracking,
+        pairIds: chosen ? chosen.split(",").filter(Boolean) : null
+      });
       await log(req, "external_sale_parcel_added", sale, { tracking: text(req.query.tracking) || null, label: Boolean(file) });
       await detailFor(res, sale.id);
     } catch (err) {

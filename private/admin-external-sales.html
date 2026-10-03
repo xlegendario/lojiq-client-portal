@@ -654,6 +654,10 @@
         <label for="parcelFile">Label (PDF, JPEG or PNG) - optional, can follow later</label>
         <input id="parcelFile" type="file" accept="application/pdf,image/jpeg,image/png">
       </div>
+      <div class="field" id="parcelPairsField" hidden>
+        <label>In this box</label>
+        <div id="parcelPairs"></div>
+      </div>
       <p class="field-error" id="parcelError"></p>
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="parcelCancel">Cancel</button>
@@ -2479,7 +2483,16 @@
             </span>
           </div>`;
             }
-            const items = packed.get(String(p.tracking_number || "").replace(/\s+/g, "")) || [];
+            /*
+             * What is in this box, from the pairs that say so. The old
+             * packing text is kept for deals from before parcels knew -
+             * it was read out of a note and is all those have.
+             */
+            const inside = (state.detail.pairs || []).filter((pair) => pair.shipment_id === p.id);
+
+            const items = inside.length
+              ? inside.map((pair) => ({ qty: 1, name: pair.product_name || pair.sku, sku: pair.sku, size: pair.size }))
+              : packed.get(String(p.tracking_number || "").replace(/\s+/g, "")) || [];
             return `
           <div class="card-row">
             <div class="parcel-head">
@@ -2665,10 +2678,33 @@
 
     /* ----- parcel dialog ----- */
 
+    /*
+     * The pairs that still have no box, each with a tick.
+     *
+     * Only asked when there is a choice to make: one pair left goes in,
+     * and a consignor's pair is never in a box of ours.
+     */
+    function drawParcelPairs() {
+      const loose = (state.detail.pairs || [])
+        .filter((pair) => !pair.shipment_id && !pair.consignor_fulfillment_status && !pair.cancelled_at);
+
+      $("parcelPairsField").hidden = loose.length < 2;
+
+      $("parcelPairs").innerHTML = loose.map((pair) => `
+        <label class="inbound-pair">
+          <input type="checkbox" name="parcelPair" value="${esc(pair.id)}" checked>
+          <span class="what">
+            <strong>${esc(pair.product_name || pair.sku || "—")}</strong>
+            <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)}${pair.item_id ? ` · ${esc(pair.item_id)}` : ""}</span>
+          </span>
+        </label>`).join("");
+    }
+
     function openParcelDialog() {
       $("parcelTracking").value = "";
       $("parcelFile").value = "";
       $("parcelError").textContent = "";
+      drawParcelPairs();
       $("parcelDialog").showModal();
       $("parcelTracking").focus();
     }
@@ -2688,8 +2724,21 @@
         return;
       }
       const id = state.detail.sale.id;
+
+      // What goes in this box. No ticks means there was nothing to choose,
+      // and everything still loose goes in.
+      const boxes = [...document.querySelectorAll('#parcelPairs input[name="parcelPair"]')];
+      const picked = boxes.filter((box) => box.checked).map((box) => box.value);
+
+      if (boxes.length && !picked.length) {
+        $("parcelError").textContent = "Which pairs go in this parcel?";
+        return;
+      }
+
+      const pairs = picked.length ? `&pairs=${encodeURIComponent(picked.join(","))}` : "";
+
       await busy($("parcelSave"), async () => {
-        const d = await api(`/api/admin/external-sales/parcel?sale=${encodeURIComponent(id)}&tracking=${encodeURIComponent(tracking)}`, {
+        const d = await api(`/api/admin/external-sales/parcel?sale=${encodeURIComponent(id)}&tracking=${encodeURIComponent(tracking)}${pairs}`, {
           method: "POST",
           headers: { "Content-Type": file ? labelContentType(file) : "application/octet-stream" },
           body: file || undefined

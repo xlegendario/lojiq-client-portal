@@ -1313,7 +1313,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
      * Several parcels is nothing new here - an ordinary sale has had one
      * row per box all along, each with its own delivered moment.
      */
-    await db.insert("shipments", [{
+    const [parcel] = await db.insert("shipments", [{
       external_sale_id: deal.id,
       tracking_number: number,
       label_url: url,
@@ -1321,7 +1321,17 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       airtable_attachment_id: null
     }]).catch((err) => {
       console.error(`[admin broker deals] ${name} was not added as a shipment:`, err.message);
+      return [];
     });
+
+    // And which pairs are in it, so Pack & Ship and a delivery both know
+    // what this box holds.
+    if (parcel?.id) {
+      for (const pair of group.pairs) {
+        if (!pair.pair_id) continue;
+        await db.patch(`external_sale_pairs?id=eq.${pair.pair_id}`, { shipment_id: parcel.id });
+      }
+    }
 
     /*
      * And the deal follows its boxes, by the rule External Sales already
@@ -1415,7 +1425,8 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
         consignor_fulfillment_status: "Allocated",
         consignor_label_url: null,
         consignor_tracking_url: null,
-        shipment_group: null
+        shipment_group: null,
+        shipment_id: null
       });
     }
 
