@@ -232,13 +232,13 @@
     .label-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
     .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
 
-    /* The numbers of one pair, under each other: what we pay, what he
-       pays, and what is left - the last one is the whole question. */
-    .sums { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
-    .sums .row { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; }
-    .sums .row span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; }
-    .sums .row.keep { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
-    .sums .row.keep span { color: var(--strong); font-weight: 800; }
+    /* The sum as it is actually done: what comes in, what goes out, what
+       is left. No box around it - three numbers do not need a frame. */
+    .sums { display: flex; flex-direction: column; gap: 5px; }
+    .sums .row { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; color: var(--muted); }
+    .sums .row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+    .sums .row.keep { margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .sums .row.keep span { color: var(--strong); font-weight: 800; font-size: 14px; }
     .what-pair strong { display: block; font-size: 14px; }
 
     /* Het venster waarin een deal gemaakt wordt: breder, want de paren
@@ -590,12 +590,12 @@
       </div>
 
       <div class="sums">
-        <div class="row"><span id="buyPayoutLabel">Purchase price</span><span id="buyPayout">—</span></div>
         <div class="row"><span>Selling price</span><span id="buySelling">—</span></div>
+        <div class="row"><span>Purchase price</span><span id="buyPayout">—</span></div>
         <div class="row keep"><span>Profit</span><span id="buyProfit">—</span></div>
       </div>
 
-      <span class="sub">The pair comes off his stock and onto this sale. Cancel to change a price first.</span>
+      <span class="sub">The pair comes off his stock, so nowhere else can sell it.</span>
 
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="buyCancel">Cancel</button>
@@ -1240,7 +1240,6 @@
     function askToBuy(line, buyerPrice, who) {
       $("buyName").textContent = line.product_name || line.sku || "—";
       $("buyWhich").textContent = [line.sku, line.size ? `size ${line.size}` : "", who].filter(Boolean).join(" · ");
-      $("buyPayoutLabel").textContent = `Purchase price`;
       $("buyPayout").textContent = euro(line.payout);
       $("buySelling").textContent = euro(buyerPrice);
       $("buyProfit").textContent = euro(buyerPrice - line.payout);
