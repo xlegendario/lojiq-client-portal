@@ -139,6 +139,9 @@ export function dealRow(sale, lines = []) {
     stage: text(sale.stage) || "open",
     buyer: text(sale.buyer_company) || text(sale.buyer_name) || "—",
     buyer_uuid: text(sale.buyer_uuid),
+    // A deal running on a name alone. Everything works except the invoice,
+    // which needs an address to be made out to.
+    needs_buyer: !text(sale.buyer_uuid),
     pairs: lines.length,
     bought: bought.length,
     waiting: live.length,
@@ -153,6 +156,7 @@ export function dealRow(sale, lines = []) {
      */
     confirmable: text(sale.stage) !== "open" &&
       bought.length > 0 &&
+      Boolean(text(sale.buyer_uuid)) &&
       !lines.some((line) => line.status === "processing"),
     payment_status: text(sale.payment_status),
     shipping_status: text(sale.shipping_status),
@@ -319,30 +323,33 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * finished sale out of pairs we already own, and a broker has none yet.
    * This is the other order - the buyer first, the pairs as they are won.
    */
-  async function create({ buyerId, note = "" } = {}) {
-    if (!/^[0-9a-f-]{36}$/i.test(text(buyerId))) throw new BrokerDealsError("Choose the buyer.");
-
-    /*
-     * Asked for WITH his Airtable row, which is what makes one if he has
-     * none yet.
-     *
-     * It is not the invoice that needs it - that reads the buyer by uuid -
-     * but invoicePlanFor refuses a deal whose buyer_record_id is empty, so
-     * a deal made without it could never be invoiced. Rather than loosen a
-     * guard the whole of External Sales runs on, the row is made here, the
-     * same way a forward asks for one.
-     */
+  /*
+   * A buyer as the sale holds him.
+   *
+   * Asked for WITH his Airtable row, which is what makes one if he has none
+   * yet. It is not the invoice that needs it - that reads the buyer by uuid
+   * - but invoicePlanFor refuses a deal whose buyer_record_id is empty, so
+   * a deal made without it could never be invoiced. Rather than loosen a
+   * guard the whole of External Sales runs on, the row is made here, the
+   * same way a forward asks for one.
+   */
+  async function buyerFields(buyerId) {
     const answer = await kickz("/api/internal/buyers/get", { id: text(buyerId), with_airtable: true })
       .catch(() => null);
 
     const buyer = answer?.buyer;
 
-    if (!buyer) throw new BrokerDealsError("That buyer does not exist.", 404);
+    /*
+     * His id, not just an answer. A reply that comes back shaped right but
+     * empty would otherwise be written onto the sale as a buyer with no
+     * id - and the deal would read as having one while nothing could be
+     * invoiced to it.
+     */
+    if (!buyer || !/^[0-9a-f-]{36}$/i.test(text(buyer.id))) {
+      throw new BrokerDealsError("That buyer does not exist.", 404);
+    }
 
-    const [sale] = await db.insert("external_sales", [{
-      kind: "broker",
-      stage: "negotiating",
-
+    return {
       buyer_record_id: buyer.airtable_record_id || null,
       buyer_uuid: buyer.id,
       buyer_id: `BU-${String(buyer.buyer_number).padStart(5, "0")}`,
@@ -351,7 +358,35 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       buyer_email: text(buyer.email) || null,
       buyer_country: text(buyer.country) || null,
       buyer_country_code: text(buyer.country_code) || null,
-      buyer_vat_id: text(buyer.vat_id) || null,
+      buyer_vat_id: text(buyer.vat_id) || null
+    };
+  }
+
+  /*
+   * A deal can begin on a name alone.
+   *
+   * The invoice address of someone new only arrives once the deal is
+   * struck - that is simply when people hand it over - and demanding it up
+   * front would mean no deal could be started with a buyer we have not
+   * sold to before. So the name stands in until there is a real buyer, and
+   * the one place that cannot do without one refuses on its own:
+   * invoicePlanFor. Offering, buying and being paid all work meanwhile.
+   */
+  async function create({ buyerId, buyerName = "", note = "" } = {}) {
+    const known = /^[0-9a-f-]{36}$/i.test(text(buyerId));
+    const named = text(buyerName);
+
+    if (!known && !named) throw new BrokerDealsError("Who is the buyer?");
+
+    const buyer = known
+      ? await buyerFields(buyerId)
+      : { buyer_name: named, buyer_uuid: null, buyer_record_id: null, buyer_id: null };
+
+    const [sale] = await db.insert("external_sales", [{
+      kind: "broker",
+      stage: "negotiating",
+
+      ...buyer,
 
       sale_date: new Date().toISOString().slice(0, 10),
       total_selling_price: 0,
@@ -368,6 +403,47 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     }]);
 
     return { id: sale.id, deal_id: dealId(sale) };
+  }
+
+  /*
+   * The buyer, once he is known.
+   *
+   * Everything on the sale that names him is rewritten, because the
+   * invoice, the VAT route and the reminder all read it from there.
+   */
+  async function attachBuyer({ saleId, buyerId } = {}) {
+    const sale = await loadSale(saleId);
+
+    if (!/^[0-9a-f-]{36}$/i.test(text(buyerId))) throw new BrokerDealsError("Choose the buyer.");
+
+    if (text(sale.bookkeeping_status) === "invoiced") {
+      throw new BrokerDealsError("This deal is already invoiced; the buyer cannot be swapped.", 409);
+    }
+
+    const fields = await buyerFields(buyerId);
+
+    await db.patch(`external_sales?id=eq.${sale.id}`, { ...fields, updated_at: new Date().toISOString() });
+
+    return { ok: true, buyer: fields.buyer_company || fields.buyer_name };
+  }
+
+  /*
+   * A buyer who is not in the list yet.
+   *
+   * Made through the portal that owns the table, so it is the same
+   * validation and the same duplicate check - on VAT number and on email -
+   * that the outbound in the WMS runs. A second row for one business is
+   * how the six duplicates of 22-09 came about.
+   */
+  async function createBuyer(input = {}) {
+    const out = await kickz("/api/internal/buyers/create", input || {});
+
+    if (out?.ok === false) {
+      throw new BrokerDealsError((out.errors || ["That buyer could not be saved."]).join(" "), 400);
+    }
+
+    // The list is a buyer longer now.
+    return { ok: true, option: out?.option || null };
   }
 
   /*
@@ -914,6 +990,21 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       throw new BrokerDealsError("This deal is already confirmed.", 409);
     }
 
+    /*
+     * And here the buyer has to be real.
+     *
+     * A name was enough to haggle under - the invoice address of someone
+     * new only arrives once the deal is struck. This is that moment: from
+     * here it is a sale that gets invoiced, paid and shipped, and all three
+     * read the buyer off this row.
+     */
+    if (!text(sale.buyer_uuid)) {
+      throw new BrokerDealsError(
+        `This deal is still running on the name "${text(sale.buyer_name) || "?"}". Pick the buyer, or add him, before confirming it.`,
+        409
+      );
+    }
+
     const lines = (await linesOf([text(sale.id)])).get(text(sale.id)) || [];
     const bought = lines.filter((line) => line.done);
 
@@ -983,7 +1074,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   }
 
   return {
-    list, count, get, create, addLine, removeLine, priceLine, submit, answer, confirmDeal, buyers,
+    list, count, get, create, attachBuyer, createBuyer, addLine, removeLine, priceLine, submit, answer, confirmDeal, buyers,
     shipments, shipConsignor, markShipped
   };
 }
@@ -1103,6 +1194,32 @@ export function mountBrokerDeals(router, { store, audit = null }) {
   router.post("/api/admin/broker-deals/:id/shipped", json, async (req, res) => {
     try {
       res.json(await store.markShipped({ saleId: req.params.id, sellerRecordId: req.body?.seller_record_id }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/buyers", json, async (req, res) => {
+    try {
+      res.json(await store.createBuyer(req.body || {}));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/broker-deals/:id/buyer", json, async (req, res) => {
+    try {
+      const out = await store.attachBuyer({ saleId: req.params.id, buyerId: req.body?.buyer_id });
+
+      audit?.record({
+        actor: req.admin,
+        action: "broker_deal_buyer",
+        source: "broker_deals",
+        recordId: text(req.params.id),
+        label: out.buyer
+      })?.catch?.(() => {});
+
+      res.json(out);
     } catch (err) {
       send(res, err);
     }

@@ -13,6 +13,8 @@ const SALE = {
   kind: "broker",
   stage: "negotiating",
   deal_number: 87,
+  buyer_uuid: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+  buyer_record_id: "recBUYER000000001",
   buyer_company: "Genky Sneakers",
   buyer_country_code: "NL",
   buyer_vat_id: "",
@@ -134,11 +136,17 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = nul
     db,
     airtable,
     tellKickz: async (path, body) => {
+      // A test that brought its own answers gets the first word.
+      if (kickz) {
+        const own = await kickz(path, body);
+        if (own !== undefined) return own;
+      }
+
       /*
-       * The buyer comes back with his Airtable row made - that is what
-       * asking with_airtable does, and what the invoice guard later
-       * insists on. Answered here rather than counted as a call, because
-       * no test is about it.
+       * Otherwise the buyer comes back with his Airtable row made - that
+       * is what asking with_airtable does, and what the invoice guard
+       * later insists on. Answered here rather than counted as a call,
+       * because no test is about it.
        */
       if (path === "/api/internal/buyers/get") {
         return {
@@ -153,8 +161,6 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = nul
           }
         };
       }
-
-      if (kickz) return kickz(path, body);
 
       sent.push({ path, body });
       return { ok: true, seller_id: "SE-00281", offered: 150, inventory_unit_record_id: "recUNIT0000000001", item_id: "CS-001234" };
@@ -603,4 +609,95 @@ test("shipped is marked for the whole parcel, and only once it has a label", asy
 
   assert.equal(out.pairs, 2);
   assert.equal(tables.external_sale_pairs.filter((p) => p.consignor_shipping_status === "Shipped").length, 2);
+});
+
+
+/* ---------------- a deal that begins on a name ---------------- */
+
+/*
+ * The invoice address of someone new arrives once the deal is struck - that
+ * is simply when people hand it over. Demanding it up front would mean no
+ * deal could be started with a buyer we have not sold to before.
+ */
+test("a deal can begin on a name alone", async () => {
+  const { store, tables } = shop({ sales: [] });
+
+  await store.create({ buyerName: "Mike from Antwerp" });
+
+  const [sale] = tables.external_sales;
+
+  assert.equal(sale.buyer_name, "Mike from Antwerp");
+  assert.equal(sale.buyer_uuid, null, "nobody in the system yet");
+  assert.equal(sale.stage, "negotiating");
+});
+
+test("a deal needs a who, even if only a name", async () => {
+  const { store } = shop({ sales: [] });
+
+  await assert.rejects(store.create({}), /Who is the buyer/);
+});
+
+/*
+ * Confirming is the moment it becomes a sale: invoiced, paid and shipped,
+ * all three reading the buyer off this row. A name is not enough there.
+ */
+test("a deal on a name alone cannot be confirmed", async () => {
+  const { store } = shop({
+    sales: [{ ...SALE, buyer_uuid: null, buyer_record_id: null, buyer_name: "Mike from Antwerp" }],
+    lines: [line({ status: "confirmed", offer_id: "o1", inventory_unit_record_id: "recUNIT0000000001" })],
+    offers: [offer({ id: "o1", status: "accepted" })],
+    pairs: [{ id: "p1", sale_id: SALE.id, selling_price: 180, cancelled_at: null }]
+  });
+
+  const { deal } = await store.get(SALE.id);
+
+  assert.equal(deal.needs_buyer, true);
+  assert.equal(deal.confirmable, false, "the button says so before he clicks it");
+
+  await assert.rejects(store.confirmDeal(SALE.id), /still running on the name "Mike from Antwerp"/);
+});
+
+test("the buyer can be put on afterwards, and then it confirms", async () => {
+  const { store, tables } = shop({
+    sales: [{ ...SALE, buyer_uuid: null, buyer_record_id: null, buyer_name: "Mike from Antwerp" }],
+    lines: [line({ status: "confirmed", offer_id: "o1", inventory_unit_record_id: "recUNIT0000000001" })],
+    offers: [offer({ id: "o1", status: "accepted" })],
+    pairs: [{ id: "p1", sale_id: SALE.id, selling_price: 180, cancelled_at: null }]
+  });
+
+  await store.attachBuyer({ saleId: SALE.id, buyerId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa" });
+
+  assert.equal(tables.external_sales[0].buyer_uuid, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
+  assert.equal(tables.external_sales[0].buyer_record_id, "recBUYER000000001", "and what the invoice guard wants");
+
+  const out = await store.confirmDeal(SALE.id);
+
+  assert.equal(out.pairs, 1);
+  assert.equal(tables.external_sales[0].stage, "open");
+});
+
+/*
+ * A reply shaped right but empty would otherwise be written onto the sale
+ * as a buyer with no id: the deal would read as having one, and nothing
+ * could be invoiced to it.
+ */
+test("a buyer who comes back without an id is not a buyer", async () => {
+  const { store } = shop({
+    sales: [{ ...SALE, buyer_uuid: null, buyer_record_id: null, buyer_name: "Mike" }],
+    kickz: async (path) => (path === "/api/internal/buyers/get" ? { ok: true, buyer: {} } : { ok: true })
+  });
+
+  await assert.rejects(
+    store.attachBuyer({ saleId: SALE.id, buyerId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa" }),
+    /does not exist/
+  );
+});
+
+test("an invoiced deal does not change hands", async () => {
+  const { store } = shop({ sales: [{ ...SALE, bookkeeping_status: "invoiced" }] });
+
+  await assert.rejects(
+    store.attachBuyer({ saleId: SALE.id, buyerId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa" }),
+    /already invoiced/
+  );
 });

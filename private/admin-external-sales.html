@@ -1005,6 +1005,16 @@
           <span class="count">${esc(deal ? `${deal.deal_id} · ${deal.buyer}` : "")} · ${bought} of ${lines.length} bought</span>
         </div>
 
+        ${deal?.needs_buyer ? `
+        <div class="filters" style="gap:8px">
+          <span class="pill wait">No buyer yet</span>
+          <span class="sub">Running on the name "${esc(deal.buyer)}". Needed before you can confirm the deal.</span>
+          <button class="btn" type="button" data-draft="pickbuyer">Pick the buyer</button>
+          <button class="btn ghost" type="button" data-draft="newbuyer">+ Add him</button>
+        </div>
+        ${buyerPickForm()}
+        ${newBuyerForm()}` : ""}
+
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -1053,7 +1063,7 @@
           <button class="btn" type="button" data-draft="submit"${waiting ? "" : " disabled"}>Send ${waiting || "no"} offer${waiting === 1 ? "" : "s"}</button>
           <button class="btn primary" type="button" data-draft="confirm"${deal?.confirmable ? "" : " disabled"}>Confirm the deal</button>
           <button class="btn ghost" type="button" data-draft="invite">Invite the buyer</button>
-          <span class="count">${bought ? `${bought} bought${running ? `, ${running} would be let go` : ""}` : "Nothing bought yet"}</span>
+          <span class="count">${deal?.needs_buyer ? "Pick the buyer first" : bought ? `${bought} bought${running ? `, ${running} would be let go` : ""}` : "Nothing bought yet"}</span>
         </div>`;
     }
 
@@ -1198,23 +1208,72 @@
       }
     }
 
-    async function openNewDealForm() {
-      if (!draft.buyers.length) {
-        try {
-          draft.buyers = (await api("/api/admin/buyers")).options || [];
-        } catch (err) {
-          toast(err.message);
-          return;
-        }
+    /*
+     * The buyer, once he is known.
+     *
+     * Two ways, because there are two situations: he is already in the
+     * list from an earlier sale, or this is the first time we invoice him.
+     */
+    function buyerPickForm() {
+      return `
+        <form class="filters" id="draftPickBuyer" hidden>
+          <input class="input" id="draftPickInput" list="draftBuyersPick" name="buyer"
+                 placeholder="Buyer - type a few letters, or open the list"
+                 autocomplete="off" required style="width:340px">
+          <datalist id="draftBuyersPick">${draft.buyers.map((b) => `<option value="${esc(b.label)}"></option>`).join("")}</datalist>
+          <button class="btn primary" type="submit">Put him on the deal</button>
+          <button class="btn ghost" type="button" data-draft="cancelpick">Cancel</button>
+        </form>`;
+    }
 
-        if (!draft.buyers.length) {
-          toast("There are no buyers yet. Add one in the outbound first.");
-          return;
-        }
+    /*
+     * Everything an invoice needs, and nothing else. The VAT number is the
+     * one optional field - it is what decides between 21% and a 0%
+     * reverse charge, so leaving it out is a choice, not an omission.
+     */
+    function newBuyerForm() {
+      return `
+        <form id="draftNewBuyer" hidden style="margin:6px 0 10px">
+          <div class="filters" style="gap:8px">
+            <input class="input" name="company_name" placeholder="Company name" autocomplete="off" style="width:220px">
+            <input class="input" name="full_name" placeholder="Contact name" autocomplete="off" style="width:200px">
+            <input class="input" name="email" type="email" placeholder="E-mail (the invoice goes there)" autocomplete="off" required style="width:260px">
+          </div>
+          <div class="filters" style="gap:8px">
+            <input class="input" name="address" placeholder="Address" autocomplete="off" required style="width:280px">
+            <input class="input" name="zipcode" placeholder="Zipcode" autocomplete="off" required style="width:120px">
+            <input class="input" name="city" placeholder="City" autocomplete="off" required style="width:180px">
+            <input class="input" name="country" placeholder="Country" autocomplete="off" required style="width:160px">
+            <input class="input" name="vat_id" placeholder="VAT number (optional)" autocomplete="off" style="width:180px">
+          </div>
+          <div class="filters" style="gap:8px">
+            <button class="btn primary" type="submit">Add him and put him on the deal</button>
+            <button class="btn ghost" type="button" data-draft="cancelnewbuyer">Cancel</button>
+            <span class="sub">A company name or a contact name - one of the two is enough.</span>
+          </div>
+        </form>`;
+    }
 
-        // The list is only known now, so the form is drawn again with it.
-        drawDraftList();
+    // Read once and kept: short list, rarely changes, and the form must
+    // not wait on a round trip before it can be filled in.
+    async function loadBuyers() {
+      if (draft.buyers.length) return true;
+
+      try {
+        draft.buyers = (await api("/api/admin/buyers")).options || [];
+      } catch (err) {
+        toast(err.message);
+        return false;
       }
+
+      // The list is only known now, so whatever is on screen is drawn
+      // again with it behind the field.
+      if (draft.dealId) drawDraftDeal(); else drawDraftList();
+      return true;
+    }
+
+    async function openNewDealForm() {
+      if (!(await loadBuyers())) return;
 
       $("draftNew").hidden = false;
       $("draftBuyerInput").focus();
@@ -1238,7 +1297,9 @@
 
       const hits = draft.buyers.filter((b) => String(b.label).toLowerCase().includes(needle));
 
-      if (!hits.length) return { error: "No buyer by that name." };
+      // Nobody by that name is not a mistake: it is a buyer we have not
+      // sold to before, and the deal may begin on his name alone.
+      if (!hits.length) return { fresh: String(typed).trim() };
 
       if (hits.length > 1) {
         return { error: `${hits.length} buyers match that: ${hits.slice(0, 3).map((b) => b.label).join(", ")}${hits.length > 3 ? "…" : ""}` };
@@ -1251,9 +1312,19 @@
       if (event.target.id === "draftNew") {
         event.preventDefault();
 
-        const { buyer, error } = buyerFromTyped(event.target.elements.buyer.value);
+        const { buyer, fresh, error } = buyerFromTyped(event.target.elements.buyer.value);
 
         if (error) { toast(error); return; }
+
+        /*
+         * Someone we have not sold to before. His invoice address only
+         * arrives once the deal is struck, so the name stands in until
+         * then - and Confirm is where a real buyer becomes required.
+         */
+        if (fresh && !window.confirm(
+          `"${fresh}" is not in your buyers list.\n\n` +
+          `Start the deal on that name? You pick the real buyer, or add him, before you confirm it.`
+        )) return;
 
         const button = event.target.querySelector("button");
         button.disabled = true;
@@ -1262,11 +1333,80 @@
           const out = await api("/api/admin/broker-deals", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ buyer_id: buyer.value || buyer.id, note: event.target.elements.note.value })
+            body: JSON.stringify({
+              buyer_id: buyer ? (buyer.value || buyer.id) : null,
+              buyer_name: fresh || null,
+              note: event.target.elements.note.value
+            })
           });
 
-          toast(`${out.deal_id} started for ${buyer.label}.`);
+          toast(`${out.deal_id} started for ${buyer ? buyer.label : fresh}.`);
           await openDraft(out.id);
+        } catch (err) {
+          toast(err.message);
+          button.disabled = false;
+        }
+
+        return;
+      }
+
+      // The buyer picked from the list, onto the deal.
+      if (event.target.id === "draftPickBuyer") {
+        event.preventDefault();
+
+        const { buyer, error, fresh } = buyerFromTyped(event.target.elements.buyer.value);
+
+        if (error) { toast(error); return; }
+        if (fresh) { toast(`"${fresh}" is not in the list. Use "+ Add him" for someone new.`); return; }
+
+        try {
+          const out = await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}/buyer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ buyer_id: buyer.value || buyer.id })
+          });
+
+          toast(`${out.buyer} is on the deal.`);
+          await openDraft(draft.dealId);
+        } catch (err) {
+          toast(err.message);
+        }
+
+        return;
+      }
+
+      // A buyer we have not invoiced before: made, then put on the deal.
+      if (event.target.id === "draftNewBuyer") {
+        event.preventDefault();
+
+        const form = new FormData(event.target);
+        const body = Object.fromEntries([...form.entries()].map(([k, v]) => [k, String(v).trim()]));
+
+        const button = event.target.querySelector("button");
+        button.disabled = true;
+
+        try {
+          const made = await api("/api/admin/buyers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+
+          const option = made.option;
+
+          if (!option) throw new Error("He was saved, but came back without an id. Pick him from the list.");
+
+          // The list is a buyer longer now.
+          draft.buyers = [];
+
+          await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}/buyer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ buyer_id: option.value || option.id })
+          });
+
+          toast(`${option.label} added and put on the deal.`);
+          await openDraft(draft.dealId);
         } catch (err) {
           toast(err.message);
           button.disabled = false;
@@ -1307,6 +1447,24 @@
 
       if (what === "new") return openNewDealForm();
       if (what === "cancelnew") { $("draftNew").hidden = true; return; }
+
+      if (what === "pickbuyer") {
+        await loadBuyers();
+        $("draftPickBuyer").hidden = false;
+        $("draftNewBuyer").hidden = true;
+        $("draftPickInput").focus();
+        return;
+      }
+
+      if (what === "newbuyer") {
+        $("draftNewBuyer").hidden = false;
+        $("draftPickBuyer").hidden = true;
+        $("draftNewBuyer").querySelector("input").focus();
+        return;
+      }
+
+      if (what === "cancelpick") { $("draftPickBuyer").hidden = true; return; }
+      if (what === "cancelnewbuyer") { $("draftNewBuyer").hidden = true; return; }
       if (what === "back") return openDraft("");
       if (what === "open") return openDraft(el.dataset.id);
 
