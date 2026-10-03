@@ -668,6 +668,40 @@ test("a label needs a tracking number, and nothing is written without one", asyn
   assert.ok(tables.external_sale_pairs.every((p) => !p.shipment_group));
 });
 
+/*
+ * One parcel is the habit, not the rule. A buyer can want two pairs at two
+ * addresses, and then the same consignor sends two boxes.
+ */
+test("a consignor can be given one label per pair", async () => {
+  const { store, tables } = shipShop();
+
+  const first = await store.shipConsignor({
+    saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", pairIds: ["p1"],
+    labelUrl: "https://x/one.pdf", tracking: "3SONE"
+  });
+
+  assert.equal(first.pairs, 1, "only the pair he picked");
+
+  // The other one is still waiting, and knows nothing about that label.
+  const waiting = tables.external_sale_pairs.find((pair) => pair.id === "p2");
+  assert.ok(!waiting.shipment_group);
+  assert.ok(!waiting.consignor_label_url);
+
+  const second = await store.shipConsignor({
+    saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", pairIds: ["p2"],
+    labelUrl: "https://x/two.pdf", tracking: "3STWO"
+  });
+
+  assert.equal(second.pairs, 1);
+  assert.notEqual(second.shipment_group, first.shipment_group, "two boxes, two names");
+
+  // And each is marked shipped on its own.
+  await store.markShipped({ saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", shipmentGroup: first.shipment_group });
+
+  assert.equal(tables.external_sale_pairs.find((pair) => pair.id === "p1").consignor_shipping_status, "Shipped");
+  assert.notEqual(tables.external_sale_pairs.find((pair) => pair.id === "p2").consignor_shipping_status, "Shipped");
+});
+
 test("the same label cannot be sent twice", async () => {
   const { store } = shipShop();
 
@@ -681,7 +715,7 @@ test("the same label cannot be sent twice", async () => {
       saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234",
       labelUrl: "https://x/label.pdf", tracking: "3SABCD1234567"
     }),
-    /already with him/
+    /already has a label/
   );
 });
 

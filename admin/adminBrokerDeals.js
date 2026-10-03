@@ -824,8 +824,18 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     const pairByUnit = new Map(pairs.map((pair) => [text(pair.inventory_unit_record_id), pair]));
     const groups = new Map();
 
+    /*
+     * One entry per parcel, not per consignor.
+     *
+     * Everything he still has to be given a label for is one entry with no
+     * shipment group yet; each label already sent is its own. Usually that
+     * means one of each at most - but a buyer can want two pairs at two
+     * addresses, and then the same man sends two parcels.
+     */
     for (const line of bought) {
-      const key = line.seller_record_id || line.seller_id || "unknown";
+      const pair = pairByUnit.get(line.inventory_unit_record_id);
+      const parcel = text(pair?.shipment_group);
+      const key = `${line.seller_record_id || line.seller_id || "unknown"}|${parcel}`;
 
       if (!groups.has(key)) {
         groups.set(key, {
@@ -833,7 +843,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
           seller_id: line.seller_id,
           party: line.party,
           pairs: [],
-          // Filled from the first pair that has them: a group shares one
+          // Filled from the first pair that has them: a parcel shares one
           // label, one tracking number and one step.
           step: "",
           label_url: "",
@@ -843,7 +853,6 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       }
 
       const group = groups.get(key);
-      const pair = pairByUnit.get(line.inventory_unit_record_id);
 
       group.pairs.push({
         line_id: line.id,
@@ -878,12 +887,32 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * He is told on Discord as well. The portal owns that conversation, so
    * the message goes out through it.
    */
-  async function shipConsignor({ saleId, sellerRecordId, label = null, labelUrl = "", tracking = "" } = {}) {
+  async function shipConsignor({ saleId, sellerRecordId, pairIds = null, label = null, labelUrl = "", tracking = "" } = {}) {
     const { deal, groups } = await shipments(saleId);
-    const group = groups.find((row) => row.seller_record_id === text(sellerRecordId));
+    const his = groups.filter((row) => row.seller_record_id === text(sellerRecordId));
 
-    if (!group) throw new BrokerDealsError("Nothing on this deal is coming from that consignor.", 404);
-    if (group.step === "Ready to Ship") throw new BrokerDealsError("That label is already with him.", 409);
+    if (!his.length) throw new BrokerDealsError("Nothing on this deal is coming from that consignor.", 404);
+
+    const waiting = his.find((row) => !row.shipment_group);
+
+    if (!waiting) throw new BrokerDealsError("Everything of his on this deal already has a label.", 409);
+
+    /*
+     * Which of his pairs go in this one.
+     *
+     * All of them unless the broker picked some, which is how two pairs
+     * end up at two addresses: he sends one label for the first, and the
+     * second stays behind waiting for its own.
+     */
+    const wanted = Array.isArray(pairIds) && pairIds.length
+      ? pairIds.map((id) => text(id)).filter(Boolean)
+      : null;
+
+    const group = wanted
+      ? { ...waiting, pairs: waiting.pairs.filter((pair) => wanted.includes(text(pair.pair_id))) }
+      : waiting;
+
+    if (!group.pairs.length) throw new BrokerDealsError("None of those pairs is his to send.", 404);
 
     const url = label?.data ? await storeLabel({ deal, group, file: label }) : text(labelUrl);
 
@@ -893,7 +922,12 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     if (!number) throw new BrokerDealsError("What is the tracking number?");
 
-    const name = `SHIP-${String(deal.deal_number).padStart(6, "0")}-${text(sellerRecordId).slice(-4)}`;
+    // Numbered when he is sending more than one: two parcels from the
+    // same man on the same deal must not share a name, or his dashboard
+    // folds them back into one.
+    const sent = groups.filter((row) => row.seller_record_id === text(sellerRecordId) && row.shipment_group).length;
+    const base = `SHIP-${String(deal.deal_number).padStart(6, "0")}-${text(sellerRecordId).slice(-4)}`;
+    const name = sent ? `${base}-${sent + 1}` : base;
     const now = new Date().toISOString();
 
     for (const pair of group.pairs) {
@@ -947,11 +981,21 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
   // He has put it in the post. Nothing else in this system will ever know
   // that, so the broker is the one who says so.
-  async function markShipped({ saleId, sellerRecordId } = {}) {
+  async function markShipped({ saleId, sellerRecordId, shipmentGroup = "" } = {}) {
     const { groups } = await shipments(saleId);
-    const group = groups.find((row) => row.seller_record_id === text(sellerRecordId));
+    const parcel = text(shipmentGroup);
 
-    if (!group) throw new BrokerDealsError("Nothing on this deal is coming from that consignor.", 404);
+    const his = groups.filter((row) => row.seller_record_id === text(sellerRecordId));
+
+    if (!his.length) throw new BrokerDealsError("Nothing on this deal is coming from that consignor.", 404);
+
+    // Named when he has more than one parcel; otherwise the one that has a
+    // label, so a single-parcel deal needs no name at all.
+    const group = parcel
+      ? his.find((row) => row.shipment_group === parcel)
+      : his.find((row) => row.step === "Ready to Ship") || his[0];
+
+    if (!group) throw new BrokerDealsError("That parcel is not on this deal.", 404);
     if (group.step !== "Ready to Ship") throw new BrokerDealsError("He has no label yet.", 409);
 
     for (const pair of group.pairs) {
@@ -1306,6 +1350,7 @@ export function mountBrokerDeals(router, { store, audit = null }) {
       const out = await store.shipConsignor({
         saleId: req.params.id,
         sellerRecordId: req.body?.seller_record_id,
+        pairIds: req.body?.pair_ids,
         label: req.body?.label,
         labelUrl: req.body?.label_url,
         tracking: req.body?.tracking
@@ -1328,7 +1373,7 @@ export function mountBrokerDeals(router, { store, audit = null }) {
 
   router.post("/api/admin/broker-deals/:id/shipped", json, async (req, res) => {
     try {
-      res.json(await store.markShipped({ saleId: req.params.id, sellerRecordId: req.body?.seller_record_id }));
+      res.json(await store.markShipped({ saleId: req.params.id, sellerRecordId: req.body?.seller_record_id, shipmentGroup: req.body?.shipment_group }));
     } catch (err) {
       send(res, err);
     }

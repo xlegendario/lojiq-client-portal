@@ -2238,14 +2238,20 @@
                 <strong>${esc(g.party || g.seller_id || "—")}</strong>
                 <span class="sub">${g.pairs.length} pair${g.pairs.length === 1 ? "" : "s"}${g.shipment_group ? ` · ${esc(g.shipment_group)}` : ""}</span>
               </div>
-              <div class="sub">${g.pairs.map((p) => `${esc(p.sku)} ${esc(p.size)}`).join(" · ")}</div>
+              ${g.shipment_group
+                ? `<div class="sub">${g.pairs.map((p) => `${esc(p.sku)} ${esc(p.size)}`).join(" · ")}</div>`
+                : g.pairs.map((p) => `
+                  <label class="sub" style="display:flex;gap:6px;align-items:center">
+                    <input type="checkbox" name="pair" value="${esc(p.pair_id)}" checked${g.pairs.length === 1 ? " disabled" : ""}>
+                    ${esc(p.sku)} ${esc(p.size)}
+                  </label>`).join("")}
 
               ${g.step === "Ready to Ship" ? `
                 <div class="inline" style="gap:8px;margin-top:6px">
                   <span class="pill ${g.shipped ? "good" : "move"}">${g.shipped ? "Shipped" : "Label sent"}</span>
                   ${g.label_url ? `<a class="btn ghost" href="${esc(g.label_url)}" target="_blank" rel="noopener">Label</a>` : ""}
                   <span class="sub mono">${esc(g.tracking_url || "")}</span>
-                  ${g.shipped ? "" : `<button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}">Mark shipped</button>`}
+                  ${g.shipped ? "" : `<button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}" data-parcel="${esc(g.shipment_group)}">Mark shipped</button>`}
                 </div>`
               : `
                 <form class="inline" style="gap:8px;margin-top:6px" data-inbound="ship" data-seller="${esc(g.seller_record_id)}">
@@ -2859,6 +2865,18 @@
 
       if (!file || !tracking) return;
 
+      /*
+       * What goes in this box. Everything, unless he unticked some - a
+       * buyer who wants two pairs at two addresses gets two labels, and
+       * the one left behind waits here for its own.
+       */
+      const picked = [...form.querySelectorAll('input[name="pair"]:checked')].map((box) => box.value);
+
+      if (!picked.length) {
+        toast("Which pairs go in this parcel?");
+        return;
+      }
+
       const button = form.querySelector("button");
       button.disabled = true;
       button.textContent = "Sending…";
@@ -2873,6 +2891,7 @@
 
         const out = await postJson(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/ship`, {
           seller_record_id: form.dataset.seller,
+          pair_ids: picked,
           tracking,
           label: { name: file.name, type: file.type, data }
         });
@@ -2896,7 +2915,8 @@
 
       try {
         await postJson(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/shipped`, {
-          seller_record_id: shipped.dataset.seller
+          seller_record_id: shipped.dataset.seller,
+          shipment_group: shipped.dataset.parcel || ""
         });
 
         openPanel(state.selected);
