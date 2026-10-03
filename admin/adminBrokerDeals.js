@@ -821,6 +821,19 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       `external_sale_pairs?select=*&sale_id=eq.${sale.id}&cancelled_at=is.null`
     );
 
+    /*
+     * And what the carrier says about each box.
+     *
+     * His parcel goes straight to the buyer, so it is a shipment of this
+     * sale like any other and Aftership follows it. Matched on the
+     * tracking number, which is the only thing the two sides share.
+     */
+    const parcels = await db.get(
+      `shipments?select=tracking_number,status,shipped_at,delivered_at,tracking_detail&external_sale_id=eq.${sale.id}`
+    ).catch(() => []);
+
+    const byTracking = new Map((parcels || []).map((parcel) => [text(parcel.tracking_number), parcel]));
+
     const pairByUnit = new Map(pairs.map((pair) => [text(pair.inventory_unit_record_id), pair]));
     const groups = new Map();
 
@@ -871,6 +884,18 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
         group.shipment_group = group.shipment_group || text(pair.shipment_group);
         group.shipped = text(pair.consignor_shipping_status) === "Shipped";
       }
+    }
+
+    for (const group of groups.values()) {
+      const parcel = byTracking.get(text(group.tracking_url));
+
+      group.parcel_status = text(parcel?.status);
+      group.delivered_at = text(parcel?.delivered_at) || null;
+      group.tracking_detail = text(parcel?.tracking_detail) || "";
+
+      // The carrier knows better than we do: a scan means it is really
+      // gone, whatever the broker did or did not tick.
+      if (group.parcel_status === "delivered" || group.parcel_status === "shipped") group.shipped = true;
     }
 
     return { deal: dealRow(sale, lines), groups: [...groups.values()] };

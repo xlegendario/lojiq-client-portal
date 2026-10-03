@@ -2245,6 +2245,26 @@
      * one there is nothing to choose, and a tick you cannot untick is a
      * control that does nothing.
      */
+    /*
+     * Where this box is, in the words the consignor sees in his own
+     * dashboard - "Ready to Ship" is his step, not "Label sent".
+     *
+     * Green is kept for arrived. A box that left is on its way, and
+     * colouring that the same as delivered is how you stop looking.
+     */
+    function parcelState(group) {
+      const [tone, word] = group.delivered_at
+        ? ["good", "Delivered"]
+        : group.shipped
+          ? ["move", "Shipped"]
+          : ["wait", "Ready to Ship"];
+
+      const when = group.delivered_at ? ` ${dayFmt.format(new Date(group.delivered_at))}` : "";
+      const detail = group.tracking_detail || (word === "Ready to Ship" ? "The label is with him; he has not posted it yet." : "");
+
+      return `<span class="pill ${tone}"${detail ? ` title="${esc(detail)}"` : ""}>${word}${when}</span>`;
+    }
+
     function shoeLine(pair, pickable = false) {
       const what = `
         <span class="what">
@@ -2275,7 +2295,7 @@
               ${g.step === "Ready to Ship" ? `
                 ${g.pairs.map((p) => shoeLine(p)).join("")}
                 <div class="inbound-send">
-                  <span class="pill ${g.shipped ? "good" : "move"}">${g.shipped ? "Shipped" : "Label sent"}</span>
+                  ${parcelState(g)}
                   ${g.label_url ? `<a class="btn ghost" href="${esc(g.label_url)}" target="_blank" rel="noopener">Label</a>` : ""}
                   <span class="sub mono">${esc(g.tracking_url || "")}</span>
                   ${g.shipped ? "" : `<button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}" data-parcel="${esc(g.shipment_group)}">Mark shipped</button>`}
