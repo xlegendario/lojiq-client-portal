@@ -697,6 +697,74 @@ test("a deal on a name alone cannot be confirmed", async () => {
   await assert.rejects(store.confirmDeal(SALE.id), /still running on the name "Mike from Antwerp"/);
 });
 
+/* ---------------- settling for his earlier price ---------------- */
+
+/*
+ * The broker countered under what the consignor asked and heard nothing
+ * back. Without a way back to that number his only moves are waiting and
+ * walking, and the few euros between them are worth less than the pair.
+ */
+const COUNTER_ROUND = offer({
+  id: "44444444-4444-4444-8444-444444444444",
+  status: "open",
+  offer_price: 185,
+  is_counter_offer: true,
+  store_counter_price: 185,
+  previous_offer_id: "33333333-3333-4333-8333-333333333333"
+});
+
+const HIS_ROUND = offer({ status: "closed", consignor_counter_price: 190 });
+
+test("his earlier price is on the line while our counter is out", () => {
+  const row = lineRow(
+    line({ status: "offered", offer_id: COUNTER_ROUND.id }),
+    COUNTER_ROUND,
+    HIS_ROUND
+  );
+
+  assert.equal(row.fallback, 190);
+  assert.equal(row.offered, 185, "what we put to him");
+});
+
+test("once he has answered, there is nothing to fall back on", () => {
+  const answered = { ...COUNTER_ROUND, status: "store_pending", consignor_counter_price: 188 };
+
+  const row = lineRow(line({ status: "countered", offer_id: answered.id }), answered, HIS_ROUND);
+
+  assert.equal(row.fallback, null, "his 190 is a price he has moved on from");
+});
+
+test("falling back asks the portal to take his own number", async () => {
+  const asked = [];
+
+  const { store } = shop({
+    lines: [line({ status: "offered", offer_id: COUNTER_ROUND.id })],
+    offers: [COUNTER_ROUND, HIS_ROUND],
+    kickz: async (path, body) => {
+      asked.push([path, body]);
+      return { ok: true, seller_id: "SE-00281", payout: 190 };
+    }
+  });
+
+  const out = await store.answer({ lineId: COUNTER_ROUND.previous_offer_id ? "22222222-2222-4222-8222-222222222222" : "", action: "fallback" });
+
+  assert.equal(out.did, "fellback");
+  assert.equal(out.payout, 190);
+  assert.deepEqual(asked[0][0], "/api/internal/broker/accept-previous");
+});
+
+test("there is nothing to fall back on if we never countered", async () => {
+  const { store } = shop({
+    lines: [line({ status: "offered", offer_id: "33333333-3333-4333-8333-333333333333" })],
+    offers: [offer()]
+  });
+
+  await assert.rejects(
+    store.answer({ lineId: "22222222-2222-4222-8222-222222222222", action: "fallback" }),
+    /no earlier price/
+  );
+});
+
 test("the buyer can be put on afterwards, and then it confirms", async () => {
   const { store, tables } = shop({
     sales: [{ ...SALE, buyer_uuid: null, buyer_record_id: null, buyer_name: "Mike from Antwerp" }],

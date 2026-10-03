@@ -1014,7 +1014,17 @@
         }
 
         if (o.stoppable) {
-          return `<button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
+          /*
+           * He is sitting on our counter and not answering. Taking what he
+           * last asked for is usually worth more than the few euros we
+           * were holding out for, so it stays within reach instead of
+           * behind a withdraw-and-start-again.
+           */
+          const fallback = o.fallback > 0
+            ? `<button class="btn" type="button" data-draft="fallback" data-id="${esc(o.id)}">Take ${esc(euro(o.fallback))}</button>`
+            : "";
+
+          return `${fallback}<button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
         }
 
         return "";
@@ -1251,6 +1261,10 @@
         `Extend the negotiation by another 24 hours?\n\n${line.sku} ${line.size} runs out ${when(line.due_at)} as it stands.`
       )) return;
 
+      if (what === "fallback" && !window.confirm(
+        `Settle at ${euro(line.fallback)} with ${who}?\n\nYour ${euro(line.offered)} is withdrawn and his own price is taken, so he is not asked again. Your buyer pays ${euro(line.buyer_price)}, leaving ${euro(line.buyer_price - line.fallback)}.`
+      )) return;
+
       if (what === "discard" && !window.confirm(
         `Drop this pair?\n\n` +
         (line.closable
@@ -1272,6 +1286,7 @@
           : out.did === "bought" ? `Bought as ${out.item_id} - ${out.seller_id} gets ${euro(out.payout)}, selling at ${euro(out.buyer_price)}.`
           : out.did === "priced" ? `Buyer pays ${euro(out.buyer_price)}.`
           : out.did === "extended" ? `Another 24 hours - runs out ${when(out.until)}.`
+          : out.did === "fellback" ? `${out.seller_id} is on ${euro(out.payout)}. Buy it when your buyer is in.`
           : out.did === "discarded" ? (out.told ? `Dropped. ${out.seller_id} has been told.` : "Dropped.")
           : `${out.seller_id} declined.`
         );

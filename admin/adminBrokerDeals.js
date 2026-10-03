@@ -68,7 +68,7 @@ export const UNIT_FIELDS = [
  * consignor left it, and only a line without a live round falls back on
  * its own status.
  */
-export function lineRow(line, offer = null) {
+export function lineRow(line, offer = null, previous = null) {
   // The round decides while there is one. A line whose round ended goes
   // back to draft with its offer cleared, so there is nothing to prefer.
   const key = offer ? text(offer.status) : text(line.status);
@@ -98,6 +98,17 @@ export function lineRow(line, offer = null) {
     seller_record_id: text(offer?.seller_record_id),
     party: "",
     vat_type: text(offer?.vat_type),
+
+    /*
+     * What he last asked for, from before we countered under it.
+     *
+     * Only while our counter is still out: once he has answered it there
+     * is a live number again, and falling back on a dead one would be
+     * taking a price he has moved on from.
+     */
+    fallback: offer && text(offer.status) === "open" && round2(previous?.consignor_counter_price) > 0
+      ? round2(previous.consignor_counter_price)
+      : null,
 
     asks: offer ? round2(offer.seller_price) : null,
     offered: offer ? round2(offer.offer_price) : round2(line.payout),
@@ -213,7 +224,11 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       ? await db.get(`consignment_offers?select=*&id=eq.${line.offer_id}`)
       : [];
 
-    return { line, offer: offer || null, row: lineRow(line, offer || null) };
+    const [previous] = offer?.previous_offer_id
+      ? await db.get(`consignment_offers?select=*&id=eq.${offer.previous_offer_id}`)
+      : [];
+
+    return { line, offer: offer || null, row: lineRow(line, offer || null, previous || null) };
   }
 
   async function linesOf(saleIds) {
@@ -228,13 +243,26 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       ? await db.get(`consignment_offers?select=*&id=in.(${offerIds.map((id) => `"${id}"`).join(",")})`)
       : [];
 
+    /*
+     * And the round before it, where there is one: a counter of ours
+     * replaced his, and his number is the one we may still want.
+     */
+    const earlierIds = [...new Set(offers.map((offer) => text(offer.previous_offer_id)).filter(Boolean))];
+
+    const earlier = earlierIds.length
+      ? await db.get(`consignment_offers?select=*&id=in.(${earlierIds.map((id) => `"${id}"`).join(",")})`)
+      : [];
+
     const byId = new Map(offers.map((offer) => [text(offer.id), offer]));
+    const earlierById = new Map(earlier.map((offer) => [text(offer.id), offer]));
     const out = new Map();
 
     for (const line of lines) {
       const key = text(line.sale_id);
+      const offer = byId.get(text(line.offer_id)) || null;
+
       if (!out.has(key)) out.set(key, []);
-      out.get(key).push(lineRow(line, byId.get(text(line.offer_id)) || null));
+      out.get(key).push(lineRow(line, offer, earlierById.get(text(offer?.previous_offer_id)) || null));
     }
 
     return out;
@@ -645,6 +673,23 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       });
 
       return { ok: true, did: "extended", until, seller_id: row.seller_id };
+    }
+
+    /*
+     * Settling for what he last asked.
+     *
+     * Our counter is still out with him and he is not answering. The ten
+     * euros between us are worth less than the pair, so the earlier round
+     * is taken at his own number - and our counter closes with it.
+     */
+    if (action === "fallback") {
+      if (!(row.fallback > 0)) {
+        throw new BrokerDealsError("There is no earlier price of his to fall back on.", 409);
+      }
+
+      const result = await kickz("/api/internal/broker/accept-previous", { deal_line_id: line.id });
+
+      return { ok: true, did: "fellback", payout: Number(result?.payout) || row.fallback, seller_id: row.seller_id };
     }
 
     if (action === "discard") {
