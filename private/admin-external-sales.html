@@ -208,13 +208,26 @@
 
     /* Het venster waarin een deal gemaakt wordt: breder, want de paren
        staan er met hun twee prijzen naast elkaar in. */
-    #dealDialog { width: min(760px, calc(100vw - 32px)); }
+    #dealDialog { width: min(820px, calc(100vw - 32px)); }
+
+    /* De zoeklijst: wat er in de consignment stock ligt, met een + per paar. */
+    .deal-hits { max-height: 230px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+    .deal-hit { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+    .deal-hit:last-child { border-bottom: 0; }
+    .deal-hit img { width: 34px; height: 34px; object-fit: contain; border-radius: 6px; background: var(--panel-2); flex: 0 0 auto; }
+    .deal-hit .what { flex: 1 1 auto; min-width: 0; }
+    .deal-hit strong { display: block; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .deal-hit .sub { font-size: 11px; }
+    .deal-hit .ask { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .deal-empty { padding: 14px 10px; color: var(--muted); font-size: 12.5px; }
+
+    /* En wat hij ervan koos. */
     .deal-pairs { display: flex; flex-direction: column; gap: 6px; }
     .deal-pair { display: flex; gap: 6px; align-items: center; }
     .deal-pair .input, .deal-pair .select { height: 32px; }
-    .deal-pair .sku { flex: 1 1 140px; min-width: 110px; }
-    .deal-pair .size { flex: 0 0 72px; }
-    .deal-pair .cash { flex: 0 0 100px; }
+    .deal-pair .what { flex: 1 1 160px; min-width: 120px; overflow: hidden; }
+    .deal-pair .what strong { display: block; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .deal-pair .cash { flex: 0 0 104px; }
     .deal-pair .filter { flex: 0 0 120px; }
     .deal-pair .drop { flex: 0 0 auto; padding: 0 8px; }
 
@@ -485,17 +498,25 @@
       <h2>New deal</h2>
 
       <div class="field">
-        <label for="dealBuyer">Buyer</label>
-        <input class="input" id="dealBuyer" list="dealBuyers" name="buyer"
-               placeholder="Pick a buyer, or type who it is for" autocomplete="off" required>
-        <datalist id="dealBuyers"></datalist>
-        <span class="sub">Someone we have not sold to before? Just type the name - you pick the real buyer before you confirm the deal.</span>
+        <label for="dealBuyerPick">Buyer</label>
+        <div class="filters" style="gap:8px">
+          <select class="select" id="dealBuyerPick" style="flex:1 1 300px">
+            <option value="">Someone new - type the name →</option>
+          </select>
+          <input class="input" id="dealBuyerName" placeholder="Who it is for" autocomplete="off" style="flex:1 1 220px">
+        </div>
+        <span class="sub">Pick him if we have sold to him before. Otherwise the name is enough for now - you put the real buyer on before you confirm the deal.</span>
       </div>
 
       <div class="field">
-        <label>Pairs</label>
+        <label for="dealSearch">Pairs</label>
+        <input class="input" id="dealSearch" placeholder="Search the consignment stock - product, SKU or size" autocomplete="off">
+        <div class="deal-hits" id="dealHits"><p class="deal-empty">Type to search what consignors are holding.</p></div>
+      </div>
+
+      <div class="field" id="dealChosenField" hidden>
+        <label>On this deal</label>
         <div class="deal-pairs" id="dealPairs"></div>
-        <button class="btn ghost" type="button" id="dealAddRow" style="align-self:flex-start">+ Another pair</button>
       </div>
 
       <div class="field">
@@ -1289,54 +1310,125 @@
     }
 
     /*
-     * One row per pair, the same four numbers the deal page asks for.
+     * A pair he picked out of the stock.
      *
-     * Empty rows are ignored on submit, so he can add three and fill in two
-     * without being told off - he is typing what a buyer just said on the
-     * phone, not filling in a form.
+     * The shoe is already decided by then - what is left is the two prices.
+     * "We pay" starts at what the cheapest holder asks, because that is the
+     * number he is bargaining down from, and the ask stays on the row so he
+     * can see what he is moving away from.
      */
-    function dealPairRow() {
+    function dealPairRow(pair) {
       const row = document.createElement("div");
       row.className = "deal-pair";
+      row.dataset.sku = pair.sku;
+      row.dataset.size = pair.size;
+
       row.innerHTML = `
-        <input class="input sku" name="sku" placeholder="SKU" autocomplete="off">
-        <input class="input size" name="size" placeholder="Size" autocomplete="off">
-        <input class="input cash" name="payout" type="number" step="0.01" min="0" placeholder="We pay">
+        <div class="what" title="${esc(`${pair.product_name || pair.sku} · ${pair.sku} · ${pair.size}`)}">
+          <strong>${esc(pair.product_name || pair.sku)}</strong>
+          <span class="sub">${esc(pair.sku)} · ${esc(pair.size)} · asks ${esc(euro(pair.ask))}</span>
+        </div>
+        <input class="input cash" name="payout" type="number" step="0.01" min="0" placeholder="We pay" value="${pair.ask || ""}">
         <input class="input cash" name="buyer_price" type="number" step="0.01" min="0" placeholder="Buyer pays">
         <select class="select filter" name="vat_filter">
           <option value="all">All stock</option>
           <option value="margin">Margin only</option>
           <option value="b2b">B2B only</option>
         </select>
-        <button class="btn ghost drop" type="button" data-droprow aria-label="Remove this pair">✕</button>`;
+        <button class="btn ghost drop" type="button" data-droprow aria-label="Take this pair off">✕</button>`;
 
       return row;
+    }
+
+    function drawChosen() {
+      $("dealChosenField").hidden = !$("dealPairs").children.length;
+    }
+
+    /*
+     * What consignors are holding, searched the way he would say it out
+     * loud: "military blue 44" narrows to the shoe AND the size.
+     *
+     * Searching beats typing a SKU because he does not know them by heart -
+     * he knows the shoe. And a pair nobody is holding cannot be offered, so
+     * showing only what is really there saves a round trip through a deal
+     * that was never going to work.
+     */
+    async function searchStock(q) {
+      const needle = String(q || "").trim();
+
+      if (needle.length < 2) {
+        $("dealHits").innerHTML = `<p class="deal-empty">Type to search what consignors are holding.</p>`;
+        return;
+      }
+
+      try {
+        const out = await api(`/api/admin/consignment-stock?q=${encodeURIComponent(needle)}&limit=40`);
+        const pairs = (out.units || []).slice(0, 25);
+
+        if (!pairs.length) {
+          $("dealHits").innerHTML = `<p class="deal-empty">Nobody is holding anything like that.</p>`;
+          return;
+        }
+
+        $("dealHits").innerHTML = pairs.map((pair) => `
+          <div class="deal-hit">
+            ${pair.image_url ? `<img src="${esc(pair.image_url)}" alt="">` : `<span class="deal-hit-blank"></span>`}
+            <div class="what">
+              <strong>${esc(pair.product_name || pair.sku)}</strong>
+              <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)} · ${pair.consignors} consignor${pair.consignors === 1 ? "" : "s"}${pair.vat_type ? ` · ${esc(pair.vat_type)}` : ""}</span>
+            </div>
+            <span class="ask sub">asks ${esc(euro(pair.ask))}</span>
+            <button class="btn" type="button" data-pick='${esc(JSON.stringify({ sku: pair.sku, size: pair.size, product_name: pair.product_name, ask: pair.ask }))}'>+</button>
+          </div>`).join("");
+      } catch (err) {
+        $("dealHits").innerHTML = `<p class="deal-empty">${esc(err.message)}</p>`;
+      }
     }
 
     async function openDealDialog() {
       if (!(await loadBuyers())) return;
 
-      $("dealBuyers").innerHTML = draft.buyers
-        .map((b) => `<option value="${esc(b.label)}"></option>`).join("");
+      $("dealBuyerPick").innerHTML = `<option value="">Someone new - type the name →</option>` +
+        draft.buyers.map((b) => `<option value="${esc(b.value || b.id)}">${esc(b.label)}</option>`).join("");
 
       $("dealForm").reset();
       $("dealPairs").innerHTML = "";
-      for (let i = 0; i < 2; i += 1) $("dealPairs").append(dealPairRow());
+      $("dealHits").innerHTML = `<p class="deal-empty">Type to search what consignors are holding.</p>`;
+      drawChosen();
 
       $("dealDialog").showModal();
-      $("dealBuyer").focus();
+      $("dealSearch").focus();
     }
 
-    $("dealAddRow").addEventListener("click", () => {
-      $("dealPairs").append(dealPairRow());
-      $("dealPairs").lastElementChild.querySelector(".sku").focus();
+    let dealSearchTimer = null;
+
+    $("dealSearch").addEventListener("input", (event) => {
+      clearTimeout(dealSearchTimer);
+      const value = event.target.value;
+      dealSearchTimer = setTimeout(() => searchStock(value), 250);
+    });
+
+    $("dealHits").addEventListener("click", (event) => {
+      const pick = event.target.closest("[data-pick]");
+      if (!pick) return;
+
+      const pair = JSON.parse(pick.dataset.pick);
+      const already = [...$("dealPairs").children]
+        .some((row) => row.dataset.sku === pair.sku && row.dataset.size === pair.size);
+
+      if (already) { toast(`${pair.sku} ${pair.size} is already on the deal.`); return; }
+
+      $("dealPairs").append(dealPairRow(pair));
+      drawChosen();
+      $("dealPairs").lastElementChild.querySelector('[name="buyer_price"]').focus();
     });
 
     $("dealPairs").addEventListener("click", (event) => {
       const drop = event.target.closest("[data-droprow]");
+      if (!drop) return;
 
-      // Never the last one: an empty row is the invitation to type.
-      if (drop && $("dealPairs").children.length > 1) drop.closest(".deal-pair").remove();
+      drop.closest(".deal-pair").remove();
+      drawChosen();
     });
 
     $("dealCancel").addEventListener("click", () => $("dealDialog").close());
@@ -1351,22 +1443,32 @@
     $("dealForm").addEventListener("submit", async (event) => {
       event.preventDefault();
 
-      const { buyer, fresh, error } = buyerFromTyped($("dealBuyer").value);
+      /*
+       * The dropdown wins when he used it; otherwise the name he typed
+       * stands in. Two fields rather than one, because a list that keeps
+       * suggesting while you are deliberately typing somebody new is in
+       * the way.
+       */
+      const picked = $("dealBuyerPick").value;
+      const named = $("dealBuyerName").value.trim();
 
-      if (error) { toast(error); return; }
+      if (!picked && !named) { toast("Who is the deal for?"); return; }
+
+      const buyer = picked ? draft.buyers.find((b) => (b.value || b.id) === picked) : null;
+      const fresh = picked ? null : named;
 
       const rows = [...$("dealPairs").children].map((row) => ({
-        sku: row.querySelector('[name="sku"]').value.trim(),
-        size: row.querySelector('[name="size"]').value.trim(),
+        sku: row.dataset.sku,
+        size: row.dataset.size,
         payout: Number(row.querySelector('[name="payout"]').value),
         buyer_price: row.querySelector('[name="buyer_price"]').value ? Number(row.querySelector('[name="buyer_price"]').value) : null,
         vat_filter: row.querySelector('[name="vat_filter"]').value
-      })).filter((row) => row.sku || row.size || row.payout);
+      }));
 
-      const half = rows.find((row) => !row.sku || !row.size || !(row.payout > 0));
+      const half = rows.find((row) => !(row.payout > 0));
 
       if (half) {
-        toast(`${half.sku || "That pair"} needs a SKU, a size and what we pay for it.`);
+        toast(`${half.sku} ${half.size}: what are we paying for it?`);
         return;
       }
 
