@@ -173,7 +173,7 @@
     .deal-table .acts .btn { height: 30px; padding: 0 11px; font-size: 12px; margin-right: 5px; }
     .deal-table .acts .btn:last-child { margin-right: 0; }
     /* Every one of them is a thing you can press, so every one of them
-       looks pressable - a borderless Drop next to a filled Buy it reads as
+       looks pressable - a borderless Drop next to a filled Confirm reads as
        a caption, not as the other half of the choice. */
     .deal-table .acts .btn.ghost { border-color: var(--border); background: var(--panel-2); color: var(--strong); }
 
@@ -231,6 +231,15 @@
     .label-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px; align-items: center; }
     .label-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
     .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* The numbers of one pair, under each other: what we pay, what he
+       pays, and what is left - the last one is the whole question. */
+    .sums { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+    .sums .row { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; }
+    .sums .row span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; }
+    .sums .row.keep { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .sums .row.keep span { color: var(--strong); font-weight: 800; }
+    .what-pair strong { display: block; font-size: 14px; }
 
     /* Het venster waarin een deal gemaakt wordt: breder, want de paren
        staan er met hun twee prijzen naast elkaar in. */
@@ -569,6 +578,30 @@
         <button class="btn primary" type="submit" id="dealGo">Create the deal</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="buyDialog">
+    <div class="dialog-body">
+      <h2>Confirm pair</h2>
+
+      <div class="what-pair">
+        <strong id="buyName">—</strong>
+        <span class="sub" id="buyWhich">—</span>
+      </div>
+
+      <div class="sums">
+        <div class="row"><span id="buyPayoutLabel">Purchase price</span><span id="buyPayout">—</span></div>
+        <div class="row"><span>Selling price</span><span id="buySelling">—</span></div>
+        <div class="row keep"><span>Profit</span><span id="buyProfit">—</span></div>
+      </div>
+
+      <span class="sub">The pair comes off his stock and onto this sale. Cancel to change a price first.</span>
+
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="buyCancel">Cancel</button>
+        <button class="btn primary" type="button" id="buyGo">Confirm</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="invoiceDialog">
@@ -1011,7 +1044,7 @@
         }
 
         if (o.closable) {
-          return `<button class="btn primary" type="button" data-draft="finalize" data-id="${esc(o.id)}">Buy it</button>
+          return `<button class="btn primary" type="button" data-draft="finalize" data-id="${esc(o.id)}">Confirm</button>
                   <button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
         }
 
@@ -1195,6 +1228,45 @@
     }
 
     /*
+     * The last look before a pair is bought.
+     *
+     * A window rather than a browser alert, because the three numbers are
+     * the question and prose makes you work them out. Cancel goes back to
+     * the table, where the selling price is one click away in its own
+     * column.
+     */
+    let buyAnswer = null;
+
+    function askToBuy(line, buyerPrice, who) {
+      $("buyName").textContent = line.product_name || line.sku || "—";
+      $("buyWhich").textContent = [line.sku, line.size ? `size ${line.size}` : "", who].filter(Boolean).join(" · ");
+      $("buyPayoutLabel").textContent = `Purchase price`;
+      $("buyPayout").textContent = euro(line.payout);
+      $("buySelling").textContent = euro(buyerPrice);
+      $("buyProfit").textContent = euro(buyerPrice - line.payout);
+
+      $("buyDialog").showModal();
+      $("buyGo").focus();
+
+      return new Promise((done) => { buyAnswer = done; });
+    }
+
+    // Taken before close(), because closing fires the close handler
+    // below - which would answer false for a Confirm that was pressed.
+    function closeBuy(yes) {
+      const answer = buyAnswer;
+      buyAnswer = null;
+      $("buyDialog").close();
+      answer?.(yes);
+    }
+
+    $("buyGo").addEventListener("click", () => closeBuy(true));
+    $("buyCancel").addEventListener("click", () => closeBuy(false));
+    // Escape closes a dialog without pressing anything, and a promise that
+    // is never settled would leave the row looking busy for good.
+    $("buyDialog").addEventListener("close", () => { const a = buyAnswer; buyAnswer = null; a?.(false); });
+
+    /*
      * Answering a consignor.
      *
      * The buyer price is asked for again at the moment of buying, and on
@@ -1274,10 +1346,7 @@
 
       // Buying is the irreversible one: it makes the unit, takes the pair
       // off his shelf and puts it on the sale.
-      if (what === "finalize" && !window.confirm(
-        `Buy ${line.sku} ${line.size}?\n\n${who} is paid ${euro(line.payout)} and ships it.\n` +
-        `Your buyer pays ${euro(buyerPrice)}, so you keep ${euro(buyerPrice - line.payout)}.`
-      )) return;
+      if (what === "finalize" && !(await askToBuy(line, buyerPrice, who))) return;
 
       if (what === "accept" && !window.confirm(
         `Agree ${euro(line.countered ?? line.offered)} with ${who}?\n\nNothing is bought yet - you close it once your buyer is in.`
@@ -1310,11 +1379,11 @@
         toast(
           out.did === "offered" ? `Offered to ${out.seller_id}.`
           : out.did === "countered" ? `${euro(out.payout)} countered to ${out.seller_id}.`
-          : out.did === "agreed" ? `${out.seller_id} is on ${euro(out.payout)}. Buy it when your buyer is in.`
+          : out.did === "agreed" ? `${out.seller_id} is on ${euro(out.payout)}. Confirm it when your buyer is in.`
           : out.did === "bought" ? `Bought as ${out.item_id} - ${out.seller_id} gets ${euro(out.payout)}, selling at ${euro(out.buyer_price)}.`
           : out.did === "priced" ? `Buyer pays ${euro(out.buyer_price)}.`
           : out.did === "extended" ? `Another 24 hours - runs out ${when(out.until)}.`
-          : out.did === "fellback" ? `${out.seller_id} is on ${euro(out.payout)}. Buy it when your buyer is in.`
+          : out.did === "fellback" ? `${out.seller_id} is on ${euro(out.payout)}. Confirm it when your buyer is in.`
           : out.did === "discarded" ? (out.told ? `Dropped. ${out.seller_id} has been told.` : "Dropped.")
           : `${out.seller_id} declined.`
         );
