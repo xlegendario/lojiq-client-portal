@@ -220,6 +220,14 @@
     .deal-hit .sub { font-size: 11px; }
     .deal-hit .ask { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .deal-empty { padding: 14px 10px; color: var(--muted); font-size: 12.5px; }
+    .deal-hit.more { cursor: pointer; }
+    .deal-hit.more:hover { background: var(--panel-2); }
+    .deal-hit .chev { color: var(--muted); font-size: 10px; width: 10px; flex: 0 0 auto; }
+    .deal-holders { border-bottom: 1px solid var(--border); background: var(--panel-2); }
+    .deal-holder { display: flex; gap: 10px; align-items: center; padding: 5px 10px 5px 54px; font-size: 11.5px; color: var(--muted); }
+    .deal-holder .who { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .deal-holder .cash { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .deal-holder.best .who, .deal-holder.best .cash { color: var(--text); font-weight: 600; }
 
     /* En wat hij ervan koos. */
     .deal-pairs { display: flex; flex-direction: column; gap: 6px; }
@@ -495,9 +503,9 @@
 
   <dialog id="dealDialog">
     <form class="dialog-body" id="dealForm" method="dialog">
-      <h2>New deal</h2>
+      <h2 id="dealDialogTitle">New deal</h2>
 
-      <div class="field">
+      <div class="field" id="dealBuyerField">
         <label for="dealBuyerName">Buyer</label>
         <div class="filters" style="gap:8px">
           <input class="input" id="dealBuyerName" placeholder="Name" autocomplete="off" style="flex:1 1 220px">
@@ -509,7 +517,14 @@
 
       <div class="field">
         <label for="dealSearch">Pairs</label>
-        <input class="input" id="dealSearch" placeholder="Product, SKU or size" autocomplete="off">
+        <div class="filters" style="gap:8px">
+          <input class="input" id="dealSearch" placeholder="Product, SKU or size" autocomplete="off" style="flex:1 1 auto">
+          <select class="select" id="dealFilter" style="flex:0 0 140px">
+            <option value="all">All stock</option>
+            <option value="margin">Margin only</option>
+            <option value="b2b">B2B only</option>
+          </select>
+        </div>
         <div class="deal-hits" id="dealHits"><p class="deal-empty">Search the stock.</p></div>
       </div>
 
@@ -518,7 +533,7 @@
         <div class="deal-pairs" id="dealPairs"></div>
       </div>
 
-      <div class="field">
+      <div class="field" id="dealNoteField">
         <label for="dealNote">Note</label>
         <input class="input" id="dealNote" name="note" autocomplete="off">
       </div>
@@ -942,7 +957,7 @@
      * Everything on this tab goes through the broker store; nothing it does
      * touches the sales the other tabs read.
      */
-    const draft = { deals: [], dealId: "", deal: null, lines: [], signup: "", buyerEmail: "", buyers: [] };
+    const draft = { deals: [], dealId: "", deal: null, lines: [], signup: "", buyerEmail: "", buyers: [], hits: new Map() };
 
     const LINE_PILL = {
       draft: "", open: "move", store_pending: "wait", partner_agreed: "wait",
@@ -1082,18 +1097,9 @@
           </table>
         </div>
 
-        <form class="filters" id="draftAdd">
-          <input class="input" name="sku" placeholder="SKU" autocomplete="off" required style="width:150px">
-          <input class="input" name="size" placeholder="Size" autocomplete="off" required style="width:90px">
-          <input class="input" name="payout" type="number" step="0.01" min="0" placeholder="We pay" required style="width:110px">
-          <input class="input" name="buyer_price" type="number" step="0.01" min="0" placeholder="Buyer pays" style="width:120px">
-          <select class="select" name="vat_filter">
-            <option value="all">All stock</option>
-            <option value="margin">Margin only</option>
-            <option value="b2b">B2B only</option>
-          </select>
-          <button class="btn" type="submit">Add a pair</button>
-        </form>
+        <div class="filters">
+          <button class="btn" type="button" data-draft="addpairs">+ Add pairs</button>
+        </div>
 
         <div class="filters">
           <button class="btn" type="button" data-draft="submit"${waiting ? "" : " disabled"}>Send ${waiting || "no"} offer${waiting === 1 ? "" : "s"}</button>
@@ -1328,11 +1334,6 @@
         </div>
         <input class="input cash" name="payout" type="number" step="0.01" min="0" placeholder="We pay" value="${pair.ask || ""}">
         <input class="input cash" name="buyer_price" type="number" step="0.01" min="0" placeholder="Buyer pays">
-        <select class="select filter" name="vat_filter">
-          <option value="all">All stock</option>
-          <option value="margin">Margin only</option>
-          <option value="b2b">B2B only</option>
-        </select>
         <button class="btn ghost drop" type="button" data-droprow aria-label="Take this pair off">✕</button>`;
 
       return row;
@@ -1360,7 +1361,7 @@
       }
 
       try {
-        const out = await api(`/api/admin/consignment-stock?q=${encodeURIComponent(needle)}&limit=40`);
+        const out = await api(`/api/admin/consignment-stock?q=${encodeURIComponent(needle)}&view=${encodeURIComponent($("dealFilter").value)}&limit=40`);
         const pairs = (out.units || []).slice(0, 25);
 
         if (!pairs.length) {
@@ -1368,28 +1369,54 @@
           return;
         }
 
-        $("dealHits").innerHTML = pairs.map((pair) => `
-          <div class="deal-hit">
+        // Kept whole, because a click wants the holders behind the row and
+        // an attribute full of JSON is a bad place to keep them.
+        draft.hits = new Map(pairs.map((pair) => [`${pair.sku}|${pair.size}`, pair]));
+
+        $("dealHits").innerHTML = pairs.map((pair) => {
+          const key = `${pair.sku}|${pair.size}`;
+          const more = pair.consignors > 1;
+
+          return `
+          <div class="deal-hit${more ? " more" : ""}"${more ? ` data-holders="${esc(key)}"` : ""}>
+            <span class="chev">${more ? "▸" : ""}</span>
             ${pair.image_url ? `<img src="${esc(pair.image_url)}" alt="">` : `<span class="deal-hit-blank"></span>`}
             <div class="what">
               <strong>${esc(pair.product_name || pair.sku)}</strong>
               <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)} · ${pair.consignors} consignor${pair.consignors === 1 ? "" : "s"}${pair.vat_type ? ` · ${esc(pair.vat_type)}` : ""}</span>
             </div>
-            <span class="ask sub">asks ${esc(euro(pair.ask))}</span>
-            <button class="btn" type="button" data-pick='${esc(JSON.stringify({ sku: pair.sku, size: pair.size, product_name: pair.product_name, ask: pair.ask }))}'>+</button>
-          </div>`).join("");
+            <span class="ask sub">${more ? "from " : "asks "}${esc(euro(pair.ask))}</span>
+            <button class="btn" type="button" data-pick="${esc(key)}">+</button>
+          </div>`;
+        }).join("");
       } catch (err) {
         $("dealHits").innerHTML = `<p class="deal-empty">${esc(err.message)}</p>`;
       }
     }
 
-    async function openDealDialog() {
-      if (!(await loadBuyers())) return;
+    /*
+     * The same window for both: making a deal, and adding to one that is
+     * already running. Adding has no buyer to ask about - it is his deal
+     * already - so that half simply is not there.
+     */
+    async function openDealDialog(addTo = "") {
+      dealDialogFor = String(addTo || "");
+
+      if (!dealDialogFor && !(await loadBuyers())) return;
+
+      $("dealDialogTitle").textContent = dealDialogFor ? "Add pairs" : "New deal";
+      $("dealBuyerField").hidden = Boolean(dealDialogFor);
+      $("dealNoteField").hidden = Boolean(dealDialogFor);
+      $("dealGo").textContent = dealDialogFor ? "Add them" : "Create the deal";
 
       $("dealBuyerPick").innerHTML = `<option value="">or pick one</option>` +
         draft.buyers.map((b) => `<option value="${esc(b.value || b.id)}">${esc(b.label)}</option>`).join("");
 
       $("dealForm").reset();
+
+      // A deal that is already running keeps the stock it is being served
+      // from: the buyer's VAT route does not change halfway.
+      if (dealDialogFor) $("dealFilter").value = draft.lines[0]?.vat_filter || "all";
       $("dealPairs").innerHTML = "";
       $("dealHits").innerHTML = `<p class="deal-empty">Search the stock.</p>`;
       drawChosen();
@@ -1397,6 +1424,9 @@
       $("dealDialog").showModal();
       $("dealSearch").focus();
     }
+
+    // Which deal the window is adding to, empty when it is making one.
+    let dealDialogFor = "";
 
     let dealSearchTimer = null;
 
@@ -1406,19 +1436,73 @@
       dealSearchTimer = setTimeout(() => searchStock(value), 250);
     });
 
+    /*
+     * Everyone holding this pair, cheapest first.
+     *
+     * The round goes to the cheapest man inside the VAT filter, so what the
+     * others ask is how he decides which filter to put on the line - a
+     * margin man at 100 and a VAT21 man at 95 are not the same deal.
+     */
+    function holderRows(pair) {
+      const rows = (pair.holders || []).map((holder, i) => `
+        <div class="deal-holder${i === 0 ? " best" : ""}">
+          <span class="who">${esc(holder.party || holder.seller_id)}${holder.partner ? " · partner" : ""}</span>
+          <span class="sub">${esc(holder.vat_type || "—")}</span>
+          <span class="sub">${holder.quantity > 1 ? `${holder.quantity}×` : ""}</span>
+          <span class="cash">${esc(euro(holder.ask))}</span>
+        </div>`).join("");
+
+      const box = document.createElement("div");
+      box.className = "deal-holders";
+      box.dataset.for = `${pair.sku}|${pair.size}`;
+      box.innerHTML = rows;
+
+      return box;
+    }
+
+    $("dealFilter").addEventListener("change", () => {
+      searchStock($("dealSearch").value);
+
+      if ($("dealPairs").children.length) {
+        toast("The pairs already on the deal keep their place - this only changes who can be asked.");
+      }
+    });
+
     $("dealHits").addEventListener("click", (event) => {
       const pick = event.target.closest("[data-pick]");
-      if (!pick) return;
 
-      const pair = JSON.parse(pick.dataset.pick);
-      const already = [...$("dealPairs").children]
-        .some((row) => row.dataset.sku === pair.sku && row.dataset.size === pair.size);
+      if (pick) {
+        const pair = draft.hits.get(pick.dataset.pick);
+        if (!pair) return;
 
-      if (already) { toast(`${pair.sku} ${pair.size} is already on the deal.`); return; }
+        const already = [...$("dealPairs").children]
+          .some((row) => row.dataset.sku === pair.sku && row.dataset.size === pair.size);
 
-      $("dealPairs").append(dealPairRow(pair));
-      drawChosen();
-      $("dealPairs").lastElementChild.querySelector('[name="buyer_price"]').focus();
+        if (already) { toast(`${pair.sku} ${pair.size} is already on the deal.`); return; }
+
+        $("dealPairs").append(dealPairRow(pair));
+        drawChosen();
+        $("dealPairs").lastElementChild.querySelector('[name="buyer_price"]').focus();
+        return;
+      }
+
+      // The row itself: who else is holding it, and for how much.
+      const hit = event.target.closest("[data-holders]");
+      if (!hit) return;
+
+      const open = hit.nextElementSibling?.classList.contains("deal-holders");
+
+      if (open) {
+        hit.nextElementSibling.remove();
+        hit.querySelector(".chev").textContent = "▸";
+        return;
+      }
+
+      const pair = draft.hits.get(hit.dataset.holders);
+      if (!pair) return;
+
+      hit.after(holderRows(pair));
+      hit.querySelector(".chev").textContent = "▾";
     });
 
     $("dealPairs").addEventListener("click", (event) => {
@@ -1447,10 +1531,10 @@
        * suggesting while you are deliberately typing somebody new is in
        * the way.
        */
-      const picked = $("dealBuyerPick").value;
-      const named = $("dealBuyerName").value.trim();
+      const picked = dealDialogFor ? "" : $("dealBuyerPick").value;
+      const named = dealDialogFor ? "" : $("dealBuyerName").value.trim();
 
-      if (!picked && !named) { toast("Who is the deal for?"); return; }
+      if (!dealDialogFor && !picked && !named) { toast("Who is the deal for?"); return; }
 
       const buyer = picked ? draft.buyers.find((b) => (b.value || b.id) === picked) : null;
       const fresh = picked ? null : named;
@@ -1460,7 +1544,12 @@
         size: row.dataset.size,
         payout: Number(row.querySelector('[name="payout"]').value),
         buyer_price: row.querySelector('[name="buyer_price"]').value ? Number(row.querySelector('[name="buyer_price"]').value) : null,
-        vat_filter: row.querySelector('[name="vat_filter"]').value
+        /*
+         * One choice for the whole deal: a buyer who wants his pairs
+         * reverse-charged wants all of them that way, and the stock he can
+         * be served from narrows the same way for every pair.
+         */
+        vat_filter: $("dealFilter").value
       }));
 
       const half = rows.find((row) => !(row.payout > 0));
@@ -1470,18 +1559,22 @@
         return;
       }
 
+      if (!rows.length) { toast("Which pairs?"); return; }
+
       $("dealGo").disabled = true;
 
       try {
-        const out = await api("/api/admin/broker-deals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            buyer_id: buyer ? (buyer.value || buyer.id) : null,
-            buyer_name: fresh || null,
-            note: $("dealNote").value
-          })
-        });
+        const out = dealDialogFor
+          ? { id: dealDialogFor, deal_id: draft.deal?.deal_id || "" }
+          : await api("/api/admin/broker-deals", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                buyer_id: buyer ? (buyer.value || buyer.id) : null,
+                buyer_name: fresh || null,
+                note: $("dealNote").value
+              })
+            });
 
         const failed = [];
 
@@ -1496,8 +1589,10 @@
         $("dealDialog").close();
 
         toast(failed.length
-          ? `${out.deal_id} made, but ${failed.length} pair${failed.length === 1 ? "" : "s"} did not go on: ${failed[0]}`
-          : `${out.deal_id} for ${buyer ? buyer.label : fresh}${rows.length ? ` · ${rows.length} pair${rows.length === 1 ? "" : "s"}` : ""}.`);
+          ? `${failed.length} pair${failed.length === 1 ? "" : "s"} did not go on: ${failed[0]}`
+          : dealDialogFor
+            ? `${rows.length} pair${rows.length === 1 ? "" : "s"} added.`
+            : `${out.deal_id} for ${buyer ? buyer.label : fresh} · ${rows.length} pair${rows.length === 1 ? "" : "s"}.`);
 
         await openDraft(out.id);
       } catch (err) {
@@ -1602,28 +1697,6 @@
         return;
       }
 
-      if (event.target.id !== "draftAdd") return;
-      event.preventDefault();
-
-      const form = new FormData(event.target);
-
-      try {
-        await api(`/api/admin/broker-deals/${encodeURIComponent(draft.dealId)}/lines`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sku: form.get("sku"),
-            size: form.get("size"),
-            payout: Number(form.get("payout")),
-            buyer_price: form.get("buyer_price") ? Number(form.get("buyer_price")) : null,
-            vat_filter: form.get("vat_filter")
-          })
-        });
-
-        await openDraft(draft.dealId);
-      } catch (err) {
-        toast(err.message);
-      }
     });
 
     $("draftView").addEventListener("click", async (event) => {
@@ -1633,6 +1706,7 @@
       const what = el.dataset.draft;
 
       if (what === "new") return openDealDialog();
+      if (what === "addpairs") return openDealDialog(draft.dealId);
 
       if (what === "pickbuyer") {
         await loadBuyers();
