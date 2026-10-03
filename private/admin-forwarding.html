@@ -241,16 +241,12 @@
 
       <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
       <div class="nav-group" id="navExternal" hidden>
+        <a class="nav-item" href="/admin/external-sales?tab=draft">Draft <small class="nav-count" data-nav-count="external/draft"></small></a>
         <a class="nav-item" href="/admin/external-sales?tab=pending">Pending <small class="nav-count" data-nav-count="external/pending"></small></a>
         <a class="nav-item" href="/admin/external-sales?tab=ready">Ready to Ship <small class="nav-count" data-nav-count="external/ready"></small></a>
         <a class="nav-item" href="/admin/external-sales?tab=shipped">Shipped</a>
         <a class="nav-item" href="/admin/external-sales?tab=all">All</a>
         <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
-      </div>
-
-      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Deals</button>
-      <div class="nav-group" id="navPartner" hidden>
-        <a class="nav-item" href="/admin/external-sales?tab=draft">Deals <small data-nav-count="partner/deals_yours"></small></a>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -416,7 +412,7 @@
     /* ---------------- sidebar ---------------- */
 
     // Same folding as the main admin page, and the same remembered sections.
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", partner: "navPartner", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 

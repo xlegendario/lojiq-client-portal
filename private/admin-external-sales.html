@@ -391,9 +391,6 @@
         <button class="nav-item" type="button" data-tab="checks">Checks <small data-nav-count="external/checks"></small></button>
       </div>
 
-      <button class="nav-section" type="button" data-nav-section="partner" aria-controls="navPartner" aria-expanded="false">Deals</button>
-      <div class="nav-group" id="navPartner" hidden></div>
-
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
       <div class="nav-group" id="navMarketplaces" hidden>
         <a class="nav-item" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
@@ -658,7 +655,7 @@
 
     /* ---------------- sidebar ---------------- */
 
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", partner: "navPartner", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 
@@ -696,8 +693,6 @@
       $("navMwtb").innerHTML = navViews.filter((v) => v.section === "mwtb").map(link).join("");
       $("navMoney").innerHTML = finance.map(link).join("") + `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
-
-      $("navPartner").innerHTML = `<a class="nav-item" href="/admin/external-sales?tab=draft">Deals ${navCount("external/draft")}</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
