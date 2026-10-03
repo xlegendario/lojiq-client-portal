@@ -21,7 +21,7 @@
 
 import express from "express";
 
-import { pairFromUnit } from "./externalSalesCreate.js";
+import { pairFromPartnerStock, pairFromUnit } from "./externalSalesCreate.js";
 import { dealId, sellingVatType, shippingStatusFor } from "./externalSalesSync.js";
 import { CLOCK_HOURS, dealDeadline } from "./adminPartnerDeals.js";
 
@@ -146,6 +146,9 @@ export function lineRow(line, offer = null, previous = null) {
     done: state.done === true,
 
     inventory_unit_record_id: text(line.inventory_unit_record_id),
+    // Which partner pair this line claimed, so confirming and dropping can
+    // both find it back.
+    partner_stock_id: text(line.partner_stock_id),
     due_at: offer ? dealDeadline(offer) : null,
     extended: Boolean(text(offer?.extended_until)),
     created_at: text(line.created_at) || null
@@ -562,6 +565,52 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   }
 
   /*
+   * A partner's shelf.
+   *
+   * His pairs sit here without an Inventory Unit - that is made the moment
+   * one is sold - so there is nothing in Airtable to search. Only what is
+   * on the shelf and meant for selling: a pair marked forwarding only is
+   * passing through, not for sale.
+   */
+  async function partnerStock({ q = "", limit = 25 } = {}) {
+    const typed = text(q);
+
+    if (typed.length < 2) return { units: [] };
+
+    const words = typed.toUpperCase().split(/\s+/).filter(Boolean);
+    const sizes = words.filter((word) => /^\d{1,2}([.,]5)?$/.test(word)).map((size) => size.replace(",", "."));
+    const rest = words.filter((word) => !/^\d{1,2}([.,]5)?$/.test(word));
+
+    const rows = await db.get(
+      `partner_stock?select=id,sku,size,product_name,brand,image_url,vat_type,partner_price,seller_id,seller_record_id` +
+      `&status=eq.in_stock&mode=in.(both,selling)&partner_price=gt.0&order=partner_price.asc&limit=400`
+    ).catch(() => []);
+
+    const units = (rows || [])
+      .map((row) => ({
+        source: "partner",
+        partner_stock_id: text(row.id),
+        seller_id: text(row.seller_id),
+        seller_record_id: text(row.seller_record_id),
+        sku: text(row.sku).toUpperCase(),
+        size: text(row.size),
+        product_name: text(row.product_name),
+        brand: text(row.brand),
+        image_url: text(row.image_url),
+        vat_type: text(row.vat_type),
+        cost: round2(row.partner_price)
+      }))
+      .filter((unit) => {
+        const hay = `${unit.sku} ${unit.product_name}`.toUpperCase();
+        return rest.every((word) => hay.includes(word));
+      })
+      .filter((unit) => !sizes.length || sizes.includes(unit.size.replace(",", ".")))
+      .slice(0, Math.min(Math.max(Number(limit) || 25, 1), 50));
+
+    return { units };
+  }
+
+  /*
    * A pair the buyer wants.
    *
    * Both prices are typed, and the only rule between them is the one that
@@ -690,6 +739,119 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     return lineRow(line, null);
   }
 
+  /*
+   * A partner's pair onto the deal.
+   *
+   * Claimed the moment it goes on, by conditional update: two deals cannot
+   * both take the same pair, and the one that loses is told rather than
+   * finding out at the end. It sits on "reserved" until the deal is
+   * confirmed - sold is what it becomes when there is a sale.
+   */
+  async function addPartnerLine({ saleId, partnerStockId, buyerPrice } = {}) {
+    const sale = await loadSale(saleId);
+
+    if (!/^[0-9a-f-]{36}$/i.test(text(partnerStockId))) throw new BrokerDealsError("Which pair?");
+
+    const [row] = await db.get(`partner_stock?select=*&id=eq.${text(partnerStockId)}`);
+
+    if (!row) throw new BrokerDealsError("That pair is not in the partner stock.", 404);
+
+    const cost = round2(row.partner_price);
+
+    if (!(cost > 0)) throw new BrokerDealsError("That pair has no partner price.", 409);
+
+    const buyer = Number(buyerPrice);
+
+    if (buyer > 0 && !(buyer > cost)) {
+      throw new BrokerDealsError(`${round2(buyer)} does not cover the ${cost} going to ${text(row.seller_id)}.`);
+    }
+
+    const [claimed] = await db.patch(`partner_stock?id=eq.${text(partnerStockId)}&status=eq.in_stock`, {
+      status: "reserved",
+      sold_ref: dealId(sale)
+    });
+
+    if (!claimed) throw new BrokerDealsError("That pair was just taken by another deal.", 409);
+
+    const [line] = await db.insert("deal_lines", [{
+      sale_id: sale.id,
+      source: "partner",
+      partner_stock_id: text(partnerStockId),
+      sku: text(row.sku).toUpperCase(),
+      size: text(row.size),
+      product_name: text(row.product_name) || null,
+      brand: text(row.brand) || null,
+      image_url: text(row.image_url) || null,
+      vat_filter: "all",
+      buyer_price: buyer > 0 ? round2(buyer) : null,
+      payout: cost,
+      status: "locked"
+    }]);
+
+    return lineRow(line, null);
+  }
+
+  // And back on his shelf when the deal does not want it.
+  async function releasePartner(line) {
+    if (text(line.source) !== "partner" || !text(line.partner_stock_id)) return false;
+
+    await db.patch(`partner_stock?id=eq.${text(line.partner_stock_id)}&status=eq.reserved`, {
+      status: "in_stock",
+      sold_ref: null
+    }).catch((err) => console.error(`[admin broker deals] partner pair ${line.partner_stock_id} not released:`, err.message));
+
+    return true;
+  }
+
+  /*
+   * His pair becomes an Inventory Unit, at the moment it is sold.
+   *
+   * The same shape Create Outbound makes for a partner pair, because it is
+   * the same thing: a pair of his on our books, to be paid for once the
+   * buyer has paid us. Sold rather than Reserved - a broker deal is a sale
+   * the moment it is confirmed.
+   */
+  async function unitForPartner({ sale, line }) {
+    const [row] = await db.get(`partner_stock?select=*&id=eq.${text(line.partner_stock_id)}`);
+
+    if (!row) throw new Error("that partner pair is gone");
+
+    const deal = dealId(sale);
+    const price = round2(row.partner_price);
+
+    const unit = await airtable.create("Inventory Units", {
+      "Product Name": text(row.product_name),
+      "SKU": text(row.sku).toUpperCase(),
+      "Size": text(row.size),
+      ...(text(row.brand) ? { "Brand": text(row.brand) } : {}),
+      ...(text(row.barcode) ? { "Product GTIN": text(row.barcode) } : {}),
+      "VAT Type": text(row.vat_type),
+      "Purchase Price": price,
+      "Shipping Deduction": 0,
+      "Purchase Date": new Date().toISOString().slice(0, 10),
+      ...(text(row.seller_record_id) ? { "Seller ID": [text(row.seller_record_id)] } : {}),
+      "Ticket Number": deal,
+      "Type": "Partner Consignment",
+      "Source": "Regular",
+      "Verification Status": "Consigned",
+      "Payment Status": "To Pay",
+      "Payment Note": price.toFixed(2),
+      "Availability Status": "Sold",
+      "Selling Method": "Kickz Caviar",
+      "External Deal ID": deal,
+      "Selling Price": round2(line.buyer_price)
+    });
+
+    await db.patch(`partner_stock?id=eq.${text(line.partner_stock_id)}`, {
+      status: "sold",
+      sold_at: new Date().toISOString(),
+      sold_ref: deal,
+      inventory_unit_id: text(unit.fields?.["Item ID"]) || null
+    });
+
+    return unit.id;
+  }
+
   // Back on the shelf: the deal is not having it after all.
   async function releaseOwn(line) {
     if (text(line.source) !== "own" || !text(line.inventory_unit_record_id)) return false;
@@ -709,8 +871,9 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     // A pair of ours was never asked of anybody: it just goes back on the
     // shelf and off the deal.
-    if (row.source === "own" && row.status === "locked") {
+    if (["own", "partner"].includes(row.source) && row.status === "locked") {
       await releaseOwn(line);
+      await releasePartner(line);
       await db.remove(`deal_lines?id=eq.${line.id}`);
       return { ok: true };
     }
@@ -1474,23 +1637,32 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
          */
         const unitRecordId = line.source === "own"
           ? line.inventory_unit_record_id
-          : text((await kickz("/api/internal/broker/finalize", {
-              deal_line_id: line.id,
-              buyer_price: round2(line.buyer_price)
-            }))?.inventory_unit_record_id);
+          : line.source === "partner"
+            ? await unitForPartner({ sale, line })
+            : text((await kickz("/api/internal/broker/finalize", {
+                deal_line_id: line.id,
+                buyer_price: round2(line.buyer_price)
+              }))?.inventory_unit_record_id);
 
         await attachPair({ line, unitRecordId, buyerPrice: round2(line.buyer_price) });
 
-        if (line.source === "own") {
-          await db.patch(`deal_lines?id=eq.${line.id}`, { status: "confirmed", updated_at: new Date().toISOString() });
+        if (line.source === "own" || line.source === "partner") {
+          await db.patch(`deal_lines?id=eq.${line.id}`, {
+            status: "confirmed",
+            inventory_unit_record_id: text(unitRecordId),
+            updated_at: new Date().toISOString()
+          });
 
-          await airtable.update("Inventory Units", text(unitRecordId), {
-            "Availability Status": "Sold",
-            "Selling Method": "Kickz Caviar",
-            "Selling Price": round2(line.buyer_price),
-            "External Deal ID": dealId(sale),
-            "Ticket Number": dealId(sale)
-          }).catch((err) => console.error(`[admin broker deals] ${unitRecordId} not marked sold:`, err.message));
+          // A partner's unit is made sold already; ours has to be told.
+          if (line.source === "own") {
+            await airtable.update("Inventory Units", text(unitRecordId), {
+              "Availability Status": "Sold",
+              "Selling Method": "Kickz Caviar",
+              "Selling Price": round2(line.buyer_price),
+              "External Deal ID": dealId(sale),
+              "Ticket Number": dealId(sale)
+            }).catch((err) => console.error(`[admin broker deals] ${unitRecordId} not marked sold:`, err.message));
+          }
         }
       } catch (err) {
         failed.push(`${line.sku} ${line.size}: ${err.message}`);
@@ -1514,8 +1686,10 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     let told = 0;
 
     for (const line of dropping) {
-      // Ours goes back on the shelf; a consignor's round is let go below.
+      // Ours and a partner's go back on the shelf; a consignor's round is
+      // let go below.
       if (line.source === "own") await releaseOwn(line);
+      if (line.source === "partner") await releasePartner(line);
 
       if (line.offer_id) {
         const out = await kickz("/api/internal/partner-deal/discard", { offer_id: line.offer_id })
@@ -1587,7 +1761,8 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   }
 
   return {
-    list, count, get, create, attachBuyer, createBuyer, addLine, addOwnLine, ownStock, removeLine, priceLine, submit, answer, confirmDeal, buyers,
+    list, count, get, create, attachBuyer, createBuyer,
+    addLine, addOwnLine, addPartnerLine, ownStock, partnerStock, removeLine, priceLine, submit, answer, confirmDeal, buyers,
     shipments, shipConsignor, unship, markShipped
   };
 }
@@ -1651,6 +1826,36 @@ export function mountBrokerDeals(router, { store, audit = null }) {
   router.get("/api/admin/broker-deals/own-stock", json, async (req, res) => {
     try {
       res.json(await store.ownStock({ q: req.query?.q, limit: req.query?.limit }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/broker-deals/partner-stock", json, async (req, res) => {
+    try {
+      res.json(await store.partnerStock({ q: req.query?.q, limit: req.query?.limit }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/broker-deals/:id/partner-lines", json, async (req, res) => {
+    try {
+      const out = await store.addPartnerLine({
+        saleId: req.params.id,
+        partnerStockId: req.body?.partner_stock_id,
+        buyerPrice: req.body?.buyer_price
+      });
+
+      audit?.record({
+        actor: req.admin,
+        action: "broker_deal_partner_line",
+        source: "broker_deals",
+        recordId: text(req.params.id),
+        label: `${out.sku} ${out.size}`
+      })?.catch?.(() => {});
+
+      res.json(out);
     } catch (err) {
       send(res, err);
     }

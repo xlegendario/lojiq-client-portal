@@ -33,6 +33,9 @@ export const MODES = {
 
 export const STATES = {
   in_stock: "On the shelf",
+  // Promised to a deal that is not confirmed yet: off the shelf for
+  // everything else, and back on it if that deal falls apart.
+  reserved: "On a deal",
   sold: "Sold",
   forwarded: "Forwarded"
 };

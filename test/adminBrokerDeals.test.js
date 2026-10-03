@@ -90,11 +90,11 @@ const offer = (extra = {}) => ({
  * said. Every table is a list; a patch rewrites the rows it matches, which
  * is enough for `id=eq.` and `sale_id=eq.` - the only two shapes used.
  */
-function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = null } = {}) {
+function shop({ sales = [SALE], lines = [], offers = [], pairs = [], partner_stock = [], kickz = null } = {}) {
   // Copied per row, not per list: a patch writes into the row object, and
   // a shared fixture would carry one test's deal into the next.
   const copy = (rows) => rows.map((row) => ({ ...row }));
-  const tables = { external_sales: copy(sales), deal_lines: copy(lines), consignment_offers: copy(offers), external_sale_pairs: copy(pairs), buyers: [] };
+  const tables = { external_sales: copy(sales), deal_lines: copy(lines), consignment_offers: copy(offers), external_sale_pairs: copy(pairs), partner_stock: copy(partner_stock), buyers: [] };
   const uploads = [];
   const sent = [];
 
@@ -151,6 +151,10 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], kickz = nul
   const written = [];
 
   const airtable = {
+    async create(table, fields) {
+      written.push({ table, id: "recNEWUNIT0000001", fields });
+      return { id: "recNEWUNIT0000001", fields: { ...fields, "Item ID": "CS-009999" } };
+    },
     async update(table, id, fields) {
       written.push({ table, id, fields });
       return { id, fields };
@@ -895,6 +899,75 @@ test("confirming a deal of our own stock buys nothing", async () => {
   assert.equal(pair.inventory_unit_record_id, "recUNIT0000000001");
   assert.equal(pair.selling_price, 220);
   assert.equal(tables.external_sales[0].stage, "open");
+});
+
+/* ---------------- a partner's pair ---------------- */
+
+const PARTNER = {
+  id: "77777777-7777-4777-8777-777777777777",
+  sku: "DV1748-601",
+  size: "44",
+  product_name: "Jordan 1 Retro High OG Chicago",
+  vat_type: "Margin",
+  partner_price: 140,
+  seller_id: "SE-00781",
+  seller_record_id: "recPARTNER123456",
+  status: "in_stock",
+  mode: "both"
+};
+
+/*
+ * His pair is on our shelf but has no Inventory Unit - that is made the
+ * moment it is sold. So it is claimed when it goes on the deal and only
+ * becomes a unit when the deal is confirmed.
+ */
+test("a partner pair is claimed the moment it goes on a deal", async () => {
+  const { store, tables } = shop({ lines: [], partner_stock: [PARTNER] });
+
+  const row = await store.addPartnerLine({
+    saleId: SALE.id,
+    partnerStockId: PARTNER.id,
+    buyerPrice: 200
+  });
+
+  assert.equal(row.status, "locked");
+  assert.equal(row.payout, 140, "what the partner gets");
+  assert.equal(tables.partner_stock[0].status, "reserved", "off the shelf for every other deal");
+});
+
+test("two deals cannot claim the same partner pair", async () => {
+  const { store } = shop({ lines: [], partner_stock: [PARTNER] });
+
+  await store.addPartnerLine({ saleId: SALE.id, partnerStockId: PARTNER.id, buyerPrice: 200 });
+
+  await assert.rejects(
+    store.addPartnerLine({ saleId: SALE.id, partnerStockId: PARTNER.id, buyerPrice: 200 }),
+    /just taken/
+  );
+});
+
+test("confirming makes the unit for a partner pair and sells his row", async () => {
+  const { store, tables, written } = shop({
+    lines: [line({
+      id: "l1", status: "locked", source: "partner", offer_id: null,
+      partner_stock_id: PARTNER.id, buyer_price: 200, payout: 140
+    })],
+    offers: [],
+    partner_stock: [{ ...PARTNER, status: "reserved" }]
+  });
+
+  const out = await store.confirmDeal(SALE.id);
+
+  assert.equal(out.pairs, 1);
+
+  const made = written.find((call) => call.id === "recNEWUNIT0000001");
+  assert.equal(made.fields["Type"], "Partner Consignment");
+  assert.equal(made.fields["Purchase Price"], 140);
+  assert.equal(made.fields["Payment Status"], "To Pay", "he is owed for it");
+  assert.equal(made.fields["Availability Status"], "Sold");
+
+  assert.equal(tables.partner_stock[0].status, "sold");
+  assert.equal(tables.external_sale_pairs.length, 1);
 });
 
 /* ---------------- settling for his earlier price ---------------- */
