@@ -378,6 +378,34 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   };
 
   /*
+   * Putting a pair in a box, or taking it out again.
+   *
+   * Needed because a box is not always made by the hand that knows what
+   * goes in it: Create Outbound can make two parcels without saying which
+   * pair is which, and a pair put in the wrong one has to be able to move.
+   */
+  async function putInParcel({ saleId, pairId, shipmentId }) {
+    const sale = await saleById(saleId);
+
+    const [pair] = await db.get(`external_sale_pairs?select=*&id=eq.${text(pairId)}&sale_id=eq.${sale.id}`);
+
+    if (!pair) throw new ExternalSalesError("That pair is not on this deal.", 404);
+
+    if (text(pair.consignor_fulfillment_status)) {
+      throw new ExternalSalesError("A consignor posts his own pairs; his box is made by sending him a label.", 409);
+    }
+
+    if (text(shipmentId)) {
+      const [parcel] = await db.get(`shipments?select=id&id=eq.${text(shipmentId)}&external_sale_id=eq.${sale.id}`);
+      if (!parcel) throw new ExternalSalesError("That parcel is not on this deal.", 404);
+    }
+
+    await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { shipment_id: text(shipmentId) || null });
+
+    return detail(sale.id);
+  }
+
+  /*
    * A new parcel: a label, a tracking number, or both - and what is in it.
    *
    * Which pairs go in the box is the part that was missing: without it a
@@ -883,6 +911,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     checks,
     counts,
     addParcel,
+    putInParcel: (input) => putInParcel(input),
     setParcelLabel,
     setParcelTracking,
     removeParcel,
@@ -988,6 +1017,20 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
       const sale = await store.setParcelLabel(req.query.id, req.body);
       await log(req, "external_sale_parcel_label", sale, { parcel: text(req.query.id) });
       await detailFor(res, sale.id);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/external-sales/parcel/contents", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const out = await store.putInParcel({
+        saleId: req.body?.sale,
+        pairId: req.body?.pair,
+        shipmentId: req.body?.parcel
+      });
+
+      res.json(out);
     } catch (err) {
       send(res, err);
     }

@@ -2506,6 +2506,37 @@
           </div>`;
           }).join("")
         : '<p class="sub">No parcels yet.</p>';
+
+      /*
+       * Pairs that are in no box yet.
+       *
+       * Create Outbound can make two parcels without saying which pair
+       * goes where, and a pair put in the wrong box has to be able to
+       * move. Only shown when there is a box to put them in.
+       */
+      const loose = (state.detail.pairs || [])
+        .filter((pair) => !pair.consignor_fulfillment_status && !pair.cancelled_at);
+
+      const looseList = parcels.length
+        ? loose.filter((pair) => !pair.shipment_id)
+        : [];
+
+      const looseSection = looseList.length ? `
+        <div class="card-row">
+          <div class="sub" style="margin-bottom:6px">Not in a box yet</div>
+          ${looseList.map((pair) => `
+            <div class="inbound-pair" style="margin-bottom:4px">
+              <span class="what">
+                <strong>${esc(pair.product_name || pair.sku || "—")}</strong>
+                <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)}</span>
+              </span>
+              <select class="select" data-put-pair="${esc(pair.id)}" style="max-width:220px">
+                <option value="">Put it in…</option>
+                ${parcels.map((parcel) => `<option value="${esc(parcel.id)}">${esc(parcel.tracking_number || "no tracking")}</option>`).join("")}
+              </select>
+            </div>`).join("")}
+        </div>` : "";
+
       // Packing text that matched no parcel, shown as it came.
       const unmatchedPacking = s.items_per_parcel && ![...packed.keys()].some((t) => parcels.some((p) => String(p.tracking_number || "").replace(/\s+/g, "") === t))
         ? `<p class="sub">${esc(s.items_per_parcel)}</p>` : "";
@@ -2604,6 +2635,7 @@
         <section class="sec">
           <div class="sec-head"><h3>Shipping</h3>${shipped || !weShip ? "" : '<button class="act" id="addParcelBtn" type="button">Add parcel</button>'}</div>
           ${parcelCards}
+          ${looseSection}
           ${unmatchedPacking}
         </section>
 
@@ -2714,6 +2746,27 @@
       // A label named after its tracking number fills the field.
       const base = String($("parcelFile").files[0]?.name || "").replace(/\.[^.]+$/, "");
       if (!$("parcelTracking").value && /^[A-Za-z0-9]{8,35}$/.test(base) && (base.match(/\d/g) || []).length >= 6) $("parcelTracking").value = base;
+    });
+
+    // A loose pair into a box, or out of the wrong one.
+    $("panelBody").addEventListener("change", async (event) => {
+      const picker = event.target.closest("[data-put-pair]");
+      if (!picker || !picker.value) return;
+
+      picker.disabled = true;
+
+      try {
+        const d = await postJson("/api/admin/external-sales/parcel/contents", {
+          sale: state.detail.sale.id,
+          pair: picker.dataset.putPair,
+          parcel: picker.value
+        });
+
+        applyDetail(d, "Put in the parcel.");
+      } catch (err) {
+        toast(err.message);
+        picker.disabled = false;
+      }
     });
 
     $("parcelSave").addEventListener("click", async () => {

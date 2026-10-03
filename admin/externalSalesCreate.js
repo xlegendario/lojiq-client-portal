@@ -404,9 +404,23 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
         }
       }
 
-      await db.insert("external_sale_pairs", p.pairs.map(({ profit, ...pair }) => ({ ...pair, sale_id: sale.id })));
+      const made = await db.insert("external_sale_pairs", p.pairs.map(({ profit, ...pair }) => ({ ...pair, sale_id: sale.id })));
+
       if (p.parcels.length) {
-        await db.insert("shipments", p.parcels.map((parcel) => ({ ...parcel, external_sale_id: sale.id, airtable_attachment_id: null })));
+        const boxes = await db.insert("shipments", p.parcels.map((parcel) => ({ ...parcel, external_sale_id: sale.id, airtable_attachment_id: null })));
+
+        /*
+         * One box holds everything, and nobody has to say so.
+         *
+         * With several the WMS does not ask which pair goes where, so they
+         * are left loose and put in a box from the deal panel - better an
+         * empty answer than a made-up one.
+         */
+        if (boxes.length === 1 && boxes[0]?.id) {
+          for (const pair of made) {
+            await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { shipment_id: boxes[0].id });
+          }
+        }
       }
 
       // Reserved, as the WMS always did - plus the deal it went to.
