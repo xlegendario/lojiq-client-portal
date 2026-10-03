@@ -1047,6 +1047,84 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     return answer;
   }
 
+  /*
+   * Taking a label back.
+   *
+   * The buyer changed his mind about the addresses, or two boxes turn out
+   * to be one. Everything that made this a parcel is undone - the label
+   * and the tracking off the pairs, the shipment off the sale - so they
+   * are waiting again and can be put in a box with the others.
+   *
+   * Not once he has posted it: then there is a parcel in the world, and
+   * pretending otherwise is how a pair goes missing on paper.
+   */
+  async function unship({ saleId, sellerRecordId, shipmentGroup = "" } = {}) {
+    const { deal, groups } = await shipments(saleId);
+    const parcel = text(shipmentGroup);
+
+    const group = groups.find((row) =>
+      row.seller_record_id === text(sellerRecordId) &&
+      (parcel ? row.shipment_group === parcel : Boolean(row.shipment_group)));
+
+    if (!group) throw new BrokerDealsError("That parcel is not on this deal.", 404);
+    if (!group.shipment_group) throw new BrokerDealsError("There is no label to take back.", 409);
+
+    if (group.shipped || group.delivered_at) {
+      throw new BrokerDealsError("That parcel is already on its way; it cannot be taken back.", 409);
+    }
+
+    for (const pair of group.pairs) {
+      if (!pair.pair_id) continue;
+
+      await db.patch(`external_sale_pairs?id=eq.${pair.pair_id}`, {
+        consignor_fulfillment_status: "Allocated",
+        consignor_label_url: null,
+        consignor_tracking_url: null,
+        shipment_group: null
+      });
+    }
+
+    // And the box itself, which Aftership would otherwise keep following.
+    if (text(group.tracking_url)) {
+      await db.remove(
+        `shipments?external_sale_id=eq.${deal.id}&tracking_number=eq.${encodeURIComponent(text(group.tracking_url))}`
+      ).catch((err) => console.error(`[admin broker deals] parcel ${group.tracking_url} not removed:`, err.message));
+    }
+
+    const left = await db.get(`shipments?select=id&external_sale_id=eq.${deal.id}`).catch(() => []);
+    const [fresh] = await db.get(`external_sales?select=*&id=eq.${deal.id}`);
+
+    if (fresh) {
+      const status = shippingStatusFor({
+        current: text(fresh.shipping_status),
+        cancelled: text(fresh.payment_status) === "cancelled",
+        parcels: left.length
+      });
+
+      if (status !== text(fresh.shipping_status)) {
+        await db.patch(`external_sales?id=eq.${fresh.id}`, { shipping_status: status, updated_at: new Date().toISOString() });
+      }
+    }
+
+    /*
+     * And he is told, because he has a label in his hand that must not go
+     * in the post. Non-blocking for the same reason the label notice is:
+     * the undo already happened.
+     */
+    const told = await kickz("/api/internal/broker/label-void", {
+      sale_id: deal.id,
+      seller_record_id: text(sellerRecordId),
+      deal_id: deal.deal_id,
+      tracking: text(group.tracking_url),
+      pairs: group.pairs.map((pair) => ({ sku: pair.sku, size: pair.size, product_name: pair.product_name }))
+    }).then((out) => out?.ok === true).catch((err) => {
+      console.error(`[admin broker deals] ${group.seller_id} was not told the label is void:`, err.message);
+      return false;
+    });
+
+    return { ok: true, pairs: group.pairs.length, told };
+  }
+
   // He has put it in the post. Nothing else in this system will ever know
   // that, so the broker is the one who says so.
   async function markShipped({ saleId, sellerRecordId, shipmentGroup = "" } = {}) {
@@ -1318,7 +1396,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
   return {
     list, count, get, create, attachBuyer, createBuyer, addLine, removeLine, priceLine, submit, answer, confirmDeal, buyers,
-    shipments, shipConsignor, markShipped
+    shipments, shipConsignor, unship, markShipped
   };
 }
 
@@ -1451,6 +1529,29 @@ export function mountBrokerDeals(router, { store, audit = null }) {
         source: "broker_deals",
         recordId: text(req.params.id),
         label: out.shipment_group,
+        details: { pairs: out.pairs, told: out.told }
+      })?.catch?.(() => {});
+
+      res.json(out);
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.post("/api/admin/broker-deals/:id/unship", json, async (req, res) => {
+    try {
+      const out = await store.unship({
+        saleId: req.params.id,
+        sellerRecordId: req.body?.seller_record_id,
+        shipmentGroup: req.body?.shipment_group
+      });
+
+      audit?.record({
+        actor: req.admin,
+        action: "broker_deal_label_void",
+        source: "broker_deals",
+        recordId: text(req.params.id),
+        label: text(req.body?.shipment_group),
         details: { pairs: out.pairs, told: out.told }
       })?.catch?.(() => {});
 

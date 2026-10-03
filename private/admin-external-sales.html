@@ -2298,7 +2298,9 @@
                   ${parcelState(g)}
                   ${g.label_url ? `<a class="btn ghost" href="${esc(g.label_url)}" target="_blank" rel="noopener">Label</a>` : ""}
                   <span class="sub mono">${esc(g.tracking_url || "")}</span>
-                  ${g.shipped ? "" : `<button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}" data-parcel="${esc(g.shipment_group)}">Mark shipped</button>`}
+                  ${g.shipped ? "" : `
+                    <button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}" data-parcel="${esc(g.shipment_group)}">Mark shipped</button>
+                    <button class="btn ghost" type="button" data-inbound="unship" data-seller="${esc(g.seller_record_id)}" data-parcel="${esc(g.shipment_group)}">Take it back</button>`}
                 </div>`
               : `
                 <form data-inbound="ship" data-seller="${esc(g.seller_record_id)}" style="display:flex;flex-direction:column;gap:9px">
@@ -2956,6 +2958,34 @@
         toast(err.message);
         button.disabled = false;
         button.textContent = "Send the label";
+      }
+    });
+
+    /*
+     * Undoing a label. Everything that made it a parcel goes, so the pairs
+     * are waiting again and can go in a box with the others.
+     */
+    $("panelBody").addEventListener("click", async (event) => {
+      const back = event.target.closest('[data-inbound="unship"]');
+      if (!back) return;
+
+      if (!confirm("Take this label back?
+
+The pairs go back to waiting and he is told not to post it. Only do this if it is still on his desk.")) return;
+
+      back.disabled = true;
+
+      try {
+        const out = await postJson(`/api/admin/broker-deals/${encodeURIComponent(state.selected)}/unship`, {
+          seller_record_id: back.dataset.seller,
+          shipment_group: back.dataset.parcel || ""
+        });
+
+        toast(out.told ? "Taken back - he has been told." : "Taken back, but he was not reachable on Discord.");
+        openPanel(state.selected);
+      } catch (err) {
+        toast(err.message);
+        back.disabled = false;
       }
     });
 
