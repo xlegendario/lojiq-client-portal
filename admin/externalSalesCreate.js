@@ -356,7 +356,13 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
           "Payment Note": `${round2(row?.partner_price).toFixed(2)}`,
           "Availability Status": "Reserved",
           "Selling Method": "Kickz Caviar",
-          "External Deal ID": deal
+          "External Deal ID": deal,
+          /*
+           * What it is being sold for, the way a consignment unit has
+           * carried it all along. Airtable works the margin out from this
+           * field, so a unit without it reads as a pair that made nothing.
+           */
+          "Selling Price": round2(pair.selling_price)
         });
 
         pair.inventory_unit_record_id = unit.id;
@@ -410,13 +416,14 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
           await airtable.update("Inventory Units", pair.inventory_unit_record_id, {
             "Availability Status": "Reserved",
             "Selling Method": "Kickz Caviar",
-            "External Deal ID": deal
+            "External Deal ID": deal,
+            "Selling Price": round2(pair.selling_price)
           });
           reserved.push(pair.inventory_unit_record_id);
         }
       } catch (err) {
         for (const id of reserved) {
-          await airtable.update("Inventory Units", id, { "Availability Status": "Available", "External Deal ID": "" }).catch(() => {});
+          await airtable.update("Inventory Units", id, { "Availability Status": "Available", "External Deal ID": "", "Selling Price": null }).catch(() => {});
         }
         throw err;
       }

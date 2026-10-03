@@ -284,6 +284,12 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
           // Sellable again, or off the shelf for good.
           "Availability Status": rule.available ? "Available" : "Inactive",
           "Cancel Status": rule.status,
+          /*
+           * Back on the shelf means back to no price: the sale it was
+           * going for did not happen, and leaving the number on it would
+           * have Airtable counting profit on a pair nobody bought.
+           */
+          ...(rule.available ? { "Selling Price": null } : {}),
           // The deal it came off stays on the unit: without it nothing says
           // which sale a lost or consigned pair belonged to.
           "Item Condition": conditionWith(conditionNote(sale, outcome), text(unit["Item Condition"]))
