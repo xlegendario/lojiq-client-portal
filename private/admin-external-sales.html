@@ -151,6 +151,24 @@
     tbody tr[data-id] { cursor: pointer; }
     tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
 
+    /*
+     * The deal table is wider than any screen, and what you came to do is
+     * on the far right. So the buttons stay put while the numbers scroll
+     * underneath them.
+     *
+     * The background is painted opaque and the row's own tint laid over it
+     * as an image: a see-through sticky cell would show the columns
+     * sliding past behind the buttons.
+     */
+    .deal-table th.act, .deal-table td.act { position: sticky; right: 0; background-color: var(--panel); border-left: 1px solid var(--border); }
+    .deal-table td.act { z-index: 3; }
+    .deal-table th.act { z-index: 5; background-color: var(--panel-2); }
+    .deal-table tbody tr:hover td.act { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+    .deal-table tbody tr.selected td.act { background-image: linear-gradient(rgba(102, 179, 255, 0.12), rgba(102, 179, 255, 0.12)); }
+    .deal-table td.act { display: table-cell; }
+    .deal-table .act .btn { margin-right: 4px; }
+    .deal-table .act .btn:last-child { margin-right: 0; }
+
     /* Side panel, as on the Store Orders and Member WTBs tabs. */
     .panel { position: fixed; top: 0; right: 0; width: min(480px, 100%); height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -20px 0 50px var(--shadow); z-index: 40; display: flex; flex-direction: column; }
     .panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -976,29 +994,43 @@
     }
 
     function lineButtons(o) {
-      if (o.done) return "—";
+      const main = () => {
+        if (o.done) return "";
 
-      if (o.offerable) {
-        return `<button class="btn primary" type="button" data-draft="offer" data-id="${esc(o.id)}">Offer</button>
-                <button class="btn ghost" type="button" data-draft="remove" data-id="${esc(o.id)}">Remove</button>`;
-      }
+        if (o.offerable) {
+          return `<button class="btn primary" type="button" data-draft="offer" data-id="${esc(o.id)}">Offer</button>
+                  <button class="btn ghost" type="button" data-draft="remove" data-id="${esc(o.id)}">Remove</button>`;
+        }
 
-      if (o.closable) {
-        return `<button class="btn primary" type="button" data-draft="finalize" data-id="${esc(o.id)}">Buy it</button>
-                <button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
-      }
+        if (o.closable) {
+          return `<button class="btn primary" type="button" data-draft="finalize" data-id="${esc(o.id)}">Buy it</button>
+                  <button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
+        }
 
-      if (o.yours) {
-        return `<button class="btn primary" type="button" data-draft="accept" data-id="${esc(o.id)}">Accept</button>
-                <button class="btn" type="button" data-draft="counter" data-id="${esc(o.id)}">Counter</button>
-                <button class="btn ghost" type="button" data-draft="deny" data-id="${esc(o.id)}">Decline</button>`;
-      }
+        if (o.yours) {
+          return `<button class="btn primary" type="button" data-draft="accept" data-id="${esc(o.id)}">Accept</button>
+                  <button class="btn" type="button" data-draft="counter" data-id="${esc(o.id)}">Counter</button>
+                  <button class="btn ghost" type="button" data-draft="deny" data-id="${esc(o.id)}">Decline</button>`;
+        }
 
-      if (o.stoppable) {
-        return `<button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
-      }
+        if (o.stoppable) {
+          return `<button class="btn ghost" type="button" data-draft="discard" data-id="${esc(o.id)}">Drop</button>`;
+        }
 
-      return "—";
+        return "";
+      };
+
+      /*
+       * Giving him longer is an action like any other, so it sits with the
+       * others instead of hiding behind the clock - a countdown that turns
+       * out to be a button is not something you find, and not something you
+       * dare press when you do.
+       */
+      const extend = o.due_at
+        ? `<button class="btn ghost" type="button" data-draft="extend" data-id="${esc(o.id)}">Extend</button>`
+        : "";
+
+      return [main(), extend].filter(Boolean).join(" ") || "—";
     }
 
     function drawDraftList() {
@@ -1067,11 +1099,11 @@
         ${newBuyerForm()}` : ""}
 
         <div class="table-wrap">
-          <table>
+          <table class="deal-table">
             <thead><tr>
               <th>Product</th><th>Size</th><th>Consignor</th>
               <th class="money">He asks</th><th class="money">You offered</th><th class="money">He wants</th>
-              <th class="money">Buyer pays</th><th class="money">Margin</th><th>State</th><th>Answer</th>
+              <th class="money">Buyer pays</th><th class="money">Margin</th><th>State</th><th class="act">Actions</th>
             </tr></thead>
             <tbody>
               ${lines.length ? lines.map((o) => `
@@ -1089,9 +1121,9 @@
                   <td class="money">${o.margin === null ? "—" : esc(euro(o.margin))}</td>
                   <td>
                     <span class="pill ${LINE_PILL[o.status] ?? ""}">${esc(o.state)}</span>
-                    ${o.due_at ? ` <button class="linky" type="button" data-draft="extend" data-id="${esc(o.id)}" title="Runs out ${esc(when(o.due_at))}. Click to give it another 24 hours.">${esc(clockText(o.due_at))}</button>` : ""}
+                    ${o.due_at ? ` <span class="sub" title="Runs out ${esc(when(o.due_at))}">${esc(clockText(o.due_at))}</span>` : ""}
                   </td>
-                  <td>${lineButtons(o)}</td>
+                  <td class="act">${lineButtons(o)}</td>
                 </tr>`).join("") : `<tr><td class="empty" colspan="10">No pairs on this deal yet.</td></tr>`}
             </tbody>
           </table>
@@ -1216,7 +1248,7 @@
       if (what === "deny" && !window.confirm(`Decline ${who} on ${line.sku} ${line.size}?`)) return;
 
       if (what === "extend" && !window.confirm(
-        `Give ${line.sku} ${line.size} another 24 hours?\n\nIt runs out ${when(line.due_at)} as it stands.`
+        `Extend the negotiation by another 24 hours?\n\n${line.sku} ${line.size} runs out ${when(line.due_at)} as it stands.`
       )) return;
 
       if (what === "discard" && !window.confirm(
