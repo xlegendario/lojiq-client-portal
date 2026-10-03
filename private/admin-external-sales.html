@@ -165,6 +165,17 @@
      * cell wearing it became a button itself - its own border, its own
      * background, and a pointing hand over the whole column.
      */
+    /* What is still with the consignors: one block per parcel, a shoe per
+       line, and the sending underneath it. */
+    .inbound-group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 9px; }
+    .inbound-group + .inbound-group { margin-top: 8px; }
+    .inbound-pair { display: flex; gap: 9px; align-items: flex-start; font-size: 12.5px; }
+    .inbound-pair input { margin: 1px 0 0; accent-color: var(--primary); width: 15px; height: 15px; flex: 0 0 auto; cursor: pointer; }
+    .inbound-pair .what { display: flex; flex-direction: column; min-width: 0; }
+    .inbound-pair .what strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inbound-send { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-top: 1px solid var(--border); padding-top: 9px; }
+    .inbound-send input[type="file"] { font-size: 11.5px; max-width: 210px; }
+
     .deal-table th.acts, .deal-table td.acts { position: sticky; right: 0; background-color: var(--panel); border-left: 1px solid var(--border); }
     .deal-table td.acts { z-index: 3; }
     .deal-table th.acts { z-index: 5; background-color: var(--panel-2); }
@@ -2224,6 +2235,28 @@
      * are one parcel on one label, and three labels would mean three boxes.
      * He sees the same grouping in his own dashboard.
      */
+    /*
+     * A shoe, by its name first.
+     *
+     * A code and a size is what the database calls it; the broker is
+     * looking at a box on a shelf, and he recognises the shoe.
+     *
+     * Tickable only when the consignor has more than one pair waiting: with
+     * one there is nothing to choose, and a tick you cannot untick is a
+     * control that does nothing.
+     */
+    function shoeLine(pair, pickable = false) {
+      const what = `
+        <span class="what">
+          <strong>${esc(pair.product_name || pair.sku || "—")}</strong>
+          <span class="sub">${esc(pair.sku)} · size ${esc(pair.size)}${pair.item_id ? ` · ${esc(pair.item_id)}` : ""}</span>
+        </span>`;
+
+      return pickable
+        ? `<label class="inbound-pair"><input type="checkbox" name="pair" value="${esc(pair.pair_id)}" checked>${what}</label>`
+        : `<div class="inbound-pair" style="padding-left:24px">${what}</div>`;
+    }
+
     function inboundSection() {
       const groups = state.inbound?.groups || [];
 
@@ -2233,31 +2266,28 @@
         <section class="sec">
           <h3>Coming in from consignors</h3>
           ${groups.map((g) => `
-            <div class="pairs" style="margin-bottom:10px">
+            <div class="inbound-group">
               <div class="inline" style="justify-content:space-between">
                 <strong>${esc(g.party || g.seller_id || "—")}</strong>
                 <span class="sub">${g.pairs.length} pair${g.pairs.length === 1 ? "" : "s"}${g.shipment_group ? ` · ${esc(g.shipment_group)}` : ""}</span>
               </div>
-              ${g.shipment_group
-                ? `<div class="sub">${g.pairs.map((p) => `${esc(p.sku)} ${esc(p.size)}`).join(" · ")}</div>`
-                : g.pairs.map((p) => `
-                  <label class="sub" style="display:flex;gap:6px;align-items:center">
-                    <input type="checkbox" name="pair" value="${esc(p.pair_id)}" checked${g.pairs.length === 1 ? " disabled" : ""}>
-                    ${esc(p.sku)} ${esc(p.size)}
-                  </label>`).join("")}
 
               ${g.step === "Ready to Ship" ? `
-                <div class="inline" style="gap:8px;margin-top:6px">
+                ${g.pairs.map((p) => shoeLine(p)).join("")}
+                <div class="inbound-send">
                   <span class="pill ${g.shipped ? "good" : "move"}">${g.shipped ? "Shipped" : "Label sent"}</span>
                   ${g.label_url ? `<a class="btn ghost" href="${esc(g.label_url)}" target="_blank" rel="noopener">Label</a>` : ""}
                   <span class="sub mono">${esc(g.tracking_url || "")}</span>
                   ${g.shipped ? "" : `<button class="btn" type="button" data-inbound="shipped" data-seller="${esc(g.seller_record_id)}" data-parcel="${esc(g.shipment_group)}">Mark shipped</button>`}
                 </div>`
               : `
-                <form class="inline" style="gap:8px;margin-top:6px" data-inbound="ship" data-seller="${esc(g.seller_record_id)}">
-                  <input class="input" type="file" name="label" accept="application/pdf,image/*" required style="max-width:200px">
-                  <input class="input" name="tracking" placeholder="Tracking number" autocomplete="off" required style="width:180px">
-                  <button class="btn primary" type="submit">Send the label</button>
+                <form data-inbound="ship" data-seller="${esc(g.seller_record_id)}" style="display:flex;flex-direction:column;gap:9px">
+                  ${g.pairs.map((p) => shoeLine(p, g.pairs.length > 1)).join("")}
+                  <div class="inbound-send">
+                    <input class="input" type="file" name="label" accept="application/pdf,image/*" required>
+                    <input class="input" name="tracking" placeholder="Tracking number" autocomplete="off" required style="width:170px">
+                    <button class="btn primary" type="submit">Send the label</button>
+                  </div>
                 </form>`}
             </div>`).join("")}
         </section>`;
@@ -2870,9 +2900,11 @@
        * buyer who wants two pairs at two addresses gets two labels, and
        * the one left behind waits here for its own.
        */
-      const picked = [...form.querySelectorAll('input[name="pair"]:checked')].map((box) => box.value);
+      const boxes = [...form.querySelectorAll('input[name="pair"]')];
+      const picked = boxes.filter((box) => box.checked).map((box) => box.value);
 
-      if (!picked.length) {
+      // No ticks at all means he has one pair waiting: it goes.
+      if (boxes.length && !picked.length) {
         toast("Which pairs go in this parcel?");
         return;
       }
