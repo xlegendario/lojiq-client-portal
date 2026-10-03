@@ -707,7 +707,7 @@ test("a consignor can be given one label per pair", async () => {
   assert.notEqual(tables.external_sale_pairs.find((pair) => pair.id === "p2").consignor_shipping_status, "Shipped");
 });
 
-test("two parcels cannot share a tracking number", async () => {
+test("a tracking number is used once, on any deal", async () => {
   const { store } = shipShop();
 
   await store.shipConsignor({
@@ -720,7 +720,7 @@ test("two parcels cannot share a tracking number", async () => {
       saleId: SALE.id, sellerRecordId: "recCONSIGNOR1234", pairIds: ["p2"],
       labelUrl: "https://x/two.pdf", tracking: "3SSAME"
     }),
-    /already on this deal/
+    /already on a parcel/
   );
 });
 
