@@ -489,8 +489,13 @@ test("confirming draws the line: what is bought becomes the sale", async () => {
   assert.equal(out.dropped, 2, "the one still out and the one never offered");
 
   // The round that was out is dropped through the portal, so the consignor
-  // hears about it on the same terms as any other drop.
-  assert.deepEqual(sent, [{ path: "/api/internal/partner-deal/discard", body: { offer_id: "o2" } }]);
+  // hears about it on the same terms as any other drop - and everyone who
+  // did sell into the deal is told it closed.
+  assert.deepEqual(sent.map((call) => call.path), [
+    "/api/internal/partner-deal/discard",
+    "/api/internal/broker/deal-confirmed"
+  ]);
+  assert.deepEqual(sent[0].body, { offer_id: "o2" });
 
   assert.equal(tables.deal_lines.find((l) => l.id === "l2").status, "cancelled");
   assert.equal(tables.deal_lines.find((l) => l.id === "l3").status, "cancelled");

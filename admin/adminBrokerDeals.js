@@ -1151,6 +1151,22 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       });
     }
 
+    /*
+     * And everyone who sold into it hears that it closed.
+     *
+     * His own message said he would get the deal update once it was
+     * finalized; without this the next thing he actually gets is a
+     * shipping label, which can be hours away. Not fatal if it fails -
+     * the pair is bought either way - so it does not hold the deal.
+     */
+    const spoke = await kickz("/api/internal/broker/deal-confirmed", {
+      sale_id: sale.id,
+      deal_id: dealId(sale)
+    }).catch((err) => {
+      console.error("[admin broker deals] consignors not told the deal closed:", err.message);
+      return null;
+    });
+
     const pairs = await db.get(`external_sale_pairs?select=selling_price,cancelled_at&sale_id=eq.${sale.id}`);
     const live = pairs.filter((pair) => !pair.cancelled_at);
 
@@ -1169,7 +1185,9 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       deal_id: dealId(sale),
       pairs: bought.length,
       dropped: dropping.length,
-      told
+      told,
+      // How many consignors heard that the deal closed.
+      closed_told: Number(spoke?.told) || 0
     };
   }
 
