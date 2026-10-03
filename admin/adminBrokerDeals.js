@@ -223,7 +223,7 @@ export const VIEWS = {
  *              A function, because the services it is built from are wired
  *              up after this store is made.
  */
-export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupUrl = null }) {
+export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupUrl = null, bookPurchases = null }) {
   const whereToSignUp = () => text(typeof signupUrl === "function" ? signupUrl() : signupUrl);
 
   const kickz = (path, body) => {
@@ -1723,6 +1723,24 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       return null;
     });
 
+    /*
+     * What this deal bought, into the books.
+     *
+     * A pair off a partner's or a consignor's shelf leaves our stock on
+     * this sale without ever having been put into it, so the purchase has
+     * to be booked or the stock correction stands alone. Our own pairs are
+     * skipped: they were bought and booked at their own time.
+     *
+     * It does not hold the confirmation - the sale is real either way, and
+     * an unbooked purchase is on the health page until somebody fixes it.
+     */
+    const books = bookPurchases
+      ? await bookPurchases(sale.id).catch((err) => {
+          console.error("[admin broker deals] purchases not booked:", err.message);
+          return null;
+        })
+      : null;
+
     const pairs = await db.get(`external_sale_pairs?select=selling_price,cancelled_at&sale_id=eq.${sale.id}`);
     const live = pairs.filter((pair) => !pair.cancelled_at);
 
@@ -1743,7 +1761,8 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       dropped: dropping.length,
       told,
       // How many consignors heard that the deal closed.
-      closed_told: Number(spoke?.told) || 0
+      closed_told: Number(spoke?.told) || 0,
+      booked: Array.isArray(books?.booked) ? books.booked.length : 0
     };
   }
 

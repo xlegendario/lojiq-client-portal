@@ -90,7 +90,7 @@ const offer = (extra = {}) => ({
  * said. Every table is a list; a patch rewrites the rows it matches, which
  * is enough for `id=eq.` and `sale_id=eq.` - the only two shapes used.
  */
-function shop({ sales = [SALE], lines = [], offers = [], pairs = [], partner_stock = [], kickz = null } = {}) {
+function shop({ sales = [SALE], lines = [], offers = [], pairs = [], partner_stock = [], kickz = null, bookPurchases = null } = {}) {
   // Copied per row, not per list: a patch writes into the row object, and
   // a shared fixture would carry one test's deal into the next.
   const copy = (rows) => rows.map((row) => ({ ...row }));
@@ -181,6 +181,7 @@ function shop({ sales = [SALE], lines = [], offers = [], pairs = [], partner_sto
   const store = createBrokerDealsStore({
     db,
     airtable,
+    bookPurchases,
     tellKickz: async (path, body) => {
       // A test that brought its own answers gets the first word.
       if (kickz) {
@@ -459,6 +460,41 @@ test("confirming buys every locked pair", async () => {
  * must not leave half a deal invoiceable. The ones that did go through
  * stay bought, so fixing the number and confirming again carries on.
  */
+test("confirming books what the deal bought", async () => {
+  const asked = [];
+
+  const { store } = shop({
+    lines: [
+      line({ id: "l1", status: "locked", source: "own", offer_id: null, inventory_unit_record_id: "recUNIT0000000001", buyer_price: 220, payout: 150 })
+    ],
+    offers: [],
+    bookPurchases: async (id) => { asked.push(id); return { booked: ["CS-001: booked"], failed: [] }; }
+  });
+
+  const out = await store.confirmDeal(SALE.id);
+
+  assert.deepEqual(asked, [SALE.id], "the books are told once, for the deal");
+  assert.equal(out.booked, 1);
+});
+
+/*
+ * Rompslomp being down must not leave a confirmed deal half made: the sale
+ * is real either way, and the health page carries what is unbooked.
+ */
+test("a refused booking does not hold the confirmation", async () => {
+  const { store, tables } = shop({
+    lines: [line({ id: "l1", status: "locked", source: "own", offer_id: null, inventory_unit_record_id: "recUNIT0000000001", buyer_price: 220, payout: 150 })],
+    offers: [],
+    bookPurchases: async () => { throw new Error("Rompslomp is not answering."); }
+  });
+
+  const out = await store.confirmDeal(SALE.id);
+
+  assert.equal(out.pairs, 1);
+  assert.equal(out.booked, 0);
+  assert.equal(tables.external_sales[0].stage, "open", "the deal still stands");
+});
+
 test("a pair that cannot be bought holds the whole confirmation", async () => {
   const { store, tables } = shop({
     lines: [

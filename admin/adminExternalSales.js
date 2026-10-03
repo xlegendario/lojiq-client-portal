@@ -169,9 +169,9 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
     live.flatMap((s) => (parcelsBySale.get(s.id) || []).filter((p) => p.status === "exception")
       .map((p) => row(s, `${p.tracking_number || "no tracking"}${p.tracking_detail ? ` - ${p.tracking_detail}` : ""}`))));
 
-  add("purchase_unbooked", "error", "Partner pair bought but not booked", "The sale took it off the partner's shelf, but the purchase never reached Rompslomp - so the stock correction takes out stock that was never put in. Open the deal and click Book purchase.",
+  add("purchase_unbooked", "error", "Pair bought but not booked", "The sale took it off a partner's or a consignor's shelf, but the purchase never reached Rompslomp - so the stock correction takes out stock that was never put in. Open the deal and click Book purchase.",
     live.flatMap((s) => (pairsBySale.get(s.id) || [])
-      .filter((p) => p.partner_stock_id && !p.purchase_expense_id)
+      .filter((p) => (p.partner_stock_id || p.consignor_fulfillment_status) && !p.purchase_expense_id)
       .map((p) => row(s, `${p.item_id || p.sku || "pair"} · € ${Number(p.purchase_price_ex_vat || 0).toFixed(2)}`))));
 
   /*
@@ -604,7 +604,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
      * from the books just the same.
      */
     const open = [];
-    for (const pair of pairs.filter((pair) => pair.partner_stock_id)) {
+    for (const pair of pairs.filter(boughtFromSomebody)) {
       if (!text(pair.purchase_expense_id)) {
         open.push(pair);
         continue;
@@ -660,9 +660,34 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
    * "SE-00781".
    */
   async function sellerOfPair(pair) {
-    const [row] = await db.get(`partner_stock?select=seller_id,seller_record_id&id=eq.${pair.partner_stock_id}`);
-    return sellerNames(text(row?.seller_record_id), text(row?.seller_id));
+    if (text(pair.partner_stock_id)) {
+      const [row] = await db.get(`partner_stock?select=seller_id,seller_record_id&id=eq.${pair.partner_stock_id}`);
+      return sellerNames(text(row?.seller_record_id), text(row?.seller_id));
+    }
+
+    /*
+     * A consignor's pair on a broker deal. He is not on the pair - the
+     * pair only knows it came from somewhere - so he is found through the
+     * deal line and the round that was agreed with him.
+     */
+    const [line] = await db.get(`deal_lines?select=offer_id&external_sale_pair_id=eq.${pair.id}`);
+
+    const [round] = text(line?.offer_id)
+      ? await db.get(`consignment_offers?select=seller_id,seller_record_id&id=eq.${text(line.offer_id)}`)
+      : [];
+
+    return sellerNames(text(round?.seller_record_id), text(round?.seller_id));
   }
+
+  /*
+   * A pair we bought from somebody, and therefore owe a purchase booking.
+   *
+   * Partner stock and a consignor's pair on a broker deal: both leave our
+   * shelf on this sale without ever having been put into it. A pair of our
+   * own was bought and booked long ago.
+   */
+  const boughtFromSomebody = (pair) =>
+    Boolean(text(pair.partner_stock_id) || text(pair.consignor_fulfillment_status));
 
   async function sellerNames(recordId, sellerId) {
     const found = recordId

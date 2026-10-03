@@ -494,6 +494,11 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
     airtable,
 
+    // Confirming a deal buys pairs off a partner or a consignor, and a
+    // purchase that never reaches Rompslomp leaves the sale's stock
+    // correction taking out stock that was never put in.
+    bookPurchases: (id) => externalSalesStore.bookPurchases(id),
+
     tellKickz: (pathName, body) => {
       const base = service(services.kickzBaseUrl);
 
