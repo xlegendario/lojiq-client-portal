@@ -693,6 +693,11 @@ test("a consignor can be given one label per pair", async () => {
   });
 
   assert.equal(second.pairs, 1);
+
+  // Each box is a shipment of the sale, which is what Aftership follows and
+  // what the deal reads its own shipping status from.
+  assert.equal(tables.shipments.length, 2, "two boxes, two shipments");
+  assert.equal(tables.external_sales[0].shipping_status, "ready_to_ship");
   assert.notEqual(second.shipment_group, first.shipment_group, "two boxes, two names");
 
   // And each is marked shipped on its own.

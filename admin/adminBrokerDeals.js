@@ -22,7 +22,7 @@
 import express from "express";
 
 import { pairFromUnit } from "./externalSalesCreate.js";
-import { dealId, sellingVatType } from "./externalSalesSync.js";
+import { dealId, sellingVatType, shippingStatusFor } from "./externalSalesSync.js";
 import { CLOCK_HOURS, dealDeadline } from "./adminPartnerDeals.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
@@ -939,6 +939,49 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
         consignor_tracking_url: number,
         shipment_group: name
       });
+    }
+
+    /*
+     * And the parcel itself, as a shipment of this sale.
+     *
+     * He posts it straight to the buyer, so his box IS the sale's box: one
+     * row per parcel, which is what Aftership follows and what the deal
+     * reads its own shipping status from. Without it the pairs would carry
+     * a tracking number nothing ever looks at, and a deal with two boxes
+     * out would sit on Pending for good.
+     *
+     * Several parcels is nothing new here - an ordinary sale has had one
+     * row per box all along, each with its own delivered moment.
+     */
+    await db.insert("shipments", [{
+      external_sale_id: deal.id,
+      tracking_number: number,
+      label_url: url,
+      label_filename: text(label?.name) || null,
+      airtable_attachment_id: null
+    }]).catch((err) => {
+      console.error(`[admin broker deals] ${name} was not added as a shipment:`, err.message);
+    });
+
+    /*
+     * And the deal follows its boxes, by the rule External Sales already
+     * has: a first parcel makes it Ready to Ship. Borrowed rather than
+     * rewritten - two places deciding what "shipped" means is how they end
+     * up disagreeing.
+     */
+    const parcels = await db.get(`shipments?select=id&external_sale_id=eq.${deal.id}`).catch(() => []);
+    const [fresh] = await db.get(`external_sales?select=*&id=eq.${deal.id}`);
+
+    if (fresh) {
+      const status = shippingStatusFor({
+        current: text(fresh.shipping_status),
+        cancelled: text(fresh.payment_status) === "cancelled",
+        parcels: parcels.length
+      });
+
+      if (status !== text(fresh.shipping_status)) {
+        await db.patch(`external_sales?id=eq.${fresh.id}`, { shipping_status: status, updated_at: new Date().toISOString() });
+      }
     }
 
     /*
