@@ -1239,7 +1239,15 @@
         }
       }
 
-      if (what === "price" || what === "finalize") {
+      /*
+       * The buyer price is only asked for when there is none.
+       *
+       * It was set when the pair went on the deal and it is editable in
+       * its own column, so asking again on the way to buying was a second
+       * window in front of a window - and the confirm underneath already
+       * says the number and the margin it leaves.
+       */
+      if (what === "price" || (what === "finalize" && !(line.buyer_price > 0))) {
         const typed = window.prompt(
           what === "finalize"
             ? `Buying ${line.sku} ${line.size}. ${who} gets ${euro(line.payout)}.\n\nWhat does your buyer pay?`
@@ -1249,21 +1257,27 @@
 
         if (typed === null) return;
         buyerPrice = Number(String(typed).replace(",", "."));
+      }
 
+      if (what === "finalize") {
+        if (buyerPrice === undefined) buyerPrice = Number(line.buyer_price);
+      }
+
+      if (buyerPrice !== undefined) {
         if (!(buyerPrice > 0)) { toast("What does the buyer pay?"); return; }
 
         if (line.payout > 0 && buyerPrice <= line.payout) {
           toast(`${euro(buyerPrice)} does not cover the ${euro(line.payout)} going to ${who}.`);
           return;
         }
-
-        // Buying is the irreversible one: it makes the unit, takes the pair
-        // off his shelf and puts it on the sale.
-        if (what === "finalize" && !window.confirm(
-          `Buy this pair?\n\n${who} is paid ${euro(line.payout)} and ships it.\n` +
-          `Your buyer pays ${euro(buyerPrice)}, so you keep ${euro(buyerPrice - line.payout)}.`
-        )) return;
       }
+
+      // Buying is the irreversible one: it makes the unit, takes the pair
+      // off his shelf and puts it on the sale.
+      if (what === "finalize" && !window.confirm(
+        `Buy ${line.sku} ${line.size}?\n\n${who} is paid ${euro(line.payout)} and ships it.\n` +
+        `Your buyer pays ${euro(buyerPrice)}, so you keep ${euro(buyerPrice - line.payout)}.`
+      )) return;
 
       if (what === "accept" && !window.confirm(
         `Agree ${euro(line.countered ?? line.offered)} with ${who}?\n\nNothing is bought yet - you close it once your buyer is in.`
