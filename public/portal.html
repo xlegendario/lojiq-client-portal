@@ -4567,14 +4567,27 @@ async function consignmentCounter(offerId, isMemberWtb) {
       }
 
       const hiddenForManual = [
-        document.querySelector('[data-section-toggle="returns"]'),
-        document.getElementById("section-returns"),
         document.querySelector('.nav-sub[data-view="issues"]')
       ];
 
       hiddenForManual.forEach((el) => {
         if (el) el.style.display = manual ? "none" : "";
       });
+
+      // Returns also goes for a store we switched it off for by hand.
+      const hideReturns = manual || merchant?.hide_returns === true;
+
+      [
+        document.querySelector('[data-section-toggle="returns"]'),
+        document.getElementById("section-returns")
+      ].forEach((el) => {
+        if (el) el.style.display = hideReturns ? "none" : "";
+      });
+
+      if (hideReturns && currentView === "returns") {
+        currentView = "open";
+        localStorage.setItem("lojiq_current_view", currentView);
+      }
 
       // The shop is where a store puts its demand in by hand. An API store
       // gets its orders through the integration and has no use for it.

@@ -210,6 +210,12 @@ function getFirstAttachmentUrl(value) {
   return value[0].url;
 }
 
+// Stores whose portal does not show the Returns tab, keyed on the Merchants
+// record id. /api/returns answers empty for them as well.
+const HIDE_RETURNS_MERCHANTS = new Set([
+  "rec06TCmWGe4A9cPk" // Snrkickz
+]);
+
 function normalizeMerchant(record) {
   return {
     id: record.id,
@@ -222,6 +228,7 @@ function normalizeMerchant(record) {
       : [],
     stockx_account_mode: asText(record.fields["StockX Account Mode"]),
     goat_account_mode: asText(record.fields["GOAT Account Mode"]),
+    hide_returns: HIDE_RETURNS_MERCHANTS.has(record.id),
 
     // NEW - where this store's demand comes from. Blank means API,
     // which is every merchant that exists today, so nothing changes
@@ -357,7 +364,8 @@ app.post("/api/login", async (req, res) => {
         stockx_account_mode: merchant.stockx_account_mode,
 
         // NEW - the sidebar hides what a manual store has no data for.
-        order_intake: merchant.order_intake
+        order_intake: merchant.order_intake,
+        hide_returns: merchant.hide_returns
       }
     });
   } catch (err) {
@@ -1843,7 +1851,8 @@ app.get("/api/orders", async (req, res) => {
           portal_email: merchant.portal_email,
           stockx_account_mode: merchant.stockx_account_mode,
           goat_account_mode: merchant.goat_account_mode,
-          order_intake: merchant.order_intake
+          order_intake: merchant.order_intake,
+          hide_returns: merchant.hide_returns
         },
         view,
         count: orders.length,
@@ -2034,7 +2043,8 @@ app.get("/api/orders", async (req, res) => {
         portal_email: merchant.portal_email,
         stockx_account_mode: merchant.stockx_account_mode,
         goat_account_mode: merchant.goat_account_mode,
-        order_intake: merchant.order_intake
+        order_intake: merchant.order_intake,
+        hide_returns: merchant.hide_returns
       },
       view,
       count: orders.length,
@@ -2110,6 +2120,11 @@ app.get("/api/orders/counts", async (req, res) => {
       views.map(async (view) => {
     
         if (view === "returns") {
+          if (merchant.hide_returns) {
+            counts[view] = 0;
+            return;
+          }
+
           const records = await airtable(AIRTABLE_RETURNS_TABLE)
             .select({
               fields: ["Shopify Order Number", "Client"]
@@ -2203,6 +2218,18 @@ app.get("/api/returns", async (req, res) => {
     }
 
     const merchant = await getCachedMerchant(merchantId);
+
+    if (merchant.hide_returns) {
+      return res.json({
+        merchant: { id: merchant.id, hide_returns: true },
+        view: "returns",
+        count: 0,
+        next_offset: "",
+        has_more: false,
+        orders: []
+      });
+    }
+
     const safeStoreName = escapeFormulaValue(merchant.store_name);
 
     const airtableUrl = new URL(
