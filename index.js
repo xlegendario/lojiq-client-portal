@@ -1109,6 +1109,24 @@ const MEMBER_WTB_VIEW_FORMULAS = {
 // Views that only exist on the API side. A manual store has no StockX
 // account, no inventory with us and no issue log, so these stay empty
 // rather than throwing on a field that is not there.
+// Per-store start date for the Fulfilled tab, keyed on the Merchants record
+// id. Orders delivered before it stay out of that tab and its count; every
+// other view is unaffected.
+const FULFILLED_VIEW_CUTOFF_BY_MERCHANT = {
+  rec06TCmWGe4A9cPk: "2026-08-01" // Snrkickz
+};
+
+function fulfilledCutoffFormula(view, merchant, dateField) {
+  const cutoff = view === "fulfilled" && FULFILLED_VIEW_CUTOFF_BY_MERCHANT[merchant?.id];
+
+  if (!cutoff) return "";
+
+  return `AND(
+    {${dateField}} != BLANK(),
+    NOT(IS_BEFORE({${dateField}}, DATETIME_PARSE('${cutoff}', 'YYYY-MM-DD')))
+  )`;
+}
+
 const MEMBER_WTB_EMPTY_VIEWS = new Set([
   "issues",
   "inventory",
@@ -1453,6 +1471,9 @@ async function fetchMemberWtbOrders({ merchant, view, pageSize, offset }) {
 
   if (viewFormula) parts.push(viewFormula);
 
+  const cutoffFormula = fulfilledCutoffFormula(view, merchant, "Date");
+  if (cutoffFormula) parts.push(cutoffFormula);
+
   const url = new URL(
     `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_MEMBER_WTBS_TABLE)}`
   );
@@ -1488,6 +1509,9 @@ async function countMemberWtbView({ merchant, view }) {
   const viewFormula = MEMBER_WTB_VIEW_FORMULAS[view];
 
   if (viewFormula) parts.push(viewFormula);
+
+  const cutoffFormula = fulfilledCutoffFormula(view, merchant, "Date");
+  if (cutoffFormula) parts.push(cutoffFormula);
 
   const records = await airtable(AIRTABLE_MEMBER_WTBS_TABLE)
     .select({
@@ -1845,6 +1869,9 @@ app.get("/api/orders", async (req, res) => {
 
     if (viewFormula) formulaParts.push(viewFormula);
 
+    const cutoffFormula = fulfilledCutoffFormula(view, merchant, "Order Date");
+    if (cutoffFormula) formulaParts.push(cutoffFormula);
+
     const airtableUrl = new URL(
       `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)}`
     );
@@ -2132,6 +2159,9 @@ app.get("/api/orders/counts", async (req, res) => {
         ];
         
         if (viewFormula) formulaParts.push(viewFormula);
+
+        const cutoffFormula = fulfilledCutoffFormula(view, merchant, "Order Date");
+        if (cutoffFormula) formulaParts.push(cutoffFormula);
         
         const records = await airtable(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)
           .select({
