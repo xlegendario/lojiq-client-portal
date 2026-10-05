@@ -114,6 +114,8 @@
   .problem { color: #F87171; }
   .body .loading, .body .problem { padding: 10px 0; text-align: left; }
 
+  .more { display: flex; justify-content: center; padding: 14px 0 0; }
+
   .note { margin-top: 18px; color: var(--muted); font-size: 12.5px; }
 
   .toast {
@@ -171,6 +173,13 @@
   const open = new Set();
 
   let timer = null;
+
+  /* How many shoes are on screen. A shop with fourteen hundred styles is a
+     page nobody scrolls to the end of, and every card it draws is work; the
+     rest come on asking, or by searching, which is what a store actually
+     does. */
+  const PAGE = 150;
+  let showing = PAGE;
 
   function say(message) {
     const old = document.querySelector(".toast");
@@ -302,8 +311,14 @@
         shown.reduce((sum, style) => sum + style.pairs, 0) + " sizes"
       : "";
 
+    const page = shown.slice(0, showing);
+
     $("rows").innerHTML = shown.length
-      ? shown.map(styleHtml).join("")
+      ? page.map(styleHtml).join("") +
+        (shown.length > page.length
+          ? '<div class="more"><button class="btn" type="button" data-more>Show more (' +
+            (shown.length - page.length) + ' to go)</button></div>'
+          : "")
       : '<p class="empty">' +
         ($("search").value.trim() || only
           ? "Nothing of ours matches that."
@@ -355,6 +370,7 @@
       styles = answer.styles || [];
       sizesBySku.clear();
       open.clear();
+      showing = PAGE;
 
       $("note").hidden = !styles.length;
 
@@ -399,6 +415,12 @@
   }
 
   $("rows").addEventListener("click", async (event) => {
+    if (event.target.closest("[data-more]")) {
+      showing += PAGE;
+      draw();
+      return;
+    }
+
     const head = event.target.closest(".head");
 
     if (head) {
@@ -483,7 +505,7 @@
     timer = setTimeout(load, 250);
   });
 
-  $("only").addEventListener("change", draw);
+  $("only").addEventListener("change", () => { showing = PAGE; draw(); });
 
   load();
 </script>
