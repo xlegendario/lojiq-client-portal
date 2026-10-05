@@ -1782,10 +1782,6 @@ async function getCachedMerchant(merchantId) {
  * price over on its next pass, within half an hour.
  * ------------------------------------------------------------------ */
 
-const LISTINGS_FIELDS =
-  "id,sku,size,shopify_product_name,stockx_product_name,brand,picture_url," +
-  "shopify_price,custom_price,price_mode,price_set_at,status,shopify_variant_id";
-
 function supabaseHeaders() {
   return {
     apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -1794,6 +1790,36 @@ function supabaseHeaders() {
   };
 }
 
+/*
+ * Whether we price this shop at all.
+ *
+ * With Price Sync off the shop sets its own prices in Shopify and we never
+ * touch them, so a custom price here would be a number nobody reads. Better
+ * to say so than to let a store think it has set something.
+ */
+async function storePricingFlags(merchantId) {
+  const record = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId).catch(() => null);
+  const fields = record?.fields || {};
+
+  return {
+    price_sync: Boolean(fields["Price Sync?"]),
+    product_sync: Boolean(fields["Product Sync?"])
+  };
+}
+
+/*
+ * The shop's shelf, as shoes.
+ *
+ * Every size of every pair on one flat list is a thousand lines of the same
+ * four shoes, which is unreadable and tells a store nothing it wants to
+ * know. One line per style, with how many sizes stand in the shop and what
+ * they cost; the sizes themselves come down only when a style is opened.
+ *
+ * Grouping happens in the database. Doing it here would mean reading the
+ * whole shelf over PostgREST, which hands back a thousand rows at a time and
+ * says nothing about the rest - the mistake that put an arbitrary thousand
+ * rows on this screen in the first place.
+ */
 app.get("/api/listings", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
@@ -1804,47 +1830,11 @@ app.get("/api/listings", async (req, res) => {
     }
 
     const search = asText(req.query.search).trim();
-    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
-    const offset = Math.max(Number(req.query.offset) || 0, 0);
-    const only = asText(req.query.mode).toLowerCase();
 
-    const query = new URLSearchParams();
-    query.set("select", LISTINGS_FIELDS);
-    query.set("merchant_record_id", `eq.${merchantId}`);
-
-    /*
-     * Only the pairs that are ours to price.
-     *
-     * store_listings holds everything the product sync saw in a shop,
-     * which is that shop's whole catalogue - 348.000 rows for the largest.
-     * A switch on their own goods would be a control that does nothing: we
-     * do not price what we do not supply.
-     *
-     * shopify_price is written only for pairs standing on our shelf in a
-     * shop we price, so its presence is the test, and an indexed one. The
-     * screen is therefore empty until a push has run for this shop, which
-     * is the truth: before that there is nothing of ours in there.
-     */
-    query.set("shopify_price", "not.is.null");
-    query.set("order", "shopify_product_name.asc,size.asc");
-    query.set("limit", String(limit));
-    query.set("offset", String(offset));
-
-    if (only === "custom" || only === "auto") query.set("price_mode", `eq.${only}`);
-
-    if (search) {
-      // A store searches for a shoe the way it says it out loud: part of
-      // the name, or the style code off the box.
-      const like = `*${search.replace(/[(),*]/g, " ").trim()}*`;
-
-      query.set(
-        "or",
-        `(sku.ilike.${like},shopify_product_name.ilike.${like},stockx_product_name.ilike.${like})`
-      );
-    }
-
-    const response = await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/store_listings?${query}`, {
-      headers: { ...supabaseHeaders(), Prefer: "count=exact" }
+    const response = await fetch(`${SUPABASE_URL.replace(/[/]+$/, "")}/rest/v1/rpc/store_shelf_products`, {
+      method: "POST",
+      headers: supabaseHeaders(),
+      body: JSON.stringify({ p_merchant: merchantId, p_search: search || null })
     });
 
     if (!response.ok) {
@@ -1853,56 +1843,106 @@ app.get("/api/listings", async (req, res) => {
     }
 
     const rows = await response.json();
-    const range = response.headers.get("content-range") || "";
-    const total = Number(String(range).split("/")[1]) || rows.length;
-
-    /*
-     * Whether we price this shop at all.
-     *
-     * With Price Sync off the shop sets its own prices in Shopify and we
-     * never touch them, so a custom price here would be a number nobody
-     * reads. Better to say so than to let a store think it has set
-     * something.
-     */
-    const merchantRecord = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId).catch(() => null);
-    const mf = merchantRecord?.fields || {};
+    const products = Array.isArray(rows) ? rows : [];
+    const flags = await storePricingFlags(merchantId);
 
     res.json({
       ok: true,
-      price_sync: Boolean(mf["Price Sync?"]),
-      product_sync: Boolean(mf["Product Sync?"]),
-      total,
-      offset,
-      limit,
-      listings: rows.map((row) => ({
-        id: row.id,
+      ...flags,
+      products: products.length,
+      pairs: products.reduce((sum, row) => sum + Number(row.pairs || 0), 0),
+      styles: products.map((row) => ({
         sku: asText(row.sku),
-        size: asText(row.size),
-        name: asText(row.shopify_product_name) || asText(row.stockx_product_name),
+        name: asText(row.name) || asText(row.sku),
         brand: asText(row.brand),
-        picture: asText(row.picture_url),
-        status: asText(row.status),
-        price: row.shopify_price === null ? null : Number(row.shopify_price),
-        custom_price: row.custom_price === null ? null : Number(row.custom_price),
-        mode: asText(row.price_mode) || "auto",
-        set_at: row.price_set_at || null
+        picture: asText(row.picture),
+        pairs: Number(row.pairs || 0),
+        custom_pairs: Number(row.custom_pairs || 0),
+        price_low: row.price_low === null ? null : Number(row.price_low),
+        price_high: row.price_high === null ? null : Number(row.price_high),
+        custom_low: row.custom_low === null ? null : Number(row.custom_low),
+        custom_high: row.custom_high === null ? null : Number(row.custom_high)
       }))
     });
   } catch (err) {
-    console.error("Failed to read the store's listings:", err);
+    console.error("Failed to read the store's shelf:", err);
     res.status(500).json({ error: "Could not read the listings", details: err.message });
   }
 });
 
+/*
+ * The sizes of one shoe, for when a store opens it.
+ *
+ * Keyed on the tidied style code, the same way the shelf groups. A read on
+ * the spelling as the shop writes it has to fall back on an index over every
+ * store's catalogue and takes thirteen seconds for nineteen rows.
+ */
+app.get("/api/listings/sizes", async (req, res) => {
+  try {
+    const merchantId = asText(req.query.merchant_id);
+    const sku = asText(req.query.sku).trim();
+
+    if (!merchantId || !sku) return res.status(400).json({ error: "merchant_id and sku are required" });
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return res.status(503).json({ error: "This service has no Supabase configuration." });
+    }
+
+    const response = await fetch(`${SUPABASE_URL.replace(/[/]+$/, "")}/rest/v1/rpc/store_shelf_sizes`, {
+      method: "POST",
+      headers: supabaseHeaders(),
+      body: JSON.stringify({ p_merchant: merchantId, p_sku: sku })
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`Supabase answered ${response.status}: ${body.slice(0, 200)}`);
+    }
+
+    const rows = await response.json();
+
+    res.json({
+      ok: true,
+      sku,
+      sizes: (Array.isArray(rows) ? rows : []).map((row) => ({
+        id: row.id,
+        size: asText(row.size),
+        price: row.price === null ? null : Number(row.price),
+        custom_price: row.custom_price === null ? null : Number(row.custom_price),
+        mode: asText(row.mode) || "auto",
+        set_at: row.set_at || null
+      }))
+    });
+  } catch (err) {
+    console.error("Failed to read a shoe's sizes:", err);
+    res.status(500).json({ error: "Could not read the sizes", details: err.message });
+  }
+});
+
+/*
+ * A price, for one size or for a whole shoe.
+ *
+ * A store thinks in shoes: "this hoodie is 120 with us" is one decision, not
+ * thirty-one. Naming the style sets every size of it standing in the shop;
+ * naming a row sets that single size, which is how an odd size gets its own
+ * number afterwards.
+ *
+ * Auto hands the pair back to us, and the custom price is cleared rather
+ * than kept, because a number that is not in force is a number somebody will
+ * later believe.
+ *
+ * The merchant is part of every match, so one shop can never price another's
+ * shelf by guessing an id or a style code.
+ */
 app.post("/api/listings/price", express.json({ limit: "10kb" }), async (req, res) => {
   try {
     const merchantId = asText(req.body?.merchant_id);
-    const id = Number(req.body?.id);
     const mode = asText(req.body?.mode).toLowerCase();
+    const id = Number(req.body?.id);
+    const sku = asText(req.body?.sku).trim();
+    const oneSize = Number.isFinite(id);
 
-    if (!merchantId || !Number.isFinite(id)) {
-      return res.status(400).json({ error: "merchant_id and id are required" });
-    }
+    if (!merchantId) return res.status(400).json({ error: "merchant_id is required" });
+    if (!oneSize && !sku) return res.status(400).json({ error: "Name a listing or a shoe." });
 
     if (!["auto", "custom"].includes(mode)) {
       return res.status(400).json({ error: "mode is auto or custom" });
@@ -1914,21 +1954,16 @@ app.post("/api/listings/price", express.json({ limit: "10kb" }), async (req, res
       return res.status(400).json({ error: "A custom price needs an amount." });
     }
 
-    /*
-     * Keyed on the merchant as well as the row, so one shop can never
-     * price another's shelf by guessing an id.
-     */
-    const where =
-      `id=eq.${id}&merchant_record_id=eq.${encodeURIComponent(merchantId)}`;
-
-    const response = await fetch(`${SUPABASE_URL.replace(/\/$/, "")}/rest/v1/store_listings?${where}`, {
-      method: "PATCH",
-      headers: { ...supabaseHeaders(), Prefer: "return=representation" },
-      body: JSON.stringify(
-        mode === "custom"
-          ? { price_mode: "custom", custom_price: Math.round(price * 100) / 100, price_set_at: new Date().toISOString() }
-          : { price_mode: "auto", custom_price: null, price_set_at: new Date().toISOString() }
-      )
+    const response = await fetch(`${SUPABASE_URL.replace(/[/]+$/, "")}/rest/v1/rpc/store_shelf_set_price`, {
+      method: "POST",
+      headers: supabaseHeaders(),
+      body: JSON.stringify({
+        p_merchant: merchantId,
+        p_sku: oneSize ? null : sku,
+        p_id: oneSize ? id : null,
+        p_mode: mode,
+        p_price: mode === "custom" ? Math.round(price * 100) / 100 : null
+      })
     });
 
     if (!response.ok) {
@@ -1936,15 +1971,16 @@ app.post("/api/listings/price", express.json({ limit: "10kb" }), async (req, res
       throw new Error(`Supabase answered ${response.status}: ${body.slice(0, 200)}`);
     }
 
-    const [row] = await response.json();
+    const answer = await response.json();
+    const changed = Number(answer?.changed || 0);
 
-    if (!row) return res.status(404).json({ error: "That listing is not on this store." });
+    if (!changed) return res.status(404).json({ error: "That is not on this store's shelf." });
 
     res.json({
       ok: true,
-      id: row.id,
-      mode: asText(row.price_mode),
-      custom_price: row.custom_price === null ? null : Number(row.custom_price)
+      mode,
+      changed,
+      custom_price: mode === "custom" ? Math.round(price * 100) / 100 : null
     });
   } catch (err) {
     console.error("Failed to set a listing price:", err);
