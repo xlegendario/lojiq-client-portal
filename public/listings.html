@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your shelf</title>
+<style>
+  /* The portal's palette, so this page belongs to the same product. */
+  :root {
+    --bg: #08080A;
+    --panel: #121215;
+    --panel-2: #17171B;
+    --border: #26262B;
+    --text: #E9E9EE;
+    --muted: #8B8B95;
+    --primary: #2F80ED;
+    --primary-soft: #66B3FF;
+    --green: #22C55E;
+    --amber: #F5A524;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); font-size: 13px; margin: 2px 0 18px; max-width: 60ch; }
+  a.back { color: var(--muted); text-decoration: none; font-size: 13px; }
+  a.back:hover { color: var(--text); }
+
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+
+  .input, .select {
+    height: 36px; padding: 0 11px; border-radius: 9px;
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    font: inherit; outline: none;
+  }
+  .input:focus, .select:focus { border-color: var(--primary); }
+  #search { flex: 1 1 260px; min-width: 200px; }
+
+  .count { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+
+  .rows { display: flex; flex-direction: column; gap: 8px; }
+
+  .row {
+    display: flex; gap: 12px; align-items: center;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--panel);
+  }
+  .row img, .row .blank {
+    width: 44px; height: 44px; flex: 0 0 44px; border-radius: 8px; object-fit: cover;
+    background: var(--panel-2); border: 1px solid var(--border);
+  }
+  .what { flex: 1 1 auto; min-width: 0; }
+  .what strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { color: var(--muted); font-size: 12px; }
+
+  .price { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+  .price .now { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+  .price .amount { width: 92px; text-align: right; }
+  .mode { width: 104px; }
+
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.custom { color: var(--primary-soft); border-color: rgba(47, 128, 237, 0.45); }
+
+  .btn {
+    height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--primary); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  .empty, .problem { padding: 28px 12px; text-align: center; color: var(--muted); }
+  .problem { color: #F87171; }
+
+  .note { margin-top: 18px; color: var(--muted); font-size: 12.5px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 14px; border-radius: 9px; font-size: 13px; box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  }
+
+  @media (max-width: 680px) {
+    .row { flex-wrap: wrap; }
+    .price { width: 100%; justify-content: flex-end; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Your shelf</h1>
+      <a class="back" href="/portal">← Back to the portal</a>
+    </header>
+
+    <p class="lead">
+      Every pair of ours standing in your shop. Leave a price on Auto and we work it out;
+      set it to Custom and your number is the one that stands.
+    </p>
+
+    <div class="tools">
+      <input class="input" id="search" type="search" placeholder="Shoe or style code" autocomplete="off">
+      <select class="select" id="only">
+        <option value="">All pairs</option>
+        <option value="custom">Your own prices</option>
+        <option value="auto">Priced by Lojiq</option>
+      </select>
+      <span class="count" id="count"></span>
+    </div>
+
+    <div class="rows" id="rows"><p class="empty">Loading…</p></div>
+
+    <p class="note" id="note" hidden>
+      A price you set here reaches your shop on the next pass, within half an hour.
+    </p>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const euro = (v) => v === null || v === undefined || v === "" ? "—" : new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(v));
+
+  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+
+  let timer = null;
+
+  function say(message) {
+    const old = document.querySelector(".toast");
+    if (old) old.remove();
+
+    const box = document.createElement("div");
+    box.className = "toast";
+    box.textContent = message;
+    document.body.append(box);
+    setTimeout(() => box.remove(), 3200);
+  }
+
+  function rowHtml(item) {
+    const custom = item.mode === "custom";
+
+    return `
+      <div class="row" data-id="${esc(item.id)}">
+        ${item.picture ? `<img src="${esc(item.picture)}" alt="">` : `<span class="blank"></span>`}
+        <div class="what">
+          <strong>${esc(item.name || item.sku)}</strong>
+          <span class="sub">${esc(item.sku)} · size ${esc(item.size)}${item.brand ? ` · ${esc(item.brand)}` : ""}</span>
+        </div>
+        <div class="price">
+          <span class="now sub">${esc(euro(item.price))}</span>
+          <select class="select mode" data-mode>
+            <option value="auto"${custom ? "" : " selected"}>Auto</option>
+            <option value="custom"${custom ? " selected" : ""}>Custom</option>
+          </select>
+          <input class="input amount" type="number" step="0.01" min="0" placeholder="Price"
+                 value="${custom && item.custom_price ? item.custom_price : ""}" ${custom ? "" : "disabled"} data-amount>
+          <button class="btn" type="button" data-save ${custom ? "" : "disabled"}>Save</button>
+        </div>
+      </div>`;
+  }
+
+  async function load() {
+    if (!store?.id) {
+      $("rows").innerHTML = `<p class="problem">Sign in to the portal first, then come back to this page.</p>`;
+      return;
+    }
+
+    const query = new URLSearchParams({ merchant_id: store.id, limit: "200" });
+    const search = $("search").value.trim();
+    const only = $("only").value;
+
+    if (search) query.set("search", search);
+    if (only) query.set("mode", only);
+
+    try {
+      const answer = await fetch(`/api/listings?${query}`).then((r) => r.json());
+
+      if (!answer.ok) throw new Error(answer.error || "Could not read your shelf.");
+
+      const list = answer.listings || [];
+
+      $("count").textContent = answer.total
+        ? `${list.length} of ${answer.total} pair${answer.total === 1 ? "" : "s"}`
+        : "";
+
+      $("note").hidden = !list.length;
+
+      // With Price Sync off we never touch this shop's prices, so a custom
+      // one would be a number nobody reads.
+      $("note").textContent = answer.price_sync
+        ? "A price you set here reaches your shop on the next pass, within half an hour."
+        : "Lojiq does not set prices for this shop, so these are yours to change in Shopify. A price here would not be used.";
+
+      $("rows").innerHTML = list.length
+        ? list.map(rowHtml).join("")
+        : `<p class="empty">${search ? "Nothing of ours matches that." : "Nothing of ours is in your shop yet."}</p>`;
+    } catch (err) {
+      $("rows").innerHTML = `<p class="problem">${esc(err.message)}</p>`;
+    }
+  }
+
+  /* Switching to Custom only opens the field; nothing is saved until the
+     shop says what the price is. */
+  $("rows").addEventListener("change", (event) => {
+    const mode = event.target.closest("[data-mode]");
+    if (!mode) return;
+
+    const row = mode.closest(".row");
+    const custom = mode.value === "custom";
+
+    row.querySelector("[data-amount]").disabled = !custom;
+    row.querySelector("[data-save]").disabled = false;
+
+    if (custom) row.querySelector("[data-amount]").focus();
+  });
+
+  $("rows").addEventListener("click", async (event) => {
+    const save = event.target.closest("[data-save]");
+    if (!save) return;
+
+    const row = save.closest(".row");
+    const mode = row.querySelector("[data-mode]").value;
+    const amount = row.querySelector("[data-amount]").value;
+
+    if (mode === "custom" && !(Number(amount) > 0)) {
+      say("What should this pair cost?");
+      row.querySelector("[data-amount]").focus();
+      return;
+    }
+
+    save.disabled = true;
+
+    try {
+      const answer = await fetch("/api/listings/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ merchant_id: store.id, id: Number(row.dataset.id), mode, price: Number(amount) })
+      }).then((r) => r.json());
+
+      if (!answer.ok) throw new Error(answer.error || "Could not save that.");
+
+      say(mode === "custom" ? "Saved. Your shop has it within half an hour." : "Back to Lojiq pricing.");
+    } catch (err) {
+      say(err.message);
+      save.disabled = false;
+    }
+  });
+
+  $("search").addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(load, 250);
+  });
+
+  $("only").addEventListener("change", load);
+
+  load();
+</script>
+</body>
+</html>
