@@ -200,7 +200,7 @@
 
       $("rows").innerHTML = list.length
         ? list.map(rowHtml).join("")
-        : `<p class="empty">${search ? "Nothing of ours matches that." : "Nothing of ours is in your shop yet."}</p>`;
+        : `<p class="empty">${search ? "Nothing of ours matches that." : "Nothing of ours is in your shop yet. It appears here once we have supplied a pair."}</p>`;
     } catch (err) {
       $("rows").innerHTML = `<p class="problem">${esc(err.message)}</p>`;
     }

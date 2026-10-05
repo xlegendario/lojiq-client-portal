@@ -1811,6 +1811,21 @@ app.get("/api/listings", async (req, res) => {
     const query = new URLSearchParams();
     query.set("select", LISTINGS_FIELDS);
     query.set("merchant_record_id", `eq.${merchantId}`);
+
+    /*
+     * Only the pairs that are ours to price.
+     *
+     * store_listings holds everything the product sync saw in a shop,
+     * which is that shop's whole catalogue - 348.000 rows for the largest.
+     * A switch on their own goods would be a control that does nothing: we
+     * do not price what we do not supply.
+     *
+     * shopify_price is written only for pairs standing on our shelf in a
+     * shop we price, so its presence is the test, and an indexed one. The
+     * screen is therefore empty until a push has run for this shop, which
+     * is the truth: before that there is nothing of ours in there.
+     */
+    query.set("shopify_price", "not.is.null");
     query.set("order", "shopify_product_name.asc,size.asc");
     query.set("limit", String(limit));
     query.set("offset", String(offset));
