@@ -1893,7 +1893,13 @@ export function mountBrokerDeals(router, { store, audit = null }) {
     try {
       const out = await store.removeDeal(req.params.id);
 
-      if (audit) await audit(req, "broker_deal_deleted", { id: req.params.id }, out);
+      audit?.record({
+        actor: req.admin,
+        action: "broker_deal_deleted",
+        source: "broker_deals",
+        recordId: req.params.id,
+        label: out.deal
+      })?.catch?.(() => {});
 
       res.json(out);
     } catch (err) {

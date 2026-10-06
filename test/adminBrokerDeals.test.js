@@ -1165,3 +1165,36 @@ test("a pair that is out with a consignor has to be dropped first", async () => 
   await assert.rejects(() => store.removeDeal(SALE.id), /still out with a consignor/);
   assert.equal(tables.external_sales.length, 1, "nothing was deleted");
 });
+
+/*
+ * The harness mounted the routes without an audit, so a call in the wrong
+ * shape was skipped here and threw in production: "audit is not a
+ * function". One that records is the only way this is caught.
+ */
+test("every route writes its audit line the way the audit expects", async () => {
+  const { store } = shop({
+    lines: [{
+      id: "line-1", sale_id: SALE.id, status: "locked", source: "own",
+      sku: "DV1748-601", size: "44", inventory_unit_record_id: "recUNIT0000000001", payout: 150
+    }]
+  });
+
+  const written = [];
+  const handlers = new Map();
+  const keep = (verb) => (path, ...fns) => handlers.set(`${verb} ${path}`, fns[fns.length - 1]);
+
+  mountBrokerDeals(
+    { get: keep("GET"), post: keep("POST"), delete: keep("DELETE") },
+    { store, audit: { record: async (line) => { written.push(line); } } }
+  );
+
+  let failed = null;
+
+  await handlers.get("DELETE /api/admin/broker-deals/:id")(
+    { body: {}, params: { id: SALE.id }, admin: { email: "test@lojiq.com" } },
+    { json: () => {}, status: () => ({ json: (out) => { failed = out; } }) }
+  );
+
+  assert.equal(failed, null, failed && failed.error);
+  assert.deepEqual(written.map((w) => w.action), ["broker_deal_deleted"]);
+});
