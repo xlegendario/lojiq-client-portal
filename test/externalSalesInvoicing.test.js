@@ -410,3 +410,43 @@ test("every invoice is due in 7 days, dated in Dutch time", async () => {
   assert.equal(body.date, "2026-12-28");
   assert.equal(body.due_date, "2027-01-04");
 });
+
+/*
+ * EXTD-000097: credited at 165, the deal changed to 180, and the new
+ * invoice was never made - the credited one was taken as the deal's
+ * invoice and the amount check fired on it.
+ */
+test("a credited invoice is not the deal's invoice: the next one is new", async () => {
+  const db = fakeDb({
+    external_sales: [{ id: "s1", deal_number: 97, buyer_record_id: null, buyer_uuid: "b1", buyer_email: "buyer@example.com",
+      buyer_vat_id: "ESB21260237", buyer_country_code: "ES", payment_status: "pending",
+      bookkeeping_status: "to_invoice", total_selling_price: "180.00" }],
+    external_sale_pairs: [{ id: "p1", sale_id: "s1", item_id: "CS-008121", sku: "IM4026-100", size: "40",
+      purchase_vat_type: "Margin", purchase_price_ex_vat: "150.00", selling_vat_type: "Margin", selling_price: "180.00" }],
+    external_sale_invoices: [
+      { id: "i1", kind: "sale", invoice_number: "KC202610-2176", rompslomp_invoice_id: "900", vat_route: "Margin", amount_incl_vat: "165.00", journal_entry_id: "j1" },
+      { id: "i2", kind: "credit", invoice_number: "KC202610-2187", rompslomp_invoice_id: "901", vat_route: "Margin", amount_incl_vat: "165.00", credits_invoice_id: "i1", journal_entry_id: "j2" }
+    ],
+    external_sale_invoice_deals: [{ invoice_id: "i1", sale_id: "s1" }, { invoice_id: "i2", sale_id: "s1" }],
+    buyers: [{ id: "b1", buyer_number: 97, company_name: "radical surf sport sl", vat_id: "ESB21260237", country_code: "ES", rompslomp_contact_id: "474787066" }]
+  });
+
+  const rompslomp = fakeRompslomp();
+
+  // The invoice that was credited is already in Rompslomp, under the bare
+  // reference - exactly what the old code looked it up by.
+  await rompslomp.createInvoice({ sales_invoice: { api_reference: "EXTD-000097-Margin", contact_id: 474787066,
+    invoice_lines: [{ price_per_unit: "165.00", vat_type_id: 688369464 }] } });
+
+  const invoicing = createExternalSalesInvoicing({ db, airtable: fakeAirtableBuyers({ "Rompslomp Contact ID": "474787066" }), rompslomp, sendMail: async () => {} });
+
+  const out = await invoicing.invoice("s1", { mail: false });
+
+  assert.equal(out.invoices.length, 1);
+  assert.equal(Number(out.invoices[0].amount_incl_vat), 180, "the new invoice carries the new amount");
+  assert.notEqual(out.invoices[0].id, "i1", "it is not the credited row");
+
+  const made = [...rompslomp.invoices.values()].find((i) => i.api_reference === "EXTD-000097-Margin-2");
+  assert.ok(made, "the second invoice gets its own reference");
+  assert.equal(db.tables.external_sales[0].bookkeeping_status, "invoiced");
+});

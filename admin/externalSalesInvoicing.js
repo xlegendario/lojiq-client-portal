@@ -146,9 +146,23 @@ export function pairLines(pairs, priced) {
   }).join("\n");
 }
 
-export const apiReference = (sale, route) => `${dealId(sale)}-${route}`;
+/*
+ * What Rompslomp knows this invoice by, so a run that dies halfway finds
+ * its own invoice again instead of making a second one.
+ *
+ * FIXED - one deal and one VAT route gave one reference for all time, and a
+ * deal that is credited and written again needs a second invoice on that
+ * same route. Looking the reference up handed back the CREDITED invoice, so
+ * the new one was never made and the amount check fired on the old total:
+ * "KC202610-2176 came out at 165, the deal says 180."
+ *
+ * The first invoice keeps the bare reference, so nothing already in
+ * Rompslomp changes name.
+ */
+export const apiReference = (sale, route, attempt = 0) =>
+  `${dealId(sale)}-${route}${attempt > 0 ? `-${attempt + 1}` : ""}`;
 
-export function salesInvoiceBody({ sale, invoice, contactId, now = new Date() }) {
+export function salesInvoiceBody({ sale, invoice, contactId, attempt = 0, now = new Date() }) {
   const route = ROUTES[invoice.route];
 
   // VAT21 prices go to Rompslomp excl. VAT; it adds the 21% itself. Five
@@ -180,7 +194,7 @@ export function salesInvoiceBody({ sale, invoice, contactId, now = new Date() })
       currency_exchange_rate: "1.0",
       template_id: route.templateId,
       vat_number: text(sale.buyer_vat_id) || null,
-      api_reference: apiReference(sale, invoice.route),
+      api_reference: apiReference(sale, invoice.route, attempt),
       sale_type: "supply",
       distance_sale: false,
       invoice_lines: [line]
@@ -617,13 +631,25 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
       throw new ExternalSalesError(`${dealId(sale)} is already on ${handMade.map((h) => h.invoice_number).join(", ")} in Rompslomp (made by hand). Link that invoice instead of making a new one.`, 409);
     }
 
+    /*
+      An invoice that has been credited is not this deal's invoice any more.
+
+      FIXED - this took any sale invoice on the route, credited or not, so
+      after a credit the deal was told it already had one. Nothing new was
+      made and the check below compared the old amount with the new total.
+    */
+    const credited = (row) => existing.some((c) => c.credits_invoice_id === row.id);
+
     for (const inv of plan.invoices) {
-      let row = existing.find((e) => e.kind === "sale" && e.vat_route === inv.route);
+      let row = existing.find((e) => e.kind === "sale" && e.vat_route === inv.route && !credited(e));
 
       if (!row) {
-        const reference = apiReference(sale, inv.route);
+        // How many this route already had, so the next one gets its own
+        // reference rather than finding a credited invoice by the old one.
+        const attempt = existing.filter((e) => e.kind === "sale" && e.vat_route === inv.route).length;
+        const reference = apiReference(sale, inv.route, attempt);
         let rs = await rompslomp.findInvoice(reference);
-        if (!rs) rs = await rompslomp.createInvoice(salesInvoiceBody({ sale, invoice: inv, contactId: contact.id }));
+        if (!rs) rs = await rompslomp.createInvoice(salesInvoiceBody({ sale, invoice: inv, contactId: contact.id, attempt }));
         if (rs.status !== "published" || !rs.invoice_number) rs = await rompslomp.publishInvoice(rs.id);
 
         // Saved first, whatever comes next: an invoice that exists in
