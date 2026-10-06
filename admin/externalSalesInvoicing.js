@@ -786,6 +786,28 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { credit: row.invoice_number, of: original.invoice_number };
   }
 
+  /*
+   * One invoice exactly as Rompslomp holds it.
+   *
+   * There to answer a single question: can a credit note be tied to the
+   * invoice it credits, so the two settle each other instead of both
+   * sitting in the open items for good? Their documentation is behind a
+   * login and their spec answers 401, so the fields themselves are the
+   * only way to find out.
+   *
+   * Read-only, admin-only, and it writes nothing.
+   */
+  async function rawInvoice(invoiceRowId) {
+    const [row] = await db.get(`external_sale_invoices?select=*&id=eq.${text(invoiceRowId)}`);
+
+    if (!row) throw new ExternalSalesError("That invoice is not one of ours.", 404);
+
+    return {
+      ours: row,
+      rompslomp: await rompslomp.getInvoice(row.rompslomp_invoice_id)
+    };
+  }
+
   async function preview(id) {
     const { sale, pairs, invoices: existing } = await load(id);
     const plan = invoicePlanFor(sale, pairs);
@@ -870,5 +892,5 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { filename: `Invoice ${row.invoice_number || row.rompslomp_invoice_id}.pdf`, pdf: await rompslomp.pdf(row.rompslomp_invoice_id) };
   }
 
-  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf };
+  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf, rawInvoice };
 }
