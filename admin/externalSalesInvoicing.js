@@ -74,7 +74,20 @@ export function invoicePlanFor(sale, pairs) {
   if (sale.payment_status === "cancelled") problems.push("The deal is cancelled.");
   if (sale.bookkeeping_status !== "to_invoice") problems.push(`The deal is "${sale.bookkeeping_status}", not "to invoice".`);
   if (!pairs.length) problems.push("The deal has no pairs.");
-  if (!text(sale.buyer_record_id)) problems.push("The deal has no buyer.");
+  /*
+   * A buyer, by either name for one.
+   *
+   * FIXED - this asked for the Airtable record id alone, and new buyers do
+   * not get one: External Sales moved to Supabase and the create path says
+   * so in as many words. So every buyer added since that switch produced a
+   * deal that could never be invoiced, with a panel showing the buyer in
+   * full above the sentence "The deal has no buyer."
+   *
+   * The invoicing below already looks the buyer up by buyer_uuid first and
+   * only falls back to the record id; this is the one place that had not
+   * caught up.
+   */
+  if (!text(sale.buyer_uuid) && !text(sale.buyer_record_id)) problems.push("The deal has no buyer.");
 
   for (const pair of pairs) {
     const name = pair.item_id || pair.sku || pair.inventory_unit_record_id;

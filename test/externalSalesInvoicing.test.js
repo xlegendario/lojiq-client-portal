@@ -65,9 +65,30 @@ test("margin and VAT on one deal: two invoices, and only with a price per pair",
   assert.match(invoicePlanFor(sale({ total_selling_price: "300.00" }), pairs).problems.join(" "), /add up to €290.00/);
 });
 
+/*
+ * A buyer added since External Sales moved to Supabase has no Airtable
+ * record id, and asking for that one alone made every such deal
+ * un-invoiceable while the panel showed the buyer in full.
+ */
+test("a buyer known only in Supabase is a buyer", () => {
+  const plan = invoicePlanFor(sale({ buyer_record_id: null }), [pair({ selling_price: "175.00" })]);
+
+  assert.equal(plan.ok, true, plan.problems.join(" "));
+  assert.doesNotMatch(plan.problems.join(" | "), /no buyer/);
+});
+
+test("a deal with neither name for its buyer is refused", () => {
+  const plan = invoicePlanFor(
+    sale({ buyer_record_id: null, buyer_uuid: null }),
+    [pair({ selling_price: "175.00" })]
+  );
+
+  assert.match(plan.problems.join(" | "), /no buyer/);
+});
+
 test("everything that blocks an invoice is said at once", () => {
   const plan = invoicePlanFor(
-    sale({ bookkeeping_status: "invoiced", buyer_record_id: null, buyer_vat_id: "" }),
+    sale({ bookkeeping_status: "invoiced", buyer_record_id: null, buyer_uuid: null, buyer_vat_id: "" }),
     [pair({ purchase_vat_type: null, purchase_price_ex_vat: 0, selling_vat_type: "VAT0" })]
   );
   const all = plan.problems.join(" | ");
