@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { CANCEL_OUTCOMES, cancelPlan, conditionNote, conditionWith, createExternalSalesCancel, discountPlan } from "../admin/externalSalesCancel.js";
+import { CANCEL_OUTCOMES, cancelPlan, conditionNote, conditionWith, createExternalSalesCancel, discountPlan, repricePlan } from "../admin/externalSalesCancel.js";
 import { fakeDb } from "./fakeSupabase.js";
 
 // Rows in Supabase, so ids that look like it.
@@ -302,4 +302,87 @@ test("a lone pair without its own price is still worth what the deal was", () =>
   assert.equal(plan.cancelled_value, 165, "not 0,00");
   assert.equal(plan.new_total, 0);
   assert.equal(plan.ends_deal, true);
+});
+
+/* ------------------------------------------------------------------ *
+ * Changing what a deal is worth, after it was invoiced
+ * ------------------------------------------------------------------ */
+
+test("a price that goes up credits the old invoice and makes a new one", () => {
+  const plan = repricePlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, price: 300 }], invoices: INVOICES });
+
+  assert.equal(plan.ok, true, plan.problems.join(" "));
+  assert.deepEqual(plan.lines.map((l) => [l.was, l.becomes, l.difference]), [[250, 300, 50]]);
+  assert.equal(plan.was_total, 600);
+  assert.equal(plan.new_total, 650);
+  assert.equal(plan.difference, 50);
+  assert.equal(plan.reinvoice, true);
+  assert.ok(plan.credits.length, "the open invoice is credited");
+});
+
+test("a price that goes down is the same road", () => {
+  const plan = repricePlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, price: 200 }], invoices: INVOICES });
+
+  assert.equal(plan.new_total, 550);
+  assert.equal(plan.difference, -50);
+});
+
+test("what still has to come in, and what has to go back", () => {
+  const paid = { ...SALE, payment_status: "paid" };
+
+  const up = repricePlan({ sale: paid, pairs: PAIRS, wanted: [{ id: P1, price: 300 }], invoices: INVOICES });
+  assert.equal(up.to_collect, 50);
+  assert.equal(up.refund, 0);
+
+  const down = repricePlan({ sale: paid, pairs: PAIRS, wanted: [{ id: P1, price: 200 }], invoices: INVOICES });
+  assert.equal(down.refund, 50);
+  assert.equal(down.to_collect, 0);
+});
+
+test("a price that is not a change, and a price that is not a price", () => {
+  const same = repricePlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, price: 250 }], invoices: INVOICES });
+  assert.equal(same.ok, false);
+  assert.match(same.problems.join(" "), /already has/);
+
+  const nothing = repricePlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, price: 0 }], invoices: INVOICES });
+  assert.equal(nothing.ok, false);
+  assert.match(nothing.problems.join(" "), /worth now/);
+
+  const cancelled = repricePlan({ sale: { ...SALE, payment_status: "cancelled" }, pairs: PAIRS, wanted: [{ id: P1, price: 300 }] });
+  assert.equal(cancelled.ok, false);
+});
+
+test("changing the invoice credits first, then writes the prices, then invoices again", async () => {
+  const { db, calls, cancel } = fakes({ sale: { ...SALE, payment_status: "paid", paid_amount: 600 } });
+
+  const out = await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }], reason: "Buyer pays the shipping" });
+
+  assert.deepEqual(calls, [["credit", "i1"], ["invoice", S1]], "the old invoice comes off before the new one is made");
+
+  const pair = db.tables.external_sale_pairs.find((p) => p.id === P1);
+  assert.equal(Number(pair.selling_price), 300);
+
+  const sale = db.tables.external_sales[0];
+  assert.equal(Number(sale.total_selling_price), 650);
+  assert.equal(sale.bookkeeping_status, "to_invoice");
+
+  // Paid 600 on a deal that is now 650: not simply paid any more, and the
+  // amount held is what it always was.
+  assert.equal(sale.payment_status, "partially_paid");
+  assert.equal(Number(sale.paid_amount), 600);
+
+  assert.equal(out.to_collect, 50);
+  assert.equal(out.refund, 0);
+  assert.ok(out.log.some((line) => /still has to come in/.test(line)));
+});
+
+test("a price nobody changed is refused before anything is written", async () => {
+  const { calls, cancel } = fakes();
+
+  await assert.rejects(
+    () => cancel.repricePairs(S1, { pairs: [{ id: P1, price: 250 }] }),
+    /already has/
+  );
+
+  assert.deepEqual(calls, [], "nothing was credited");
 });

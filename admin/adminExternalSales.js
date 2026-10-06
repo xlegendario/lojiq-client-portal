@@ -947,6 +947,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     cancelPlan: (id, pairIds) => cancelling.plan(id, pairIds),
     cancelPairs: (id, input) => cancelling.cancelPairs(id, input),
     discountPairs: (id, input) => cancelling.discountPairs(id, input),
+    repricePairs: (id, input) => cancelling.repricePairs(id, input),
     registerRefund: (id, input) => cancelling.registerRefund(id, input),
     openParcels: (options) => tracking.openParcels(options),
     applyTracking: (updates) => tracking.applyUpdates(updates),
@@ -1365,6 +1366,8 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
         details = { cancelled: await store.cancelPairs(id, { ...req.body.cancel_pairs, by: req.admin?.name || req.admin?.email }) };
       } else if (req.body?.discount_pairs) {
         details = { discounted: await store.discountPairs(id, { ...req.body.discount_pairs, by: req.admin?.name || req.admin?.email }) };
+      } else if (req.body?.reprice_pairs) {
+        details = { repriced: await store.repricePairs(id, { ...req.body.reprice_pairs, by: req.admin?.name || req.admin?.email }) };
       } else if (req.body?.refund) {
         const saved = await store.registerRefund(id, { ...req.body.refund, by: req.admin?.name || req.admin?.email });
         details = { refund: { amount: text(req.body.refund.amount), date: text(req.body.refund.date) || null, to: saved.payment_status } };
@@ -1380,7 +1383,7 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
       // What the action did, in the words it used: an action that has
       // something to say (which expense it made, what it could not attach)
       // must reach the screen, not only the action log.
-      const said = [...(details?.purchase?.booked || []), ...(details?.purchase?.failed || []), ...(details?.cancelled?.log || []), ...(details?.discounted?.log || [])];
+      const said = [...(details?.purchase?.booked || []), ...(details?.purchase?.failed || []), ...(details?.cancelled?.log || []), ...(details?.discounted?.log || []), ...(details?.repriced?.log || [])];
 
       res.json({ ...(await store.detail(before.id)), log: said });
     } catch (err) {

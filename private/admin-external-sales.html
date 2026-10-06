@@ -734,6 +734,27 @@
     </div>
   </dialog>
 
+  <dialog id="repriceDialog">
+    <div class="dialog-body">
+      <h2>Change invoice</h2>
+      <p class="hint" style="margin:0">Type what each pair is worth now. The invoice is never edited: the one that stands is credited in full and a new one is made for the new amount and mailed to the buyer.</p>
+      <div class="field">
+        <label>What the pairs are worth now</label>
+        <div class="label-list" id="repricePairs"></div>
+      </div>
+      <div class="field">
+        <label for="repriceReason">Why</label>
+        <input class="input" id="repriceReason" type="text" placeholder="Buyer pays the shipping, pair swapped, ...">
+      </div>
+      <div class="plan" id="repricePlan"></div>
+      <p class="field-error" id="repriceError"></p>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="repriceClose">Never mind</button>
+        <button class="btn primary" type="button" id="repriceConfirm">Credit and re-invoice</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="refundDialog">
     <div class="dialog-body">
       <h2>Register refund</h2>
@@ -2594,6 +2615,7 @@
         pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) && ["bookpurchase", "Book purchase"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", "Initiate cancel"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["discount", "Give discount"],
+        s.payment_status !== "cancelled" && pairs.length > 0 && ["reprice", "Change invoice"],
         Number(s.paid_amount || 0) > 0 && ["refund", "Mark refunded"]
       ].filter(Boolean);
 
@@ -3050,6 +3072,98 @@
         $("discountError").textContent = err.message;
       }
     }));
+    /* ----- change the invoice: new prices, credit, new invoice ----- */
+
+    function openRepriceDialog() {
+      const { pairs } = state.detail;
+
+      $("repricePairs").innerHTML = pairs.map((p) => `
+        <label class="label-item">
+          <span class="pick">${pickWhat(p)}</span>
+          <span class="pick">
+            <span class="sub money">${esc(pairPrice(p))}</span>
+            <span class="sub">&rarr; &euro;</span>
+            <input class="input slim" type="text" inputmode="decimal" data-reprice="${esc(p.id)}"
+                   value="${esc(priceValue(p) ? String(priceValue(p)).replace(".", ",") : "")}" placeholder="0,00">
+          </span>
+        </label>`).join("");
+
+      $("repriceReason").value = "";
+      $("repriceError").textContent = "";
+      drawRepricePlan();
+      $("repriceDialog").showModal();
+    }
+
+    const repriceLines = () => [...$("repricePairs").querySelectorAll("[data-reprice]")]
+      .map((box) => ({ id: box.dataset.reprice, price: Number(box.value.trim().replace(",", ".")) }))
+      .filter((line) => Number.isFinite(line.price) && line.price > 0);
+
+    /*
+     * The same sum the server will make, worked out from what is on screen,
+     * so the plan reads before anything is sent. A pair left blank keeps the
+     * price it has.
+     */
+    function drawRepricePlan() {
+      const { sale: s, pairs } = state.detail;
+      const wanted = repriceLines();
+
+      const total = pairs.reduce((sum, p) => {
+        const line = wanted.find((l) => l.id === p.id);
+        return sum + (line ? line.price : priceValue(p));
+      }, 0);
+
+      const was = Number(s.total_selling_price || 0);
+
+      const changed = wanted.filter((l) => {
+        const pair = pairs.find((p) => p.id === l.id);
+        return pair && Math.abs(l.price - priceValue(pair)) > 0.005;
+      });
+
+      if (!changed.length) {
+        $("repricePlan").innerHTML = "<span>Nothing changed yet.</span>";
+        $("repriceConfirm").disabled = true;
+        return;
+      }
+
+      // What the buyer has actually handed over, after anything sent back.
+      const held = Number(s.payment_status === "paid" ? was : (s.paid_amount || 0)) - Number(s.refunded_amount || 0);
+      const short = total - held;
+
+      $("repriceConfirm").disabled = false;
+      $("repricePlan").innerHTML = [
+        `<span>Deal becomes <strong>${esc(euro(total))}</strong>, was ${esc(euro(was))}</span>`,
+        s.bookkeeping_status === "invoiced"
+          ? "<span>Credit invoice, then a new invoice for the new amount, mailed to the buyer</span>"
+          : "<span>A new invoice is made when you invoice the deal</span>",
+        "<span>The stock correction stays as it is: nothing came back.</span>",
+        held > 0.005 && short > 0.005
+          ? `<span class="warn">${esc(euro(short))} still has to come in from the buyer</span>`
+          : held > 0.005 && short < -0.005
+            ? `<span class="warn">${esc(euro(-short))} has to go back to the buyer by bank</span>`
+            : ""
+      ].filter(Boolean).join("");
+    }
+
+    $("repricePairs").addEventListener("input", drawRepricePlan);
+    $("repriceClose").addEventListener("click", () => $("repriceDialog").close());
+
+    $("repriceConfirm").addEventListener("click", () => busy($("repriceConfirm"), async () => {
+      const lines = repriceLines();
+      if (!lines.length) return;
+
+      try {
+        const d = await postJson("/api/admin/external-sales/update", {
+          id: state.detail.sale.id,
+          reprice_pairs: { pairs: lines, reason: $("repriceReason").value.trim() }
+        });
+        state.runLog = { id: state.detail.sale.id, lines: d.log || [] };
+        applyDetail(d, (d.log || []).join(" \u00b7 ") || "Invoice changed.");
+        $("repriceDialog").close();
+      } catch (err) {
+        $("repriceError").textContent = err.message;
+      }
+    }));
+
     /* ----- refund ----- */
 
     function openRefundDialog() {
@@ -3342,6 +3456,7 @@
 
       if (value === "cancelpairs") return openCancelDialog();
       if (value === "discount") return openDiscountDialog();
+      if (value === "reprice") return openRepriceDialog();
       if (value === "refund") return openRefundDialog();
 
       if (value === "shipped") {

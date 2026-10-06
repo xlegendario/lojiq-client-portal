@@ -216,6 +216,94 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
 }
 
 /*
+ * A deal that turns out to be worth something else.
+ *
+ * A discount only goes down, and a sale that goes UP - the buyer agrees to
+ * pay the shipping, a pair is swapped for a dearer one - had no route at
+ * all. It was being done by hand in Rompslomp, where the portal never saw
+ * it and the deal kept saying the old number.
+ *
+ * Prices in, not amounts off: you type what the pair is worth now. What
+ * follows is the same three steps a discount already takes - the open
+ * invoice credited in full, the prices written, a new invoice made and
+ * mailed - because an invoice is never edited. The credit is the record
+ * that the first one was wrong.
+ */
+export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
+  const live = pairs.filter((pair) => !pair.cancelled_at);
+  const problems = [];
+  const lines = [];
+
+  if (sale.payment_status === "cancelled") problems.push("This deal is cancelled: there is nothing left to reprice.");
+  if (!wanted.length) problems.push("Enter a new price for at least one pair.");
+
+  for (const row of wanted) {
+    const pair = live.find((p) => p.id === text(row.id));
+    const becomes = round2(row.price);
+
+    if (!pair) {
+      problems.push("One of those pairs is no longer on this deal.");
+      continue;
+    }
+
+    /*
+      Older deals carry the price on the deal and not on the pair. With one
+      pair on it that is the same number.
+    */
+    const was = pair.selling_price === null || pair.selling_price === undefined
+      ? (live.length === 1 ? round2(sale.total_selling_price) : 0)
+      : round2(pair.selling_price);
+
+    if (!(becomes > 0)) {
+      problems.push(`Enter what ${pair.item_id || pair.sku || "the pair"} is worth now; nothing is cancelled here.`);
+      continue;
+    }
+
+    if (Math.abs(becomes - was) < 0.005) continue;
+
+    lines.push({
+      id: pair.id,
+      pair: pair.item_id || pair.sku || "",
+      was,
+      becomes,
+      difference: round2(becomes - was)
+    });
+  }
+
+  if (!problems.length && !lines.length) problems.push("Those are the prices the deal already has.");
+
+  const newTotal = round2(live.reduce((sum, pair) => {
+    const line = lines.find((l) => l.id === pair.id);
+    if (line) return sum + line.becomes;
+
+    return sum + (pair.selling_price === null || pair.selling_price === undefined
+      ? (live.length === 1 ? round2(sale.total_selling_price) : 0)
+      : round2(pair.selling_price));
+  }, 0));
+
+  const openInvoices = invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id));
+
+  // What is actually held, after anything already sent back.
+  const paid = round2(
+    (sale.payment_status === "paid" ? round2(sale.total_selling_price) : round2(sale.paid_amount))
+  ) - round2(sale.refunded_amount);
+
+  return {
+    ok: !problems.length && lines.length > 0,
+    problems,
+    lines,
+    was_total: round2(sale.total_selling_price),
+    new_total: newTotal,
+    difference: round2(newTotal - round2(sale.total_selling_price)),
+    credits: openInvoices.map((i) => i.invoice_number || i.rompslomp_invoice_id),
+    reinvoice: Boolean(openInvoices.length),
+    // Money that has to move after the change, in whichever direction.
+    refund: round2(Math.max(0, paid - newTotal)),
+    to_collect: round2(Math.max(0, newTotal - paid))
+  };
+}
+
+/*
  * deps:
  *   db          createSupabaseRest
  *   airtable    update, byIds (main base) - Inventory Units
@@ -582,5 +670,80 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     return saved;
   }
 
-  return { plan, cancelPairs, discountPairs, registerRefund };
+  /*
+   * The three steps, in the order that keeps the books right: the old
+   * invoice off in full, then the prices, then a new invoice. Crediting
+   * first means the stock correction is reversed before it is booked again
+   * on the new amount, so a run that dies halfway leaves a credited deal
+   * rather than two live invoices.
+   */
+  async function repricePairs(id, { pairs: wanted = [], reason = "", by = "" } = {}) {
+    const asked = (Array.isArray(wanted) ? wanted : [wanted])
+      .map((row) => ({ id: text(row?.id), price: Number(row?.price) }))
+      .filter((row) => row.id && Number.isFinite(row.price));
+
+    const { sale, pairs, invoices } = await load(id);
+    const result = repricePlan({ sale, pairs, wanted: asked, invoices });
+
+    if (!result.ok) throw new ExternalSalesError(result.problems.join(" ") || "Enter a new price for at least one pair.");
+
+    const log = [];
+
+    for (const invoice of invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id))) {
+      const out = await invoicing.credit(sale.id, invoice.id);
+      log.push(`${out.credit} credits ${out.of}`);
+    }
+
+    for (const line of result.lines) {
+      await db.patch(`external_sale_pairs?id=eq.${line.id}`, { selling_price: line.becomes });
+    }
+
+    await db.insert("external_sale_notes", [{
+      sale_id: sale.id,
+      written_by: text(by) || null,
+      body: `Invoice changed ${result.was_total.toFixed(2)} -> ${result.new_total.toFixed(2)}: ` +
+        result.lines.map((line) => `${line.pair || "a pair"} ${line.was.toFixed(2)} -> ${line.becomes.toFixed(2)}`).join(", ") +
+        `${text(reason) ? ` - ${text(reason)}` : ""}`
+    }]).catch(() => {});
+
+    const fields = { total_selling_price: result.new_total };
+
+    if (invoices.some((i) => i.kind === "sale")) fields.bookkeeping_status = "to_invoice";
+
+    /*
+      What came in no longer covers the deal, or covers more than it. Either
+      way the deal is no longer simply "paid", and the amount held is what it
+      always was - this changes the price, not the bank.
+    */
+    if (sale.payment_status === "paid" && (result.refund > 0 || result.to_collect > 0)) {
+      fields.payment_status = "partially_paid";
+      fields.paid_amount = round2(sale.total_selling_price);
+    }
+
+    await db.patch(`external_sales?id=eq.${sale.id}`, fields);
+
+    if (result.reinvoice) {
+      try {
+        const out = await invoicing.invoice(sale.id, { mail: true });
+        log.push(`New invoice ${out.invoices.map((i) => i.invoice_number).join(", ")}`);
+      } catch (err) {
+        log.push(`The new invoice was not made: ${err.message}. Open the deal and click Create invoice.`);
+      }
+    }
+
+    if (result.to_collect > 0) log.push(`${result.to_collect.toFixed(2)} still has to come in from the buyer.`);
+    if (result.refund > 0) log.push(`Refund the buyer ${result.refund.toFixed(2)} by bank, then register it on the deal.`);
+
+    return {
+      deal: dealId(sale),
+      was_total: result.was_total,
+      new_total: result.new_total,
+      difference: result.difference,
+      refund: result.refund,
+      to_collect: result.to_collect,
+      log
+    };
+  }
+
+  return { plan, cancelPairs, discountPairs, repricePairs, registerRefund };
 }
