@@ -1159,7 +1159,7 @@
           <table>
             <thead><tr>
               <th>Deal</th><th>Buyer</th><th>Status</th><th>Action required</th>
-              <th class="money">Buyer pays</th><th class="money">We pay</th><th class="money">Margin</th>
+              <th class="money">Buyer pays</th><th class="money">We pay</th><th class="money">Margin</th><th></th>
             </tr></thead>
             <tbody>
               ${deals.map((d) => `
@@ -1171,6 +1171,7 @@
                   <td class="money">${d.selling > 0 ? esc(euro(d.selling)) : "—"}</td>
                   <td class="money">${d.paying > 0 ? esc(euro(d.paying)) : "—"}</td>
                   <td class="money">${d.selling > 0 ? esc(euro(d.selling - d.paying)) : "—"}</td>
+                  <td class="acts"><button class="btn ghost slim" type="button" data-draft="delete" data-id="${esc(d.id)}" data-deal="${esc(d.deal_id)}">Delete</button></td>
                 </tr>`).join("")}
             </tbody>
           </table>
@@ -1257,7 +1258,9 @@
 
       if (!draft.dealId) {
         try {
-          draft.deals = (await api("/api/admin/broker-deals?view=all")).deals || [];
+          // Only what is still being made: a deal that was confirmed is an
+          // ordinary outbound and lives in the tabs next to this one.
+          draft.deals = (await api("/api/admin/broker-deals?view=drafts")).deals || [];
         } catch (err) {
           $("draftView").innerHTML = `<p class="empty">${esc(err.message)}</p>`;
           return;
@@ -1955,6 +1958,24 @@
 
       if (what === "new") return openDealDialog();
       if (what === "addpairs") return openDealDialog(draft.dealId);
+
+      if (what === "delete") {
+        // The row underneath opens the deal; this button is not that.
+        event.stopPropagation();
+
+        const name = el.dataset.deal || "this draft";
+
+        if (!confirm(`Delete ${name}? Pairs of ours go back on the shelf. This cannot be undone.`)) return;
+
+        return busy(el, async () => {
+          try {
+            await api(`/api/admin/broker-deals/${encodeURIComponent(el.dataset.id)}`, { method: "DELETE" });
+            await openDraft("");
+          } catch (err) {
+            alert(err.message);
+          }
+        });
+      }
 
       if (what === "pickbuyer") {
         await loadBuyers();

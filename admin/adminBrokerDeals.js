@@ -218,6 +218,17 @@ export const VIEWS = {
   yours: (row) => row.yours > 0,
   running: (row) => row.waiting > 0,
   done: (row) => row.waiting === 0 && row.pairs > 0,
+
+  /*
+    Still being put together.
+
+    FIXED - the Draft screen asked for "all", which is every broker deal
+    this service ever made. A deal that was confirmed weeks ago, shipped and
+    invoiced, sat in the list of things still to do forever. Confirming is
+    what moves a deal to "open"; before that it is a draft and nothing else.
+  */
+  drafts: (row) => row.stage === "negotiating",
+
   all: () => true
 };
 
@@ -1797,8 +1808,57 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
     return { options: out?.options || [] };
   }
 
+  /*
+   * Throwing a draft away.
+   *
+   * Only while it is one: confirming makes it a real outbound with pairs,
+   * an invoice and stock behind it, and the database cascades - deleting
+   * that row would take the pairs and the invoice links with it. A deal
+   * that got that far is cancelled, never deleted.
+   *
+   * Every pair has to be free first. A pair of ours that is only locked
+   * goes back on the shelf here, the same way removing the line does it; a
+   * pair that is out with a consignor is his to answer, so that one has to
+   * be dropped before the deal can go.
+   */
+  async function removeDeal(id) {
+    const [sale] = await db.get(`external_sales?select=*&id=eq.${text(id)}`);
+
+    if (!sale) throw new BrokerDealsError("That deal no longer exists.", 404);
+    if (text(sale.kind) !== "broker") throw new BrokerDealsError("That is not a broker deal.", 409);
+
+    if (text(sale.stage) !== "negotiating") {
+      throw new BrokerDealsError(
+        `${dealId(sale)} is a deal, not a draft: it was confirmed. Cancel its pairs instead of deleting it.`,
+        409
+      );
+    }
+
+    const lines = await db.get(`deal_lines?select=*&sale_id=eq.${text(sale.id)}&order=created_at.asc`);
+    const rows = lines.map((line) => lineRow(line, null, null));
+
+    const stuck = rows.filter((row) => !(row.status === "draft" || (["own", "partner"].includes(row.source) && row.status === "locked")));
+
+    if (stuck.length) {
+      throw new BrokerDealsError(
+        `${stuck.length} pair${stuck.length === 1 ? " is" : "s are"} still out with a consignor. Drop ${stuck.length === 1 ? "it" : "them"} first, then delete the draft.`,
+        409
+      );
+    }
+
+    // Ours goes back on the shelf before the line that held it disappears.
+    for (const line of lines) {
+      await releaseOwn(line);
+      await releasePartner(line);
+    }
+
+    await db.remove(`external_sales?id=eq.${text(sale.id)}`);
+
+    return { ok: true, deal: dealId(sale), lines: lines.length };
+  }
+
   return {
-    list, count, get, create, attachBuyer, createBuyer,
+    list, count, get, create, attachBuyer, createBuyer, removeDeal,
     addLine, addOwnLine, addPartnerLine, ownStock, partnerStock, removeLine, priceLine, submit, answer, confirmDeal, buyers,
     shipments, shipConsignor, unship, markShipped
   };
@@ -1824,6 +1884,18 @@ export function mountBrokerDeals(router, { store, audit = null }) {
   router.get("/api/admin/buyers", json, async (req, res) => {
     try {
       res.json(await store.buyers());
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.delete("/api/admin/broker-deals/:id", json, async (req, res) => {
+    try {
+      const out = await store.removeDeal(req.params.id);
+
+      if (audit) await audit(req, "broker_deal_deleted", { id: req.params.id }, out);
+
+      res.json(out);
     } catch (err) {
       send(res, err);
     }

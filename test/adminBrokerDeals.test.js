@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   LINE_STATES,
+  VIEWS,
   createBrokerDealsStore,
   dealRow,
   lineRow,
@@ -1117,4 +1118,50 @@ test("an invoiced deal does not change hands", async () => {
     store.attachBuyer({ saleId: SALE.id, buyerId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa" }),
     /already invoiced/
   );
+});
+
+/* ---------------- throwing a draft away ---------------- */
+
+test("the draft list is what is still being made, not every broker deal ever", () => {
+  const nog = dealRow({ ...SALE, stage: "negotiating" }, []);
+  const klaar = dealRow({ ...SALE, stage: "open" }, []);
+
+  assert.equal(VIEWS.drafts(nog), true);
+  assert.equal(VIEWS.drafts(klaar), false, "a confirmed deal is an outbound, not a draft");
+  assert.equal(VIEWS.all(klaar), true, "and it is still in All");
+});
+
+test("deleting a draft puts our own pair back on the shelf", async () => {
+  const { store, tables } = shop({
+    lines: [{
+      id: "line-1", sale_id: SALE.id, status: "locked", source: "own",
+      sku: "DV1748-601", size: "44", product_name: "Jordan 1 Retro High OG Chicago",
+      inventory_unit_record_id: "recUNIT0000000001", payout: 150, selling_price: 200
+    }]
+  });
+
+  const out = await store.removeDeal(SALE.id);
+
+  assert.equal(out.ok, true);
+  assert.equal(out.lines, 1);
+  assert.equal(tables.external_sales.length, 0, "the deal is gone");
+});
+
+test("a deal that was confirmed is not a draft and is not deleted", async () => {
+  const { store, tables } = shop({ sales: [{ ...SALE, stage: "open" }] });
+
+  await assert.rejects(() => store.removeDeal(SALE.id), /not a draft/);
+  assert.equal(tables.external_sales.length, 1, "still there");
+});
+
+test("a pair that is out with a consignor has to be dropped first", async () => {
+  const { store, tables } = shop({
+    lines: [{
+      id: "line-1", sale_id: SALE.id, status: "offered", source: "consignment",
+      sku: "DV1748-601", size: "44", seller_id: "SE-00281", payout: 150
+    }]
+  });
+
+  await assert.rejects(() => store.removeDeal(SALE.id), /still out with a consignor/);
+  assert.equal(tables.external_sales.length, 1, "nothing was deleted");
 });
