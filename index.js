@@ -1782,6 +1782,54 @@ async function getCachedMerchant(merchantId) {
  * price over on its next pass, within half an hour.
  * ------------------------------------------------------------------ */
 
+/*
+ * Which store is asking - from the signed session only.
+ *
+ * CHANGED - these endpoints took merchant_id from the browser, so anyone who
+ * typed another store's record id could read and price its shelf. With the
+ * catalogue a store can also create and switch off products in its Shopify,
+ * which must never rest on a number the browser sends. A store still logged
+ * in the old way is asked to log in once more.
+ */
+async function shelfMerchantId(req, res) {
+  const merchant = await apiAccess.merchantFor(req);
+
+  if (!merchant) {
+    res.status(401).json({ error: "Please log in again.", login: "/?next=shelf" });
+    return null;
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    res.status(503).json({ error: "This service has no Supabase configuration." });
+    return null;
+  }
+
+  return merchant.id;
+}
+
+async function supabaseCall(path, init = {}) {
+  const response = await fetch(`${SUPABASE_URL.replace(/[/]+$/, "")}/rest/v1/${path}`, {
+    ...init,
+    headers: { ...supabaseHeaders(), ...(init.headers || {}) }
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Supabase answered ${response.status}: ${body.slice(0, 200)}`);
+  }
+
+  const text = await response.text();
+
+  return text ? JSON.parse(text) : null;
+}
+
+const supabaseRpc = (name, args) =>
+  supabaseCall(`rpc/${name}`, { method: "POST", body: JSON.stringify(args) });
+
+function catalogueSku(value) {
+  return asText(value).toUpperCase().replace(/\s+/g, "");
+}
+
 function supabaseHeaders() {
   return {
     apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -1822,9 +1870,9 @@ async function storePricingFlags(merchantId) {
  */
 app.get("/api/listings", async (req, res) => {
   try {
-    const merchantId = asText(req.query.merchant_id);
+    const merchantId = await shelfMerchantId(req, res);
 
-    if (!merchantId) return res.status(400).json({ error: "merchant_id is required" });
+    if (!merchantId) return;
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return res.status(503).json({ error: "This service has no Supabase configuration." });
     }
@@ -1879,10 +1927,11 @@ app.get("/api/listings", async (req, res) => {
  */
 app.get("/api/listings/sizes", async (req, res) => {
   try {
-    const merchantId = asText(req.query.merchant_id);
+    const merchantId = await shelfMerchantId(req, res);
     const sku = asText(req.query.sku).trim();
 
-    if (!merchantId || !sku) return res.status(400).json({ error: "merchant_id and sku are required" });
+    if (!merchantId) return;
+    if (!sku) return res.status(400).json({ error: "sku is required" });
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return res.status(503).json({ error: "This service has no Supabase configuration." });
     }
@@ -1935,13 +1984,15 @@ app.get("/api/listings/sizes", async (req, res) => {
  */
 app.post("/api/listings/price", express.json({ limit: "10kb" }), async (req, res) => {
   try {
-    const merchantId = asText(req.body?.merchant_id);
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
     const mode = asText(req.body?.mode).toLowerCase();
     const id = Number(req.body?.id);
     const sku = asText(req.body?.sku).trim();
     const oneSize = Number.isFinite(id);
 
-    if (!merchantId) return res.status(400).json({ error: "merchant_id is required" });
     if (!oneSize && !sku) return res.status(400).json({ error: "Name a listing or a shoe." });
 
     if (!["auto", "custom"].includes(mode)) {
@@ -1985,6 +2036,191 @@ app.post("/api/listings/price", express.json({ limit: "10kb" }), async (req, res
   } catch (err) {
     console.error("Failed to set a listing price:", err);
     res.status(500).json({ error: "Could not save the price", details: err.message });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * The store catalogue
+ *
+ * Two lists. "Mine": every product in the store's own Shopify, active ones
+ * first, with how much of it we hold in consignment. "Add": consignment
+ * stock of ours the store does not carry yet, newest first. From there a
+ * store adds a product, or unlinks / switches off one it has; the
+ * consignment push carries those choices out on its next pass.
+ *
+ * Both lists read summary tables of one row per product - grouping the
+ * variant table per page view took 108 seconds for a big store.
+ * ------------------------------------------------------------------ */
+
+const CATALOGUE_PAGE = 60;
+
+function pageArgs(req) {
+  return {
+    p_limit: Math.min(Math.max(Number(req.query.limit) || CATALOGUE_PAGE, 1), 200),
+    p_offset: Math.max(Number(req.query.offset) || 0, 0)
+  };
+}
+
+app.get("/api/catalogue/mine", async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const status = ["active", "inactive"].includes(asText(req.query.status)) ? asText(req.query.status) : null;
+    const ours = ["yes", "no"].includes(asText(req.query.ours)) ? asText(req.query.ours) : null;
+
+    const [answer, flags] = await Promise.all([
+      supabaseRpc("store_catalogue_mine", {
+        p_merchant: merchantId,
+        p_search: asText(req.query.search).trim() || null,
+        p_status: status,
+        p_ours: ours,
+        ...pageArgs(req)
+      }),
+      storePricingFlags(merchantId)
+    ]);
+
+    res.json({ ok: true, ...flags, ...(answer || { total: 0, active: 0, items: [] }) });
+  } catch (err) {
+    console.error("Failed to read the catalogue:", err);
+    res.status(500).json({ error: "Could not read your catalogue", details: err.message });
+  }
+});
+
+app.get("/api/catalogue/add", async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const answer = await supabaseRpc("store_catalogue_to_add", {
+      p_merchant: merchantId,
+      p_search: asText(req.query.search).trim() || null,
+      p_new_only: asText(req.query.new) === "1",
+      ...pageArgs(req)
+    });
+
+    res.json({ ok: true, ...(answer || { total: 0, items: [] }) });
+  } catch (err) {
+    console.error("Failed to read what can be added:", err);
+    res.status(500).json({ error: "Could not read our stock", details: err.message });
+  }
+});
+
+/*
+ * One product of the store's, opened: its sizes with the store's own price,
+ * how it is priced, and which of them we hold in consignment.
+ */
+app.get("/api/catalogue/product", async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const productId = asText(req.query.product_id).trim();
+
+    if (!/^\d+$/.test(productId)) return res.status(400).json({ error: "product_id is required" });
+
+    const rows = await supabaseCall(
+      "store_listings?select=id,size,sku,status,store_price,shopify_price,custom_price,price_mode" +
+        `&merchant_record_id=eq.${encodeURIComponent(merchantId)}` +
+        `&shopify_product_id=eq.${encodeURIComponent(productId)}`
+    );
+
+    const sku = catalogueSku(rows?.[0]?.sku);
+
+    const stock = sku
+      ? await supabaseCall(
+          "consignment_stock_levels?select=size,stock_level,sku" +
+            `&sku=ilike.${encodeURIComponent(sku)}&stock_level=gt.0`
+        ).catch(() => [])
+      : [];
+
+    const held = new Map(
+      (stock || [])
+        .filter((row) => catalogueSku(row.sku) === sku)
+        .map((row) => [asText(row.size).trim(), Number(row.stock_level) || 0])
+    );
+
+    res.json({
+      ok: true,
+      sku,
+      sizes: (rows || [])
+        .filter((row) => row.status === "active")
+        .map((row) => ({
+          id: row.id,
+          size: asText(row.size),
+          store_price: row.store_price === null ? null : Number(row.store_price),
+          our_price: row.shopify_price === null ? null : Number(row.shopify_price),
+          custom_price: row.custom_price === null ? null : Number(row.custom_price),
+          mode: asText(row.price_mode) || "auto",
+          our_stock: held.get(asText(row.size).trim()) || 0
+        }))
+    });
+  } catch (err) {
+    console.error("Failed to read a catalogue product:", err);
+    res.status(500).json({ error: "Could not read this product", details: err.message });
+  }
+});
+
+/*
+ * What the store wants done with a style:
+ *
+ *   add          create it in their Shopify (photos: "lojiq" or "own")
+ *   unlinked     keep their product, put none of our stock on it
+ *   deactivated  put none of our stock on it and set it to draft in Shopify
+ *   none         undo - back to the default
+ *
+ * Only recorded here. The consignment push carries it out on its next pass
+ * and marks it done, so a choice never touches Shopify from a browser.
+ */
+app.post("/api/catalogue/choose", express.json({ limit: "10kb" }), async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const sku = catalogueSku(req.body?.sku);
+    const choice = asText(req.body?.choice).toLowerCase();
+    const photos = asText(req.body?.photos).toLowerCase();
+
+    if (!sku) return res.status(400).json({ error: "Which style?" });
+
+    if (!["add", "unlinked", "deactivated", "none"].includes(choice)) {
+      return res.status(400).json({ error: "choice is add, unlinked, deactivated or none" });
+    }
+
+    const key = `merchant_record_id=eq.${encodeURIComponent(merchantId)}&sku=eq.${encodeURIComponent(sku)}`;
+
+    if (choice === "none") {
+      await supabaseCall(`store_catalogue_choices?${key}`, { method: "DELETE" });
+      return res.json({ ok: true, sku, choice: null });
+    }
+
+    if (choice === "add" && !["lojiq", "own"].includes(photos)) {
+      return res.status(400).json({ error: "Our photos or your own?" });
+    }
+
+    await supabaseCall("store_catalogue_choices?on_conflict=merchant_record_id,sku", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({
+        merchant_record_id: merchantId,
+        sku,
+        choice,
+        photos: choice === "add" ? photos : null,
+        status: "pending",
+        error: null,
+        decided_at: new Date().toISOString(),
+        done_at: null
+      })
+    });
+
+    res.json({ ok: true, sku, choice, photos: choice === "add" ? photos : null, status: "pending" });
+  } catch (err) {
+    console.error("Failed to save a catalogue choice:", err);
+    res.status(500).json({ error: "Could not save that", details: err.message });
   }
 });
 

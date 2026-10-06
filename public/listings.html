@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Your shelf</title>
+<title>Your catalogue</title>
 <style>
   /* The portal's palette, so this page belongs to the same product. */
   :root {
@@ -17,6 +17,7 @@
     --primary-soft: #66B3FF;
     --green: #22C55E;
     --amber: #F5A524;
+    --red: #F87171;
   }
 
   * { box-sizing: border-box; }
@@ -32,9 +33,17 @@
 
   header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
   h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
-  .lead { color: var(--muted); font-size: 13px; margin: 2px 0 18px; max-width: 62ch; }
+  .lead { color: var(--muted); font-size: 13px; margin: 2px 0 16px; max-width: 70ch; }
   a.back { color: var(--muted); text-decoration: none; font-size: 13px; }
   a.back:hover { color: var(--text); }
+
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .tab {
+    background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+    font: inherit; font-weight: 600; padding: 9px 12px; cursor: pointer; margin-bottom: -1px;
+  }
+  .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--primary); }
+  .tab .n { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 4px; }
 
   .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
 
@@ -44,22 +53,24 @@
     font: inherit; outline: none;
   }
   .input:focus, .select:focus { border-color: var(--primary); }
-  #search { flex: 1 1 260px; min-width: 200px; }
+  .search { flex: 1 1 260px; min-width: 200px; }
+  label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; cursor: pointer; }
 
   .count { color: var(--muted); font-size: 12.5px; margin-left: auto; font-variant-numeric: tabular-nums; }
 
   .rows { display: flex; flex-direction: column; gap: 8px; }
 
-  .style { border: 1px solid var(--border); border-radius: 11px; background: var(--panel); overflow: hidden; }
-  .style.open { border-color: #34343B; }
+  .card { border: 1px solid var(--border); border-radius: 11px; background: var(--panel); overflow: hidden; }
+  .card.open { border-color: #34343B; }
+  .card.inactive .what strong { color: var(--muted); }
 
-  /* The whole header line opens the shoe, so nothing has to be aimed at. */
   .head {
     display: flex; gap: 12px; align-items: center;
-    padding: 10px 12px; cursor: pointer; width: 100%;
+    padding: 10px 12px; width: 100%;
     background: none; border: 0; color: inherit; font: inherit; text-align: left;
   }
-  .head:hover { background: var(--panel-2); }
+  button.head { cursor: pointer; }
+  button.head:hover { background: var(--panel-2); }
   .head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
   .head img, .head .blank {
@@ -69,23 +80,25 @@
   .what { flex: 1 1 auto; min-width: 0; }
   .what strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sub { color: var(--muted); font-size: 12px; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; }
 
-  .range { flex: 0 0 auto; text-align: right; font-variant-numeric: tabular-nums; }
+  .side { flex: 0 0 auto; text-align: right; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 
   .chev { flex: 0 0 auto; color: var(--muted); transition: transform 0.15s ease; font-size: 11px; }
-  .style.open .chev { transform: rotate(90deg); }
+  .card.open .chev { transform: rotate(90deg); }
 
-  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
-  .pill.custom { color: var(--primary-soft); border-color: rgba(47, 128, 237, 0.45); }
-  .pill.some { color: var(--amber); border-color: rgba(245, 165, 36, 0.45); }
+  .pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .pill.active { color: var(--green); border-color: rgba(34, 197, 94, 0.45); }
+  .pill.ours { color: var(--primary-soft); border-color: rgba(47, 128, 237, 0.45); }
+  .pill.new { color: var(--amber); border-color: rgba(245, 165, 36, 0.5); }
+  .pill.choice { color: var(--amber); border-color: rgba(245, 165, 36, 0.45); }
+  .pill.done { color: var(--green); border-color: rgba(34, 197, 94, 0.45); }
+  .pill.failed { color: var(--red); border-color: rgba(248, 113, 113, 0.5); }
 
   .body { border-top: 1px solid var(--border); padding: 12px; background: var(--panel-2); }
 
-  .all {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-    padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px dashed var(--border);
-  }
-  .all .label { color: var(--muted); font-size: 12.5px; margin-right: 2px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px dashed var(--border); }
+  .actions .hint { color: var(--muted); font-size: 12.5px; flex: 1 1 260px; }
 
   table { width: 100%; border-collapse: collapse; }
   th {
@@ -94,69 +107,95 @@
   }
   td { padding: 4px 8px 4px 0; vertical-align: middle; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-  /* The last column takes the slack, so five controls do not drift apart
-     across a wide screen. */
   th.fill, td.fill { width: 100%; }
   .sizecell { font-weight: 600; white-space: nowrap; }
+  .yes { color: var(--primary-soft); }
+  .no { color: var(--muted); }
 
   .amount { width: 96px; text-align: right; }
-  .mode { width: 102px; }
+  .mode { width: 110px; }
 
   .btn {
-    height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+    height: 34px; padding: 0 13px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   .btn:hover:not(:disabled) { border-color: var(--primary); }
   .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: #2A73D6; }
+  .btn.danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+
+  .addbox { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 0 12px 12px 68px; }
+  .addbox .hint { color: var(--muted); font-size: 12.5px; width: 100%; }
 
   .empty, .problem, .loading { padding: 28px 12px; text-align: center; color: var(--muted); }
-  .problem { color: #F87171; }
+  .problem { color: var(--red); }
+  .problem a { color: var(--primary-soft); }
   .body .loading, .body .problem { padding: 10px 0; text-align: left; }
 
   .more { display: flex; justify-content: center; padding: 14px 0 0; }
-
   .note { margin-top: 18px; color: var(--muted); font-size: 12.5px; }
 
   .toast {
     position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
     background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
     padding: 9px 14px; border-radius: 9px; font-size: 13px; box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    max-width: calc(100% - 32px);
   }
 
   @media (max-width: 680px) {
     .head { flex-wrap: wrap; }
-    .range { width: 100%; text-align: left; }
+    .side { width: 100%; align-items: flex-start; text-align: left; }
     th.hide, td.hide { display: none; }
+    .addbox { padding-left: 12px; }
   }
 </style>
 </head>
 <body>
   <div class="wrap">
     <header>
-      <h1>Your shelf</h1>
+      <h1>Your catalogue</h1>
       <a class="back" href="/portal">&larr; Back to the portal</a>
     </header>
 
     <p class="lead">
-      Every shoe of ours standing in your shop. Open one to see its sizes.
-      Leave a price on Auto and we work it out; set it to Custom and your
-      number is the one that stands.
+      Your own products, and the consignment stock of ours you do not carry yet.
+      Add what you want on your site; unlink or switch off what you don't.
+      Changes reach your Shopify on our next pass, within half an hour.
     </p>
 
-    <div class="tools">
-      <input class="input" id="search" type="search" placeholder="Shoe or style code" autocomplete="off">
-      <select class="select" id="only">
-        <option value="">All shoes</option>
-        <option value="custom">With your own prices</option>
-        <option value="auto">Priced by Lojiq</option>
-      </select>
-      <span class="count" id="count"></span>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="mine" aria-selected="true">My catalogue <span class="n" id="n-mine"></span></button>
+      <button class="tab" role="tab" data-tab="add" aria-selected="false">Add from Lojiq <span class="n" id="n-add"></span></button>
     </div>
 
-    <div class="rows" id="rows"><p class="loading">Loading&hellip;</p></div>
+    <section id="tab-mine">
+      <div class="tools">
+        <input class="input search" id="search-mine" type="search" placeholder="Product or style code" autocomplete="off">
+        <select class="select" id="status">
+          <option value="">Active and inactive</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <select class="select" id="ours">
+          <option value="">All products</option>
+          <option value="yes">With Lojiq stock</option>
+          <option value="no">Without Lojiq stock</option>
+        </select>
+        <span class="count" id="count-mine"></span>
+      </div>
+      <div class="rows" id="rows-mine"><p class="loading">Loading&hellip;</p></div>
+      <p class="note" id="note-mine" hidden></p>
+    </section>
 
-    <p class="note" id="note" hidden></p>
+    <section id="tab-add" hidden>
+      <div class="tools">
+        <input class="input search" id="search-add" type="search" placeholder="Product, brand or style code" autocomplete="off">
+        <label class="check"><input type="checkbox" id="new-only"> New in the last 14 days</label>
+        <span class="count" id="count-add"></span>
+      </div>
+      <div class="rows" id="rows-add"><p class="loading">Loading&hellip;</p></div>
+    </section>
   </div>
 
 <script>
@@ -164,75 +203,105 @@
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const euro = (v) => v === null || v === undefined || v === "" ? "—" : new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(v));
 
-  const store = JSON.parse(localStorage.getItem("lojiq_merchant") || "null");
+  const PAGE = 60;
 
-  /* The shoes as they came down, and the sizes of the ones opened so far.
-     Keyed on the tidied style code, which is what the shelf groups on. */
-  let styles = [];
-  const sizesBySku = new Map();
-  const open = new Set();
+  const state = {
+    tab: "mine",
+    mine: { items: [], total: 0, offset: 0 },
+    add: { items: [], total: 0, offset: 0 },
+    priceSync: false,
+    open: new Set(),
+    sizes: new Map(),
+    adding: null
+  };
 
   let timer = null;
 
-  /* How many shoes are on screen. A shop with fourteen hundred styles is a
-     page nobody scrolls to the end of, and every card it draws is work; the
-     rest come on asking, or by searching, which is what a store actually
-     does. */
-  const PAGE = 150;
-  let showing = PAGE;
-
   function say(message) {
-    const old = document.querySelector(".toast");
-    if (old) old.remove();
+    document.querySelector(".toast")?.remove();
 
     const box = document.createElement("div");
     box.className = "toast";
     box.textContent = message;
     document.body.append(box);
-    setTimeout(() => box.remove(), 3200);
+    setTimeout(() => box.remove(), 3600);
   }
 
-  /* 38 2/3 belongs between 38 1/3 and 39, which only a numeric read gets
-     right - sorted as words, 4 lands after 39. */
+  /* The session is what proves which store this is. A store logged in the
+     old way, through this browser only, is sent to log in once more. */
+  async function api(path, init) {
+    const response = await fetch(path, { credentials: "same-origin", ...init });
+    const answer = await response.json().catch(() => ({}));
+
+    if (response.status === 401) {
+      const error = new Error("LOGIN");
+      error.login = answer.login || "/?next=shelf";
+      throw error;
+    }
+
+    if (!response.ok || answer.ok === false) throw new Error(answer.error || "Something went wrong.");
+
+    return answer;
+  }
+
+  function problemHtml(err) {
+    return err.message === "LOGIN"
+      ? '<p class="problem">Please <a href="' + esc(err.login) + '">log in again</a> to open your catalogue.</p>'
+      : '<p class="problem">' + esc(err.message) + "</p>";
+  }
+
   function bySize(a, b) {
     const read = (size) => {
       const match = String(size).match(/^\s*(\d+(?:[.,]\d+)?)/);
-
       return match ? Number(match[1].replace(",", ".")) : Number.POSITIVE_INFINITY;
     };
 
     return read(a.size) - read(b.size) || String(a.size).localeCompare(String(b.size), "nl");
   }
 
-  function priceSummary(style) {
-    if (!(style.price_low > 0) && !(style.price_high > 0)) return "—";
-    if (Number(style.price_low) === Number(style.price_high)) return euro(style.price_low);
-
-    return euro(style.price_low) + " – " + euro(style.price_high);
+  function range(low, high) {
+    if (!(low > 0) && !(high > 0)) return "—";
+    if (Number(low) === Number(high)) return euro(low);
+    return euro(low) + " – " + euro(high);
   }
 
-  function customPill(style) {
-    if (!style.custom_pairs) return "";
-    if (style.custom_pairs === style.pairs) return '<span class="pill custom">Your price</span>';
+  function choicePill(item) {
+    if (!item.choice) return "";
 
-    return '<span class="pill some">' + style.custom_pairs + " of " + style.pairs + " yours</span>";
+    const label = {
+      add: item.choice_status === "done" ? "Added" : "Adding",
+      unlinked: "Unlinked",
+      deactivated: "Switched off"
+    }[item.choice] || item.choice;
+
+    const kind = item.choice_status === "failed" ? "failed" : item.choice_status === "done" ? "done" : "choice";
+    const suffix = item.choice_status === "pending" ? " · next pass" : item.choice_status === "failed" ? " · failed" : "";
+
+    return '<span class="pill ' + kind + '">' + esc(label + suffix) + "</span>";
   }
 
-  function styleHtml(style) {
-    const isOpen = open.has(style.sku);
+  /* ------------------------------------------------------------ mine */
+
+  function mineCard(item) {
+    const key = String(item.shopify_product_id);
+    const isOpen = state.open.has(key);
+    const active = item.status === "active";
 
     return (
-      '<div class="style' + (isOpen ? " open" : "") + '" data-sku="' + esc(style.sku) + '">' +
-        '<button class="head" type="button" aria-expanded="' + (isOpen ? "true" : "false") + '">' +
-          (style.picture ? '<img src="' + esc(style.picture) + '" alt="">' : '<span class="blank"></span>') +
+      '<div class="card' + (isOpen ? " open" : "") + (active ? "" : " inactive") + '" data-product="' + esc(key) + '" data-sku="' + esc(item.sku) + '">' +
+        '<button class="head" type="button" aria-expanded="' + isOpen + '">' +
+          (item.picture_url ? '<img src="' + esc(item.picture_url) + '" alt="" loading="lazy">' : '<span class="blank"></span>') +
           '<span class="what">' +
-            "<strong>" + esc(style.name) + "</strong>" +
-            '<span class="sub">' + esc(style.sku) +
-              (style.brand ? " · " + esc(style.brand) : "") +
-              " · " + style.pairs + (style.pairs === 1 ? " size" : " sizes") +
+            "<strong>" + esc(item.name || item.sku || "Untitled") + "</strong>" +
+            '<span class="sub">' + esc(item.sku || "no style code") + (item.brand ? " · " + esc(item.brand) : "") +
+              " · " + item.sizes + (item.sizes === 1 ? " size" : " sizes") + "</span>" +
+            '<span class="pills">' +
+              '<span class="pill' + (active ? " active" : "") + '">' + (active ? "Active" : "Inactive") + "</span>" +
+              (item.our_sizes ? '<span class="pill ours">Lojiq stock: ' + item.our_sizes + (item.our_sizes === 1 ? " size" : " sizes") + "</span>" : "") +
+              choicePill(item) +
             "</span>" +
           "</span>" +
-          '<span class="range">' + priceSummary(style) + "<br>" + customPill(style) + "</span>" +
+          '<span class="side">' + range(item.price_low, item.price_high) + "</span>" +
           '<span class="chev">&#9654;</span>' +
         "</button>" +
         (isOpen ? '<div class="body" data-body><p class="loading">Reading the sizes&hellip;</p></div>' : "") +
@@ -240,227 +309,303 @@
     );
   }
 
-  function sizesHtml(style, sizes) {
+  function actionsHtml(item) {
+    const buttons = [];
+
+    if (item.choice === "unlinked" || item.choice === "deactivated") {
+      buttons.push('<button class="btn" type="button" data-choose="none">Undo — put Lojiq stock back on</button>');
+    } else if (item.our_sizes) {
+      buttons.push('<button class="btn" type="button" data-choose="unlinked">Unlink</button>');
+      buttons.push('<button class="btn danger" type="button" data-choose="deactivated">Switch off</button>');
+    }
+
+    const hint = item.choice === "deactivated"
+      ? "Our stock comes off this product and it is set to draft in your Shopify on the next pass."
+      : item.choice === "unlinked"
+        ? "We put none of our stock on this product. It stays on your site with your own stock."
+        : item.our_sizes
+          ? "Unlink keeps the product on your site without our stock. Switch off also sets it to draft in your Shopify."
+          : "We hold none of this style right now.";
+
+    return '<div class="actions"><span class="hint">' + esc(hint) + "</span>" + buttons.join("") + "</div>";
+  }
+
+  function sizesHtml(item, sizes) {
+    const priced = state.priceSync;
+
     const rows = [...sizes].sort(bySize).map((row) => {
       const custom = row.mode === "custom";
 
       return (
         '<tr data-id="' + row.id + '">' +
           '<td class="sizecell">' + esc(row.size) + "</td>" +
-          '<td class="num hide">' + esc(euro(row.price)) + "</td>" +
-          "<td>" +
-            '<select class="select mode" data-mode>' +
-              '<option value="auto"' + (custom ? "" : " selected") + ">Auto</option>" +
-              '<option value="custom"' + (custom ? " selected" : "") + ">Custom</option>" +
-            "</select>" +
-          "</td>" +
-          "<td>" +
-            '<input class="input amount" type="number" step="0.01" min="0" placeholder="Price" data-amount' +
-              ' value="' + (custom && row.custom_price ? row.custom_price : "") + '"' +
-              (custom ? "" : " disabled") + ">" +
-          "</td>" +
-          '<td><button class="btn" type="button" data-save disabled>Save</button></td>' +
+          '<td class="num">' + esc(euro(row.store_price)) + "</td>" +
+          '<td class="hide ' + (row.our_stock ? "yes" : "no") + '">' + (row.our_stock ? "Yes" : "—") + "</td>" +
+          (priced
+            ? "<td>" +
+                '<select class="select mode" data-mode>' +
+                  '<option value="auto"' + (custom ? "" : " selected") + ">Lojiq</option>" +
+                  '<option value="custom"' + (custom ? " selected" : "") + ">Custom</option>" +
+                "</select>" +
+              "</td>" +
+              "<td>" +
+                '<input class="input amount" type="number" step="0.01" min="0" placeholder="Price" data-amount' +
+                  ' value="' + (custom && row.custom_price ? row.custom_price : "") + '"' + (custom ? "" : " disabled") + ">" +
+              "</td>" +
+              '<td><button class="btn" type="button" data-save disabled>Save</button></td>'
+            : "") +
           '<td class="fill"></td>' +
         "</tr>"
       );
     }).join("");
 
     return (
-      '<div class="all">' +
-        '<span class="label">All ' + style.pairs + " sizes:</span>" +
-        '<select class="select mode" data-all-mode>' +
-          '<option value="custom">Custom</option>' +
-          '<option value="auto">Auto</option>' +
-        "</select>" +
-        '<input class="input amount" type="number" step="0.01" min="0" placeholder="Price" data-all-amount>' +
-        '<button class="btn" type="button" data-all-save>Apply to this shoe</button>' +
-      "</div>" +
-      "<table>" +
-        "<thead><tr>" +
-          "<th>Size</th>" +
-          '<th class="num hide">In your shop</th>' +
-          "<th>Priced by</th><th>Your price</th><th></th>" +
-          '<th class="fill"></th>' +
-        "</tr></thead>" +
-        "<tbody>" + rows + "</tbody>" +
-      "</table>"
+      actionsHtml(item) +
+      (sizes.length
+        ? "<table><thead><tr>" +
+            "<th>Size</th>" +
+            '<th class="num">Your price</th>' +
+            '<th class="hide">Lojiq stock</th>' +
+            (priced ? "<th>Priced by</th><th>Custom price</th><th></th>" : "") +
+            '<th class="fill"></th>' +
+          "</tr></thead><tbody>" + rows + "</tbody></table>"
+        : '<p class="loading">No active sizes.</p>')
     );
   }
 
-  function paint(sku) {
-    const card = document.querySelector('.style[data-sku="' + CSS.escape(sku) + '"]');
-    const body = card && card.querySelector("[data-body]");
-    const style = styles.find((row) => row.sku === sku);
+  function paintMine(key) {
+    const card = document.querySelector('#rows-mine .card[data-product="' + CSS.escape(key) + '"]');
+    const body = card?.querySelector("[data-body]");
+    const item = state.mine.items.find((row) => String(row.shopify_product_id) === key);
 
-    if (!body || !style) return;
-
-    body.innerHTML = sizesHtml(style, sizesBySku.get(sku) || []);
+    if (body && item && state.sizes.has(key)) body.innerHTML = sizesHtml(item, state.sizes.get(key));
   }
 
-  function draw() {
-    const only = $("only").value;
+  function drawMine() {
+    const { items, total } = state.mine;
 
-    const shown = styles.filter((style) =>
-      only === "custom" ? style.custom_pairs > 0
-      : only === "auto" ? style.custom_pairs < style.pairs
-      : true
-    );
+    $("count-mine").textContent = total ? total + (total === 1 ? " product" : " products") : "";
 
-    $("count").textContent = shown.length
-      ? shown.length + (shown.length === 1 ? " shoe · " : " shoes · ") +
-        shown.reduce((sum, style) => sum + style.pairs, 0) + " sizes"
-      : "";
-
-    const page = shown.slice(0, showing);
-
-    $("rows").innerHTML = shown.length
-      ? page.map(styleHtml).join("") +
-        (shown.length > page.length
-          ? '<div class="more"><button class="btn" type="button" data-more>Show more (' +
-            (shown.length - page.length) + ' to go)</button></div>'
+    $("rows-mine").innerHTML = items.length
+      ? items.map(mineCard).join("") +
+        (total > items.length
+          ? '<div class="more"><button class="btn" type="button" data-more="mine">Show more (' + (total - items.length) + " to go)</button></div>"
           : "")
       : '<p class="empty">' +
-        ($("search").value.trim() || only
-          ? "Nothing of ours matches that."
-          : "Nothing of ours is in your shop yet. It appears here once we have supplied a pair.") +
+        ($("search-mine").value.trim() || $("status").value || $("ours").value
+          ? "Nothing matches that."
+          : "Your products appear here once we have read your shop.") +
         "</p>";
 
-    for (const sku of open) if (sizesBySku.has(sku)) paint(sku);
+    for (const key of state.open) paintMine(key);
   }
 
-  async function openStyle(sku) {
-    open.add(sku);
-    draw();
-
-    if (sizesBySku.has(sku)) return;
-
-    const query = new URLSearchParams({ merchant_id: store.id, sku });
-
-    try {
-      const answer = await fetch("/api/listings/sizes?" + query).then((r) => r.json());
-
-      if (!answer.ok) throw new Error(answer.error || "Could not read the sizes.");
-
-      sizesBySku.set(sku, answer.sizes || []);
-
-      if (open.has(sku)) paint(sku);
-    } catch (err) {
-      const body = document.querySelector('.style[data-sku="' + CSS.escape(sku) + '"] [data-body]');
-
-      if (body) body.innerHTML = '<p class="problem">' + esc(err.message) + "</p>";
-    }
-  }
-
-  async function load() {
-    if (!store?.id) {
-      $("rows").innerHTML = '<p class="problem">Sign in to the portal first, then come back to this page.</p>';
-      return;
-    }
-
-    const query = new URLSearchParams({ merchant_id: store.id });
-    const search = $("search").value.trim();
+  async function loadMine(more = false) {
+    const query = new URLSearchParams({ limit: PAGE, offset: more ? state.mine.items.length : 0 });
+    const search = $("search-mine").value.trim();
 
     if (search) query.set("search", search);
+    if ($("status").value) query.set("status", $("status").value);
+    if ($("ours").value) query.set("ours", $("ours").value);
 
     try {
-      const answer = await fetch("/api/listings?" + query).then((r) => r.json());
+      const answer = await api("/api/catalogue/mine?" + query);
 
-      if (!answer.ok) throw new Error(answer.error || "Could not read your shelf.");
+      state.priceSync = Boolean(answer.price_sync);
+      state.mine.total = Number(answer.total) || 0;
+      state.mine.items = more ? state.mine.items.concat(answer.items || []) : (answer.items || []);
 
-      styles = answer.styles || [];
-      sizesBySku.clear();
-      open.clear();
-      showing = PAGE;
+      if (!more) { state.open.clear(); state.sizes.clear(); }
 
-      $("note").hidden = !styles.length;
+      $("n-mine").textContent = state.mine.total || "";
+      $("note-mine").hidden = false;
+      $("note-mine").textContent = state.priceSync
+        ? "Prices: a size on Lojiq is priced by us; set Custom and your number stands. Changes reach your shop within half an hour."
+        : "Lojiq does not set prices for this shop: the prices shown are yours, changed in Shopify.";
 
-      // With Price Sync off we never touch this shop's prices, so a custom
-      // one would be a number nobody reads.
-      $("note").textContent = answer.price_sync
-        ? "A price you set here reaches your shop on the next pass, within half an hour."
-        : "Lojiq does not set prices for this shop, so these are yours to change in Shopify. A price here would not be used.";
-
-      draw();
+      drawMine();
     } catch (err) {
-      $("rows").innerHTML = '<p class="problem">' + esc(err.message) + "</p>";
+      $("rows-mine").innerHTML = problemHtml(err);
     }
   }
 
-  /* Saving, for one size or for the whole shoe. The shelf is read again
-     afterwards so the range on the closed line is never a stale number, and
-     whatever was open is opened again. */
-  async function save(payload, button, done) {
-    button.disabled = true;
+  async function openMine(key) {
+    state.open.add(key);
+    drawMine();
+
+    if (state.sizes.has(key)) return;
 
     try {
-      const answer = await fetch("/api/listings/price", {
+      const answer = await api("/api/catalogue/product?" + new URLSearchParams({ product_id: key }));
+
+      state.sizes.set(key, answer.sizes || []);
+      if (state.open.has(key)) paintMine(key);
+    } catch (err) {
+      const body = document.querySelector('#rows-mine .card[data-product="' + CSS.escape(key) + '"] [data-body]');
+      if (body) body.innerHTML = problemHtml(err);
+    }
+  }
+
+  /* ------------------------------------------------------------- add */
+
+  function addCard(item) {
+    const choosing = state.adding === item.sku;
+    const queued = item.choice === "add";
+
+    return (
+      '<div class="card" data-sku="' + esc(item.sku) + '">' +
+        '<div class="head">' +
+          (item.picture ? '<img src="' + esc(item.picture) + '" alt="" loading="lazy">' : '<span class="blank"></span>') +
+          '<span class="what">' +
+            "<strong>" + esc(item.name || item.sku) + "</strong>" +
+            '<span class="sub">' + esc(item.sku) + (item.brand ? " · " + esc(item.brand) : "") +
+              " · " + item.sizes + (item.sizes === 1 ? " size" : " sizes") +
+              " · " + item.pairs + (item.pairs === 1 ? " pair" : " pairs") + "</span>" +
+            '<span class="pills">' +
+              (item.is_new ? '<span class="pill new">New</span>' : "") +
+              choicePill(item) +
+            "</span>" +
+          "</span>" +
+          '<span class="side">' +
+            (queued
+              ? '<button class="btn" type="button" data-cancel>Cancel</button>'
+              : '<button class="btn primary" type="button" data-add' + (choosing ? " disabled" : "") + ">Add product</button>") +
+          "</span>" +
+        "</div>" +
+        (choosing
+          ? '<div class="addbox">' +
+              '<span class="hint">Which photos should the product get?</span>' +
+              '<button class="btn primary" type="button" data-photos="lojiq">Lojiq photos — live right away</button>' +
+              '<button class="btn" type="button" data-photos="own">My own photos — created as draft</button>' +
+              '<button class="btn" type="button" data-photos="">Never mind</button>' +
+            "</div>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  function drawAdd() {
+    const { items, total } = state.add;
+
+    $("count-add").textContent = total ? total + (total === 1 ? " style" : " styles") : "";
+
+    $("rows-add").innerHTML = items.length
+      ? items.map(addCard).join("") +
+        (total > items.length
+          ? '<div class="more"><button class="btn" type="button" data-more="add">Show more (' + (total - items.length) + " to go)</button></div>"
+          : "")
+      : '<p class="empty">' +
+        ($("search-add").value.trim() || $("new-only").checked
+          ? "Nothing matches that."
+          : "You already carry everything we hold.") +
+        "</p>";
+  }
+
+  async function loadAdd(more = false) {
+    const query = new URLSearchParams({ limit: PAGE, offset: more ? state.add.items.length : 0 });
+    const search = $("search-add").value.trim();
+
+    if (search) query.set("search", search);
+    if ($("new-only").checked) query.set("new", "1");
+
+    try {
+      const answer = await api("/api/catalogue/add?" + query);
+
+      state.add.total = Number(answer.total) || 0;
+      state.add.items = more ? state.add.items.concat(answer.items || []) : (answer.items || []);
+      $("n-add").textContent = state.add.total || "";
+
+      drawAdd();
+    } catch (err) {
+      $("rows-add").innerHTML = problemHtml(err);
+    }
+  }
+
+  /* ---------------------------------------------------------- choices */
+
+  async function choose(sku, choice, photos, button) {
+    if (button) button.disabled = true;
+
+    try {
+      await api("/api/catalogue/choose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ merchant_id: store.id, ...payload })
-      }).then((r) => r.json());
+        body: JSON.stringify({ sku, choice, photos })
+      });
 
-      if (!answer.ok) throw new Error(answer.error || "Could not save that.");
+      const done = {
+        add: photos === "own"
+          ? "Queued. It is created as a draft in your Shopify on our next pass, ready for your photos."
+          : "Queued. It is created in your Shopify on our next pass, within half an hour.",
+        unlinked: "Unlinked. Our stock comes off it on the next pass.",
+        deactivated: "Switched off. Our stock comes off and the product goes to draft on the next pass.",
+        none: "Undone."
+      }[choice];
 
-      say(done(answer));
-
-      const reopen = [...open];
-
-      await load();
-
-      for (const sku of reopen) await openStyle(sku);
+      say(done);
+      return true;
     } catch (err) {
-      say(err.message);
-      button.disabled = false;
+      say(err.message === "LOGIN" ? "Please log in again first." : err.message);
+      if (button) button.disabled = false;
+      return false;
     }
   }
 
-  $("rows").addEventListener("click", async (event) => {
-    if (event.target.closest("[data-more]")) {
-      showing += PAGE;
-      draw();
-      return;
+  /* ------------------------------------------------------------ events */
+
+  document.querySelector(".tabs").addEventListener("click", (event) => {
+    const tab = event.target.closest(".tab");
+    if (!tab) return;
+
+    state.tab = tab.dataset.tab;
+
+    for (const button of document.querySelectorAll(".tab")) {
+      button.setAttribute("aria-selected", String(button === tab));
     }
+
+    $("tab-mine").hidden = state.tab !== "mine";
+    $("tab-add").hidden = state.tab !== "add";
+
+    if (state.tab === "add" && !state.add.loaded) { state.add.loaded = true; loadAdd(); }
+  });
+
+  $("rows-mine").addEventListener("click", async (event) => {
+    if (event.target.closest('[data-more="mine"]')) return loadMine(true);
 
     const head = event.target.closest(".head");
+    const card = event.target.closest(".card");
+    if (!card) return;
+
+    const key = card.dataset.product;
 
     if (head) {
-      const sku = head.closest(".style").dataset.sku;
-
-      if (open.has(sku)) { open.delete(sku); draw(); } else { await openStyle(sku); }
-
+      if (state.open.has(key)) { state.open.delete(key); drawMine(); } else { await openMine(key); }
       return;
     }
 
-    const card = event.target.closest(".style");
-    if (!card) return;
+    const chooseButton = event.target.closest("[data-choose]");
 
-    const sku = card.dataset.sku;
-    const all = event.target.closest("[data-all-save]");
+    if (chooseButton) {
+      const choice = chooseButton.dataset.choose;
 
-    if (all) {
-      const mode = card.querySelector("[data-all-mode]").value;
-      const amount = card.querySelector("[data-all-amount]").value;
-
-      if (mode === "custom" && !(Number(amount) > 0)) {
-        say("What should this shoe cost?");
-        card.querySelector("[data-all-amount]").focus();
+      if (choice === "deactivated" &&
+          !confirm("Switch this product off? Our stock comes off it and it is set to draft in your Shopify.")) {
         return;
       }
 
-      await save(
-        { sku, mode, price: Number(amount) },
-        all,
-        (answer) => (mode === "custom" ? "Saved on " : "Back to Lojiq pricing on ") +
-          answer.changed + (answer.changed === 1 ? " size." : " sizes.")
-      );
+      if (await choose(card.dataset.sku, choice, null, chooseButton)) {
+        const reopen = [...state.open];
+        await loadMine();
+        for (const product of reopen) await openMine(product);
+      }
 
       return;
     }
 
-    const one = event.target.closest("[data-save]");
-    if (!one) return;
+    const save = event.target.closest("[data-save]");
+    if (!save) return;
 
-    const row = one.closest("tr");
+    const row = save.closest("tr");
     const mode = row.querySelector("[data-mode]").value;
     const amount = row.querySelector("[data-amount]").value;
 
@@ -470,44 +615,88 @@
       return;
     }
 
-    await save(
-      { id: Number(row.dataset.id), mode, price: Number(amount) },
-      one,
-      () => mode === "custom" ? "Saved. Your shop has it within half an hour." : "Back to Lojiq pricing."
-    );
+    save.disabled = true;
+
+    try {
+      await api("/api/listings/price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: Number(row.dataset.id), mode, price: Number(amount) })
+      });
+
+      say(mode === "custom" ? "Saved. Your shop has it within half an hour." : "Back to Lojiq pricing.");
+      state.sizes.delete(key);
+      await openMine(key);
+    } catch (err) {
+      say(err.message === "LOGIN" ? "Please log in again first." : err.message);
+      save.disabled = false;
+    }
   });
 
-  /* Switching to Custom only opens the field; nothing is saved until the
-     shop says what the price is. */
-  $("rows").addEventListener("change", (event) => {
+  $("rows-mine").addEventListener("change", (event) => {
     const mode = event.target.closest("[data-mode]");
     if (!mode) return;
 
     const row = mode.closest("tr");
-    if (!row) return;
-
     const custom = mode.value === "custom";
 
     row.querySelector("[data-amount]").disabled = !custom;
     row.querySelector("[data-save]").disabled = false;
-
     if (custom) row.querySelector("[data-amount]").focus();
   });
 
-  $("rows").addEventListener("input", (event) => {
+  $("rows-mine").addEventListener("input", (event) => {
     const row = event.target.closest("tr");
-
     if (row && event.target.closest("[data-amount]")) row.querySelector("[data-save]").disabled = false;
   });
 
-  $("search").addEventListener("input", () => {
-    clearTimeout(timer);
-    timer = setTimeout(load, 250);
+  $("rows-add").addEventListener("click", async (event) => {
+    if (event.target.closest('[data-more="add"]')) return loadAdd(true);
+
+    const card = event.target.closest(".card");
+    if (!card) return;
+
+    const sku = card.dataset.sku;
+
+    if (event.target.closest("[data-add]")) {
+      state.adding = sku;
+      drawAdd();
+      return;
+    }
+
+    const photos = event.target.closest("[data-photos]");
+
+    if (photos) {
+      state.adding = null;
+
+      if (!photos.dataset.photos) { drawAdd(); return; }
+
+      if (await choose(sku, "add", photos.dataset.photos, photos)) await loadAdd();
+      else drawAdd();
+
+      return;
+    }
+
+    const cancel = event.target.closest("[data-cancel]");
+
+    if (cancel && await choose(sku, "none", null, cancel)) await loadAdd();
   });
 
-  $("only").addEventListener("change", () => { showing = PAGE; draw(); });
+  for (const [input, load] of [["search-mine", () => loadMine()], ["search-add", () => loadAdd()]]) {
+    $(input).addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(load, 250);
+    });
+  }
 
-  load();
+  $("status").addEventListener("change", () => loadMine());
+  $("ours").addEventListener("change", () => loadMine());
+  $("new-only").addEventListener("change", () => loadAdd());
+
+  loadMine();
+
+  // The count on the second tab, without drawing it yet.
+  api("/api/catalogue/add?limit=1").then((answer) => { $("n-add").textContent = answer.total || ""; }).catch(() => {});
 </script>
 </body>
 </html>

@@ -177,14 +177,18 @@
     const wantsApiAccess = nextPage === "api-access";
     // Sent by an invoice download, which also needs the signed login.
     const wantsInvoice = nextPage === "invoice";
-    const afterLogin = wantsApiAccess ? "/api-access" : "/portal";
+    // Sent by the catalogue, which can change products in the store's Shopify.
+    const wantsShelf = nextPage === "shelf";
+    const afterLogin = wantsApiAccess ? "/api-access" : wantsShelf ? "/portal/listings" : "/portal";
 
     const existingMerchant = localStorage.getItem("lojiq_merchant");
 
-    if (wantsApiAccess || wantsInvoice) {
+    if (wantsApiAccess || wantsInvoice || wantsShelf) {
       errorBox.textContent = wantsApiAccess
         ? "Please log in again to open API Access."
-        : "Please log in again to download invoices. Then press INVOICE once more.";
+        : wantsShelf
+          ? "Please log in again to open your catalogue."
+          : "Please log in again to download invoices. Then press INVOICE once more.";
       errorBox.style.display = "block";
     } else if (existingMerchant) {
       window.location.href = "/portal";
