@@ -333,12 +333,31 @@
     return '<div class="actions"><span class="hint">' + esc(hint) + "</span>" + buttons.join("") + "</div>";
   }
 
+  /*
+   * Whether we price this size at all. Only where we put stock on it, or
+   * where the store already chose something for it: a size we hold none of
+   * keeps the shop's own price, so "Lojiq" next to it would be untrue.
+   */
+  const ourSay = (row) => row.our_stock > 0 || row.mode === "custom" || row.mode === "own";
+
   function sizesHtml(item, sizes) {
-    const priced = state.priceSync;
+    const priced = state.priceSync && sizes.some(ourSay);
 
     const rows = [...sizes].sort(bySize).map((row) => {
       const custom = row.mode === "custom";
       const own = row.mode === "own";
+
+      if (priced && !ourSay(row)) {
+        return (
+          '<tr data-id="' + row.id + '">' +
+            '<td class="sizecell">' + esc(row.size) + "</td>" +
+            '<td class="num">' + esc(euro(row.store_price)) + "</td>" +
+            '<td class="hide no">—</td>' +
+            '<td colspan="3" class="no">You — we hold none of this size</td>' +
+            '<td class="fill"></td>' +
+          "</tr>"
+        );
+      }
 
       return (
         '<tr data-id="' + row.id + '">' +
