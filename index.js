@@ -2901,6 +2901,18 @@ app.post("/api/orders/:recordId/cancel", async (req, res) => {
       "Fulfillment Status": "Store Fulfilled"
     });
 
+    /*
+      Said out loud, because "Store Fulfilled" is written from here, from two
+      Discord buttons and by the SneakerAsk poller, and only the poller leaves
+      a mark of its own. Without this line, working out which of them took an
+      order off our hands means reading Airtable's field history. ORD-027571
+      cost an afternoon that way.
+    */
+    console.log(
+      `${displayValue(order.fields["Order ID"]) || recordId}: cancelled in the portal by ` +
+        `${merchant.store_name || merchantId}, was "${currentStatus}", now Store Fulfilled.`
+    );
+
     clearCountsForMerchant(merchantId);
     ordersCache.clear();
 
