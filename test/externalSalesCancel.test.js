@@ -94,7 +94,7 @@ test("a deal without a price per pair cannot lose one pair", () => {
   assert.equal(cancelPlan({ sale: SALE, pairs: PAIRS, pairIds: [], invoices: [] }).ok, false);
 });
 
-function fakes({ sale = SALE, pairs = PAIRS, invoices = INVOICES, partnerStock = [], unitFields = {} } = {}) {
+function fakes({ sale = SALE, pairs = PAIRS, invoices = INVOICES, partnerStock = [], unitFields = {}, invoicingIs = {} } = {}) {
   const db = fakeDb({
     external_sales: [{ ...sale }],
     external_sale_pairs: pairs.map((pair) => ({ ...pair })),
@@ -117,10 +117,12 @@ function fakes({ sale = SALE, pairs = PAIRS, invoices = INVOICES, partnerStock =
   const calls = [];
   const invoicing = {
     credit: async (saleId, invoiceId) => { calls.push(["credit", invoiceId]); return { credit: "KC202609-2101", of: "KC202609-2100" }; },
-    invoice: async (saleId) => { calls.push(["invoice", saleId]); return { invoices: [{ invoice_number: "KC202609-2102" }] }; }
+    invoice: async (saleId) => { calls.push(["invoice", saleId]); return { invoices: [{ invoice_number: "KC202609-2102" }] }; },
+    amend: async (saleId, invoiceId) => { calls.push(["amend", invoiceId]); return { invoice: "KC202609-2100", was: 600, became: 650 }; },
+    mailInvoices: async (saleId, options) => { calls.push(["mail", options?.corrected ? "corrected" : "plain"]); return { to: "buyer@example.com" }; }
   };
 
-  return { db, written, calls, cancel: createExternalSalesCancel({ db, airtable, invoicing }) };
+  return { db, written, calls, cancel: createExternalSalesCancel({ db, airtable, invoicing: { ...invoicing, ...invoicingIs } }) };
 }
 
 test("cancelling one pair credits, re-invoices, frees the unit and asks for the refund", async () => {
@@ -385,4 +387,76 @@ test("a price nobody changed is refused before anything is written", async () =>
   );
 
   assert.deepEqual(calls, [], "nothing was credited");
+});
+
+/* ------------------------------------------------------------------ *
+ * Changing the invoice itself, instead of crediting it
+ *
+ * Rompslomp's API cannot tie a credit note to the invoice it credits, so a
+ * credit leaves two open documents behind. An invoice nobody has paid yet is
+ * corrected and sent again under its own number.
+ * ------------------------------------------------------------------ */
+
+// A deal that can really be invoiced: a buyer, and a VAT type on both sides
+// of every pair. Without those the plan is not ok and nothing can be changed.
+const BILLABLE = { ...SALE, buyer_uuid: "b1", buyer_email: "buyer@example.com" };
+const BILLABLE_PAIRS = PAIRS.map((pair) => ({ ...pair, purchase_vat_type: "Margin" }));
+
+test("an invoice nobody paid is changed, not credited", () => {
+  const plan = repricePlan({ sale: BILLABLE, pairs: BILLABLE_PAIRS, wanted: [{ id: P1, price: 300 }], invoices: INVOICES });
+
+  assert.equal(plan.ok, true, plan.problems.join(" "));
+  assert.deepEqual(plan.amend, ["KC202609-2100"]);
+  assert.deepEqual(plan.credits, [], "nothing is credited");
+  assert.equal(plan.reinvoice, false, "and no second invoice is written");
+});
+
+test("money that already came in means crediting, whatever the invoice says", () => {
+  for (const paid of [{ payment_status: "paid", paid_amount: 600 }, { payment_status: "partially_paid", paid_amount: 300 }, { paid_amount: 50 }]) {
+    const plan = repricePlan({ sale: { ...BILLABLE, ...paid }, pairs: BILLABLE_PAIRS, wanted: [{ id: P1, price: 300 }], invoices: INVOICES });
+
+    assert.deepEqual(plan.amend, [], JSON.stringify(paid));
+    assert.ok(plan.credits.length, JSON.stringify(paid));
+    assert.equal(plan.reinvoice, true, JSON.stringify(paid));
+  }
+});
+
+test("a deal that needs an invoice it does not have is credited and written again", () => {
+  const pairs = [BILLABLE_PAIRS[0], { ...BILLABLE_PAIRS[1], purchase_vat_type: "VAT21", selling_vat_type: "VAT0" }];
+  const plan = repricePlan({ sale: BILLABLE, pairs, wanted: [{ id: P1, price: 300 }], invoices: INVOICES });
+
+  assert.deepEqual(plan.amend, [], "one Margin invoice cannot carry a VAT route too");
+  assert.equal(plan.reinvoice, true);
+});
+
+test("changing an unpaid invoice writes the prices, changes the invoice and sends the corrected one", async () => {
+  const { db, calls, cancel } = fakes({ sale: BILLABLE, pairs: BILLABLE_PAIRS });
+
+  const out = await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }], reason: "Buyer pays the shipping" });
+
+  assert.deepEqual(calls, [["amend", "i1"], ["mail", "corrected"]], "nothing credited, no new invoice");
+
+  const pair = db.tables.external_sale_pairs.find((p) => p.id === P1);
+  assert.equal(Number(pair.selling_price), 300, "the new price is on the pair before the invoice is changed");
+
+  const sale = db.tables.external_sales[0];
+  assert.equal(Number(sale.total_selling_price), 650);
+  assert.equal(sale.bookkeeping_status, "invoiced", "it keeps the invoice it has");
+
+  assert.ok(out.log.some((line) => /KC202609-2100 changed 600\.00 -> 650\.00/.test(line)), out.log.join(" | "));
+  assert.ok(out.log.some((line) => /sent to buyer@example\.com/.test(line)), out.log.join(" | "));
+});
+
+test("an invoice that will not change is not sent to the buyer either", async () => {
+  const { calls, cancel } = fakes({
+    sale: BILLABLE,
+    pairs: BILLABLE_PAIRS,
+    invoicingIs: { amend: async () => { throw new Error("KC202609-2100 is overpaid in Rompslomp"); } }
+  });
+
+  const out = await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }] });
+
+  assert.deepEqual(calls, [], "no mail went out");
+  assert.ok(out.log.some((line) => /was not changed: KC202609-2100 is overpaid/.test(line)), out.log.join(" | "));
+  assert.ok(out.log.some((line) => /Nothing was sent to the buyer/.test(line)), out.log.join(" | "));
 });

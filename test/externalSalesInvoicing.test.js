@@ -173,7 +173,7 @@ test("a private buyer becomes an individual contact", () => {
 
 /* ---------------- the whole run ---------------- */
 
-function fakeRompslomp({ totalOverride = null, refuseUpdates = false } = {}) {
+function fakeRompslomp({ totalOverride = null, totalAfterUpdate = null } = {}) {
   const invoices = new Map();
   const calls = { created: 0, journals: [], contacts: 0 };
   let n = 2200;
@@ -192,7 +192,17 @@ function fakeRompslomp({ totalOverride = null, refuseUpdates = false } = {}) {
       const b = body.sales_invoice;
       const line = b.invoice_lines[0];
       const incl = line.vat_type_id === 701184043 ? Number(line.price_per_unit) * 1.21 : Number(line.price_per_unit);
-      const inv = { ...b, id: 5000 + calls.created, status: "concept", invoice_number: null, date: "2026-09-22", price_with_vat: String(totalOverride ?? Math.round(incl * 100) / 100) };
+      const inv = {
+        ...b,
+        id: 5000 + calls.created,
+        status: "concept",
+        invoice_number: null,
+        date: "2026-09-22",
+        price_with_vat: String(totalOverride ?? Math.round(incl * 100) / 100),
+        // Rompslomp gives every line its own id, which is how a line is
+        // changed later instead of a second one being added.
+        invoice_lines: b.invoice_lines.map((l, i) => ({ ...l, id: 6000 + calls.created * 10 + i }))
+      };
       invoices.set(String(inv.id), inv);
       return inv;
     },
@@ -201,10 +211,34 @@ function fakeRompslomp({ totalOverride = null, refuseUpdates = false } = {}) {
       Object.assign(inv, { status: "published", invoice_number: `KC202609-${n++}` });
       return inv;
     },
+    /*
+      Nested attributes, the way their own example documents them: a line with
+      an id is updated in place, one without an id is added, one marked
+      _destroy is removed, and a line the patch never mentions stays as it is.
+      That last part is what catches an amend that rewrites the lines without
+      clearing the ones it replaced.
+    */
     async updateInvoice(id, fields) {
-      if (refuseUpdates) throw new Error("Rompslomp said no (422): a sent invoice cannot be changed");
       const inv = invoices.get(String(id));
-      Object.assign(inv, fields);
+      const { invoice_lines: sent, ...rest } = fields;
+      Object.assign(inv, rest);
+
+      if (sent) {
+        const had = inv.invoice_lines || [];
+        const named = new Set(sent.filter((l) => l.id).map((l) => String(l.id)));
+        const kept = [];
+
+        for (const line of sent) {
+          if (line._destroy) continue;
+          if (!line.id) { kept.push({ ...line, id: 6900 + kept.length }); continue; }
+          kept.push({ ...had.find((l) => String(l.id) === String(line.id)), ...line });
+        }
+
+        inv.invoice_lines = [...kept, ...had.filter((l) => !named.has(String(l.id)))];
+        inv.price_with_vat = String(totalAfterUpdate ?? Math.round(inv.invoice_lines.reduce((sum, l) =>
+          sum + Number(l.price_per_unit || 0) * Number(l.quantity || 1) * (l.vat_type_id === 701184043 ? 1.21 : 1), 0) * 100) / 100);
+      }
+
       return inv;
     },
     async createJournal(body) { calls.journals.push(body.journal_entry); return { id: 7000 + calls.journals.length, description: body.journal_entry.description }; },
@@ -457,42 +491,128 @@ test("a credited invoice is not the deal's invoice: the next one is new", async 
   assert.equal(db.tables.external_sales[0].bookkeeping_status, "invoiced");
 });
 
-/* ---------------- can a sent invoice still be changed? ---------------- */
+/* ---------------- changing an invoice instead of crediting it ---------------- */
 
-const sentInvoice = () => ({
-  id: 1872919538,
-  invoice_number: "KC202610-2176",
-  status: "published",
-  payment_status: "unpaid",
-  open_amount: "180.0",
-  price_with_vat: "180.0",
-  description: "Deal EXTD-000097",
-  invoice_lines: [{ price_per_unit: "165.00" }]
+const billable = (extra = {}) => ({
+  external_sales: [sale({ bookkeeping_status: "to_invoice", ...extra })],
+  external_sale_pairs: [pair({ sale_id: "s1" })],
+  external_sale_invoices: [],
+  external_sale_invoice_deals: [],
+  buyers: [{ id: "b1", buyer_number: 22, company_name: "DPX Capital s.r.o.", rompslomp_contact_id: "474787066" }]
 });
 
-test("the probe reports what Rompslomp allows and changes nothing", async () => {
+const invoiced = async (db, rompslomp, mails = []) => {
+  const invoicing = createExternalSalesInvoicing({ db, airtable: fakeAirtableBuyers({ "Rompslomp Contact ID": "474787066" }), rompslomp, sendMail: async (m) => mails.push(m) });
+  await invoicing.invoice("s1", { mail: false });
+  return invoicing;
+};
+
+test("a changed invoice keeps its number, its one line and its own id", async () => {
+  const db = fakeDb(billable());
   const rompslomp = fakeRompslomp();
-  rompslomp.invoices.set("1872919538", sentInvoice());
+  const invoicing = await invoiced(db, rompslomp);
 
-  const invoicing = createExternalSalesInvoicing({ db: fakeDb({}), airtable: fakeAirtableBuyers({}), rompslomp, sendMail: async () => {} });
-  const out = await invoicing.invoiceWritable("1872919538");
+  const row = db.tables.external_sale_invoices[0];
+  const lineIdBefore = rompslomp.invoices.get(row.rompslomp_invoice_id).invoice_lines[0].id;
 
-  assert.equal(out.invoice.number, "KC202610-2176");
-  assert.equal(out.invoice.payment_status, "unpaid");
-  assert.deepEqual(out.tried.map((t) => t.allowed), [true, true]);
+  // The price the deal is worth now, as Change Invoice leaves it behind.
+  db.tables.external_sale_pairs[0].selling_price = "200.00";
+  db.tables.external_sales[0].total_selling_price = "200.00";
+  db.tables.external_sales[0].bookkeeping_status = "invoiced";
 
-  const after = rompslomp.invoices.get("1872919538");
-  assert.equal(after.description, "Deal EXTD-000097", "the description it already had");
-  assert.equal(after.price_with_vat, "180.0", "and not a cent moved");
+  const out = await invoicing.amend("s1", row.id);
+
+  assert.equal(out.was, 175);
+  assert.equal(out.became, 200);
+
+  const live = rompslomp.invoices.get(row.rompslomp_invoice_id);
+  assert.equal(live.invoice_number, row.invoice_number, "the buyer keeps the number he has");
+  assert.equal(live.invoice_lines.length, 1, "changed, not added to");
+  assert.equal(String(live.invoice_lines[0].id), String(lineIdBefore), "the same line");
+  assert.equal(Number(live.price_with_vat), 200);
+  assert.equal(Number(db.tables.external_sale_invoices[0].amount_incl_vat), 200, "what we hold matches what Rompslomp holds");
+  assert.equal(rompslomp.calls.created, 1, "no second invoice");
+  assert.equal(rompslomp.calls.journals.length, 1, "the purchase did not change, so the journal stays");
 });
 
-test("a Rompslomp that locks a sent invoice is reported, not thrown", async () => {
-  const rompslomp = fakeRompslomp({ refuseUpdates: true });
-  rompslomp.invoices.set("1872919538", sentInvoice());
+test("an invoice that is settled in Rompslomp is not changed", async () => {
+  const db = fakeDb(billable());
+  const rompslomp = fakeRompslomp();
+  const invoicing = await invoiced(db, rompslomp);
 
-  const invoicing = createExternalSalesInvoicing({ db: fakeDb({}), airtable: fakeAirtableBuyers({}), rompslomp, sendMail: async () => {} });
-  const out = await invoicing.invoiceWritable("1872919538");
+  const row = db.tables.external_sale_invoices[0];
+  rompslomp.invoices.get(row.rompslomp_invoice_id).payment_status = "paid";
+  db.tables.external_sales[0].bookkeeping_status = "invoiced";
 
-  assert.deepEqual(out.tried.map((t) => t.allowed), [false, false]);
-  assert.match(out.tried[0].refused, /422/);
+  await assert.rejects(() => invoicing.amend("s1", row.id), /is paid in Rompslomp/);
+});
+
+test("a credited invoice is not changed either", async () => {
+  const db = fakeDb(billable());
+  const rompslomp = fakeRompslomp();
+  const invoicing = await invoiced(db, rompslomp);
+
+  const row = db.tables.external_sale_invoices[0];
+  await invoicing.credit("s1", row.id);
+  db.tables.external_sales[0].bookkeeping_status = "invoiced";
+
+  await assert.rejects(() => invoicing.amend("s1", row.id), /is credited/);
+});
+
+test("an invoice that comes out at another amount is refused, not written down as right", async () => {
+  const db = fakeDb(billable());
+
+  // Rompslomp ends up at something else than the lines asked for. Whatever
+  // the reason, what we hold must not start claiming that amount is the deal.
+  const rompslomp = fakeRompslomp({ totalAfterUpdate: 190.5 });
+  const invoicing = await invoiced(db, rompslomp);
+
+  const row = db.tables.external_sale_invoices[0];
+  db.tables.external_sale_pairs[0].selling_price = "200.00";
+  db.tables.external_sales[0].total_selling_price = "200.00";
+  db.tables.external_sales[0].bookkeeping_status = "invoiced";
+
+  await assert.rejects(() => invoicing.amend("s1", row.id), /came out at 190\.50 and the deal says 200\.00/);
+  assert.equal(Number(db.tables.external_sale_invoices[0].amount_incl_vat), 175, "what we hold is left alone");
+});
+
+test("the corrected mail says so, and the plain one does not", async () => {
+  const db = fakeDb(billable());
+  const rompslomp = fakeRompslomp();
+  const mails = [];
+  const invoicing = await invoiced(db, rompslomp, mails);
+
+  await invoicing.mailInvoices("s1", { corrected: true });
+  await invoicing.mailInvoices("s1");
+
+  assert.match(mails[0].subject, /^Corrected invoice KC/);
+  assert.match(mails[0].text, /has been corrected/);
+  assert.match(mails[0].text, /replaces the version you received earlier/);
+  assert.match(mails[0].text, /number is unchanged/);
+  assert.match(mails[1].subject, /^Your invoice KC/);
+  assert.doesNotMatch(mails[1].text, /corrected/);
+});
+
+test("an invoice with more lines than the deal needs loses the ones left over", async () => {
+  const db = fakeDb(billable());
+  const rompslomp = fakeRompslomp();
+  const invoicing = await invoiced(db, rompslomp);
+
+  const row = db.tables.external_sale_invoices[0];
+  const live = rompslomp.invoices.get(row.rompslomp_invoice_id);
+
+  // An invoice made by hand in Rompslomp can carry a line per pair. Ours
+  // carries one line for the whole route, so the rest has to go - left in
+  // place they would be added to the total instead of replaced.
+  live.invoice_lines.push({ id: 6099, description: "Second pair", price_per_unit: "150.00", quantity: "1.0", vat_type_id: 688369464 });
+
+  db.tables.external_sale_pairs[0].selling_price = "200.00";
+  db.tables.external_sales[0].total_selling_price = "200.00";
+  db.tables.external_sales[0].bookkeeping_status = "invoiced";
+
+  const out = await invoicing.amend("s1", row.id);
+
+  assert.equal(out.became, 200, "not 350");
+  assert.equal(live.invoice_lines.length, 1);
+  assert.equal(Number(live.price_with_vat), 200);
 });

@@ -25,6 +25,7 @@
 // exactly as it was - the shoe did leave.
 
 import { ExternalSalesError, dealId, round2 } from "./externalSalesSync.js";
+import { invoicePlanFor } from "./externalSalesInvoicing.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -288,6 +289,38 @@ export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
     (sale.payment_status === "paid" ? round2(sale.total_selling_price) : round2(sale.paid_amount))
   ) - round2(sale.refunded_amount);
 
+  /*
+    An invoice that is still unpaid is corrected and sent again, keeping its
+    number; crediting it would leave two documents open, because Rompslomp's
+    API cannot tie a credit note to the invoice it credits.
+
+    That only holds when the deal still needs exactly the invoices it has: the
+    same VAT routes, no more and no fewer. A change that moves a pair onto
+    another route needs a different set of invoices, and then the old ones are
+    credited and written again.
+  */
+  const nextPairs = live.map((pair) => {
+    const line = lines.find((l) => l.id === pair.id);
+    return line ? { ...pair, selling_price: line.becomes } : pair;
+  });
+
+  const next = invoicePlanFor({ ...sale, total_selling_price: newTotal }, nextPairs, { invoiced: true });
+  const wantedRoutes = new Set(next.invoices.map((i) => i.route));
+  const openRoutes = new Set(openInvoices.map((i) => i.vat_route));
+
+  const sameRoutes = next.ok
+    && wantedRoutes.size === openRoutes.size
+    && [...wantedRoutes].every((route) => openRoutes.has(route));
+
+  /*
+    And nothing may have been paid yet. Once money has come in, the invoice is
+    settled in Rompslomp and changing it would leave the payment sitting on an
+    amount that no longer exists, so those are credited. The invoice itself is
+    asked again when it is changed - this only decides which way to go.
+  */
+  const untouched = !["paid", "partially_paid"].includes(sale.payment_status) && round2(sale.paid_amount) === 0;
+  const canAmend = Boolean(openInvoices.length) && sameRoutes && untouched;
+
   return {
     ok: !problems.length && lines.length > 0,
     problems,
@@ -295,8 +328,9 @@ export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
     was_total: round2(sale.total_selling_price),
     new_total: newTotal,
     difference: round2(newTotal - round2(sale.total_selling_price)),
-    credits: openInvoices.map((i) => i.invoice_number || i.rompslomp_invoice_id),
-    reinvoice: Boolean(openInvoices.length),
+    amend: canAmend ? openInvoices.map((i) => i.invoice_number || i.rompslomp_invoice_id) : [],
+    credits: canAmend ? [] : openInvoices.map((i) => i.invoice_number || i.rompslomp_invoice_id),
+    reinvoice: Boolean(openInvoices.length) && !canAmend,
     // Money that has to move after the change, in whichever direction.
     refund: round2(Math.max(0, paid - newTotal)),
     to_collect: round2(Math.max(0, newTotal - paid))
@@ -688,10 +722,15 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     if (!result.ok) throw new ExternalSalesError(result.problems.join(" ") || "Enter a new price for at least one pair.");
 
     const log = [];
+    const open = invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id));
 
-    for (const invoice of invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id))) {
-      const out = await invoicing.credit(sale.id, invoice.id);
-      log.push(`${out.credit} credits ${out.of}`);
+    // Credited up front only when the invoices cannot be changed; a change
+    // needs the new prices on the pairs first, so it happens further down.
+    if (!result.amend.length) {
+      for (const invoice of open) {
+        const out = await invoicing.credit(sale.id, invoice.id);
+        log.push(`${out.credit} credits ${out.of}`);
+      }
     }
 
     for (const line of result.lines) {
@@ -708,7 +747,9 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
     const fields = { total_selling_price: result.new_total };
 
-    if (invoices.some((i) => i.kind === "sale")) fields.bookkeeping_status = "to_invoice";
+    // Only a credited deal is waiting for an invoice again. One whose invoice
+    // is changed keeps the invoice it has, so it stays invoiced.
+    if (!result.amend.length && invoices.some((i) => i.kind === "sale")) fields.bookkeeping_status = "to_invoice";
 
     /*
       What came in no longer covers the deal, or covers more than it. Either
@@ -721,6 +762,39 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     }
 
     await db.patch(`external_sales?id=eq.${sale.id}`, fields);
+
+    /*
+      The invoices the buyer already has are corrected, keeping their own
+      numbers, and sent again as the corrected invoice. All of them are changed
+      before the mail goes out, so the buyer gets one message with the whole
+      deal on it, and nothing is sent at all if one of them would not change.
+    */
+    if (result.amend.length) {
+      const changed = [];
+      let failed = false;
+
+      for (const invoice of open) {
+        try {
+          const out = await invoicing.amend(sale.id, invoice.id);
+          changed.push(out.invoice);
+          log.push(`${out.invoice} changed ${out.was.toFixed(2)} -> ${out.became.toFixed(2)}`);
+        } catch (err) {
+          failed = true;
+          log.push(`${invoice.invoice_number || invoice.rompslomp_invoice_id} was not changed: ${err.message}`);
+        }
+      }
+
+      if (failed) {
+        log.push("Nothing was sent to the buyer; look at the invoice in Rompslomp first.");
+      } else if (changed.length) {
+        try {
+          const sent = await invoicing.mailInvoices(sale.id, { corrected: true });
+          log.push(`Corrected invoice ${changed.join(", ")} sent to ${sent.to}`);
+        } catch (err) {
+          log.push(`The corrected invoice was not sent: ${err.message}. Open the deal and click Send invoice.`);
+        }
+      }
+    }
 
     if (result.reinvoice) {
       try {

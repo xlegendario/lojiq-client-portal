@@ -68,11 +68,16 @@ const euroText = (n) => `€${Number.isInteger(Number(n)) ? Number(n) : Number(n
  * The invoices a deal needs, or why it cannot be invoiced yet. Every reason
  * is listed at once, so one look says everything that has to be fixed.
  */
-export function invoicePlanFor(sale, pairs) {
+/*
+ * invoiced: a deal whose invoice is being changed rather than written. It is
+ * already "invoiced" by then, and that is the one thing not wrong with it, so
+ * the status is the only check this skips.
+ */
+export function invoicePlanFor(sale, pairs, { invoiced = false } = {}) {
   const problems = [];
 
   if (sale.payment_status === "cancelled") problems.push("The deal is cancelled.");
-  if (sale.bookkeeping_status !== "to_invoice") problems.push(`The deal is "${sale.bookkeeping_status}", not "to invoice".`);
+  if (!invoiced && sale.bookkeeping_status !== "to_invoice") problems.push(`The deal is "${sale.bookkeeping_status}", not "to invoice".`);
   if (!pairs.length) problems.push("The deal has no pairs.");
   /*
    * A buyer, by either name for one.
@@ -297,7 +302,7 @@ export function matchContact(contacts, buyer) {
 
 // The invoice mail, or its reminder. A deal with a payment link carries it,
 // so the buyer can pay by card or iDEAL instead of a transfer.
-export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs, reminder = false }) {
+export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs, reminder = false, corrected = false }) {
   const numbers = invoices.map((i) => i.invoice_number).join(" and ");
   const name = text(sale.buyer_company) || text(sale.buyer_name) || "customer";
   const link = text(sale.payment_link_url);
@@ -309,14 +314,21 @@ export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs, reminder 
     to,
     from: { email: from, name: "Kickz Caviar" },
     replyTo,
-    subject: reminder ? `Reminder: invoice ${numbers} for ${dealId(sale)}` : `Your invoice ${numbers} for ${dealId(sale)}`,
+    subject: reminder
+      ? `Reminder: invoice ${numbers} for ${dealId(sale)}`
+      : corrected
+        ? `Corrected invoice ${numbers} for ${dealId(sale)}`
+        : `Your invoice ${numbers} for ${dealId(sale)}`,
     text:
       `Dear ${name},\n\n` +
       (reminder
         ? `According to our records, ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)} ${invoices.length > 1 ? "have" : "has"} not been paid yet; €${open.toFixed(2)} is open. ${invoices.length > 1 ? "They are" : "It is"} attached again.\n` +
           "If you have paid in the meantime, thank you - please ignore this message.\n\n"
-        : `Please find attached ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)}.\n` +
-          `Payment is due within ${PAYMENT_DAYS} days of the invoice date; please mention the invoice number with your payment.\n\n`) +
+        : corrected
+          ? `${dealId(sale)} has changed, so ${invoices.length > 1 ? "the invoices have" : "the invoice has"} been corrected. ${invoices.length > 1 ? "The corrected invoices are" : "The corrected invoice is"} attached and ${invoices.length > 1 ? "replace" : "replaces"} the version you received earlier; the invoice ${invoices.length > 1 ? "numbers are" : "number is"} unchanged.\n` +
+            `The amount now due is €${open.toFixed(2)}. Please mention the invoice number with your payment.\n\n`
+          : `Please find attached ${invoices.length > 1 ? "the invoices" : "the invoice"} for ${dealId(sale)}.\n` +
+            `Payment is due within ${PAYMENT_DAYS} days of the invoice date; please mention the invoice number with your payment.\n\n`) +
       (link ? `You can also pay online: ${link}\n\n` : "") +
       `If you have any questions, email us at ${replyTo || "info@kickzcaviar.nl"} - replies to this address are not read.\n\n` +
       "Thank you for your business.\n\nKind regards,\nKickz Caviar",
@@ -697,7 +709,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
 
   // To the buyer, or - with testTo - the same mail to an admin only, to see
   // what the buyer gets. A test changes nothing on the deal.
-  async function mailInvoices(id, { testTo = "", reminder = false } = {}) {
+  async function mailInvoices(id, { testTo = "", reminder = false, corrected = false } = {}) {
     const { sale, invoices } = await load(id);
     const sales = invoices.filter((i) => i.kind === "sale");
     const to = text(testTo) || text(sale.buyer_email);
@@ -707,7 +719,7 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     const pdfs = [];
     for (const inv of sales) pdfs.push((await rompslomp.pdf(inv.rompslomp_invoice_id)).toString("base64"));
 
-    const message = invoiceMail({ sale, invoices: sales, to, from: mailFrom, replyTo, pdfs, reminder });
+    const message = invoiceMail({ sale, invoices: sales, to, from: mailFrom, replyTo, pdfs, reminder, corrected });
     if (testTo) message.subject = `[TEST] ${message.subject}`;
     await sendMail(message);
 
@@ -718,6 +730,69 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
       for (const inv of sales) if (!inv.sent_at) await db.patch(`external_sale_invoices?id=eq.${inv.id}`, { sent_at: now });
     }
     return { to, test: Boolean(testTo), reminder, invoices: sales.map((i) => i.invoice_number) };
+  }
+
+  /*
+   * Change an invoice that was already sent, instead of crediting it.
+   *
+   * Their API cannot tie a credit note to the invoice it credits - no field on
+   * an invoice points at another one - so a credit always leaves two open
+   * documents for someone to settle by hand. An invoice that is still unpaid
+   * needs none of that: its lines are rewritten, it keeps its number, and the
+   * buyer gets the corrected invoice. One that is paid is credited, never
+   * changed.
+   *
+   * The journal entry stays as it is. It books the purchase into stock, and a
+   * new selling price does not change what the pairs cost us.
+   */
+  async function amend(id, invoiceRowId, { now = new Date() } = {}) {
+    const { sale, pairs, invoices } = await load(id);
+    const row = invoices.find((i) => i.id === invoiceRowId && i.kind === "sale");
+
+    if (!row) throw new ExternalSalesError("That invoice is not on this deal.");
+
+    const [credited] = await db.get(`external_sale_invoices?select=id&credits_invoice_id=eq.${row.id}`);
+    if (credited) throw new ExternalSalesError(`${row.invoice_number || row.rompslomp_invoice_id} is credited, so it cannot be changed.`);
+
+    const live = await rompslomp.getInvoice(row.rompslomp_invoice_id);
+    if (!live) throw new ExternalSalesError("Rompslomp does not have that invoice.", 404);
+    if (text(live.payment_status) && live.payment_status !== "unpaid") {
+      throw new ExternalSalesError(`${live.invoice_number} is ${live.payment_status} in Rompslomp; an invoice that is settled is credited, not changed.`);
+    }
+
+    const plan = invoicePlanFor(sale, pairs, { invoiced: true });
+    if (!plan.ok) throw new ExternalSalesError(plan.problems.join(" "));
+
+    const wanted = plan.invoices.find((i) => i.route === row.vat_route);
+    if (!wanted) throw new ExternalSalesError(`The deal no longer has a ${row.vat_route} invoice, so ${live.invoice_number} has to be credited.`);
+
+    const fresh = salesInvoiceBody({ sale, invoice: wanted, contactId: live.contact_id, now }).sales_invoice.invoice_lines;
+    const had = live.invoice_lines || [];
+
+    /*
+      A line sent with its own id is updated in place, one without an id is
+      added, and one marked _destroy is removed. Walking them in order keeps
+      the ids we already have and drops whatever is left over, so the invoice
+      never ends up with the old lines and the new ones side by side.
+    */
+    const lines = [
+      ...fresh.map((line, i) => (had[i] ? { ...line, id: String(had[i].id) } : line)),
+      ...had.slice(fresh.length).map((line) => ({ id: String(line.id), _destroy: true }))
+    ];
+
+    const after = await rompslomp.updateInvoice(row.rompslomp_invoice_id, { invoice_lines: lines });
+    const became = round2(after?.price_with_vat);
+    const should = round2(wanted.amount);
+
+    // A cent of rounding is theirs to have; anything more means the lines did
+    // not land the way this expects, and the invoice has to be looked at.
+    if (Math.abs(became - should) > 0.01) {
+      throw new ExternalSalesError(`${live.invoice_number} came out at ${became.toFixed(2)} and the deal says ${should.toFixed(2)}. Check the invoice in Rompslomp.`);
+    }
+
+    await db.patch(`external_sale_invoices?id=eq.${row.id}`, { amount_incl_vat: became });
+
+    return { invoice: live.invoice_number || row.rompslomp_invoice_id, was: round2(row.amount_incl_vat), became };
   }
 
   /*
@@ -836,44 +911,180 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
   }
 
   /*
-   * Can an invoice that was already sent still be changed?
+   * Change an invoice that was already sent, instead of crediting it.
    *
-   * Their API has no way to tie a credit note to the invoice it credits - no
-   * field on an invoice points at another one, and a payment carries no
-   * invoice - so a credit made from here always leaves both documents open,
-   * to be settled by hand. Changing the original instead would leave nothing
-   * open at all. Two writes that change nothing answer whether we may: an
-   * empty one, then the description it already has.
+   * Their API cannot tie a credit note to the invoice it credits - no field on
+   * an invoice points at another one - so a credit always leaves two open
+   * documents for someone to settle by hand. An invoice that is still unpaid
+   * needs none of that: its lines are rewritten, it keeps its number, and the
+   * buyer gets the corrected invoice. One that is paid is credited, never
+   * changed.
+   *
+   * The journal entry stays as it is. It books the purchase into stock, and a
+   * new selling price does not change what the pairs cost us.
    */
-  async function invoiceWritable(rompslompInvoiceId) {
-    const id = text(rompslompInvoiceId);
+  async function amend(id, invoiceRowId, { now = new Date() } = {}) {
+    const { sale, pairs, invoices } = await load(id);
+    const row = invoices.find((i) => i.id === invoiceRowId && i.kind === "sale");
 
-    if (!id) throw new ExternalSalesError("Which Rompslomp invoice?", 400);
+    if (!row) throw new ExternalSalesError("That invoice is not on this deal.");
 
-    const before = await rompslomp.getInvoice(id);
+    const [credited] = await db.get(`external_sale_invoices?select=id&credits_invoice_id=eq.${row.id}`);
+    if (credited) throw new ExternalSalesError(`${row.invoice_number || row.rompslomp_invoice_id} is credited, so it cannot be changed.`);
 
-    const attempt = async (what, fields) => {
-      try {
-        const after = await rompslomp.updateInvoice(id, fields);
-        return { what, allowed: true, price_with_vat: after?.price_with_vat ?? null, lines: (after?.invoice_lines || []).length };
-      } catch (err) {
-        return { what, allowed: false, refused: text(err?.message) || String(err) };
+    const live = await rompslomp.getInvoice(row.rompslomp_invoice_id);
+    if (!live) throw new ExternalSalesError("Rompslomp does not have that invoice.", 404);
+    if (text(live.payment_status) && live.payment_status !== "unpaid") {
+      throw new ExternalSalesError(`${live.invoice_number} is ${live.payment_status} in Rompslomp; an invoice that is settled is credited, not changed.`);
+    }
+
+    const plan = invoicePlanFor(sale, pairs, { invoiced: true });
+    if (!plan.ok) throw new ExternalSalesError(plan.problems.join(" "));
+
+    const wanted = plan.invoices.find((i) => i.route === row.vat_route);
+    if (!wanted) throw new ExternalSalesError(`The deal no longer has a ${row.vat_route} invoice, so ${live.invoice_number} has to be credited.`);
+
+    const fresh = salesInvoiceBody({ sale, invoice: wanted, contactId: live.contact_id, now }).sales_invoice.invoice_lines;
+    const had = live.invoice_lines || [];
+
+    /*
+      A line sent with its own id is updated in place, one without an id is
+      added, and one marked _destroy is removed. Walking them in order keeps
+      the ids we already have and drops whatever is left over, so the invoice
+      never ends up with the old lines and the new ones side by side.
+    */
+    const lines = [
+      ...fresh.map((line, i) => (had[i] ? { ...line, id: String(had[i].id) } : line)),
+      ...had.slice(fresh.length).map((line) => ({ id: String(line.id), _destroy: true }))
+    ];
+
+    const after = await rompslomp.updateInvoice(row.rompslomp_invoice_id, { invoice_lines: lines });
+    const became = round2(after?.price_with_vat);
+    const should = round2(wanted.amount);
+
+    // A cent of rounding is theirs to have; anything more means the lines did
+    // not land the way this expects, and the invoice has to be looked at.
+    if (Math.abs(became - should) > 0.01) {
+      throw new ExternalSalesError(`${live.invoice_number} came out at ${became.toFixed(2)} and the deal says ${should.toFixed(2)}. Check the invoice in Rompslomp.`);
+    }
+
+    await db.patch(`external_sale_invoices?id=eq.${row.id}`, { amount_incl_vat: became });
+
+    return { invoice: live.invoice_number || row.rompslomp_invoice_id, was: round2(row.amount_incl_vat), became };
+  }
+
+  /*
+   * Credits one invoice: a credit invoice for the same amount and a journal
+   * entry that books the purchase back into stock. When every invoice on the
+   * deal is credited, the deal is "credited".
+   */
+  /*
+   * Credit an invoice.
+   *
+   * keepStockOut: the pairs whose stock must stay written off - a pair that
+   * was lost or left with the buyer is gone, so putting it back would invent
+   * stock we do not have. Everything else is put back, and the new invoice
+   * for what is left takes its own share out again.
+   */
+  async function credit(id, invoiceRowId, { keepStockOut = [] } = {}) {
+    const { sale, invoices } = await load(id);
+    const original = invoices.find((i) => i.id === invoiceRowId && i.kind === "sale");
+    if (!original) throw new ExternalSalesError("That invoice is not on this deal.");
+
+    const [already] = await db.get(`external_sale_invoices?select=*&credits_invoice_id=eq.${original.id}`);
+    let row = already || null;
+
+    if (!row) {
+      const reference = `credit-${original.rompslomp_invoice_id}`;
+      let rs = await rompslomp.findInvoice(reference);
+      if (!rs) {
+        const source = await rompslomp.getInvoice(original.rompslomp_invoice_id);
+        rs = await rompslomp.createInvoice(creditInvoiceBody({ original: source, reference }));
       }
-    };
+      if (rs.status !== "published" || !rs.invoice_number) rs = await rompslomp.publishInvoice(rs.id);
+
+      [row] = await db.insert("external_sale_invoices", [{
+        rompslomp_invoice_id: String(rs.id),
+        invoice_number: rs.invoice_number,
+        kind: "credit",
+        vat_route: original.vat_route,
+        amount_incl_vat: round2(rs.price_with_vat),
+        journal_entry_id: null,
+        credits_invoice_id: original.id,
+        sent_at: null
+      }]);
+      await db.insert("external_sale_invoice_deals", [{ invoice_id: row.id, sale_id: sale.id }]);
+    }
+
+    // The journal: what the original booked, back. Only when the original had
+    // one - a deal from before the journals has nothing to reverse.
+    if (!row.journal_entry_id && original.journal_entry_id) {
+      /*
+       * Only the pairs this invoice covers, which is the ones still on the
+       * deal: a pair cancelled earlier was credited with its own invoice and
+       * is not on this one. Counting it again would put back stock twice.
+       */
+      const gone = new Set((keepStockOut || []).map(text));
+      const pairs = (await db.get(`external_sale_pairs?select=id,purchase_price_ex_vat,selling_vat_type&sale_id=eq.${sale.id}&cancelled_at=is.null`))
+        .filter((pair) => !gone.has(text(pair.id)));
+      const route = ROUTES[original.vat_route] ? original.vat_route : null;
+      if (!route) throw new ExternalSalesError(`Invoice ${original.invoice_number} has VAT route "${original.vat_route}"; book its stock back by hand in Rompslomp.`);
+
+      // Old deals have no selling VAT per pair; then the deal's single route
+      // is this invoice's route and all its pairs are this invoice's.
+      const own = pairs.filter((p) => p.selling_vat_type === route);
+      const amount = round2((own.length ? own : pairs).reduce((s, p) => s + Number(p.purchase_price_ex_vat || 0), 0));
+      const rs = await rompslomp.getInvoice(row.rompslomp_invoice_id);
+      const { journal } = await journalFor({ route, invoiceNumber: rs.invoice_number, date: rs.date, amount, reverse: true });
+      [row] = await db.patch(`external_sale_invoices?id=eq.${row.id}`, { journal_entry_id: String(journal.id) });
+    }
+
+    const after = (await load(id)).invoices;
+    const open = after.filter((i) => i.kind === "sale" && !after.some((c) => c.credits_invoice_id === i.id));
+    if (!open.length) await db.patch(`external_sales?id=eq.${sale.id}`, { bookkeeping_status: "credited" });
+
+    return { credit: row.invoice_number, of: original.invoice_number };
+  }
+
+  /*
+   * One invoice exactly as Rompslomp holds it.
+   *
+   * There to answer a single question: can a credit note be tied to the
+   * invoice it credits, so the two settle each other instead of both
+   * sitting in the open items for good? Their documentation is behind a
+   * login and their spec answers 401, so the fields themselves are the
+   * only way to find out.
+   *
+   * Read-only, admin-only, and it writes nothing.
+   */
+  /*
+   * Any read of the Rompslomp API, for mapping what it offers.
+   *
+   * Their documentation is behind a login and their spec answers 401, so
+   * the only way to find out whether an invoice can be settled against its
+   * credit note is to ask the API itself. GET only, admin only, and it is
+   * meant to be taken out once the question is answered.
+   */
+  async function rompslompGet(path) {
+    const clean = text(path).trim();
+
+    // A plain includes, because the regex that was here lost its escaping
+    // on the way in and became /../ - two of any character, so it refused
+    // every path there is.
+    if (!clean.startsWith("/")) throw new ExternalSalesError("A path starts with /.", 400);
+    if (clean.includes("..")) throw new ExternalSalesError("A path may not climb out of the API.", 400);
+
+    return rompslomp.read(clean);
+  }
+
+  async function rawInvoice(invoiceRowId) {
+    const [row] = await db.get(`external_sale_invoices?select=*&id=eq.${text(invoiceRowId)}`);
+
+    if (!row) throw new ExternalSalesError("That invoice is not one of ours.", 404);
 
     return {
-      invoice: {
-        number: before?.invoice_number,
-        status: before?.status,
-        payment_status: before?.payment_status,
-        open_amount: before?.open_amount,
-        price_with_vat: before?.price_with_vat,
-        lines: (before?.invoice_lines || []).length
-      },
-      tried: [
-        await attempt("nothing at all", {}),
-        await attempt("the description it already has", { description: before?.description ?? "" })
-      ]
+      ours: row,
+      rompslomp: await rompslomp.getInvoice(row.rompslomp_invoice_id)
     };
   }
 
@@ -961,5 +1172,5 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { filename: `Invoice ${row.invoice_number || row.rompslomp_invoice_id}.pdf`, pdf: await rompslomp.pdf(row.rompslomp_invoice_id) };
   }
 
-  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf, rawInvoice, rompslompGet, invoiceWritable };
+  return { configured: rompslomp.configured, preview, invoice, mailInvoices, amend, credit, link, invoicePdf, rawInvoice, rompslompGet };
 }

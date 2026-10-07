@@ -750,7 +750,7 @@
       <p class="field-error" id="repriceError"></p>
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="repriceClose">Never mind</button>
-        <button class="btn primary" type="button" id="repriceConfirm">Credit and re-invoice</button>
+        <button class="btn primary" type="button" id="repriceConfirm">Change invoice</button>
       </div>
     </div>
   </dialog>
@@ -3154,7 +3154,9 @@
       $("repricePlan").innerHTML = [
         `<span>Deal becomes <strong>${esc(euro(total))}</strong>, was ${esc(euro(was))}</span>`,
         s.bookkeeping_status === "invoiced"
-          ? "<span>Credit invoice, then a new invoice for the new amount, mailed to the buyer</span>"
+          ? (held > 0.005
+            ? "<span>Credit invoice, then a new invoice for the new amount, mailed to the buyer</span>"
+            : "<span>The invoice is corrected and sent again, keeping its own number</span>")
           : "<span>A new invoice is made when you invoice the deal</span>",
         "<span>The stock correction stays as it is: nothing came back.</span>",
         held > 0.005 && short > 0.005
