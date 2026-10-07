@@ -314,6 +314,9 @@
 
     if (item.choice === "unlinked" || item.choice === "deactivated") {
       buttons.push('<button class="btn" type="button" data-choose="none">Undo — put Lojiq stock back on</button>');
+      if (item.choice === "deactivated" && item.choice_status === "done") {
+        buttons.unshift('<span class="hint">The page itself stays on draft until you set it live again in Shopify.</span>');
+      }
     } else if (item.our_sizes) {
       buttons.push('<button class="btn" type="button" data-choose="unlinked">Unlink</button>');
       buttons.push('<button class="btn danger" type="button" data-choose="deactivated">Switch off</button>');
@@ -335,6 +338,7 @@
 
     const rows = [...sizes].sort(bySize).map((row) => {
       const custom = row.mode === "custom";
+      const own = row.mode === "own";
 
       return (
         '<tr data-id="' + row.id + '">' +
@@ -344,7 +348,8 @@
           (priced
             ? "<td>" +
                 '<select class="select mode" data-mode>' +
-                  '<option value="auto"' + (custom ? "" : " selected") + ">Lojiq</option>" +
+                  '<option value="auto"' + (custom || own ? "" : " selected") + ">Lojiq</option>" +
+                  '<option value="own"' + (own ? " selected" : "") + ">My own price</option>" +
                   '<option value="custom"' + (custom ? " selected" : "") + ">Custom</option>" +
                 "</select>" +
               "</td>" +
@@ -420,7 +425,7 @@
       $("n-mine").textContent = state.mine.total || "";
       $("note-mine").hidden = false;
       $("note-mine").textContent = state.priceSync
-        ? "Prices: a size on Lojiq is priced by us; set Custom and your number stands. Changes reach your shop within half an hour."
+        ? "Prices: a size on Lojiq is priced by us. My own price leaves your Shopify price alone; Custom sets a number for you. Changes reach your shop within half an hour."
         : "Lojiq does not set prices for this shop: the prices shown are yours, changed in Shopify.";
 
       drawMine();
@@ -624,7 +629,9 @@
         body: JSON.stringify({ id: Number(row.dataset.id), mode, price: Number(amount) })
       });
 
-      say(mode === "custom" ? "Saved. Your shop has it within half an hour." : "Back to Lojiq pricing.");
+      say(mode === "custom"
+        ? "Saved. Your shop has it within half an hour."
+        : mode === "own" ? "Saved. We leave this price alone from now on." : "Back to Lojiq pricing.");
       state.sizes.delete(key);
       await openMine(key);
     } catch (err) {

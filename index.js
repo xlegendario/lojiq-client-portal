@@ -1995,8 +1995,9 @@ app.post("/api/listings/price", express.json({ limit: "10kb" }), async (req, res
 
     if (!oneSize && !sku) return res.status(400).json({ error: "Name a listing or a shoe." });
 
-    if (!["auto", "custom"].includes(mode)) {
-      return res.status(400).json({ error: "mode is auto or custom" });
+    // own: the shop prices the size itself, even with Price Sync on.
+    if (!["auto", "custom", "own"].includes(mode)) {
+      return res.status(400).json({ error: "mode is auto, custom or own" });
     }
 
     const price = Number(req.body?.price);
