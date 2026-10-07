@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { displayId, forwardMoney, nextShippingStatus, trackingList } from "../admin/adminForwarding.js";
+import { displayId, feeLines, forwardMoney, nextShippingStatus, pairFee, trackingList } from "../admin/adminForwarding.js";
 
 test("a forward is shown as FWD- and six digits", () => {
   assert.equal(displayId({ forwarding_number: 42 }), "FWD-000042");
@@ -15,6 +15,53 @@ test("the partner pays fee plus shipping, the profit is the fee", () => {
     profit: 78,
     profit_ex_vat: 64.46
   });
+});
+
+test("a pair without its own fee costs the forward's standard fee", () => {
+  assert.equal(pairFee({ forwarding_fee: 1 }, 2), 1);
+  assert.equal(pairFee({ forwarding_fee: 0 }, 2), 0);
+  assert.equal(pairFee({ forwarding_fee: null }, 2), 2);
+  assert.equal(pairFee({}, 2), 2);
+});
+
+test("a mixed parcel is counted off its own pairs, not the standard fee", () => {
+  const row = { pair_count: 4, unit_forwarding_fee: 2, shipping_costs: 0 };
+  const pairs = [
+    { sku: "TEE", forwarding_fee: 1 },
+    { sku: "TEE", forwarding_fee: 1 },
+    { sku: "SHOE", forwarding_fee: 3 },
+    { sku: "SHOE", forwarding_fee: null }
+  ];
+
+  // 1 + 1 + 3 + 2 (the last one falls back to the standard)
+  assert.equal(forwardMoney(row, pairs).fee, 7);
+  assert.equal(forwardMoney(row, pairs).payable, 7);
+});
+
+test("without pairs - a cancelled forward - the old sum is all there is", () => {
+  assert.equal(forwardMoney({ pair_count: 39, unit_forwarding_fee: 2 }, []).fee, 78);
+  assert.equal(forwardMoney({ pair_count: 39, unit_forwarding_fee: 2 }, null).fee, 78);
+});
+
+test("the fee is listed per SKU, with the dearest line first", () => {
+  const pairs = [
+    { sku: "TEE", product_name: "Tee", forwarding_fee: 1 },
+    { sku: "TEE", product_name: "Tee", forwarding_fee: 1 },
+    { sku: "TEE", product_name: "Tee", forwarding_fee: 1 },
+    { sku: "SHOE", product_name: "Shoe", forwarding_fee: null }
+  ];
+
+  assert.deepEqual(feeLines(pairs, 2), [
+    { sku: "TEE", product_name: "Tee", count: 3, fee: 1, amount: 3, mixed: false },
+    { sku: "SHOE", product_name: "Shoe", count: 1, fee: 2, amount: 2, mixed: false }
+  ]);
+});
+
+test("a SKU whose own pairs disagree is marked mixed", () => {
+  const [line] = feeLines([{ sku: "TEE", forwarding_fee: 1 }, { sku: "TEE", forwarding_fee: 3 }], 2);
+
+  assert.equal(line.mixed, true);
+  assert.equal(line.amount, 4);
 });
 
 test("tracking numbers can be typed in any separated form", () => {

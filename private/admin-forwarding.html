@@ -159,6 +159,12 @@
     .pair-list img, .pair-list .no-img { width: 44px; height: 44px; object-fit: contain; background: #fff; border-radius: 6px; }
     .pair-list .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
     .pair-list strong { color: var(--strong); }
+    .fee-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .fee-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .fee-table tfoot td { border-bottom: 0; border-top: 1px solid var(--border); font-weight: 700; }
+    .fee-table .money { text-align: right; white-space: nowrap; }
+    .fee-input { width: 72px; padding: 4px 6px; text-align: right; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: inherit; font: inherit; }
+    .fee-input:disabled { opacity: .55; }
     .link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
@@ -698,6 +704,43 @@
 
     /* ---------------- side panel ---------------- */
 
+    /*
+      The fee per style code, typed here.
+
+      One line per SKU with what one pair of it costs. The standard is the
+      partner's own fee; clothing was agreed cheaper and some shoes dearer,
+      and a parcel can hold both - so it is set per SKU and kept on the
+      pairs themselves. A paid forward is read-only: its invoice is out.
+    */
+    function feeTable(forward) {
+      const lines = forward.fee_lines || [];
+
+      if (!lines.length) return "";
+
+      const locked = forward.payment_status === "paid";
+
+      const rows = lines.map((line) => `
+        <tr>
+          <td><strong>${esc(line.sku)}</strong><br><span class="sub">${esc(line.product_name || "")}</span></td>
+          <td class="money">${line.count}×</td>
+          <td class="money">
+            <input class="fee-input" type="number" min="0" step="0.50" value="${Number(line.fee).toFixed(2)}"
+              data-fee-sku="${esc(line.sku)}" ${locked ? "disabled" : ""}>
+            ${line.mixed ? '<br><span class="sub">mixed</span>' : ""}
+          </td>
+          <td class="money">${euro(line.amount)}</td>
+        </tr>`).join("");
+
+      return `<section class="group">
+        <h3>Fee per SKU</h3>
+        <table class="fee-table">
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td>Total</td><td class="money">${forward.pair_count}×</td><td></td><td class="money"><strong>${euro(forward.money.fee)}</strong></td></tr></tfoot>
+        </table>
+        ${locked ? '<p class="dash">Paid, so the fee is fixed. Mark it unpaid to change it.</p>' : ""}
+      </section>`;
+    }
+
     function panelGroup(title, rows) {
       const body = rows
         .filter(([, value]) => value !== null && value !== undefined && value !== "")
@@ -759,8 +802,9 @@
           ["Tracking", tracking || '<span class="dash">None yet</span>'],
           ["Labels", labels || '<span class="dash">None yet</span>']
         ]),
+        feeTable(row),
         panelGroup("Costs", [
-          ["Fee", `${row.pair_count} × ${euro(row.unit_forwarding_fee)} = ${euro(row.money.fee)}`],
+          ["Fee", `${row.pair_count} pair(s) = ${euro(row.money.fee)}`],
           ["Shipping costs", euro(row.money.shipping)],
           ["Payable by partner", `<strong>${euro(row.money.payable)}</strong>`],
           ["Payment", row.shipping_status === "cancelled" ? '<span class="dash">Not owed (cancelled)</span>' : paymentPill(row)],
@@ -798,6 +842,46 @@
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !$("editDialog").open && !$("panel").hidden) closePanel();
+    });
+
+    /*
+      A fee typed in the panel, for every pair of that SKU in this forward.
+
+      On change rather than on every keystroke, and the panel is redrawn from
+      what the server sends back, so the totals shown are the ones it stored.
+    */
+    $("panelBody").addEventListener("change", async (event) => {
+      const input = event.target.closest("[data-fee-sku]");
+      if (!input || !state.selected) return;
+
+      const sku = input.dataset.feeSku;
+      const fee = Number(String(input.value).replace(",", "."));
+
+      if (!Number.isFinite(fee) || fee < 0) {
+        toast("Enter a fee of zero or more.");
+        return;
+      }
+
+      input.disabled = true;
+
+      try {
+        const data = await api("/api/admin/forwarding/fee", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: state.selected, sku, fee })
+        });
+
+        const index = state.forwards.findIndex((row) => row.id === data.forward.id);
+        if (index >= 0) state.forwards[index] = { ...state.forwards[index], ...data.forward };
+
+        toast(`${sku} is now ${euro(fee)} per pair.`);
+        render();
+        drawPanel(state.forwards[index] || data.forward);
+      } catch (err) {
+        toast(err.message);
+        input.disabled = false;
+        load();
+      }
     });
 
     $("panelActions").addEventListener("click", async (event) => {

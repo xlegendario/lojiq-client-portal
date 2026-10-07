@@ -36,8 +36,71 @@ export function displayId(row) {
   return `FWD-${String(row?.forwarding_number ?? "").padStart(6, "0")}`;
 }
 
-export function forwardMoney(row) {
-  const fee = round2(Number(row?.pair_count || 0) * Number(row?.unit_forwarding_fee || 0));
+/*
+ * What one pair costs to forward.
+ *
+ * The partner's standard fee unless that pair carries its own. Clothing was
+ * agreed at EUR 1 and some shoes at EUR 3 while the standard stayed EUR 2,
+ * and a parcel can hold both - so the number has to live on the pair, not on
+ * the forward.
+ *
+ * A pair without one is every pair forwarded before this existed: it falls
+ * back to the forward's standard fee, so nothing already sent changes.
+ */
+export function pairFee(pair, standardFee) {
+  const raw = pair?.forwarding_fee;
+
+  // An empty column is "no fee of its own", and Number(null) is 0 - which
+  // would forward every older pair for nothing.
+  if (raw === null || raw === undefined || raw === "") return Number(standardFee || 0);
+
+  const own = Number(raw);
+
+  return Number.isFinite(own) && own >= 0 ? own : Number(standardFee || 0);
+}
+
+/*
+ * The fee per SKU, which is how it is agreed and how it is typed.
+ *
+ * One line per style code with what it costs and how many of them are in the
+ * forward. `mixed` marks a SKU whose own pairs disagree - possible only if
+ * someone changed a fee while the pairs were being split - so the screen can
+ * say so instead of showing one of the two and hiding the other.
+ */
+export function feeLines(pairs, standardFee) {
+  const lines = new Map();
+
+  for (const pair of pairs || []) {
+    const sku = text(pair?.sku) || "—";
+    const fee = pairFee(pair, standardFee);
+
+    if (!lines.has(sku)) {
+      lines.set(sku, { sku, product_name: text(pair?.product_name), count: 0, fee, amount: 0, mixed: false });
+    }
+
+    const line = lines.get(sku);
+
+    line.count += 1;
+    line.amount = round2(line.amount + fee);
+    if (fee !== line.fee) line.mixed = true;
+    if (!line.product_name) line.product_name = text(pair?.product_name);
+  }
+
+  return [...lines.values()].sort((a, b) => b.count - a.count || a.sku.localeCompare(b.sku));
+}
+
+export function forwardMoney(row, pairs = null) {
+  const standard = Number(row?.unit_forwarding_fee || 0);
+
+  /*
+   * Counted off the pairs when they are there, because only they know what
+   * each one costs. Without them - a cancelled forward, whose pairs went back
+   * on the shelf - the standard fee times the count is all there is left.
+   */
+  const fee = Array.isArray(pairs) && pairs.length
+    ? round2(pairs.reduce((sum, pair) => sum + pairFee(pair, standard), 0))
+    : round2(Number(row?.pair_count || 0) * standard);
+
   const shipping = round2(row?.shipping_costs);
 
   return {
@@ -137,7 +200,7 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
     for (let i = 0; i < ids.length; i += 100) {
       const chunk = ids.slice(i, i + 100);
       const pairParams = new URLSearchParams({
-        select: "id,forwarding_log_id,sku,size,product_name,image_url,barcode",
+        select: "id,forwarding_log_id,sku,size,product_name,image_url,barcode,forwarding_fee",
         forwarding_log_id: `in.(${chunk.join(",")})`,
         order: "sku.asc,size.asc"
       });
@@ -151,12 +214,49 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
       byForward.get(pair.forwarding_log_id).push(pair);
     }
 
-    return forwards.map((row) => ({
-      ...row,
-      display_id: displayId(row),
-      money: forwardMoney(row),
-      pairs: byForward.get(row.id) || []
-    }));
+    return forwards.map((row) => {
+      const own = byForward.get(row.id) || [];
+
+      return {
+        ...row,
+        display_id: displayId(row),
+        money: forwardMoney(row, own),
+        fee_lines: feeLines(own, row.unit_forwarding_fee),
+        pairs: own
+      };
+    });
+  }
+
+  // The pairs of one forward, for the fee sums after a change.
+  async function pairsFor(forwardId) {
+    const params = new URLSearchParams({
+      select: "id,sku,size,product_name,forwarding_fee",
+      forwarding_log_id: `eq.${text(forwardId)}`,
+      order: "sku.asc,size.asc"
+    });
+
+    return (await request(`partner_stock?${params}`)) || [];
+  }
+
+  /*
+   * What one SKU in this forward costs per pair.
+   *
+   * Written onto the pairs themselves, so the agreement stays with the pairs
+   * it was made for. Changing the partner's standard fee later leaves this
+   * forward exactly as it was invoiced.
+   */
+  async function setFee(forwardId, sku, fee) {
+    const params = new URLSearchParams({ forwarding_log_id: `eq.${text(forwardId)}` });
+
+    if (text(sku)) params.set("sku", `eq.${text(sku)}`);
+
+    const updated = await request(`partner_stock?${params}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ forwarding_fee: fee })
+    });
+
+    return updated || [];
   }
 
   async function get(id) {
@@ -178,7 +278,19 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
 
     if (!rows?.length) throw new ForwardingError("Unknown forward.", 404);
 
-    return { ...rows[0], display_id: displayId(rows[0]), money: forwardMoney(rows[0]) };
+    return decorate(rows[0]);
+  }
+
+  // One forward with its money worked out over its own pairs.
+  async function decorate(row) {
+    const own = await pairsFor(row.id).catch(() => []);
+
+    return {
+      ...row,
+      display_id: displayId(row),
+      money: forwardMoney(row, own),
+      fee_lines: feeLines(own, row.unit_forwarding_fee)
+    };
   }
 
   /*
@@ -222,7 +334,7 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
     return result;
   }
 
-  return { configured, list, get, update, releasePairs, counts };
+  return { configured, list, get, update, decorate, pairsFor, setFee, releasePairs, counts };
 }
 
 /*
@@ -378,6 +490,52 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
       }
 
       await log(req, "forwarding_update", row, changed);
+
+      res.json({ forward: row });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  /*
+   * The fee for one SKU in this forward, or for all of its pairs at once.
+   *
+   * Typed per style code, because that is how it is agreed with the partner:
+   * clothing at EUR 1, a pair of shoes at EUR 2 or EUR 3. Leave the SKU out
+   * and every pair in the forward gets it.
+   *
+   * Not on a forward that is already paid - the partner has an invoice with a
+   * number on it, and moving the number afterwards makes the two disagree
+   * with nothing to show why. Mark it unpaid first if it really was wrong.
+   */
+  router.post("/api/admin/forwarding/fee", express.json({ limit: "20kb" }), async (req, res) => {
+    try {
+      const before = await store.get(req.body?.id);
+      const sku = text(req.body?.sku);
+      const fee = Number(String(req.body?.fee ?? "").replace(",", "."));
+
+      if (!Number.isFinite(fee) || fee < 0) throw new ForwardingError("The fee cannot be negative.");
+      if (fee > 1000) throw new ForwardingError("That fee looks like a typing mistake.");
+
+      if (before.payment_status === "paid") {
+        throw new ForwardingError("This forward is already paid. Mark it unpaid first if the fee was wrong.");
+      }
+
+      // Read before writing, so the log says what it actually cost before.
+      const was = await store.decorate(before);
+
+      const changed = await store.setFee(before.id, sku, round2(fee));
+
+      if (!changed.length) throw new ForwardingError(sku ? `No pairs of ${sku} in this forward.` : "No pairs in this forward.");
+
+      const row = await store.decorate(before);
+
+      await log(req, "forwarding_fee", row, {
+        sku: sku || "all pairs",
+        pairs: changed.length,
+        fee: round2(fee),
+        payable: { from: was.money.payable, to: row.money.payable }
+      });
 
       res.json({ forward: row });
     } catch (err) {
