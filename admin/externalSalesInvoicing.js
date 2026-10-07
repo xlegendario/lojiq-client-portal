@@ -812,8 +812,11 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
   async function rompslompGet(path) {
     const clean = text(path).trim();
 
+    // A plain includes, because the regex that was here lost its escaping
+    // on the way in and became /../ - two of any character, so it refused
+    // every path there is.
     if (!clean.startsWith("/")) throw new ExternalSalesError("A path starts with /.", 400);
-    if (/../.test(clean)) throw new ExternalSalesError("No.", 400);
+    if (clean.includes("..")) throw new ExternalSalesError("A path may not climb out of the API.", 400);
 
     return rompslomp.read(clean);
   }
