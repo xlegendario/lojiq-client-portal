@@ -929,6 +929,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     invoicePdf: (invoiceRowId) => invoicing.invoicePdf(invoiceRowId),
     rawInvoice: (invoiceRowId) => invoicing.rawInvoice(invoiceRowId),
     rompslompGet: (path) => invoicing.rompslompGet(path),
+    invoiceWritable: (rompslompInvoiceId) => invoicing.invoiceWritable(rompslompInvoiceId),
     credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
     link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
     packShipList,
@@ -1150,6 +1151,21 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
   router.get("/api/admin/external-sales/rompslomp", async (req, res) => {
     try {
       res.json(await store.rompslompGet(text(req.query.path)));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  /*
+   * Whether Rompslomp lets us change an invoice it has already sent.
+   *
+   * Their API cannot tie a credit note to the invoice it credits, so a
+   * credit always leaves two open documents behind; changing the original
+   * would leave none. Both writes this makes change nothing at all.
+   */
+  router.get("/api/admin/external-sales/invoice/writable", async (req, res) => {
+    try {
+      res.json(await store.invoiceWritable(text(req.query.id)));
     } catch (err) {
       send(res, err);
     }

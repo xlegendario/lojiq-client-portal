@@ -173,7 +173,7 @@ test("a private buyer becomes an individual contact", () => {
 
 /* ---------------- the whole run ---------------- */
 
-function fakeRompslomp({ totalOverride = null } = {}) {
+function fakeRompslomp({ totalOverride = null, refuseUpdates = false } = {}) {
   const invoices = new Map();
   const calls = { created: 0, journals: [], contacts: 0 };
   let n = 2200;
@@ -199,6 +199,12 @@ function fakeRompslomp({ totalOverride = null } = {}) {
     async publishInvoice(id) {
       const inv = invoices.get(String(id));
       Object.assign(inv, { status: "published", invoice_number: `KC202609-${n++}` });
+      return inv;
+    },
+    async updateInvoice(id, fields) {
+      if (refuseUpdates) throw new Error("Rompslomp said no (422): a sent invoice cannot be changed");
+      const inv = invoices.get(String(id));
+      Object.assign(inv, fields);
       return inv;
     },
     async createJournal(body) { calls.journals.push(body.journal_entry); return { id: 7000 + calls.journals.length, description: body.journal_entry.description }; },
@@ -449,4 +455,44 @@ test("a credited invoice is not the deal's invoice: the next one is new", async 
   const made = [...rompslomp.invoices.values()].find((i) => i.api_reference === "EXTD-000097-Margin-2");
   assert.ok(made, "the second invoice gets its own reference");
   assert.equal(db.tables.external_sales[0].bookkeeping_status, "invoiced");
+});
+
+/* ---------------- can a sent invoice still be changed? ---------------- */
+
+const sentInvoice = () => ({
+  id: 1872919538,
+  invoice_number: "KC202610-2176",
+  status: "published",
+  payment_status: "unpaid",
+  open_amount: "180.0",
+  price_with_vat: "180.0",
+  description: "Deal EXTD-000097",
+  invoice_lines: [{ price_per_unit: "165.00" }]
+});
+
+test("the probe reports what Rompslomp allows and changes nothing", async () => {
+  const rompslomp = fakeRompslomp();
+  rompslomp.invoices.set("1872919538", sentInvoice());
+
+  const invoicing = createExternalSalesInvoicing({ db: fakeDb({}), airtable: fakeAirtableBuyers({}), rompslomp, sendMail: async () => {} });
+  const out = await invoicing.invoiceWritable("1872919538");
+
+  assert.equal(out.invoice.number, "KC202610-2176");
+  assert.equal(out.invoice.payment_status, "unpaid");
+  assert.deepEqual(out.tried.map((t) => t.allowed), [true, true]);
+
+  const after = rompslomp.invoices.get("1872919538");
+  assert.equal(after.description, "Deal EXTD-000097", "the description it already had");
+  assert.equal(after.price_with_vat, "180.0", "and not a cent moved");
+});
+
+test("a Rompslomp that locks a sent invoice is reported, not thrown", async () => {
+  const rompslomp = fakeRompslomp({ refuseUpdates: true });
+  rompslomp.invoices.set("1872919538", sentInvoice());
+
+  const invoicing = createExternalSalesInvoicing({ db: fakeDb({}), airtable: fakeAirtableBuyers({}), rompslomp, sendMail: async () => {} });
+  const out = await invoicing.invoiceWritable("1872919538");
+
+  assert.deepEqual(out.tried.map((t) => t.allowed), [false, false]);
+  assert.match(out.tried[0].refused, /422/);
 });

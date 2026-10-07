@@ -445,6 +445,9 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
     async publishInvoice(id) {
       return (await call(`/sales_invoices/${id}`, { method: "PATCH", body: { sales_invoice: { _publish: true } } }))?.sales_invoice;
     },
+    async updateInvoice(id, fields) {
+      return (await call(`/sales_invoices/${id}`, { method: "PATCH", body: { sales_invoice: fields } }))?.sales_invoice;
+    },
     async createJournal(body) {
       return (await call("/journal_entries", { method: "POST", body }))?.journal_entry;
     },
@@ -832,6 +835,48 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     };
   }
 
+  /*
+   * Can an invoice that was already sent still be changed?
+   *
+   * Their API has no way to tie a credit note to the invoice it credits - no
+   * field on an invoice points at another one, and a payment carries no
+   * invoice - so a credit made from here always leaves both documents open,
+   * to be settled by hand. Changing the original instead would leave nothing
+   * open at all. Two writes that change nothing answer whether we may: an
+   * empty one, then the description it already has.
+   */
+  async function invoiceWritable(rompslompInvoiceId) {
+    const id = text(rompslompInvoiceId);
+
+    if (!id) throw new ExternalSalesError("Which Rompslomp invoice?", 400);
+
+    const before = await rompslomp.getInvoice(id);
+
+    const attempt = async (what, fields) => {
+      try {
+        const after = await rompslomp.updateInvoice(id, fields);
+        return { what, allowed: true, price_with_vat: after?.price_with_vat ?? null, lines: (after?.invoice_lines || []).length };
+      } catch (err) {
+        return { what, allowed: false, refused: text(err?.message) || String(err) };
+      }
+    };
+
+    return {
+      invoice: {
+        number: before?.invoice_number,
+        status: before?.status,
+        payment_status: before?.payment_status,
+        open_amount: before?.open_amount,
+        price_with_vat: before?.price_with_vat,
+        lines: (before?.invoice_lines || []).length
+      },
+      tried: [
+        await attempt("nothing at all", {}),
+        await attempt("the description it already has", { description: before?.description ?? "" })
+      ]
+    };
+  }
+
   async function preview(id) {
     const { sale, pairs, invoices: existing } = await load(id);
     const plan = invoicePlanFor(sale, pairs);
@@ -916,5 +961,5 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { filename: `Invoice ${row.invoice_number || row.rompslomp_invoice_id}.pdf`, pdf: await rompslomp.pdf(row.rompslomp_invoice_id) };
   }
 
-  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf, rawInvoice, rompslompGet };
+  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf, rawInvoice, rompslompGet, invoiceWritable };
 }
