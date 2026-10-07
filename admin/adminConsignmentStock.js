@@ -15,6 +15,7 @@
 
 import express from "express";
 import fs from "fs";
+import { facetsOf, filterRows, readRefine, sortRows } from "./stockRefine.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -210,8 +211,9 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
     return rows;
   }
 
-  async function list({ view = "all", q = "", limit = 400 } = {}) {
-    const wanted = Math.min(Math.max(Number(limit) || 400, 10), 5000);
+  // refine and all: see the Inventory store - the same on all three screens.
+  async function list({ view = "all", q = "", limit = 400, refine = {}, all: everyRow = false } = {}) {
+    const wanted = everyRow ? Infinity : Math.min(Math.max(Number(limit) || 400, 10), 5000);
     const needle = text(q).toUpperCase();
     const all = await loaded();
 
@@ -240,6 +242,10 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
       row.seller_id.toUpperCase().includes(word);
 
     if (words.length) chosen = chosen.filter((row) => words.every((word) => hits(row, word)));
+
+    // On single offers, before they become pairs: see stockRefine.js.
+    const facets = facetsOf(chosen, "consignment");
+    chosen = filterRows(chosen, "consignment", refine);
 
     const pairs = groupRows(chosen);
 
@@ -275,9 +281,13 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
      */
     const onSize = (pair) => (words.some((word) => pair.size.toUpperCase() === word) ? 0 : 1);
 
-    pairs.sort(words.length
-      ? (a, b) => onSize(a) - onSize(b) || a.compare - b.compare || a.sku.localeCompare(b.sku)
-      : (a, b) => text(b.added_at).localeCompare(text(a.added_at)));
+    // A chosen sort wins; the pair carries its cheapest offer's price and
+    // the newest added date, so it sorts like a single row.
+    if (!sortRows(pairs, "consignment", refine)) {
+      pairs.sort(words.length
+        ? (a, b) => onSize(a) - onSize(b) || a.compare - b.compare || a.sku.localeCompare(b.sku)
+        : (a, b) => text(b.added_at).localeCompare(text(a.added_at)));
+    }
 
     // The pairs that match on size, when any do - the ones the search is
     // really about. Without a size in the query that is simply everything.
@@ -294,6 +304,7 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
     return {
       units: shown,
       counts,
+      facets,
       totals: {
         units: pairs.length,
         shown: shown.length,
@@ -463,7 +474,8 @@ export function mountConsignmentStock(router, { store, audit = null, pageFile })
       res.json(await store.list({
         view: text(req.query.view) || "all",
         q: text(req.query.q),
-        limit: req.query.limit
+        limit: req.query.limit,
+        refine: readRefine(req.query, "consignment")
       }));
     } catch (err) {
       send(res, err);

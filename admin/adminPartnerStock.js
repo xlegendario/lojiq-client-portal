@@ -18,6 +18,7 @@
 
 import express from "express";
 import fs from "fs";
+import { facetsOf, filterRows, readRefine, sortRows } from "./stockRefine.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -136,8 +137,9 @@ export function createPartnerStockStore({ db, airtable, cacheMs = 120_000 }) {
     return rows;
   }
 
-  async function list({ view = "in_stock", q = "", limit = 500 } = {}) {
-    const wanted = Math.min(Math.max(Number(limit) || 500, 10), 2000);
+  // refine and all: see the Inventory store - the same on all three screens.
+  async function list({ view = "in_stock", q = "", limit = 500, refine = {}, all: everyRow = false } = {}) {
+    const wanted = everyRow ? Infinity : Math.min(Math.max(Number(limit) || 500, 10), 2000);
     const needle = text(q).toUpperCase();
     const all = await everything();
 
@@ -155,6 +157,10 @@ export function createPartnerStockStore({ db, airtable, cacheMs = 120_000 }) {
         row.size.toUpperCase() === needle);
     }
 
+    const facets = facetsOf(chosen, "partner");
+    chosen = filterRows(chosen, "partner", refine);
+    sortRows(chosen, "partner", refine);
+
     const shown = await withNames(chosen.slice(0, wanted));
 
     /*
@@ -167,6 +173,7 @@ export function createPartnerStockStore({ db, airtable, cacheMs = 120_000 }) {
     return {
       units: shown,
       counts,
+      facets,
       totals: {
         units: chosen.length,
         shown: shown.length,
@@ -207,7 +214,8 @@ export function mountPartnerStock(router, { store, pageFile }) {
       res.json(await store.list({
         view: text(req.query.view) || "in_stock",
         q: text(req.query.q),
-        limit: req.query.limit
+        limit: req.query.limit,
+        refine: readRefine(req.query, "partner")
       }));
     } catch (err) {
       send(res, err);

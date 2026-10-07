@@ -419,6 +419,7 @@
   </div>
 
   <div class="toast" id="toast" hidden role="status"></div>
+  <script src="/admin-stock-tools.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
 
@@ -663,9 +664,20 @@
       history.replaceState(null, "", url);
     }
 
+    // Sort, filters and Export, the same on all three stock screens
+    // (public/admin-stock-tools.js, admin/stockRefine.js).
+    const tools = StockTools({
+      source: "inventory",
+      mount: document.querySelector(".filters"),
+      screen: () => ({ view: state.view, q: state.q, check: state.view === "checks" ? state.check : "" }),
+      onChange: () => { looking(); load(); },
+      toast
+    });
+
     async function load() {
       try {
         const query = new URLSearchParams({ view: state.view });
+        for (const [name, value] of Object.entries(tools.params())) query.set(name, value);
         if (state.check && state.view === "checks") query.set("check", state.check);
         if (state.q) query.set("q", state.q);
 
@@ -674,6 +686,7 @@
         state.counts = data.counts || state.counts;
         state.groups = data.groups || [];
         state.totals = data.totals || state.totals;
+        tools.update(data.facets);
         drawTabs();
         drawGroups();
         drawList();

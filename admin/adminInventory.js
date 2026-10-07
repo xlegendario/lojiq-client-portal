@@ -27,6 +27,7 @@
 
 import express from "express";
 import fs from "fs";
+import { facetsOf, filterRows, readRefine, sortRows } from "./stockRefine.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const many = (value) => (Array.isArray(value) ? value : value === null || value === undefined || value === "" ? [] : [value]);
@@ -458,11 +459,16 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     return { counts, groups };
   }
 
-  async function list({ view = "in_stock", check = "", q = "", limit = 500 } = {}) {
-    const wanted = Math.min(Math.max(Number(limit) || 500, 10), 2000);
+  /*
+   * refine: sort and filters, the same on all three stock screens
+   * (stockRefine.js). all: every row, for the export - the screen itself
+   * still asks for a page.
+   */
+  async function list({ view = "in_stock", check = "", q = "", limit = 500, refine = {}, all = false } = {}) {
+    const wanted = all ? Infinity : Math.min(Math.max(Number(limit) || 500, 10), 2000);
     const needle = text(q).toUpperCase();
 
-    if (text(view) === "sold") return sold({ q: needle, limit: wanted });
+    if (text(view) === "sold") return sold({ q: needle, limit: wanted, refine });
 
     const rows = await working();
     const { counts, groups } = summarise(rows);
@@ -478,7 +484,12 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
 
     if (needle) chosen = chosen.filter((row) => matches(row, needle));
 
-    chosen.sort(check || text(view) === "checks" ? worstFirst : longestFirst);
+    const facets = facetsOf(chosen, "inventory");
+    chosen = filterRows(chosen, "inventory", refine);
+
+    if (!sortRows(chosen, "inventory", refine)) {
+      chosen.sort(check || text(view) === "checks" ? worstFirst : longestFirst);
+    }
 
     const shown = chosen.slice(0, wanted);
 
@@ -486,6 +497,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
       units: shown,
       counts,
       groups,
+      facets,
       totals: {
         units: chosen.length,
         shown: shown.length,
@@ -502,7 +514,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
    * side. Its counts come from the working set, which does not hold Sold, so
    * the tab shows what came back rather than a total.
    */
-  async function sold({ q = "", limit = 200 } = {}) {
+  async function sold({ q = "", limit = 200, refine = {} } = {}) {
     const needle = text(q).toUpperCase().replace(/'/g, "\\'");
     const search = needle
       ? `, OR(FIND('${needle}', UPPER({SKU} & '')) > 0, FIND('${needle}', UPPER({Item ID} & '')) > 0, FIND('${needle}', UPPER({Product Name} & '')) > 0)`
@@ -514,13 +526,19 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     );
 
     const today = now();
-    const rows = records.map((record) => unitRow(record, today, baseId)).slice(0, limit);
+    const read = records.map((record) => unitRow(record, today, baseId));
+    const facets = facetsOf(read, "inventory");
+    const refined = filterRows(read, "inventory", refine);
+    sortRows(refined, "inventory", refine);
+
+    const rows = refined.slice(0, limit);
     const { counts, groups } = summarise(await working());
 
     return {
       units: rows,
       counts,
       groups,
+      facets,
       totals: {
         units: rows.length,
         shown: rows.length,
@@ -564,7 +582,8 @@ export function mountInventory(router, { store, pageFile }) {
         view: text(req.query.view) || "in_stock",
         check: text(req.query.check),
         q: text(req.query.q),
-        limit: req.query.limit
+        limit: req.query.limit,
+        refine: readRefine(req.query, "inventory")
       }));
     } catch (err) {
       send(res, err);

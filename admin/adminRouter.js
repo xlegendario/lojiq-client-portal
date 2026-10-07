@@ -59,6 +59,7 @@ import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createConsignmentStockStore, mountConsignmentStock } from "./adminConsignmentStock.js";
+import { mountStockExport } from "./stockExport.js";
 import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
 import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
@@ -528,20 +529,28 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   // Consignment Stock: what consignors hold for us, and for how much
   // (admin/adminConsignmentStock.js, private/admin-consignment-stock.html).
   // Not ours until we buy it, so it is its own screen rather than Inventory.
-  mountConsignmentStock(router, {
-    store: createConsignmentStockStore({
-      db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
-      airtable,
+  const consignmentStock = createConsignmentStockStore({
+    db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+    airtable,
 
-      /*
-       * Offering from this screen makes a deal with one pair on it. The
-       * round itself is the KC portal's, unchanged, and the deal is where
-       * everything after it happens - so there is one road, not two.
-       */
-      deals: brokerDeals
-    }),
+    /*
+     * Offering from this screen makes a deal with one pair on it. The
+     * round itself is the KC portal's, unchanged, and the deal is where
+     * everything after it happens - so there is one road, not two.
+     */
+    deals: brokerDeals
+  });
+
+  mountConsignmentStock(router, {
+    store: consignmentStock,
     audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-consignment-stock.html") : ""
+  });
+
+  // Export: the three stock screens as one Excel file or CSV
+  // (admin/stockExport.js). Read through the same lists the screens use.
+  mountStockExport(router, {
+    stores: { inventory, partner: partnerStock, consignment: consignmentStock }
   });
 
   // Partner Deals: the offers a partner has out, and the counters that come
