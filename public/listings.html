@@ -113,7 +113,8 @@
   .no { color: var(--muted); }
 
   .amount { width: 96px; text-align: right; }
-  .mode { width: 110px; }
+  .mode { width: 130px; }
+  td.note-cell { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
   .btn {
     height: 34px; padding: 0 13px; border-radius: 9px; border: 1px solid var(--border);
@@ -334,33 +335,26 @@
   }
 
   /*
-   * Whether we price this size at all. Only where we put stock on it, or
-   * where the store already chose something for it: a size we hold none of
-   * keeps the shop's own price, so "Lojiq" next to it would be untrue.
+   * What the choice does for this size, in a few words beside it. Lojiq
+   * only prices a size it puts stock on; on any other size the shop's own
+   * price simply stays, and the line says so rather than claiming a price
+   * we never set.
    */
-  const ourSay = (row) => row.our_stock > 0 || row.mode === "custom" || row.mode === "own";
+  function modeNote(row) {
+    if (row.mode === "custom") return "We set this price in your shop.";
+    if (row.mode === "own") return "We never change this price.";
+    return row.our_stock > 0 ? "We price it while it carries our stock." : "Your price stays until we have this size.";
+  }
 
   function sizesHtml(item, sizes) {
-    const priced = state.priceSync && sizes.some(ourSay);
+    const priced = state.priceSync;
 
     const rows = [...sizes].sort(bySize).map((row) => {
       const custom = row.mode === "custom";
       const own = row.mode === "own";
 
-      if (priced && !ourSay(row)) {
-        return (
-          '<tr data-id="' + row.id + '">' +
-            '<td class="sizecell">' + esc(row.size) + "</td>" +
-            '<td class="num">' + esc(euro(row.store_price)) + "</td>" +
-            '<td class="hide no">—</td>' +
-            '<td colspan="3" class="no">You — we hold none of this size</td>' +
-            '<td class="fill"></td>' +
-          "</tr>"
-        );
-      }
-
       return (
-        '<tr data-id="' + row.id + '">' +
+        '<tr data-id="' + row.id + '" data-stock="' + (row.our_stock > 0 ? 1 : 0) + '">' +
           '<td class="sizecell">' + esc(row.size) + "</td>" +
           '<td class="num">' + esc(euro(row.store_price)) + "</td>" +
           '<td class="hide ' + (row.our_stock ? "yes" : "no") + '">' + (row.our_stock ? "Yes" : "—") + "</td>" +
@@ -376,7 +370,8 @@
                 '<input class="input amount" type="number" step="0.01" min="0" placeholder="Price" data-amount' +
                   ' value="' + (custom && row.custom_price ? row.custom_price : "") + '"' + (custom ? "" : " disabled") + ">" +
               "</td>" +
-              '<td><button class="btn" type="button" data-save disabled>Save</button></td>'
+              '<td><button class="btn" type="button" data-save disabled>Save</button></td>' +
+              '<td class="note-cell" data-note>' + esc(modeNote(row)) + "</td>"
             : "") +
           '<td class="fill"></td>' +
         "</tr>"
@@ -390,7 +385,7 @@
             "<th>Size</th>" +
             '<th class="num">Your price</th>' +
             '<th class="hide">Lojiq stock</th>' +
-            (priced ? "<th>Priced by</th><th>Custom price</th><th></th>" : "") +
+            (priced ? "<th>Priced by</th><th>Custom price</th><th></th><th></th>" : "") +
             '<th class="fill"></th>' +
           "</tr></thead><tbody>" + rows + "</tbody></table>"
         : '<p class="loading">No active sizes.</p>')
@@ -444,7 +439,7 @@
       $("n-mine").textContent = state.mine.total || "";
       $("note-mine").hidden = false;
       $("note-mine").textContent = state.priceSync
-        ? "Prices: a size on Lojiq is priced by us. My own price leaves your Shopify price alone; Custom sets a number for you. Changes reach your shop within half an hour."
+        ? "Prices: Lojiq prices a size while it carries our stock. My own price: we never touch it. Custom: you name the price and we put it in your shop, on any size. Changes reach your shop within half an hour."
         : "Lojiq does not set prices for this shop: the prices shown are yours, changed in Shopify.";
 
       drawMine();
@@ -668,6 +663,7 @@
 
     row.querySelector("[data-amount]").disabled = !custom;
     row.querySelector("[data-save]").disabled = false;
+    row.querySelector("[data-note]").textContent = modeNote({ mode: mode.value, our_stock: row.dataset.stock === "1" ? 1 : 0 });
     if (custom) row.querySelector("[data-amount]").focus();
   });
 
