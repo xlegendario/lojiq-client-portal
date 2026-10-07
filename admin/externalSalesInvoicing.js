@@ -470,6 +470,10 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
     },
     async pdf(id) {
       return call(`/sales_invoices/${id}/pdf`, { accept: "application/pdf" });
+    },
+    // Any GET, for mapping the API. See rompslompGet.
+    async read(path) {
+      return call(path);
     }
   };
 }
@@ -797,6 +801,23 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
    *
    * Read-only, admin-only, and it writes nothing.
    */
+  /*
+   * Any read of the Rompslomp API, for mapping what it offers.
+   *
+   * Their documentation is behind a login and their spec answers 401, so
+   * the only way to find out whether an invoice can be settled against its
+   * credit note is to ask the API itself. GET only, admin only, and it is
+   * meant to be taken out once the question is answered.
+   */
+  async function rompslompGet(path) {
+    const clean = text(path).trim();
+
+    if (!clean.startsWith("/")) throw new ExternalSalesError("A path starts with /.", 400);
+    if (/../.test(clean)) throw new ExternalSalesError("No.", 400);
+
+    return rompslomp.read(clean);
+  }
+
   async function rawInvoice(invoiceRowId) {
     const [row] = await db.get(`external_sale_invoices?select=*&id=eq.${text(invoiceRowId)}`);
 
@@ -892,5 +913,5 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { filename: `Invoice ${row.invoice_number || row.rompslomp_invoice_id}.pdf`, pdf: await rompslomp.pdf(row.rompslomp_invoice_id) };
   }
 
-  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf, rawInvoice };
+  return { configured: rompslomp.configured, preview, invoice, mailInvoices, credit, link, invoicePdf, rawInvoice, rompslompGet };
 }

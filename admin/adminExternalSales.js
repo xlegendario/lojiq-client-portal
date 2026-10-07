@@ -928,6 +928,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     mailInvoices: (id, options) => invoicing.mailInvoices(id, options),
     invoicePdf: (invoiceRowId) => invoicing.invoicePdf(invoiceRowId),
     rawInvoice: (invoiceRowId) => invoicing.rawInvoice(invoiceRowId),
+    rompslompGet: (path) => invoicing.rompslompGet(path),
     credit: (id, invoiceId) => invoicing.credit(id, invoiceId),
     link: (id, rompslompInvoiceId) => invoicing.link(id, rompslompInvoiceId),
     packShipList,
@@ -1146,6 +1147,14 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
    * Open it in the browser while signed in as admin. There to find out
    * whether a credit note can be tied to the invoice it credits.
    */
+  router.get("/api/admin/external-sales/rompslomp", async (req, res) => {
+    try {
+      res.json(await store.rompslompGet(text(req.query.path)));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
   router.get("/api/admin/external-sales/invoice/raw", async (req, res) => {
     try {
       res.json(await store.rawInvoice(text(req.query.id)));
