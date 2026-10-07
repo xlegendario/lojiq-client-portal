@@ -360,6 +360,21 @@ export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
  *   purchases   createPurchaseExpense - the purchase of a partner pair
  */
 export function createExternalSalesCancel({ db, airtable, invoicing, purchases = null, returnToConsignor = null }) {
+  /*
+   * Something that is left for a person to do goes in the deal's own notes as
+   * well as the log. The log under the panel is gone the moment it is closed,
+   * and nobody is going to remember a settlement they saw once.
+   */
+  async function noteTodo(sale, lines, by) {
+    if (!lines.length) return;
+
+    await db.insert("external_sale_notes", [{
+      sale_id: sale.id,
+      written_by: text(by) || null,
+      body: lines.join(" ")
+    }]).catch(() => {});
+  }
+
   async function load(id) {
     if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown deal.");
     const [sale] = await db.get(`external_sales?select=*&id=eq.${text(id)}`);
@@ -596,7 +611,10 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
         const out = await invoicing.invoice(sale.id, { mail: true });
         const made = out.invoices.map((i) => i.invoice_number);
         log.push(`New invoice ${made.join(", ")}`);
-        log.push(...settleInRompslomp(creditNotes, made));
+
+        const todo = settleInRompslomp(creditNotes, made);
+        log.push(...todo);
+        await noteTodo(sale, todo, by);
       } catch (err) {
         log.push(`The new invoice was not made: ${err.message}. Open the deal and click Create invoice.`);
       }
@@ -824,7 +842,10 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
         const out = await invoicing.invoice(sale.id, { mail: true });
         const made = out.invoices.map((i) => i.invoice_number);
         log.push(`New invoice ${made.join(", ")}`);
-        log.push(...settleInRompslomp(creditNotes, made));
+
+        const todo = settleInRompslomp(creditNotes, made);
+        log.push(...todo);
+        await noteTodo(sale, todo, by);
       } catch (err) {
         log.push(`The new invoice was not made: ${err.message}. Open the deal and click Create invoice.`);
       }

@@ -485,3 +485,23 @@ test("a cancel that leaves pairs behind says the same thing", async () => {
 
   assert.ok(out.log.some((line) => /settle KC202609-2101 against KC202609-2102/.test(line)), out.log.join(" | "));
 });
+
+test("what is left to settle is in the deal's notes, not only in the log", async () => {
+  const { db, cancel } = fakes({ sale: { ...BILLABLE, payment_status: "paid", paid_amount: 600 }, pairs: BILLABLE_PAIRS });
+
+  await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }], by: "Dario" });
+
+  const notes = db.tables.external_sale_notes || [];
+  const settle = notes.find((n) => /settle KC202609-2101 against KC202609-2102/.test(n.body));
+
+  assert.ok(settle, notes.map((n) => n.body).join(" | "));
+  assert.equal(settle.written_by, "Dario");
+});
+
+test("a changed invoice leaves nothing to settle in the notes either", async () => {
+  const { db, cancel } = fakes({ sale: BILLABLE, pairs: BILLABLE_PAIRS });
+
+  await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }], by: "Dario" });
+
+  assert.ok(!(db.tables.external_sale_notes || []).some((n) => /settle/.test(n.body)));
+});
