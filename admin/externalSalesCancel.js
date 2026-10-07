@@ -749,7 +749,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
    * on the new amount, so a run that dies halfway leaves a credited deal
    * rather than two live invoices.
    */
-  async function repricePairs(id, { pairs: wanted = [], reason = "", by = "" } = {}) {
+  async function repricePairs(id, { pairs: wanted = [], reason = "", by = "", mail = true } = {}) {
     const asked = (Array.isArray(wanted) ? wanted : [wanted])
       .map((row) => ({ id: text(row?.id), price: Number(row?.price) }))
       .filter((row) => row.id && Number.isFinite(row.price));
@@ -827,6 +827,8 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
       if (failed) {
         log.push("Nothing was sent to the buyer; look at the invoice in Rompslomp first.");
+      } else if (changed.length && !mail) {
+        log.push(`${changed.join(", ")} was not sent: the buyer keeps the version he has until you send it.`);
       } else if (changed.length) {
         try {
           const sent = await invoicing.mailInvoices(sale.id, { corrected: true });
@@ -839,7 +841,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
     if (result.reinvoice) {
       try {
-        const out = await invoicing.invoice(sale.id, { mail: true });
+        const out = await invoicing.invoice(sale.id, { mail });
         const made = out.invoices.map((i) => i.invoice_number);
         log.push(`New invoice ${made.join(", ")}`);
 

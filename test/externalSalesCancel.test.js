@@ -505,3 +505,20 @@ test("a changed invoice leaves nothing to settle in the notes either", async () 
 
   assert.ok(!(db.tables.external_sale_notes || []).some((n) => /settle/.test(n.body)));
 });
+
+test("a change with the mail off writes the invoice but sends nothing", async () => {
+  const { calls, cancel } = fakes({ sale: BILLABLE, pairs: BILLABLE_PAIRS });
+
+  const out = await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }], mail: false });
+
+  assert.deepEqual(calls, [["amend", "i1"]], "changed, not mailed");
+  assert.ok(out.log.some((line) => /was not sent: the buyer keeps the version he has/.test(line)), out.log.join(" | "));
+});
+
+test("the mail is on unless it is turned off", async () => {
+  const { calls, cancel } = fakes({ sale: BILLABLE, pairs: BILLABLE_PAIRS });
+
+  await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }] });
+
+  assert.deepEqual(calls, [["amend", "i1"], ["mail", "corrected"]]);
+});

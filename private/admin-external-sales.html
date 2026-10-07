@@ -747,6 +747,9 @@
         <input class="input" id="repriceReason" type="text" placeholder="Buyer pays the shipping, pair swapped, ...">
       </div>
       <div class="plan" id="repricePlan"></div>
+      <div class="field">
+        <label class="inbound-pair"><input type="checkbox" id="repriceMail" checked> Send the invoice to the buyer</label>
+      </div>
       <p class="field-error" id="repriceError"></p>
       <div class="dialog-foot">
         <button class="btn ghost" type="button" id="repriceClose">Never mind</button>
@@ -3110,6 +3113,7 @@
         </label>`).join("");
 
       $("repriceReason").value = "";
+      $("repriceMail").checked = true;
       $("repriceError").textContent = "";
       drawRepricePlan();
       $("repriceDialog").showModal();
@@ -3177,7 +3181,7 @@
       try {
         const d = await postJson("/api/admin/external-sales/update", {
           id: state.detail.sale.id,
-          reprice_pairs: { pairs: lines, reason: $("repriceReason").value.trim() }
+          reprice_pairs: { pairs: lines, reason: $("repriceReason").value.trim(), mail: $("repriceMail").checked }
         });
         state.runLog = { id: state.detail.sale.id, lines: d.log || [] };
         applyDetail(d, (d.log || []).join(" \u00b7 ") || "Invoice changed.");
