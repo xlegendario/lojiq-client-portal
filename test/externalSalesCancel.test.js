@@ -460,3 +460,28 @@ test("an invoice that will not change is not sent to the buyer either", async ()
   assert.ok(out.log.some((line) => /was not changed: KC202609-2100 is overpaid/.test(line)), out.log.join(" | "));
   assert.ok(out.log.some((line) => /Nothing was sent to the buyer/.test(line)), out.log.join(" | "));
 });
+
+test("crediting a paid invoice says which two documents to settle in Rompslomp", async () => {
+  const { cancel } = fakes({ sale: { ...BILLABLE, payment_status: "paid", paid_amount: 600 }, pairs: BILLABLE_PAIRS });
+
+  const out = await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }] });
+
+  assert.ok(out.log.some((line) => /settle KC202609-2101 against KC202609-2102/.test(line)), out.log.join(" | "));
+  assert.ok(out.log.some((line) => /50\.00 still has to come in/.test(line)), out.log.join(" | "));
+});
+
+test("a changed invoice has nothing to settle", async () => {
+  const { cancel } = fakes({ sale: BILLABLE, pairs: BILLABLE_PAIRS });
+
+  const out = await cancel.repricePairs(S1, { pairs: [{ id: P1, price: 300 }] });
+
+  assert.ok(!out.log.some((line) => /settle/.test(line)), out.log.join(" | "));
+});
+
+test("a cancel that leaves pairs behind says the same thing", async () => {
+  const { cancel } = fakes({ sale: { ...BILLABLE, payment_status: "paid", paid_amount: 600 }, pairs: BILLABLE_PAIRS });
+
+  const out = await cancel.cancelPairs(S1, { pair_ids: [P1], reason: "Wrong size sent", outcome: "return", by: "Dario" });
+
+  assert.ok(out.log.some((line) => /settle KC202609-2101 against KC202609-2102/.test(line)), out.log.join(" | "));
+});

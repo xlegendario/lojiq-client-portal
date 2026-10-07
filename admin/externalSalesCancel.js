@@ -230,6 +230,21 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
  * mailed - because an invoice is never edited. The credit is the record
  * that the first one was wrong.
  */
+/*
+ * A credit note and the invoice that takes its place both stay open in
+ * Rompslomp. Together they come down to what the buyer still owes, so the
+ * books are right, but no bank payment will ever match either one: settling a
+ * credit note against an invoice is something only Rompslomp itself does, and
+ * the bank link never sees it. So the log names the two documents.
+ *
+ * Nothing to say when the deal ends with the credit - a refund by bank matches
+ * that one on its own.
+ */
+export const settleInRompslomp = (creditNotes, made) =>
+  creditNotes.length && made.length
+    ? [`In Rompslomp, settle ${creditNotes.join(", ")} against ${made.join(", ")}: no payment comes in for either.`]
+    : [];
+
 export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
   const live = pairs.filter((pair) => !pair.cancelled_at);
   const problems = [];
@@ -524,8 +539,11 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
       .filter((pair) => !CANCEL_OUTCOMES[outcomes.get(pair.id)]?.stockBack)
       .map((pair) => pair.id);
 
+    const creditNotes = [];
+
     for (const invoice of invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id))) {
       const out = await invoicing.credit(sale.id, invoice.id, { keepStockOut });
+      creditNotes.push(out.credit);
       log.push(`${out.credit} credits ${out.of}`);
     }
 
@@ -576,7 +594,9 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     if (result.reinvoice) {
       try {
         const out = await invoicing.invoice(sale.id, { mail: true });
-        log.push(`New invoice ${out.invoices.map((i) => i.invoice_number).join(", ")}`);
+        const made = out.invoices.map((i) => i.invoice_number);
+        log.push(`New invoice ${made.join(", ")}`);
+        log.push(...settleInRompslomp(creditNotes, made));
       } catch (err) {
         log.push(`The new invoice was not made: ${err.message}. Open the deal and click Create invoice.`);
       }
@@ -726,9 +746,12 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
     // Credited up front only when the invoices cannot be changed; a change
     // needs the new prices on the pairs first, so it happens further down.
+    const creditNotes = [];
+
     if (!result.amend.length) {
       for (const invoice of open) {
         const out = await invoicing.credit(sale.id, invoice.id);
+        creditNotes.push(out.credit);
         log.push(`${out.credit} credits ${out.of}`);
       }
     }
@@ -799,7 +822,9 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     if (result.reinvoice) {
       try {
         const out = await invoicing.invoice(sale.id, { mail: true });
-        log.push(`New invoice ${out.invoices.map((i) => i.invoice_number).join(", ")}`);
+        const made = out.invoices.map((i) => i.invoice_number);
+        log.push(`New invoice ${made.join(", ")}`);
+        log.push(...settleInRompslomp(creditNotes, made));
       } catch (err) {
         log.push(`The new invoice was not made: ${err.message}. Open the deal and click Create invoice.`);
       }
