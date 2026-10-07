@@ -5591,6 +5591,64 @@ function amountForButton(rawValue) {
       ];
     }
 
+    /*
+      Items travelling in one parcel, shown as one row.
+
+      A consignor can sell two items out of one marketplace order, or three
+      pairs into one broker deal. Those go in ONE box on ONE label, and Kickz
+      Caviar says so by giving every row in the parcel the same shipment
+      group. Listed separately he sees the same label three times and posts
+      three boxes - which costs him two shipments and us the pairs that
+      arrive late.
+
+      The same merge the Kickz Caviar dashboard does, so a store reading its
+      sales here sees what a consignor reading them there sees. Rows without
+      a group pass through untouched, which is nearly all of them.
+    */
+    function oneRowPerParcel(items) {
+      const groups = new Map();
+      const out = [];
+
+      for (const item of items || []) {
+        const group = item && item.shipment_group;
+
+        if (!group) {
+          out.push(item);
+          continue;
+        }
+
+        if (!groups.has(group)) {
+          // The first item carries the row: its label, its tracking, its
+          // order number. The others only add themselves to it.
+          const first = { ...item, parcel_items: [], payout: 0 };
+          groups.set(group, first);
+          out.push(first);
+        }
+
+        const row = groups.get(group);
+
+        row.parcel_items.push({ sku: item.sku, size: item.size });
+        row.payout = Number(row.payout || 0) + Number(item.payout || 0);
+      }
+
+      for (const row of groups.values()) {
+        // One item in a group is just an item.
+        if (row.parcel_items.length < 2) {
+          delete row.parcel_items;
+          continue;
+        }
+
+        row.product = `${row.parcel_items.length} items - one parcel`;
+        row.sku = row.parcel_items
+          .map((item) => `${item.sku || "-"} ${item.size || ""}`.trim())
+          .join(" · ");
+        row.size = "";
+        row.brand = "";
+      }
+
+      return out;
+    }
+
     function renderOrders(orders) {
       const columns =
         currentView === "consignment_offers"
@@ -5861,9 +5919,14 @@ function amountForButton(rawValue) {
         nextOffset = data.next_offset || "";
         hasMore = !!data.has_more;
     
+        // The selling tabs arrive whole, so the parcels can be merged here.
+        const incoming = CONSIGNMENT_VIEWS.includes(currentView)
+          ? oneRowPerParcel(data.orders)
+          : data.orders;
+
         currentOrders = reset
-          ? data.orders
-          : [...currentOrders, ...data.orders];
+          ? incoming
+          : [...currentOrders, ...incoming];
     
         // FIXED — this copied the SIDEBAR badge, which is loaded separately.
         // Render before those counts arrive and the badge still reads "0" —
