@@ -991,6 +991,75 @@ body.kc-dialog-open {
       font-variant-numeric: tabular-nums;
     }
 
+    /* One row standing for two items has to say so where the eye already
+       is: under the name, in the blue this portal spends on things that
+       are being asked of you. */
+    .parcel-note {
+      margin-top: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary-soft, #66B3FF);
+      white-space: normal;
+    }
+
+    .parcel-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      padding: 0;
+      border: 0;
+      background: none;
+      text-align: left;
+      cursor: pointer;
+      color: inherit;
+      font: inherit;
+    }
+
+    .parcel-caret {
+      color: var(--muted, #8B8B95);
+      font-size: 15px;
+      line-height: 1;
+      transition: transform 0.12s ease;
+    }
+
+    .parcel-toggle.is-open .parcel-caret {
+      transform: rotate(90deg);
+    }
+
+    /* A class with display on it beats the rule a browser applies to
+       [hidden], so the fold-out has to be told to stay shut. */
+    .parcel-list[hidden] {
+      display: none;
+    }
+
+    .parcel-list {
+      margin-top: 8px;
+      padding-left: 14px;
+      border-left: 1px solid var(--border, #26262B);
+      display: grid;
+      gap: 8px;
+    }
+
+    .parcel-line {
+      display: grid;
+      gap: 2px;
+      white-space: normal;
+    }
+
+    .parcel-line-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text, #E9E9EE);
+    }
+
+    .parcel-line-meta {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--muted, #8B8B95);
+      font-variant-numeric: tabular-nums;
+    }
+
     .product-sku {
       color: var(--text);
       font-weight: 900;
@@ -3147,6 +3216,26 @@ function stopCsvPill() {
 }
 
 document.addEventListener("click", async (event) => {
+  /*
+    Opening a parcel changes nothing and asks nothing, so it is answered
+    here and returns: everything below this line is an action.
+  */
+  const parcelToggle = event.target.closest("[data-parcel-toggle]");
+
+  if (parcelToggle) {
+    const list = parcelToggle.parentElement?.querySelector(".parcel-list");
+
+    if (list) {
+      const open = list.hasAttribute("hidden");
+
+      list.toggleAttribute("hidden", !open);
+      parcelToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      parcelToggle.classList.toggle("is-open", open);
+    }
+
+    return;
+  }
+
   const dismiss = event.target.closest("[data-csv-dismiss]");
 
   if (dismiss) {
@@ -5282,6 +5371,38 @@ function amountForButton(rawValue) {
         if (order.brand) parts.push(escapeHtml(order.brand));
         const meta = parts.join(" &middot; ");
 
+        if (Array.isArray(order.parcel_items) && order.parcel_items.length > 1) {
+          const lines = order.parcel_items
+            .map(
+              (item) => `
+                <div class="parcel-line">
+                  <span class="parcel-line-name">${escapeHtml(item.product || "—")}</span>
+                  <span class="parcel-line-meta">${escapeHtml(
+                    [item.sku, item.size ? `Size ${item.size}` : "", item.order_id]
+                      .filter(Boolean)
+                      .join(" · ")
+                  )}</span>
+                </div>
+              `
+            )
+            .join("");
+
+          return `
+            <div class="product-cell">
+              <button class="parcel-toggle" type="button" data-parcel-toggle aria-expanded="false">
+                <span class="parcel-caret" aria-hidden="true">›</span>
+                <span class="product-name">${escapeHtml(order.product || "—")}</span>
+              </button>
+              ${
+                order.parcel_note
+                  ? `<div class="parcel-note">${escapeHtml(order.parcel_note)}</div>`
+                  : ""
+              }
+              <div class="parcel-list" hidden>${lines}</div>
+            </div>
+          `;
+        }
+
         return `
           <div class="product-cell">
             <div class="product-name" title="${escapeHtml(order.product || "")}">${escapeHtml(order.product || "—")}</div>
@@ -5591,6 +5712,116 @@ function amountForButton(rawValue) {
       ];
     }
 
+    /*
+      Items travelling in one parcel, shown as one row.
+
+      A consignor can sell two items out of one marketplace order, or three
+      pairs into one broker deal. Those go in ONE box on ONE label, and Kickz
+      Caviar says so by giving every row in the parcel the same shipment
+      group. Listed separately he sees the same label three times and posts
+      three boxes - which costs him two shipments and us the pairs that
+      arrive late.
+
+      The same merge the Kickz Caviar dashboard does, so a store reading its
+      sales here sees what a consignor reading them there sees. Rows without
+      a group pass through untouched, which is nearly all of them.
+    */
+    /*
+      An amount this portal already wrote out, read back as a number.
+
+      Dutch notation: dots group the thousands, the comma is the decimal
+      point. Anything unreadable answers 0 rather than NaN, because a sum is
+      about to be built out of these.
+    */
+    function parcelAmountValue(written) {
+      const cleaned = String(written ?? "")
+        .replace(/[^\d,.-]/g, "")
+        .replace(/\.(?=\d{3}(\D|$))/g, "")
+        .replace(",", ".");
+
+      const amount = Number(cleaned);
+
+      return Number.isFinite(amount) ? amount : 0;
+    }
+
+    function oneRowPerParcel(items) {
+      const groups = new Map();
+      const out = [];
+
+      for (const item of items || []) {
+        const group = item && item.shipment_group;
+
+        if (!group) {
+          out.push(item);
+          continue;
+        }
+
+        if (!groups.has(group)) {
+          // The first item carries the row: its label, its tracking, its
+          // order number. The others only add themselves to it.
+          const first = { ...item, parcel_items: [] };
+          groups.set(group, first);
+          out.push(first);
+        }
+
+        const row = groups.get(group);
+
+        row.parcel_items.push({
+          product: item.product,
+          sku: item.sku,
+          size: item.size,
+          order_id: item.order_id,
+          payout: item.payout
+        });
+      }
+
+      for (const row of groups.values()) {
+        // One item in a group is just an item.
+        if (row.parcel_items.length < 2) {
+          delete row.parcel_items;
+          continue;
+        }
+
+        /*
+          Short on the row, complete when it is opened.
+
+          Two names, two SKUs and two order numbers do not fit in a row
+          meant for one, and crammed in they read as a jumble rather than as
+          one parcel. The row says what it is and what has to be done with
+          it; the detail is one click away.
+        */
+        const count = row.parcel_items.length;
+
+        row.product = `${count} items · one parcel`;
+        row.sku = "";
+        row.size = "";
+        row.brand = "";
+        row.order_id = `${count} orders`;
+        row.parcel_note = "Ship together in ONE box";
+
+        /*
+          The amounts arrive already written out, and Number() answers NaN
+          for those - which is what put NaN in the Payout column the moment
+          ordinary sales started carrying a group. Read back, added, and
+          written out again the same way.
+        */
+        const total = row.parcel_items.reduce(
+          (sum, item) => sum + parcelAmountValue(item.payout),
+          0
+        );
+
+        if (total > 0) {
+          const whole = Math.abs(total - Math.round(total)) < 0.005;
+
+          row.payout = whole
+            ? `€ ${Math.round(total)}`
+            : `€ ${total.toFixed(2).replace(".", ",")}`;
+        }
+      }
+
+      return out;
+    }
+
     function renderOrders(orders) {
       const columns =
         currentView === "consignment_offers"
@@ -5861,9 +6092,14 @@ function amountForButton(rawValue) {
         nextOffset = data.next_offset || "";
         hasMore = !!data.has_more;
     
+        // The selling tabs arrive whole, so the parcels can be merged here.
+        const incoming = CONSIGNMENT_VIEWS.includes(currentView)
+          ? oneRowPerParcel(data.orders)
+          : data.orders;
+
         currentOrders = reset
-          ? data.orders
-          : [...currentOrders, ...data.orders];
+          ? incoming
+          : [...currentOrders, ...incoming];
     
         // FIXED — this copied the SIDEBAR badge, which is loaded separately.
         // Render before those counts arrive and the badge still reads "0" —
