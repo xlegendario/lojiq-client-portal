@@ -1002,10 +1002,35 @@ body.kc-dialog-open {
       white-space: normal;
     }
 
+    .parcel-head {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    /* An item inside a parcel: an ordinary row, set back and quieter, so the
+       row above it stays the one that stands for the parcel. */
+    .parcel-child > td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .parcel-child-name {
+      padding-left: 14px;
+      border-left: 2px solid var(--primary, #2F80ED);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text, #E9E9EE);
+    }
+
+    .parcel-child-meta {
+      padding-left: 16px;
+    }
+
     .parcel-toggle {
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: space-between;
+      gap: 10px;
       width: 100%;
       padding: 0;
       border: 0;
@@ -1016,48 +1041,17 @@ body.kc-dialog-open {
       font: inherit;
     }
 
+    /* At the end of the column, where you look for a way to open it. */
     .parcel-caret {
+      flex: none;
       color: var(--muted, #8B8B95);
-      font-size: 15px;
+      font-size: 18px;
       line-height: 1;
       transition: transform 0.12s ease;
     }
 
     .parcel-toggle.is-open .parcel-caret {
       transform: rotate(90deg);
-    }
-
-    /* A class with display on it beats the rule a browser applies to
-       [hidden], so the fold-out has to be told to stay shut. */
-    .parcel-list[hidden] {
-      display: none;
-    }
-
-    .parcel-list {
-      margin-top: 8px;
-      padding-left: 14px;
-      border-left: 1px solid var(--border, #26262B);
-      display: grid;
-      gap: 8px;
-    }
-
-    .parcel-line {
-      display: grid;
-      gap: 2px;
-      white-space: normal;
-    }
-
-    .parcel-line-name {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--text, #E9E9EE);
-    }
-
-    .parcel-line-meta {
-      font-size: 12.5px;
-      font-weight: 700;
-      color: var(--muted, #8B8B95);
-      font-variant-numeric: tabular-nums;
     }
 
     .product-sku {
@@ -3223,15 +3217,18 @@ document.addEventListener("click", async (event) => {
   const parcelToggle = event.target.closest("[data-parcel-toggle]");
 
   if (parcelToggle) {
-    const list = parcelToggle.parentElement?.querySelector(".parcel-list");
+    const parcelId = parcelToggle.dataset.parcelToggle || "";
 
-    if (list) {
-      const open = list.hasAttribute("hidden");
+    const children = parcelId
+      ? document.querySelectorAll(`[data-parcel-child="${parcelId}"]`)
+      : [];
 
-      list.toggleAttribute("hidden", !open);
-      parcelToggle.setAttribute("aria-expanded", open ? "true" : "false");
-      parcelToggle.classList.toggle("is-open", open);
-    }
+    const open = parcelToggle.getAttribute("aria-expanded") !== "true";
+
+    children.forEach((row) => row.toggleAttribute("hidden", !open));
+
+    parcelToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    parcelToggle.classList.toggle("is-open", open);
 
     return;
   }
@@ -5371,34 +5368,33 @@ function amountForButton(rawValue) {
         if (order.brand) parts.push(escapeHtml(order.brand));
         const meta = parts.join(" &middot; ");
 
-        if (Array.isArray(order.parcel_items) && order.parcel_items.length > 1) {
-          const lines = order.parcel_items
-            .map(
-              (item) => `
-                <div class="parcel-line">
-                  <span class="parcel-line-name">${escapeHtml(item.product || "—")}</span>
-                  <span class="parcel-line-meta">${escapeHtml(
-                    [item.sku, item.size ? `Size ${item.size}` : "", item.order_id]
-                      .filter(Boolean)
-                      .join(" · ")
-                  )}</span>
-                </div>
-              `
-            )
-            .join("");
+        /*
+          A parcel opens; a single item has nothing to open.
 
+          The caret sits at the far end of the column, where the eye looks
+          for a way to open something, and what opens are rows of their own -
+          so the size, order number and payout of each item stand in the
+          columns they belong to.
+        */
+        if (Array.isArray(order.parcel_items) && order.parcel_items.length > 1) {
           return `
             <div class="product-cell">
-              <button class="parcel-toggle" type="button" data-parcel-toggle aria-expanded="false">
+              <button
+                class="parcel-toggle"
+                type="button"
+                data-parcel-toggle="${escapeHtml(order.parcel_id || "")}"
+                aria-expanded="false"
+              >
+                <span class="parcel-head">
+                  <span class="product-name">${escapeHtml(order.product || "—")}</span>
+                  ${
+                    order.parcel_note
+                      ? `<span class="parcel-note">${escapeHtml(order.parcel_note)}</span>`
+                      : ""
+                  }
+                </span>
                 <span class="parcel-caret" aria-hidden="true">›</span>
-                <span class="product-name">${escapeHtml(order.product || "—")}</span>
               </button>
-              ${
-                order.parcel_note
-                  ? `<div class="parcel-note">${escapeHtml(order.parcel_note)}</div>`
-                  : ""
-              }
-              <div class="parcel-list" hidden>${lines}</div>
             </div>
           `;
         }
@@ -5770,12 +5766,15 @@ function amountForButton(rawValue) {
           product: item.product,
           sku: item.sku,
           size: item.size,
+          brand: item.brand,
           order_id: item.order_id,
-          payout: item.payout
+          payout: item.payout,
+          vat_type: item.vat_type,
+          date: item.date
         });
       }
 
-      for (const row of groups.values()) {
+      for (const [group, row] of groups.entries()) {
         // One item in a group is just an item.
         if (row.parcel_items.length < 2) {
           delete row.parcel_items;
@@ -5791,6 +5790,10 @@ function amountForButton(rawValue) {
           it; the detail is one click away.
         */
         const count = row.parcel_items.length;
+
+        // What the hidden rows are hung on. The tracking number is the
+        // group, and nothing else in the table shares one.
+        row.parcel_id = String(group).replace(/[^A-Za-z0-9_-]/g, "");
 
         row.product = `${count} items · one parcel`;
         row.sku = "";
@@ -5884,6 +5887,62 @@ function amountForButton(rawValue) {
         return;
       }
     
+      /*
+        One item of a parcel, in the column it belongs to.
+
+        Only the columns that say something about a single item are filled;
+        the buttons stay on the row above, because one label covers the lot.
+      */
+      const parcelChildCell = (item, key) => {
+        if (key === "product") {
+          return `
+            <div class="product-cell">
+              <div class="parcel-child-name">${escapeHtml(item.product || "—")}</div>
+              ${
+                item.sku
+                  ? `<div class="product-meta parcel-child-meta"><span class="product-sku">${escapeHtml(item.sku)}</span></div>`
+                  : ""
+              }
+            </div>
+          `;
+        }
+
+        if (key === "size") return escapeHtml(item.size || "—");
+        if (key === "order_id") return escapeHtml(item.order_id || "—");
+        if (key === "payout") return escapeHtml(item.payout || "—");
+        if (key === "vat_type") return escapeHtml(item.vat_type || "—");
+        if (key === "date") return escapeHtml(item.date || "—");
+
+        return "";
+      };
+
+      const parcelChildRows = (order) => {
+        if (!Array.isArray(order.parcel_items) || order.parcel_items.length < 2) return "";
+
+        const parcelId = escapeHtml(order.parcel_id || "");
+
+        return order.parcel_items
+          .map(
+            (item) => `
+              <tr class="parcel-child" data-parcel-child="${parcelId}" hidden>
+                ${displayColumns
+                  .map(([key, label]) => {
+                    const width = columnWidths[key];
+                    const sizeLabel = width ? `width:${width}px; min-width:${width}px;` : "";
+
+                    return `
+                      <td data-key="${key}" data-label="${escapeHtml(label)}" style="${sizeLabel}">
+                        ${parcelChildCell(item, key)}
+                      </td>
+                    `;
+                  })
+                  .join("")}
+              </tr>
+            `
+          )
+          .join("");
+      };
+
       ordersTableBody.innerHTML = orders.map((order) => {
         return `
           <tr>
@@ -5902,6 +5961,7 @@ function amountForButton(rawValue) {
               `;
             }).join("")}
           </tr>
+          ${parcelChildRows(order)}
         `;
       }).join("");
 
