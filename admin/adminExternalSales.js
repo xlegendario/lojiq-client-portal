@@ -120,8 +120,20 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   add("no_pairs", "error", "Deal without pairs", "Nothing to sell and nothing to invoice. This is a deal from before Supabase; cancel it if it is dead.",
     live.filter((s) => !(pairsBySale.get(s.id) || []).length).map((s) => row(s)));
 
+  /*
+   * A buyer, by either name for one.
+   *
+   * FIXED - this asked for the Airtable record id alone. Buyers added since
+   * External Sales moved to Supabase have a buyer_uuid and no record id, so
+   * every one of those deals was reported here as having no buyer at all -
+   * EXTD-000102 and EXTD-000106, both invoiced and both paid.
+   *
+   * invoicePlanFor had the same bug and was fixed with a comment saying it
+   * was the last place that had not caught up. It was not: this was the other
+   * one. Anything asking whether a deal has a buyer asks for both.
+   */
   add("no_buyer", "error", "Deal without buyer", "The invoice needs one. This is a deal from before Supabase; it has to be linked by hand.",
-    live.filter((s) => !s.buyer_record_id).map((s) => row(s)));
+    live.filter((s) => !text(s.buyer_uuid) && !text(s.buyer_record_id)).map((s) => row(s)));
 
   const moneyOf = (s) => saleMoney(s, pairsBySale.get(s.id) || []);
 

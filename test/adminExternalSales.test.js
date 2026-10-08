@@ -150,3 +150,23 @@ test("an invoice published months later is due from the sale", async () => {
   const due = dueDate({ sale_date: "2026-04-08" }, [{ kind: "sale", sent_at: "2026-09-21T10:00:00Z" }]);
   assert.equal(due.toISOString().slice(0, 10), "2026-04-15");
 });
+
+test("a buyer counts by either name for one, so a Supabase buyer is not 'no buyer'", () => {
+  const sale = (n, extra) => ({ id: `s${n}`, deal_number: n, buyer_name: "B", payment_status: "paid", shipping_status: "shipped", bookkeeping_status: "invoiced", total_selling_price: 200, shipping_costs: 0, legacy_selling_vat_type: "VAT0", labels_needed: 0, sale_date: "2026-10-01", ...extra });
+
+  const sales = [
+    sale(101, { buyer_record_id: "recB" }),
+    sale(102, { buyer_uuid: "088844ce-3a78-44de-958e-8b08019d81a2" }),
+    sale(103, {})
+  ];
+
+  const pairs = [{ purchase_vat_type: "Margin", purchase_price_ex_vat: 150, selling_vat_type: "Margin", selling_price: 200 }];
+  const pairsBySale = new Map(sales.map((s) => [s.id, pairs]));
+  const invoicesBySale = new Map(sales.map((s) => [s.id, [{ kind: "sale", invoice_number: "KC1", journal_entry_id: "j" }]]));
+  const parcelsBySale = new Map(sales.map((s) => [s.id, [{ tracking_number: "1ZAAA1111111111111" }]]));
+
+  const checks = externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoicesBySale, now: Date.parse("2026-10-08") });
+  const by = Object.fromEntries(checks.map((c) => [c.key, c.items.map((i) => i.deal)]));
+
+  assert.deepEqual(by.no_buyer, ["EXTD-000103"], "only the one with neither a uuid nor a record id");
+});
