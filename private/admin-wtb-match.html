@@ -399,23 +399,33 @@
       if (out.missing) state.missing = out.missing;
       $("results").hidden = !state.rows.length;
 
-      // What an offer starts at, over what the pair costs us.
-      const MARKUP = 20;
+      /*
+        What an offer starts at, over what the pair costs us. Less on VAT0,
+        because the VAT comes off that one on the way out and the same margin
+        on paper is not the same margin in the hand.
+      */
+      const MARKUP = { Margin: 15, VAT21: 15, VAT0: 10 };
 
       for (const row of state.rows) {
-        /*
-          Filled in at what the cheapest shelf costs plus the markup, so the
-          usual offer is already there and only an unusual one is typed. A
-          price he typed himself is never written over.
-        */
-        if (!row.offer_touched) {
-          const cheapest = Number(row.options[0]?.cost);
-          row.offer_price = Number.isFinite(cheapest) ? String(Math.round((cheapest + MARKUP) * 100) / 100) : "";
-        }
-
+        // The scheme first: it is what decides the markup below it.
         if (row.offer_vat === undefined) {
           const first = row.options.find((option) => VAT_TYPES.includes(option.vat_type));
           row.offer_vat = first ? first.vat_type : "VAT0";
+        }
+
+        /*
+          Filled in at what the cheapest shelf costs plus that markup, so the
+          usual offer is already there and only an unusual one is typed. A
+          price he typed himself is never written over - not by a redraw, and
+          not by changing the scheme afterwards.
+        */
+        if (!row.offer_touched) {
+          const cheapest = Number(row.options[0]?.cost);
+          const markup = MARKUP[row.offer_vat] ?? 15;
+
+          row.offer_price = Number.isFinite(cheapest)
+            ? String(Math.round((cheapest + markup) * 100) / 100)
+            : "";
         }
       }
 
@@ -477,7 +487,12 @@
         row.offer_price = field.value.trim();
         row.offer_touched = true;
       }
-      else row.offer_vat = field.value;
+      else {
+        row.offer_vat = field.value;
+        // A different scheme is a different markup, so the offer moves
+        // with it - but never over a price he typed himself.
+        if (!row.offer_touched) drawResults({ rows: state.rows });
+      }
     });
 
     async function run() {
