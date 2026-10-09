@@ -5111,6 +5111,17 @@ function amountForButton(rawValue) {
       }
     
       if (currentView === "offers") {
+        /*
+          A supplier who answers through their own API is not countered.
+
+          They sell from a published list at a fixed price, and the offer on
+          this row already has our margin inside it - so there is nothing to
+          come down from. The route refuses a counter on one of these either
+          way; leaving the button off is so nobody is invited to try and is
+          then told no.
+        */
+        const canCounter = !order.supplier_api;
+
         if (order.round_type === "denied") {
           // The store can revise a denial: ACCEPT the seller's last
           // offer after all, COUNTER/RETRY again (server enforces the
@@ -5128,9 +5139,11 @@ function amountForButton(rawValue) {
                 <span class="accept-amount">${acceptAmount}</span>
               </button>
 
+              ${canCounter ? `
               <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
                 ${counterLabel}
               </button>
+              ` : ""}
 
               <button class="action-btn red" type="button" onclick="${order._kind === 'fresh_denied' ? `handleHideFreshDenied('${escapeHtml(order.seller_offer_record_id || order.id)}')` : `handleDeleteOffer('${escapeHtml(order.id)}')`}">
                 DELETE
@@ -5165,9 +5178,11 @@ function amountForButton(rawValue) {
               <span class="accept-amount">${escapeHtml(amountForButton(order.offer))}</span>
             </button>
           
+            ${canCounter ? `
             <button class="action-btn blue" type="button" onclick="handleCounterOffer('${escapeHtml(order.id)}')">
               COUNTER
             </button>
+            ` : ""}
           
             <button class="action-btn red" type="button" onclick="handleOfferAction('${escapeHtml(order.id)}', 'deny')">
               DENY
