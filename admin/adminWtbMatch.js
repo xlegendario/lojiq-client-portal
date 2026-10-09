@@ -33,21 +33,43 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
    */
   let sellers = { at: 0, promise: null };
 
-  function sellerSources() {
+  function sellerInfo() {
     if (!airtable) return Promise.resolve(new Map());
 
     if (!sellers.promise || Date.now() - sellers.at > cacheMs) {
-      sellers = {
-        at: Date.now(),
-        promise: airtable
-          .select("Sellers Database", { fields: ["Source"], formula: "{Source} != ''", pageSize: 100 })
-          .then((result) => new Map((result?.records || []).map((record) => [record.id, text(record.fields?.Source)])))
-      };
-
+      sellers = { at: Date.now(), promise: readSellers() };
       sellers.promise.catch(() => { sellers = { at: 0, promise: null }; });
     }
 
     return sellers.promise;
+  }
+
+  async function readSellers() {
+    const found = new Map();
+    let offset = "";
+
+    // Nine hundred sellers, ten calls, held for five minutes - the whole
+    // list rather than the ones on this answer, because the next search
+    // wants different ones and this way it costs nothing at all.
+    for (let page = 0; page < 20; page += 1) {
+      const result = await airtable.select("Sellers Database", {
+        fields: ["Discord", "Source"],
+        pageSize: 100,
+        offset
+      });
+
+      for (const record of result?.records || []) {
+        found.set(record.id, {
+          discord: text(record.fields?.Discord),
+          source: text(record.fields?.Source)
+        });
+      }
+
+      offset = result?.offset || "";
+      if (!offset) break;
+    }
+
+    return found;
   }
 
   async function tryShelf(name, load) {
@@ -78,10 +100,16 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
     // A seller who cannot ship today says so on the pair, not in someone's
     // head. A lookup that fails leaves it blank rather than holding up the
     // whole answer.
-    const sources = await sellerSources().catch(() => new Map());
+    const sellerBy = await sellerInfo().catch(() => new Map());
 
     for (const option of all) {
-      option.seller_source = sources.get(option.seller_record_id) || "";
+      const seller = sellerBy.get(option.seller_record_id);
+
+      option.seller_source = seller?.source || "";
+      // A Discord name is what he is called where the deal is made; a
+      // Seller ID is only something to look up. The id stays as the
+      // fallback, because a seller without a Discord still has to show.
+      option.seller_name = seller?.discord || option.seller;
       option.ready_in = readyIn(option);
     }
 

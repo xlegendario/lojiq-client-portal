@@ -414,27 +414,28 @@ export const offerText = (rows = []) => rows.map(offerLine).filter(Boolean).join
 /* ---------------- when a pair can actually leave ---------------- */
 
 /*
- * A seller whose stock does not ship the same day.
+ * A seller whose stock does not ship with everything else.
  *
- * Sellers Database carries a Source on eleven of nine hundred sellers, but
+ * Sellers Database carries a Source on eleven of nine hundred sellers, and
  * only one of its values says anything about time. Asia and Marketplace
  * describe where a seller buys, not how fast he ships: an Asia consignor
- * ships as quickly as anyone, and a Marketplace pair that shows up as stock
- * at all is one that came back to us and is already here.
+ * ships as quickly as anyone, and a Marketplace pair that shows as stock at
+ * all is one that came back to us and is already here.
+ *
+ * The one that is slower holds four fifths of the consignment stock, so this
+ * is the line most consignment hits really get.
  */
-const SLOW_SOURCES = { "EU Supplier": "3-5 working days" };
+const SLOW_SOURCES = { "EU Supplier": "2-5 business days" };
 
 /*
- * How soon this pair could go out.
+ * How soon this pair could be with the buyer.
  *
- * What decides it is where the pair is, not who owns it. Anything on our own
- * shelf - ours, a partner's, or a return - can leave today. A consignor's
- * pair has to come to us first, which is a day or three unless he is one of
- * the slow ones.
+ * Everything we can lay hands on goes out inside two days, whether it is on
+ * our own shelf or has to come from a consignor first. Only a pair still
+ * with one of the slow sellers takes longer.
  */
 export function readyIn(option = {}) {
-  if (text(option.source) !== "Consignment") return "Here";
-  if (text(option.location) === "Our warehouse") return "Here";
+  const stillWithHim = text(option.source) === "Consignment" && text(option.location) !== "Our warehouse";
 
-  return SLOW_SOURCES[text(option.seller_source)] || "24-72 hours";
+  return (stillWithHim && SLOW_SOURCES[text(option.seller_source)]) || "within 48 hours";
 }

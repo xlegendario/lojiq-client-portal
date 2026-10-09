@@ -426,8 +426,8 @@ test("a seller who cannot ship today says so on the pair", async () => {
     select: async (table, options) => {
       asked += 1;
       assert.equal(table, "Sellers Database");
-      assert.match(options.formula, /Source/, "only the handful that have one");
-      return { records: [{ id: "recSUP", fields: { Source: "EU Supplier" } }] };
+      assert.deepEqual(options.fields, ["Discord", "Source"], "the name he is known by, and whether he is slow");
+      return { records: [{ id: "recSUP", fields: { Source: "EU Supplier", Discord: "wizmoneybankin" } }] };
     }
   };
 
@@ -470,20 +470,20 @@ const { readyIn } = await import("../admin/wtbMatch.js");
 
 test("what decides the wait is where the pair is, not who owns it", () => {
   // On our own shelf, whoever it belongs to.
-  assert.equal(readyIn({ source: "Warehouse" }), "Here");
-  assert.equal(readyIn({ source: "Partner", seller_source: "Asia" }), "Here");
+  assert.equal(readyIn({ source: "Warehouse" }), "within 48 hours");
+  assert.equal(readyIn({ source: "Partner", seller_source: "Asia" }), "within 48 hours");
 
   // A Marketplace pair only shows as stock if it came back to us.
-  assert.equal(readyIn({ source: "Consignment", location: "Our warehouse", seller_source: "Marketplace" }), "Here");
+  assert.equal(readyIn({ source: "Consignment", location: "Our warehouse", seller_source: "Marketplace" }), "within 48 hours");
 
   // With the consignor, so it has to travel.
-  assert.equal(readyIn({ source: "Consignment", location: "With the consignor" }), "24-72 hours");
+  assert.equal(readyIn({ source: "Consignment", location: "With the consignor" }), "within 48 hours");
 
   // Asia says where he buys, not how fast he ships.
-  assert.equal(readyIn({ source: "Consignment", location: "With the consignor", seller_source: "Asia" }), "24-72 hours");
+  assert.equal(readyIn({ source: "Consignment", location: "With the consignor", seller_source: "Asia" }), "within 48 hours");
 
   // The one that really is slower, and the one that holds most of the stock.
-  assert.equal(readyIn({ source: "Consignment", location: "With the consignor", seller_source: "EU Supplier" }), "3-5 working days");
+  assert.equal(readyIn({ source: "Consignment", location: "With the consignor", seller_source: "EU Supplier" }), "2-5 business days");
 });
 
 test("the wait reaches the screen on the option itself", async () => {
@@ -495,14 +495,31 @@ test("the wait reaches the screen on the option itself", async () => {
         { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
       ]
     }),
-    airtable: { select: async () => ({ records: [{ id: "recSLOW", fields: { Source: "EU Supplier" } }] }) }
+    airtable: { select: async () => ({ records: [{ id: "recSLOW", fields: { Source: "EU Supplier", Discord: "wizmoneybankin" } }] }) }
   });
 
   const out = await store.search("X1,42");
 
   assert.deepEqual(
     out.rows[0].options.map((option) => [option.source, option.ready_in]),
-    [["Consignment", "3-5 working days"], ["Consignment", "24-72 hours"], ["Warehouse", "Here"]],
+    [["Consignment", "2-5 business days"], ["Consignment", "within 48 hours"], ["Warehouse", "within 48 hours"]],
     "cheapest first, and the cheapest is the one that takes longest"
   );
+});
+
+test("the seller is named the way he is known in Discord", async () => {
+  const store = createWtbMatchStore({
+    ...stores({
+      consignment: [
+        { id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recA" },
+        { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNONE" }
+      ]
+    }),
+    airtable: { select: async () => ({ records: [{ id: "recA", fields: { Discord: "wizmoneybankin" } }] }) }
+  });
+
+  const [cheap, other] = (await store.search("X1,42")).rows[0].options;
+
+  assert.equal(cheap.seller_name, "wizmoneybankin");
+  assert.equal(other.seller_name, "SE-00035", "a seller with no Discord still has to show");
 });

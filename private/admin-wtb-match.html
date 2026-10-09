@@ -213,6 +213,7 @@
     .sub { font-size: 15px; margin: 22px 0 4px; }
     .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
     .input.slim { padding: 4px 8px; }
+    .offer-price { width: 76px; }
     .btn.slim { padding: 4px 9px; }
     .warn-box { background: var(--wait-bg); color: var(--wait-text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 14px; }
     .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
@@ -331,7 +332,7 @@
                 <th class="money">Qty</th>
                 <th class="money">Cost</th>
                 <th>VAT</th>
-                <th>Where &amp; when</th>
+                <th>ETA</th>
                 <th class="money">Offer</th>
                 <th>VAT out</th>
               </tr>
@@ -426,11 +427,11 @@
             <td>${i === 0 ? esc(row.size) : ""}</td>
             <td>${esc(option.product_name)}</td>
             <td><span class="pill">${esc(option.source)}</span></td>
-            <td>${esc(option.seller) || "—"}</td>
+            <td>${esc(option.seller_name || option.seller) || "—"}</td>
             <td class="money">${option.quantity}</td>
             <td class="money" title="${esc(option.cost_means)}">${money(option.cost)}</td>
             <td>${esc(option.vat_type) || "—"}</td>
-            <td class="muted">${esc(option.location)}<div class="row-source">${esc(option.ready_in || "")}</div></td>
+            <td class="muted">${esc(option.ready_in || "")}</td>
             <td class="money">${i === 0 ? `<input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="price" aria-label="Offer price">` : ""}</td>
             <td>${i === 0 ? `<select class="input slim" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select>` : ""}</td>
           </tr>
