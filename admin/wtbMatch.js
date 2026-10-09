@@ -107,7 +107,15 @@ export function parseRequest(input) {
   const unreadable = [];
 
   for (const raw of lines) {
-    const line = text(raw);
+    /*
+      Discord's mark-up comes along with the paste and sticks to the words it
+      decorates: a line struck through arrives as "~1144032-SAN ... 41~", and
+      both the article and the size are unreadable with a tilde welded on.
+      None of these characters ever appear in a SKU or a size, so they go
+      before anything is read. The underscore stays - that one can be part of
+      an article number.
+    */
+    const line = text(raw).replace(/[~*`]/g, " ").replace(/\s+/g, " ").trim();
     if (!line) continue;
 
     // The csv shape first: two fields and the second one is a size.

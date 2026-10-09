@@ -170,7 +170,15 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
   async function everything() {
     const rows = [];
 
-    for (let from = 0; from < 20_000; from += 1000) {
+    /*
+      FIXED - this stopped at 20.000 and there are 21.283 pairs with stock on
+      them, so the last 1.300 were in no list and in no search. It only shows
+      as a shelf that is quietly a bit short, which is the worst way for it to
+      show: WTB Match reported "not on any shelf" for pairs we hold. The loop
+      leaves as soon as a page comes back short, so the ceiling only costs
+      anything on the day it is hit.
+    */
+    for (let from = 0; from < 60_000; from += 1000) {
       const page = await db.get(
         `consignment_inventory?select=${COLUMNS}&quantity=gt.0&selling_price_suggested=gt.0` +
         `&order=created_at.desc&limit=1000&offset=${from}`

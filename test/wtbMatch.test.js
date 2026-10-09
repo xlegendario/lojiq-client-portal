@@ -316,3 +316,26 @@ test("a woman's shoe keeps its own bracket out of it", () => {
 
   assert.deepEqual(wanted, [{ sku: "HQ4309-003", size: "38", line: "WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU" }]);
 });
+
+test("Discord's own mark-up is not part of the article", () => {
+  const { wanted, unreadable } = parseRequest([
+    "~1144032-SAN - UGG Lowmel Sand (Women's) 41~",
+    "**HQ2037-002** - Nike Air Force 1 Low Un-Tiffany 43",
+    "`JQ4891` - adidas Campus 00s Mata 43 1/3"
+  ].join("\n"));
+
+  assert.deepEqual(unreadable, [], "a struck-through line is still a request");
+  assert.deepEqual(wanted.map((row) => `${row.sku} ${row.size}`), [
+    "1144032-SAN 41",
+    "HQ2037-002 43",
+    "JQ4891 43 1/3"
+  ]);
+});
+
+test("a line with no article at all is still handed back", () => {
+  // A name and a size, which is nothing to match on.
+  const { wanted, unreadable } = parseRequest("Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L\nWTB");
+
+  assert.deepEqual(wanted, []);
+  assert.equal(unreadable.length, 2);
+});
