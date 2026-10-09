@@ -16,13 +16,14 @@ import fs from "fs";
 
 import { matchStock, offerText, parseRequest, readyIn, shelf } from "./wtbMatch.js";
 import { csv } from "./xlsxWriter.js";
+import { createWtbPhoto } from "./wtbPhoto.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
 /*
  * deps: the three stock stores, as adminRouter already builds them.
  */
-export function createWtbMatchStore({ inventory, consignmentStock, partnerStock, airtable = null, cacheMs = 300_000 }) {
+export function createWtbMatchStore({ inventory, consignmentStock, partnerStock, airtable = null, cacheMs = 300_000, photo = null }) {
   /*
    * What kind of seller a pair is coming from.
    *
@@ -183,7 +184,7 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
   }
 
 
-  return { search, offer, exportFile };
+  return { search, offer, exportFile, photo };
 }
 
 export function mountWtbMatch(router, { store, pageFile }) {
@@ -203,6 +204,29 @@ export function mountWtbMatch(router, { store, pageFile }) {
     } catch (err) {
       console.error("[admin wtb match]", err.message);
       res.status(500).json({ error: `Matching failed: ${err.message}` });
+    }
+  });
+
+  /*
+   * A screenshot, read back as the lines a person would have pasted.
+   *
+   * It answers with text and not with matches on purpose: the reading
+   * goes into the same box and through the same parser as everything
+   * else, so a misread digit is visible in the correction table before
+   * anyone offers on it.
+   */
+  router.post("/api/admin/wtb-match/photo", express.json({ limit: "12mb" }), async (req, res) => {
+    try {
+      if (!store.photo?.configured) {
+        return res.status(503).json({ error: "Reading a picture is not switched on here." });
+      }
+
+      res.json({ text: await store.photo.read(req.body?.image) });
+    } catch (err) {
+      const status = Number(err?.statusCode) || 500;
+
+      if (status >= 500) console.error("[admin wtb match photo]", err.message);
+      res.status(status).json({ error: err.message });
     }
   });
 

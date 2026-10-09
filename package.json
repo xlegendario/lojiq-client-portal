@@ -9,6 +9,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "@sendgrid/mail": "^8.1.4",
     "airtable": "^0.12.2",
     "compression": "^1.7.4",

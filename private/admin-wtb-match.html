@@ -214,6 +214,8 @@
     .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
     .input.slim { padding: 4px 8px; }
     .offer-price { width: 76px; }
+    .markup { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 4px; }
+    .markup .input { width: 64px; }
     .btn.slim { padding: 4px 9px; }
     .warn-box { background: var(--wait-bg); color: var(--wait-text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 14px; }
     .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
@@ -286,6 +288,12 @@
           <button class="btn ghost" id="clear" type="button">Clear</button>
           <label class="btn ghost file-btn" for="file">Upload a file
             <input id="file" type="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+          </label>
+          <label class="btn ghost file-btn" for="photo">Read a screenshot
+            <input id="photo" type="file" accept="image/*" hidden>
+          </label>
+          <label class="markup">+ €
+            <input class="input slim" id="markup" inputmode="decimal" value="20" aria-label="What to put on top of the cost">
           </label>
           <span class="count" id="status"></span>
         </div>
@@ -396,7 +404,19 @@
       if (out.missing) state.missing = out.missing;
       $("results").hidden = !state.rows.length;
 
+      const markup = Number(String($("markup").value).replace(",", ".")) || 0;
+
       for (const row of state.rows) {
+        /*
+          Filled in at what the cheapest shelf costs plus the markup, so the
+          usual offer is already there and only an unusual one is typed. A
+          price he typed himself is never written over.
+        */
+        if (!row.offer_touched) {
+          const cheapest = Number(row.options[0]?.cost);
+          row.offer_price = Number.isFinite(cheapest) ? String(Math.round((cheapest + markup) * 100) / 100) : "";
+        }
+
         if (row.offer_vat === undefined) {
           const first = row.options.find((option) => VAT_TYPES.includes(option.vat_type));
           row.offer_vat = first ? first.vat_type : "VAT0";
@@ -457,7 +477,10 @@
       const row = state.rows.find((one) => one.sku === sku && one.size === size);
       if (!row) return;
 
-      if (field.dataset.field === "price") row.offer_price = field.value.trim();
+      if (field.dataset.field === "price") {
+        row.offer_price = field.value.trim();
+        row.offer_touched = true;
+      }
       else row.offer_vat = field.value;
     });
 
@@ -575,7 +598,47 @@
       }
     });
 
+    $("photo").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      $("error").textContent = "";
+      $("status").textContent = "Reading the picture…";
+
+      try {
+        const image = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error(`${file.name} could not be opened`));
+          reader.readAsDataURL(file);
+        });
+
+        const { text } = await api("/api/admin/wtb-match/photo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image })
+        });
+
+        /*
+          Into the paste box and no further. What was read is shown in the
+          correction table like any other paste, so a misread digit is seen
+          and fixed before an offer is built on it.
+        */
+        $("paste").value = text;
+        await run();
+      } catch (err) {
+        $("error").textContent = err.message;
+        $("status").textContent = "";
+      } finally {
+        event.target.value = "";
+      }
+    });
+
     $("go").addEventListener("click", run);
+
+    $("markup").addEventListener("input", () => {
+      if (state.rows.length) drawResults({ rows: state.rows });
+    });
 
     $("clear").addEventListener("click", () => {
       $("paste").value = "";

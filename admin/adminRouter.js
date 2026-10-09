@@ -60,6 +60,7 @@ import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createConsignmentStockStore, mountConsignmentStock } from "./adminConsignmentStock.js";
 import { createWtbMatchStore, mountWtbMatch } from "./adminWtbMatch.js";
+import { createWtbPhoto } from "./wtbPhoto.js";
 import { mountStockExport } from "./stockExport.js";
 import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
 import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
@@ -557,7 +558,18 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
    * no calls of its own.
    */
   mountWtbMatch(router, {
-    store: createWtbMatchStore({ inventory, consignmentStock, partnerStock, airtable }),
+    store: createWtbMatchStore({
+      inventory,
+      consignmentStock,
+      partnerStock,
+      airtable,
+      // Off until ANTHROPIC_API_KEY is on the service; everything else works
+      // exactly as it did without it.
+      photo: createWtbPhoto({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        model: process.env.WTB_PHOTO_MODEL || undefined
+      })
+    }),
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-wtb-match.html") : ""
   });
 
