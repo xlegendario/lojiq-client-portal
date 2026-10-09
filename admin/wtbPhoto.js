@@ -26,6 +26,11 @@ export const PHOTO_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"
 // fraction of that, and a bigger one is a mistake worth naming.
 export const PHOTO_LIMIT = 5 * 1024 * 1024;
 
+// A tall screenshot comes in as bands rather than shrunk to fit (the cutting
+// is in private/admin-wtb-match.html). Eight of them is already a page and a
+// half of grid; past that it is likelier a mistake than a want-to-buy.
+export const MOST_BANDS = 8;
+
 /*
  * The picture, out of what the browser sent.
  *
@@ -54,23 +59,41 @@ export function readDataUrl(dataUrl) {
   return { media, data };
 }
 
-const PROMPT = [
-  "This image shows a want-to-buy list for sneakers and clothing.",
+// A screenshot taller than a reader takes in one go arrives cut into bands,
+// and then it has to be said that they are one list and not several.
+const BANDS = [
+  "These pictures are one screenshot, cut into overlapping horizontal bands.",
+  "Read them as one list, top to bottom. An item on a seam shows up in two",
+  "bands; write it once.",
+  ""
+];
+
+const LIST = [
+  "This is a want-to-buy. It is either a list of lines, or a grid of product",
+  "cards - and on a card the name is on top, the article number is the small",
+  "faint code under the name, and the sizes are at the foot of the card.",
   "",
-  "Write out every item you can read, one line each, as:",
+  "Write out every item, one line each, as:",
   "",
   "  <article number>,<size>",
   "",
-  "The article number is the manufacturer's code - DM7866-202, U9060BPM, JQ4891,",
-  "675033. It is not the product name and not a year in brackets.",
+  "The article number is the manufacturer's code - DM7866-202, U9060BPM,",
+  "JQ4891, 675033, H03474. It is not the product name, and not a year in",
+  "brackets.",
   "",
   "Rules:",
-  "- One line per size. An item asking for three sizes becomes three lines.",
-  "- Copy the size exactly as written: 42, 42.5, 38 2/3, L.",
-  "- An item with no article number you can read: skip it entirely.",
-  "- A line struck through is still an item; include it.",
+  "- Every item in the picture, without exception. A grid of twenty-four",
+  "  cards is twenty-four items, not the handful that read most easily.",
+  "- One line per size. A card with three sizes under it becomes three lines.",
+  "- Copy the size exactly as written: 42, 42.5, 38 2/3, 38-39, L.",
+  "- \"38x2\" means that size twice; write the size once.",
+  "- An article number you cannot read with confidence: skip that item,",
+  "  rather than guess at a character.",
+  "- An item struck through is still an item; include it.",
   "- Nothing else. No heading, no numbering, no commentary, no code fences."
-].join("\n");
+];
+
+const promptFor = (bands) => (bands > 1 ? [...BANDS, ...LIST] : LIST).join("\n");
 
 /*
  * deps:
@@ -103,11 +126,15 @@ export function createWtbPhoto({
   /*
    * The lines in a picture, as text.
    *
+   * Takes the bands the browser cut the screenshot into - one picture is one
+   * band - and sends them in order as a single question, because a card on a
+   * seam is only whole if both halves are in front of the same reader.
+   *
    * Hands back exactly what a person would have pasted, so the caller can
    * put it through the ordinary parser rather than trusting a second reading
    * of its own.
    */
-  async function read(dataUrl) {
+  async function read(pictures) {
     if (!configured) {
       throw Object.assign(
         new Error("Reading a picture needs ANTHROPIC_API_KEY on this service."),
@@ -115,20 +142,37 @@ export function createWtbPhoto({
       );
     }
 
-    const picture = readDataUrl(dataUrl);
+    const bands = (Array.isArray(pictures) ? pictures : [pictures]).filter((band) => text(band));
 
-    if (picture.error) throw Object.assign(new Error(picture.error), { statusCode: 400 });
+    if (!bands.length) throw Object.assign(new Error("That is not an image."), { statusCode: 400 });
+
+    if (bands.length > MOST_BANDS) {
+      throw Object.assign(
+        new Error(`That picture is too tall to read in one go (${bands.length} parts).`),
+        { statusCode: 400 }
+      );
+    }
+
+    const parts = bands.map(readDataUrl);
+    const bad = parts.find((part) => part.error);
+
+    if (bad) throw Object.assign(new Error(bad.error), { statusCode: 400 });
 
     const sdk = await anthropic();
 
     const response = await sdk.messages.create({
       model,
-      max_tokens: 4000,
+      // A grid of two dozen cards with several sizes each is a long answer,
+      // and a reading cut off halfway is worse than no reading.
+      max_tokens: 8000,
       messages: [{
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: picture.media, data: picture.data } },
-          { type: "text", text: PROMPT }
+          ...parts.map((part) => ({
+            type: "image",
+            source: { type: "base64", media_type: part.media, data: part.data }
+          })),
+          { type: "text", text: promptFor(bands.length) }
         ]
       }]
     });

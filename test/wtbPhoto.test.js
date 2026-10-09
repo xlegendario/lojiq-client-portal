@@ -80,3 +80,45 @@ test("the SDK is only loaded when a picture is really read", async () => {
   assert.equal(await photo.read(tiny()), "A1234,42");
   assert.equal(loaded, 1);
 });
+
+test("a tall screenshot goes up as bands, as one question", async () => {
+  const client = reading("DM7866-202,42");
+  const photo = createWtbPhoto({ client });
+
+  await photo.read([tiny("image/png"), tiny("image/jpeg"), tiny("image/png")]);
+
+  const content = reading.asked.messages[0].content;
+
+  assert.equal(content.filter((block) => block.type === "image").length, 3);
+  assert.equal(content[1].source.media_type, "image/jpeg");
+
+  // One message, so a card on a seam has both halves in front of one reader.
+  assert.equal(reading.asked.messages.length, 1);
+
+  // And the instruction has to say they are one list, not three pictures.
+  assert.match(content.at(-1).text, /one screenshot, cut into overlapping/);
+  assert.match(content.at(-1).text, /write it once/);
+});
+
+test("one band is not described as a cut-up one", async () => {
+  const photo = createWtbPhoto({ client: reading("DM7866-202,42") });
+
+  await photo.read([tiny()]);
+
+  assert.doesNotMatch(reading.asked.messages[0].content.at(-1).text, /cut into overlapping/);
+  assert.match(reading.asked.messages[0].content.at(-1).text, /want-to-buy/);
+});
+
+test("a bad band stops the lot, and nothing at all is not a reading", async () => {
+  const photo = createWtbPhoto({ client: reading("X,42") });
+
+  await assert.rejects(() => photo.read([tiny(), "hello"]), /not an image/);
+  await assert.rejects(() => photo.read([]), /not an image/);
+  await assert.rejects(() => photo.read(["", "  "]), /not an image/);
+
+  // Taller than this is likelier a mistake than a want-to-buy.
+  await assert.rejects(
+    () => photo.read(Array.from({ length: 9 }, () => tiny())),
+    /too tall to read/
+  );
+});

@@ -618,37 +618,63 @@
       before anything is looked up.
     */
     /*
-      A screenshot, cut down before it is sent.
+      A screenshot, cut into strips rather than shrunk.
 
-      A full screen is two to six megabytes, over the five a picture may be,
-      and it buys nothing: the model scales anything bigger than about 1568
-      pixels back down itself before reading it. So the shrinking happens
-      here, where it also saves the upload.
+      A picture is read best up to about 1568 pixels on its longest edge, and
+      a tall screenshot used to be scaled down to fit that whole. On a grid of
+      product cards that is fatal: the article number is a six-pixel grey code
+      under the name, and taking another fifth off it is the difference
+      between reading twenty-four of them and reading four.
+
+      So a tall one is cut into bands instead, each inside the limit on its
+      own and therefore at the resolution it was taken at. The bands overlap,
+      because a card sitting on the seam would otherwise be cut in half, and
+      the duplicates that creates cost nothing - the parser already treats the
+      same pair asked for twice as one question.
     */
     const LONGEST_EDGE = 1568;
+    const OVERLAP = 140;
+    const MOST_BANDS = 8;
 
-    function shrink(file) {
+    function pictureBands(file) {
       return new Promise((resolve, reject) => {
         const image = new Image();
 
         image.onerror = () => reject(new Error(`${file.name || "That picture"} could not be opened`));
 
         image.onload = () => {
-          const scale = Math.min(1, LONGEST_EDGE / Math.max(image.width, image.height));
-          const canvas = document.createElement("canvas");
-
-          canvas.width = Math.round(image.width * scale);
-          canvas.height = Math.round(image.height * scale);
-          canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+          // Only the width can force a scale now; the height is handled by
+          // cutting rather than shrinking.
+          const scale = Math.min(1, LONGEST_EDGE / image.width);
+          const width = Math.round(image.width * scale);
+          const height = Math.round(image.height * scale);
 
           URL.revokeObjectURL(image.src);
 
-          // PNG, because the text in a screenshot is what is being read and
-          // JPEG smears it. Only a picture still too big after shrinking
-          // falls back, and then a readable JPEG beats no answer.
-          const png = canvas.toDataURL("image/png");
+          const step = Math.max(1, LONGEST_EDGE - OVERLAP);
+          const bands = [];
 
-          resolve(png.length > 6_000_000 ? canvas.toDataURL("image/jpeg", 0.92) : png);
+          for (let top = 0; top < height && bands.length < MOST_BANDS; top += step) {
+            const tall = Math.min(LONGEST_EDGE, height - top);
+            const canvas = document.createElement("canvas");
+
+            canvas.width = width;
+            canvas.height = tall;
+
+            canvas.getContext("2d").drawImage(
+              image,
+              0, top / scale, image.width, tall / scale,
+              0, 0, width, tall
+            );
+
+            // PNG, because the text in a screenshot is the thing being read
+            // and JPEG smears it at exactly the size that matters here.
+            bands.push(canvas.toDataURL("image/png"));
+
+            if (top + tall >= height) break;
+          }
+
+          resolve(bands);
         };
 
         image.src = URL.createObjectURL(file);
@@ -660,12 +686,12 @@
       $("status").textContent = "Reading the picture…";
 
       try {
-        const image = await shrink(file);
+        const images = await pictureBands(file);
 
         const { text } = await api("/api/admin/wtb-match/photo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image })
+          body: JSON.stringify({ images })
         });
 
         $("paste").value = text;

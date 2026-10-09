@@ -214,14 +214,19 @@ export function mountWtbMatch(router, { store, pageFile }) {
    * goes into the same box and through the same parser as everything
    * else, so a misread digit is visible in the correction table before
    * anyone offers on it.
+   *
+   * The body is generous because a tall screenshot arrives as several
+   * bands at the resolution it was taken at, rather than as one picture
+   * shrunk until the article numbers stop being legible. Each band is
+   * held to 5MB in admin/wtbPhoto.js, and there are at most eight.
    */
-  router.post("/api/admin/wtb-match/photo", express.json({ limit: "12mb" }), async (req, res) => {
+  router.post("/api/admin/wtb-match/photo", express.json({ limit: "32mb" }), async (req, res) => {
     try {
       if (!store.photo?.configured) {
         return res.status(503).json({ error: "Reading a picture is not switched on here." });
       }
 
-      res.json({ text: await store.photo.read(req.body?.image) });
+      res.json({ text: await store.photo.read(req.body?.images || req.body?.image) });
     } catch (err) {
       const status = Number(err?.statusCode) || 500;
 
