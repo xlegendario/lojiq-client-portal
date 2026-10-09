@@ -215,6 +215,7 @@
     .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
     .empty-row td { color: var(--muted); }
     .field-error { color: var(--red); min-height: 18px; margin: 8px 0 0; font-size: 13px; }
+    .file-btn { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -278,6 +279,9 @@
         <div class="row">
           <button class="btn primary" id="go" type="button">Find stock</button>
           <button class="btn ghost" id="clear" type="button">Clear</button>
+          <label class="btn ghost file-btn" for="file">Upload a file
+            <input id="file" type="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+          </label>
           <span class="count" id="status"></span>
         </div>
         <p class="field-error" id="error"></p>
@@ -441,6 +445,26 @@
       $("paste").value = state.wanted.map((row) => `${row.sku},${row.size}`).join("\n");
       await run();
     }
+
+    /*
+      A file is only another way of filling the same box. Its text lands in
+      the paste area and goes through the same reading, so there is one road
+      in and nothing to keep in step.
+    */
+    $("file").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      try {
+        $("paste").value = await file.text();
+        await run();
+      } catch (err) {
+        $("error").textContent = `${file.name} could not be read: ${err.message}`;
+      } finally {
+        // Cleared, so picking the same file again still counts as a change.
+        event.target.value = "";
+      }
+    });
 
     $("go").addEventListener("click", run);
 
