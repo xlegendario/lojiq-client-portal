@@ -154,7 +154,7 @@ test("only stock that is really free is an answer", () => {
 });
 
 test("a consignor's asking price is the cost, not his payout", () => {
-  const [row] = shelf({ consignment: [{ id: "c1", sku: "X1234", size: "42", quantity: 1, ask: 330, payout: 300, partner: false }] });
+  const [row] = shelf({ consignment: [{ id: "c1", sku: "XA1234", size: "42", quantity: 1, ask: 330, payout: 300, partner: false }] });
 
   assert.equal(row.cost, 330);
   assert.equal(row.location, "With the consignor", "it still has to come to us");
@@ -337,7 +337,9 @@ test("a line with no article at all is still handed back", () => {
   const { wanted, unreadable } = parseRequest("Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L\nWTB");
 
   assert.deepEqual(wanted, []);
-  assert.equal(unreadable.length, 2);
+  // "WTB" on its own is a heading, not a request nobody could read. Saying
+  // so about it was noise, and Dario said as much on the first real paste.
+  assert.deepEqual(unreadable, ["Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L"]);
 });
 
 /* ---------------- the offer that goes back to the buyer ---------------- */
@@ -373,15 +375,15 @@ test("a csv line has no name in it, so the stock's own name is used", () => {
 });
 
 test("a pair with no price on it is not an offer", () => {
-  assert.equal(offerLine({ sku: "X1", size: "42", line: "X1 - shoe 42", vat: "VAT0" }), "");
-  assert.equal(offerLine({ sku: "X1", size: "42", line: "X1 - shoe 42", price: "", vat: "VAT0" }), "");
-  assert.equal(offerLine({ sku: "X1", size: "42", line: "X1 - shoe 42", price: "nonsense" }), "");
+  assert.equal(offerLine({ sku: "XA1234", size: "42", line: "XA1234 - shoe 42", vat: "VAT0" }), "");
+  assert.equal(offerLine({ sku: "XA1234", size: "42", line: "XA1234 - shoe 42", price: "", vat: "VAT0" }), "");
+  assert.equal(offerLine({ sku: "XA1234", size: "42", line: "XA1234 - shoe 42", price: "nonsense" }), "");
 });
 
 test("the block that is pasted holds only what was priced, in the order asked", () => {
   const text = offerText([
     { sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: 130, vat: "VAT0" },
-    { sku: "AA1", size: "42", line: "AA1 - something 42" },
+    { sku: "AA1234", size: "42", line: "AA1234 - something 42" },
     { sku: "DD9335-641", size: "38", line: "DD9335-641 - Jordan 1 38", price: 110, vat: "Margin" }
   ]);
 
@@ -409,7 +411,7 @@ test("the offer route writes the message, so the screen never has to", async () 
       body: {
         rows: [
           { sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: "130", vat: "VAT0" },
-          { sku: "AA1", size: "42", line: "AA1 - no price here 42" }
+          { sku: "AA1234", size: "42", line: "AA1234 - no price here 42" }
         ]
       }
     },
@@ -434,31 +436,31 @@ test("a seller who cannot ship today says so on the pair", async () => {
   const store = createWtbMatchStore({
     ...stores({
       consignment: [
-        { id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSUP" },
-        { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
+        { id: "c1", sku: "XA1234", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSUP" },
+        { id: "c2", sku: "XA1234", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
       ]
     }),
     airtable
   });
 
-  const out = await store.search("X1,42");
+  const out = await store.search("XA1234,42");
   const [supplier, ordinary] = out.rows[0].options;
 
   assert.equal(supplier.seller_source, "EU Supplier");
   assert.equal(ordinary.seller_source, "", "an ordinary consignor has nothing to say here");
 
   // Eleven of nine hundred sellers carry one, so it is read once and held.
-  await store.search("X1,42");
+  await store.search("XA1234,42");
   assert.equal(asked, 1);
 });
 
 test("a seller lookup that fails does not hold up the answer", async () => {
   const store = createWtbMatchStore({
-    ...stores({ consignment: [{ id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSUP" }] }),
+    ...stores({ consignment: [{ id: "c1", sku: "XA1234", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSUP" }] }),
     airtable: { select: async () => { throw new Error("Airtable timed out"); } }
   });
 
-  const out = await store.search("X1,42");
+  const out = await store.search("XA1234,42");
 
   assert.equal(out.rows[0].options.length, 1, "the stock is still the stock");
   assert.equal(out.rows[0].options[0].seller_source, "");
@@ -489,16 +491,16 @@ test("what decides the wait is where the pair is, not who owns it", () => {
 test("the wait reaches the screen on the option itself", async () => {
   const store = createWtbMatchStore({
     ...stores({
-      warehouse: [{ id: "u1", sku: "X1", size: "42", availability: "Available", cost: 300 }],
+      warehouse: [{ id: "u1", sku: "XA1234", size: "42", availability: "Available", cost: 300 }],
       consignment: [
-        { id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSLOW" },
-        { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
+        { id: "c1", sku: "XA1234", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSLOW" },
+        { id: "c2", sku: "XA1234", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
       ]
     }),
     airtable: { select: async () => ({ records: [{ id: "recSLOW", fields: { Source: "EU Supplier", Discord: "wizmoneybankin" } }] }) }
   });
 
-  const out = await store.search("X1,42");
+  const out = await store.search("XA1234,42");
 
   assert.deepEqual(
     out.rows[0].options.map((option) => [option.source, option.ready_in]),
@@ -511,15 +513,81 @@ test("the seller is named the way he is known in Discord", async () => {
   const store = createWtbMatchStore({
     ...stores({
       consignment: [
-        { id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recA" },
-        { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNONE" }
+        { id: "c1", sku: "XA1234", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recA" },
+        { id: "c2", sku: "XA1234", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNONE" }
       ]
     }),
     airtable: { select: async () => ({ records: [{ id: "recA", fields: { Discord: "wizmoneybankin" } }] }) }
   });
 
-  const [cheap, other] = (await store.search("X1,42")).rows[0].options;
+  const [cheap, other] = (await store.search("XA1234,42")).rows[0].options;
 
   assert.equal(cheap.seller_name, "wizmoneybankin");
   assert.equal(other.seller_name, "SE-00035", "a seller with no Discord still has to show");
+});
+
+/* ---------------- the shapes a WTB really arrives in ---------------- */
+
+const asked = (input) => parseRequest(input).wanted.map((row) => `${row.sku} ${row.size}`);
+
+test("the article can sit at the end of the name, with no brackets", () => {
+  assert.deepEqual(asked("Adidas Adilette 22 Slides Grey Five GX6949 46"), ["GX6949 46"]);
+  assert.deepEqual(asked("Adidas Handball Spezial White Black Gum IE3403 37 1/3"), ["IE3403 37 1/3"]);
+  assert.deepEqual(asked("Adidas Samba OG Cow Print (Women's) JR1256 38 2/3"), ["JR1256 38 2/3"]);
+});
+
+test("a comma between sizes is not a csv", () => {
+  // This read as "sku,size" and made the whole name into one article.
+  assert.deepEqual(asked("Adidas XLG Runner Deluxe Wonder Beige JR9632 36, 42"), ["JR9632 36", "JR9632 42"]);
+  assert.deepEqual(asked("Adidas Vento XLG Deluxe White Red JS1590 36 2/3, 37 1/3"), ["JS1590 36 2/3", "JS1590 37 1/3"]);
+
+  // A real csv still is one.
+  assert.deepEqual(asked("HQ9286,44"), ["HQ9286 44"]);
+});
+
+test("a year in brackets is a year", () => {
+  assert.deepEqual(asked("Air Jordan 4 Fear (2024) FQ8138-002 / FQ8213-002 43"), ["FQ8138-002 43", "FQ8213-002 43"]);
+  assert.deepEqual(asked("Air Jordan 4 Black Cat (2025) FV5029-010/IB4171-010 41, 44"), [
+    "FV5029-010 41", "IB4171-010 41", "FV5029-010 44", "IB4171-010 44"
+  ]);
+});
+
+test("one pair can be sold under two numbers, and both are looked for", () => {
+  assert.deepEqual(asked("Air Jordan 4 SE Wet Cement Paris Olympics FQ7928-001 / HM8965-001 44"), [
+    "FQ7928-001 44", "HM8965-001 44"
+  ]);
+  assert.deepEqual(asked("Air Jordan 11 Gamma Blue 378038-047 / CT8012-047 42.5"), [
+    "378038-047 42.5", "CT8012-047 42.5"
+  ]);
+});
+
+test("a request written over several lines is one request", () => {
+  const { wanted, unreadable } = parseRequest([
+    "wtb ",
+    "Air Jordan 4 Retro OG SP A Ma Maniére While You Were Sleeping (W) ",
+    "FZ4810-200",
+    "47"
+  ].join("\n"));
+
+  assert.deepEqual(wanted.map((row) => `${row.sku} ${row.size}`), ["FZ4810-200 47"]);
+  assert.deepEqual(unreadable, [], "the name and the wtb are not failures");
+  assert.match(wanted[0].line, /While You Were Sleeping/, "the name is kept for the offer");
+});
+
+test("every size on a long line is taken, and the same one only once", () => {
+  const line = "Adidas XLG Runner Deluxe 2.0 Off White Aurora Coffee KZ7202 36 2/3, 36 2/3, 36 2/3, 37 1/3, 38, 38 2/3, 38 2/3, 39 1/3, 39 1/3, 39 1/3, 39 1/3, 39 1/3, 39 1/3, 40, 40 2/3";
+
+  assert.deepEqual(asked(line), [
+    "KZ7202 36 2/3", "KZ7202 37 1/3", "KZ7202 38", "KZ7202 38 2/3", "KZ7202 39 1/3", "KZ7202 40", "KZ7202 40 2/3"
+  ]);
+});
+
+test("a line with a size but no article is still a failure worth seeing", () => {
+  const { wanted, unreadable } = parseRequest([
+    "Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L",
+    "Adidas XLG Runner Deluxe Wonder Gray - 43 1/3"
+  ].join("\n"));
+
+  assert.deepEqual(wanted, []);
+  assert.equal(unreadable.length, 2, "he wrote no article, and should be told");
 });

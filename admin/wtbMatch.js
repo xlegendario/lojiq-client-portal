@@ -67,17 +67,11 @@ export const skuKey = (value) => text(value).toUpperCase().replace(/\s+/g, "");
  * Takes what is pasted in, whatever shape it came in: the "sku,size" csv the
  * partner makes with a chatbot, or the raw line from Discord -
  *
- *   DM7866-202 - Jordan 1 Retro Low OG SP Travis Scott Velvet Brown 42 + 42.5 + 43 + 44
- *
- * A SKU is the first run of letters, digits and dashes that holds a digit and
- * is not itself a size; the sizes are every size-shaped word after it. Lines
- * that hold no SKU are handed back as they came, so the screen can say which
- * line it could not read rather than quietly dropping it.
+ * A size as a word, and nothing else.
  */
 const CLOTHING = /^(XXS|XS|S|M|L|XL|XXL|XXXL)$/i;
 const RANGE = /^\d{1,2}-\d{1,2}$/;
 const NUMBER = /^(\d{1,2})(?:[.,]\d+)?(?: \d\/\d)?$/;
-const SKU_WORD = /^[A-Z0-9]+(?:[-/][A-Z0-9]+)*$/i;
 
 /*
  * A word that is a size.
@@ -101,96 +95,158 @@ function isSize(word) {
   return whole >= 15 && whole <= 60;
 }
 
+const SKU_TOKEN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
+
+function looksLikeSku(token) {
+  const word = text(token);
+
+  if (word.length < 5 || !/\d/.test(word)) return false;
+  if (!SKU_TOKEN.test(word) || isSize(word)) return false;
+  if (/[A-Za-z]/.test(word) || word.includes("-")) return true;
+
+  /*
+    All digits and nothing else. "675033" is a real article - 5.818 pairs
+    carry one shaped like that, and the shortest article anywhere in the
+    stock is six characters - while "2024" and "2025" are the year a shoe
+    came out, written in brackets beside its name. The length is the only
+    thing that tells them apart.
+  */
+  return word.length >= 6;
+}
+
+/*
+ * The articles in one word.
+ *
+ * A pair can be sold under two numbers and a WTB writes both, either side of
+ * a slash: "FQ7928-001 / HM8965-001", or with no spaces at all. Both are
+ * looked for, because stock of either is stock of the pair he wants.
+ */
+const skusIn = (token) => text(token).split("/").map(text).filter(looksLikeSku);
+
+// Brackets hold an article as often as they hold a note: "(U9060BPM)" is one
+// and "(Women's)", "(W)" and "(2025)" are not. The brackets come off and what
+// is left is judged on its own.
+const bare = (token) => text(token).replace(/^[([{]+|[)\]}]+$/g, "");
+
+/*
+ * What a want-to-buy is asking for.
+ *
+ * Takes the paste whatever shape it came in: a "sku,size" list, a Discord
+ * line with the article in brackets, a line with the article tucked at the
+ * end of the name, or a request spread over several lines -
+ *
+ *   wtb
+ *   Air Jordan 4 Retro OG SP A Ma Maniére While You Were Sleeping (W)
+ *   FZ4810-200
+ *   47
+ *
+ * An article with no size after it waits for the sizes on the lines below,
+ * and the name above it is kept so the offer can be written in his words.
+ * A line holding neither an article nor a size is a heading or a name and is
+ * passed over in silence; a line with sizes and no article anywhere is a
+ * request we cannot answer, and he is told.
+ */
 export function parseRequest(input) {
-  const lines = text(input).split(/\r?\n/);
   const rows = [];
   const unreadable = [];
 
-  for (const raw of lines) {
+  // An article still waiting for its sizes, and the name that went with it.
+  let pending = null;
+  // A line of words waiting to turn out to be the name of an article.
+  let spare = "";
+
+  for (const raw of text(input).split(/\r?\n/)) {
     /*
       Discord's mark-up comes along with the paste and sticks to the words it
-      decorates: a line struck through arrives as "~1144032-SAN ... 41~", and
-      both the article and the size are unreadable with a tilde welded on.
-      None of these characters ever appear in a SKU or a size, so they go
-      before anything is read. The underscore stays - that one can be part of
-      an article number.
+      decorates: a line struck through arrives as "~~1144032-SAN ... 41~~".
+      None of these ever appear in an article or a size. The underscore stays,
+      because that can be part of an article number.
     */
     const line = text(raw).replace(/[~*`]/g, " ").replace(/\s+/g, " ").trim();
+
     if (!line) continue;
 
-    // The csv shape first: two fields and the second one is a size.
-    const csv = line.split(/[;,\t]/).map((part) => text(part));
+    const words = line.split(/[\s,;|]+/).map(bare).filter(Boolean);
 
-    if (csv.length === 2 && csv[0] && isSize(csv[1]) && !isSize(csv[0])) {
-      rows.push({ sku: skuKey(csv[0]), size: sizeKey(csv[1]), line });
-      continue;
-    }
+    // Where the last article sits, so the sizes behind it can be told from
+    // the numbers in front of it.
+    let last = -1;
+    const skus = [];
 
-    /*
-      Otherwise a sentence. The article is whatever is in brackets, because
-      that is how a WTB is written here -
+    words.forEach((word, at) => {
+      const found = skusIn(word);
 
-        WTB New Balance 9060 Triple Black (U9060BPM) 38 EU
+      if (!found.length) return;
 
-      and the name is full of numbers that look like one. Reading left to
-      right picked "9060" out of New Balance 9060, which is a model and not
-      an article, and threw away every line whose brackets were the only
-      thing that held a SKU. The last pair of brackets wins, so a "(Women's)"
-      earlier in the name cannot take its place.
-    */
-    const words = line.split(/[\s+,;|]+/).map((word) => text(word)).filter(Boolean);
-    let at = -1;
-    let bracketed = "";
-    let tailFrom = "";
+      skus.push(...found);
+      last = at;
+    });
 
-    for (const found of line.matchAll(/\(([A-Za-z0-9][A-Za-z0-9\-/]*)\)/g)) {
-      if (!/\d/.test(found[1]) || isSize(found[1]) || found[1].length < 4) continue;
-
-      bracketed = found[1];
-      tailFrom = line.slice(found.index + found[0].length);
-    }
-
-    if (!bracketed) {
-      at = words.findIndex(
-        (word) => /\d/.test(word) && SKU_WORD.test(word) && !isSize(word) && word.length >= 4
-      );
-
-      if (at === -1) {
-        unreadable.push(line);
-        continue;
-      }
-    }
-
-    /*
-      A size written with a space - "37 1/3" - arrives as two words, so the
-      pairs are put back together before anything is thrown away. Doing it the
-      other way round loses the "2/3", which is not a size on its own.
-    */
-    // The sizes are whatever follows the article, wherever it was found.
-    const tail = bracketed
-      ? tailFrom.split(/[\s+,;|]+/).map((word) => text(word)).filter(Boolean)
-      : words.slice(at + 1);
-    const joined = [];
+    // "37 1/3" arrives as two words and is one size.
+    const tail = skus.length ? words.slice(last + 1) : words;
+    const sizes = [];
 
     for (let i = 0; i < tail.length; i += 1) {
       if (/^\d{1,2}$/.test(tail[i]) && /^\d\/\d$/.test(tail[i + 1] || "")) {
-        joined.push(`${tail[i]} ${tail[i + 1]}`);
+        sizes.push(`${tail[i]} ${tail[i + 1]}`);
         i += 1;
         continue;
       }
 
-      if (isSize(tail[i])) joined.push(tail[i]);
+      if (isSize(tail[i])) sizes.push(tail[i]);
     }
 
-    if (!joined.length) {
+    const add = (forSkus, forSizes, from) => {
+      for (const size of forSizes) {
+        for (const sku of forSkus) rows.push({ sku: skuKey(sku), size: sizeKey(size), line: from });
+      }
+    };
+
+    if (skus.length && sizes.length) {
+      pending = null;
+      spare = "";
+      add(skus, sizes, line);
+      continue;
+    }
+
+    if (skus.length) {
+      // Its sizes are on the next line or two; the name is on the one above.
+      pending = { skus, line: [spare, line].filter(Boolean).join(" ").trim() };
+      spare = "";
+      continue;
+    }
+
+    if (sizes.length) {
+      if (pending?.skus?.length) {
+        add(pending.skus, sizes, pending.line);
+        // Answered, so it is not also reported as an article nobody sized.
+        pending = null;
+        continue;
+      }
+
+      // Sizes and no article at all: a request nobody can answer.
       unreadable.push(line);
       continue;
     }
 
-    const sku = skuKey(bracketed || words[at]);
-
-    for (const size of joined) rows.push({ sku, size: sizeKey(size), line });
+    /*
+      Neither an article nor a size: a heading, or the name belonging to
+      the article on the line below. It is kept as a name, and if no
+      article ever claims it, a line of any length is reported at the end
+      rather than dropped in silence - "wtb" and "some examples:" are not
+      requests, but a sentence nobody could read is one.
+    */
+    if (/[A-Za-z]/.test(line) && !/^wtb/i.test(line)) {
+      if (spare && spare.split(" ").length >= 4) unreadable.push(spare);
+      spare = line;
+      pending = null;
+    }
   }
+
+  if (spare && spare.split(" ").length >= 4) unreadable.push(spare);
+
+  // An article whose sizes never arrived was still a request.
+  if (pending?.skus?.length) unreadable.push(pending.line);
 
   // The same pair asked for twice is one question.
   const seen = new Set();
@@ -198,7 +254,9 @@ export function parseRequest(input) {
 
   for (const row of rows) {
     const key = `${row.sku}|${row.size}`;
+
     if (seen.has(key)) continue;
+
     seen.add(key);
     wanted.push(row);
   }
