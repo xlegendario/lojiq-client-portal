@@ -264,3 +264,55 @@ test("the screen and the route are really wired, not just mounted", async () => 
   assert.equal(answered.rows.length, 1);
   assert.equal(answered.rows[0].options[0].source, "Consignment");
 });
+
+/* ---------------- the shape a real WTB arrives in ---------------- */
+
+const REAL = [
+  "WTB New Balance 9060 Triple Black (U9060BPM) 38 EU",
+  "WTB Nike Air Max 90 Off-White Desert Ore (AA7293-200) 41 EU",
+  "WTB Air Jordan 4 Retro J Balvin Amazonas (IW2872-700) 47 EU",
+  "WTB New Balance 9060 Black Castlerock Grey (U9060BLK) 40.5 EU",
+  "WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU",
+  "WTB Air Jordan 1 Retro High OG Love Letter (DZ5485-201) 42.5 EU",
+  "WTB ike Mind 001 Slide Solar Red (Women's) (HQ4309-600) 42 EU",
+  "WTB Air Jordan 4 Retro J Balvin Amazonas (IW2872-700) 42.5 EU",
+  "WTB Air Jordan 13 Retro Gym Red Flint Grey (DJ5982-600) 41 EU",
+  "WTB Air Jordan 4 Retro TEX Denim Worn Blue (IB6716-100) 44 EU"
+].join("\n");
+
+test("the article in brackets is the article, not a number in the name", () => {
+  const { wanted, unreadable } = parseRequest(REAL);
+
+  assert.deepEqual(unreadable, [], "every line is a real request");
+
+  assert.deepEqual(wanted.map((row) => `${row.sku} ${row.size}`), [
+    "U9060BPM 38",
+    "AA7293-200 41",
+    "IW2872-700 47",
+    "U9060BLK 40.5",
+    "HQ4309-003 38",
+    "DZ5485-201 42.5",
+    "HQ4309-600 42",
+    "IW2872-700 42.5",
+    "DJ5982-600 41",
+    "IB6716-100 44"
+  ]);
+});
+
+test("the name is left alone however many numbers it holds", () => {
+  // "9060", "90", "001", "1" and "13" are all model names, not sizes or SKUs.
+  const { wanted } = parseRequest([
+    "WTB New Balance 9060 Triple Black (U9060BPM) 38 EU",
+    "WTB Nike Air Max 90 Off-White Desert Ore (AA7293-200) 41 EU",
+    "WTB Air Jordan 13 Retro Gym Red Flint Grey (DJ5982-600) 41 EU"
+  ].join("\n"));
+
+  assert.deepEqual(wanted.map((row) => row.sku), ["U9060BPM", "AA7293-200", "DJ5982-600"]);
+  assert.deepEqual(wanted.map((row) => row.size), ["38", "41", "41"]);
+});
+
+test("a woman's shoe keeps its own bracket out of it", () => {
+  const { wanted } = parseRequest("WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU");
+
+  assert.deepEqual(wanted, [{ sku: "HQ4309-003", size: "38", line: "WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU" }]);
+});

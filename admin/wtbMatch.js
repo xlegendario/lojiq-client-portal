@@ -118,15 +118,39 @@ export function parseRequest(input) {
       continue;
     }
 
-    // Otherwise a sentence: find the article, then the sizes behind it.
-    const words = line.split(/[\s+,;|]+/).map((word) => text(word)).filter(Boolean);
-    const at = words.findIndex(
-      (word) => /\d/.test(word) && SKU_WORD.test(word) && !isSize(word) && word.length >= 4
-    );
+    /*
+      Otherwise a sentence. The article is whatever is in brackets, because
+      that is how a WTB is written here -
 
-    if (at === -1) {
-      unreadable.push(line);
-      continue;
+        WTB New Balance 9060 Triple Black (U9060BPM) 38 EU
+
+      and the name is full of numbers that look like one. Reading left to
+      right picked "9060" out of New Balance 9060, which is a model and not
+      an article, and threw away every line whose brackets were the only
+      thing that held a SKU. The last pair of brackets wins, so a "(Women's)"
+      earlier in the name cannot take its place.
+    */
+    const words = line.split(/[\s+,;|]+/).map((word) => text(word)).filter(Boolean);
+    let at = -1;
+    let bracketed = "";
+    let tailFrom = "";
+
+    for (const found of line.matchAll(/\(([A-Za-z0-9][A-Za-z0-9\-/]*)\)/g)) {
+      if (!/\d/.test(found[1]) || isSize(found[1]) || found[1].length < 4) continue;
+
+      bracketed = found[1];
+      tailFrom = line.slice(found.index + found[0].length);
+    }
+
+    if (!bracketed) {
+      at = words.findIndex(
+        (word) => /\d/.test(word) && SKU_WORD.test(word) && !isSize(word) && word.length >= 4
+      );
+
+      if (at === -1) {
+        unreadable.push(line);
+        continue;
+      }
     }
 
     /*
@@ -134,7 +158,10 @@ export function parseRequest(input) {
       pairs are put back together before anything is thrown away. Doing it the
       other way round loses the "2/3", which is not a size on its own.
     */
-    const tail = words.slice(at + 1);
+    // The sizes are whatever follows the article, wherever it was found.
+    const tail = bracketed
+      ? tailFrom.split(/[\s+,;|]+/).map((word) => text(word)).filter(Boolean)
+      : words.slice(at + 1);
     const joined = [];
 
     for (let i = 0; i < tail.length; i += 1) {
@@ -152,7 +179,9 @@ export function parseRequest(input) {
       continue;
     }
 
-    for (const size of joined) rows.push({ sku: skuKey(words[at]), size: sizeKey(size), line });
+    const sku = skuKey(bracketed || words[at]);
+
+    for (const size of joined) rows.push({ sku, size: sizeKey(size), line });
   }
 
   // The same pair asked for twice is one question.

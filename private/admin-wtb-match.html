@@ -204,7 +204,10 @@
   </style>
 <style>
     .lede { color: var(--muted); margin: 0 0 16px; max-width: 70ch; }
-    .panel.pad { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    /* Not .panel: that is the fixed drawer on the right in the shared
+       stylesheet, and borrowing the name pinned this box to the edge of
+       the screen with no way to close it. */
+    .paste-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
     .paste { width: 100%; min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
     .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
     .sub { font-size: 15px; margin: 22px 0 4px; }
@@ -273,7 +276,7 @@
 
       <p class="lede">Paste a want-to-buy — the line out of Discord or a <code>sku,size</code> list — and see every shelf it is on.</p>
 
-      <div class="panel pad">
+      <div class="paste-box">
         <textarea class="input paste" id="paste" rows="6" spellcheck="false"
           placeholder="DM7866-202 - Jordan 1 Retro Low OG SP Travis Scott Velvet Brown 42 + 42.5 + 43 + 44&#10;IH9246,38 2/3"></textarea>
         <div class="row">
