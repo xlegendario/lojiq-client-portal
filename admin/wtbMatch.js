@@ -410,3 +410,31 @@ export function offerLine({ sku, size, line = "", product_name = "", price, vat 
 
 // The whole offer, in the order it was asked for.
 export const offerText = (rows = []) => rows.map(offerLine).filter(Boolean).join("\n");
+
+/* ---------------- when a pair can actually leave ---------------- */
+
+/*
+ * A seller whose stock does not ship the same day.
+ *
+ * Sellers Database carries a Source on eleven of nine hundred sellers, but
+ * only one of its values says anything about time. Asia and Marketplace
+ * describe where a seller buys, not how fast he ships: an Asia consignor
+ * ships as quickly as anyone, and a Marketplace pair that shows up as stock
+ * at all is one that came back to us and is already here.
+ */
+const SLOW_SOURCES = { "EU Supplier": "3-5 working days" };
+
+/*
+ * How soon this pair could go out.
+ *
+ * What decides it is where the pair is, not who owns it. Anything on our own
+ * shelf - ours, a partner's, or a return - can leave today. A consignor's
+ * pair has to come to us first, which is a day or three unless he is one of
+ * the slow ones.
+ */
+export function readyIn(option = {}) {
+  if (text(option.source) !== "Consignment") return "Here";
+  if (text(option.location) === "Our warehouse") return "Here";
+
+  return SLOW_SOURCES[text(option.seller_source)] || "24-72 hours";
+}

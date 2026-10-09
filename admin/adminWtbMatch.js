@@ -14,7 +14,7 @@
 import express from "express";
 import fs from "fs";
 
-import { matchStock, offerText, parseRequest, shelf } from "./wtbMatch.js";
+import { matchStock, offerText, parseRequest, readyIn, shelf } from "./wtbMatch.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -82,6 +82,7 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
 
     for (const option of all) {
       option.seller_source = sources.get(option.seller_record_id) || "";
+      option.ready_in = readyIn(option);
     }
 
     const rows = matchStock(wanted, all);

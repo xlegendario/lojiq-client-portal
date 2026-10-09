@@ -463,3 +463,46 @@ test("a seller lookup that fails does not hold up the answer", async () => {
   assert.equal(out.rows[0].options.length, 1, "the stock is still the stock");
   assert.equal(out.rows[0].options[0].seller_source, "");
 });
+
+/* ---------------- when a pair can leave ---------------- */
+
+const { readyIn } = await import("../admin/wtbMatch.js");
+
+test("what decides the wait is where the pair is, not who owns it", () => {
+  // On our own shelf, whoever it belongs to.
+  assert.equal(readyIn({ source: "Warehouse" }), "Here");
+  assert.equal(readyIn({ source: "Partner", seller_source: "Asia" }), "Here");
+
+  // A Marketplace pair only shows as stock if it came back to us.
+  assert.equal(readyIn({ source: "Consignment", location: "Our warehouse", seller_source: "Marketplace" }), "Here");
+
+  // With the consignor, so it has to travel.
+  assert.equal(readyIn({ source: "Consignment", location: "With the consignor" }), "24-72 hours");
+
+  // Asia says where he buys, not how fast he ships.
+  assert.equal(readyIn({ source: "Consignment", location: "With the consignor", seller_source: "Asia" }), "24-72 hours");
+
+  // The one that really is slower, and the one that holds most of the stock.
+  assert.equal(readyIn({ source: "Consignment", location: "With the consignor", seller_source: "EU Supplier" }), "3-5 working days");
+});
+
+test("the wait reaches the screen on the option itself", async () => {
+  const store = createWtbMatchStore({
+    ...stores({
+      warehouse: [{ id: "u1", sku: "X1", size: "42", availability: "Available", cost: 300 }],
+      consignment: [
+        { id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSLOW" },
+        { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
+      ]
+    }),
+    airtable: { select: async () => ({ records: [{ id: "recSLOW", fields: { Source: "EU Supplier" } }] }) }
+  });
+
+  const out = await store.search("X1,42");
+
+  assert.deepEqual(
+    out.rows[0].options.map((option) => [option.source, option.ready_in]),
+    [["Consignment", "3-5 working days"], ["Consignment", "24-72 hours"], ["Warehouse", "Here"]],
+    "cheapest first, and the cheapest is the one that takes longest"
+  );
+});

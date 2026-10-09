@@ -331,7 +331,7 @@
                 <th class="money">Qty</th>
                 <th class="money">Cost</th>
                 <th>VAT</th>
-                <th>Where</th>
+                <th>Where &amp; when</th>
                 <th class="money">Offer</th>
                 <th>VAT out</th>
               </tr>
@@ -426,11 +426,11 @@
             <td>${i === 0 ? esc(row.size) : ""}</td>
             <td>${esc(option.product_name)}</td>
             <td><span class="pill">${esc(option.source)}</span></td>
-            <td>${esc(option.seller) || "—"}${option.seller_source ? `<div class="row-source">${esc(option.seller_source)}</div>` : ""}</td>
+            <td>${esc(option.seller) || "—"}</td>
             <td class="money">${option.quantity}</td>
             <td class="money" title="${esc(option.cost_means)}">${money(option.cost)}</td>
             <td>${esc(option.vat_type) || "—"}</td>
-            <td class="muted">${esc(option.location)}</td>
+            <td class="muted">${esc(option.location)}<div class="row-source">${esc(option.ready_in || "")}</div></td>
             <td class="money">${i === 0 ? `<input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="price" aria-label="Offer price">` : ""}</td>
             <td>${i === 0 ? `<select class="input slim" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select>` : ""}</td>
           </tr>
