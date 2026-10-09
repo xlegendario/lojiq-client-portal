@@ -246,6 +246,7 @@
         <a class="nav-item" href="/admin/external-sales?tab=shipped">Shipped</a>
         <a class="nav-item" href="/admin/external-sales?tab=all">All</a>
         <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
+        <a class="nav-item active" href="/admin/wtb-match">WTB Match</a>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
@@ -265,7 +266,7 @@
 
     <main class="content">
       <div class="heading">
-        <span class="crumb">Warehouse</span>
+        <span class="crumb">External Sales</span>
         <h1>WTB Match</h1>
       </div>
 
@@ -514,12 +515,12 @@
       marketplaces: "navMarketplaces", warehouse: "navWarehouse"
     };
 
-    let openNavSections = new Set(["warehouse"]);
+    let openNavSections = new Set(["external"]);
 
     try {
       const saved = JSON.parse(localStorage.getItem("lojiq-admin-nav") || "null");
-      if (Array.isArray(saved)) openNavSections = new Set([...saved, "warehouse"]);
-    } catch { /* the sidebar simply opens on Warehouse */ }
+      if (Array.isArray(saved)) openNavSections = new Set([...saved, "external"]);
+    } catch { /* the sidebar simply opens on External Sales */ }
 
     const saveNavSections = () => {
       try { localStorage.setItem("lojiq-admin-nav", JSON.stringify([...openNavSections])); } catch {}
@@ -532,7 +533,7 @@
 
         $(groupId).hidden = !expanded;
         header.setAttribute("aria-expanded", String(expanded));
-        header.classList.toggle("current", section === "warehouse");
+        header.classList.toggle("current", section === "external");
       }
     }
 
@@ -561,8 +562,7 @@
         `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
         `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
         `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
-        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>` +
-        `<a class="nav-item active" href="/admin/wtb-match">WTB Match</a>`;
+        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {
         const n = navCounts[el.dataset.navCount];
