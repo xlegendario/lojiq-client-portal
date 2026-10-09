@@ -191,7 +191,8 @@ export function createPartnerStockStore({ db, airtable, cacheMs = 120_000 }) {
     return { in_stock: all.filter(VIEWS.in_stock).length };
   }
 
-  return { list, count };
+  // everything: the whole shelf, for the WTB matcher (admin/wtbMatch.js).
+  return { list, count, everything };
 }
 
 export function mountPartnerStock(router, { store, pageFile }) {

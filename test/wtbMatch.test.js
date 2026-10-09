@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { matchStock, parseRequest, sizeKey, skuKey } from "../admin/wtbMatch.js";
+import { matchStock, parseRequest, shelf, sizeKey, skuKey } from "../admin/wtbMatch.js";
 
 /* ---------------- sizes ---------------- */
 
@@ -127,4 +127,140 @@ test("a Crocs range only answers a request for that Crocs", () => {
 
   assert.equal(matchStock(parseRequest("205759-610,42-43").wanted, shelf)[0].options.length, 1);
   assert.equal(matchStock(parseRequest("DM7866-202,42").wanted, shelf)[0].options.length, 0);
+});
+
+/* ---------------- the three shelves ---------------- */
+
+test("only stock that is really free is an answer", () => {
+  const all = shelf({
+    warehouse: [
+      { id: "u1", item_id: "KC-000001", sku: "DM7866-202", size: "42", availability: "Available", cost: 300, vat_type: "Margin", location: "Our warehouse" },
+      { id: "u2", item_id: "KC-000002", sku: "DM7866-202", size: "42", availability: "Reserved", cost: 290 }
+    ],
+    consignment: [
+      { id: "c1", sku: "dm7866-202", size: "42", quantity: 2, ask: 330, seller_id: "SE-00123", vat_type: "Margin" },
+      { id: "c2", sku: "DM7866-202", size: "42", quantity: 0, ask: 310, seller_id: "SE-00999" }
+    ],
+    partner: [
+      { id: "p1", sku: "DM7866-202", size: "42", status: "in_stock", partner_price: 320, seller_id: "SE-00781", vat_type: "VAT21" },
+      { id: "p2", sku: "DM7866-202", size: "42", status: "reserved", partner_price: 280, seller_id: "SE-00781" },
+      { id: "p3", sku: "DM7866-202", size: "42", status: "sold", partner_price: 270, seller_id: "SE-00781" }
+    ]
+  });
+
+  assert.deepEqual(all.map((o) => `${o.source} ${o.id}`), ["Warehouse u1", "Consignment c1", "Partner p1"]);
+  assert.equal(all[1].sku, "DM7866-202", "a consignor's lowercase SKU is the same article");
+  assert.equal(all[1].quantity, 2, "two of them");
+});
+
+test("a consignor's asking price is the cost, not his payout", () => {
+  const [row] = shelf({ consignment: [{ id: "c1", sku: "X1234", size: "42", quantity: 1, ask: 330, payout: 300, partner: false }] });
+
+  assert.equal(row.cost, 330);
+  assert.equal(row.location, "With the consignor", "it still has to come to us");
+});
+
+test("the whole way through: a pasted line against all three shelves", () => {
+  const { wanted } = parseRequest("DM7866-202 - Travis Scott Velvet Brown 42 + 43");
+
+  const rows = matchStock(wanted, shelf({
+    warehouse: [{ id: "u1", sku: "DM7866-202", size: "42", availability: "Available", cost: 300 }],
+    consignment: [{ id: "c1", sku: "DM7866-202", size: "42", quantity: 1, ask: 280, seller_id: "SE-00123" }],
+    partner: [{ id: "p1", sku: "DM7866-202", size: "42", status: "in_stock", partner_price: 350, seller_id: "SE-00781" }]
+  }));
+
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].options.map((o) => [o.source, o.cost]), [["Consignment", 280], ["Warehouse", 300], ["Partner", 350]]);
+  assert.deepEqual(rows[1].options, [], "we have no 43");
+});
+
+/* ---------------- the screen behind it ---------------- */
+
+const { createWtbMatchStore } = await import("../admin/adminWtbMatch.js");
+
+const stores = ({ warehouse = [], consignment = [], partner = [], broken = "" } = {}) => ({
+  inventory: { working: async () => { if (broken === "Warehouse") throw new Error("Airtable timed out"); return warehouse; } },
+  consignmentStock: { everything: async () => { if (broken === "Consignment") throw new Error("Supabase said no"); return consignment; } },
+  partnerStock: { everything: async () => { if (broken === "Partner") throw new Error("Supabase said no"); return partner; } }
+});
+
+test("the three shelves are asked at once and answered side by side", async () => {
+  const store = createWtbMatchStore(stores({
+    warehouse: [{ id: "u1", sku: "DM7866-202", size: "42", availability: "Available", cost: 300 }],
+    consignment: [{ id: "c1", sku: "DM7866-202", size: "42", quantity: 1, ask: 280, seller_id: "SE-00123" }],
+    partner: [{ id: "p1", sku: "DM7866-202", size: "42", status: "in_stock", partner_price: 350, seller_id: "SE-00781" }]
+  }));
+
+  const out = await store.search("DM7866-202,42");
+
+  assert.equal(out.rows.length, 1);
+  assert.deepEqual(out.rows[0].options.map((o) => o.source), ["Consignment", "Warehouse", "Partner"]);
+  assert.deepEqual(out.missing, []);
+});
+
+test("a shelf that cannot be read is said out loud, not left out", async () => {
+  const store = createWtbMatchStore(stores({
+    broken: "Warehouse",
+    consignment: [{ id: "c1", sku: "DM7866-202", size: "42", quantity: 1, ask: 280, seller_id: "SE-00123" }]
+  }));
+
+  const out = await store.search("DM7866-202,42");
+
+  assert.deepEqual(out.missing, ["Warehouse"], "so nobody reads this as 'we have one'");
+  assert.equal(out.rows[0].options.length, 1, "the shelves that did answer still count");
+  assert.match(out.sources.find((s) => s.name === "Warehouse").error, /timed out/);
+});
+
+test("nothing readable in the paste means nothing is looked up at all", async () => {
+  let asked = false;
+  const store = createWtbMatchStore({
+    inventory: { working: async () => { asked = true; return []; } },
+    consignmentStock: { everything: async () => { asked = true; return []; } },
+    partnerStock: { everything: async () => { asked = true; return []; } }
+  });
+
+  const out = await store.search("hi, anything nice in 42?");
+
+  assert.deepEqual(out.rows, []);
+  assert.equal(out.unreadable.length, 1);
+  assert.equal(asked, false, "no point reading three shelves for a question we did not understand");
+});
+
+test("the screen and the route are really wired, not just mounted", async () => {
+  const { mountWtbMatch } = await import("../admin/adminWtbMatch.js");
+
+  const routes = { get: new Map(), post: new Map() };
+  const router = {
+    get: (path, ...rest) => {
+      for (const one of [].concat(path)) routes.get.set(one, rest.at(-1));
+    },
+    post: (path, ...rest) => routes.post.set(path, rest.at(-1))
+  };
+
+  const store = createWtbMatchStore(stores({
+    consignment: [{ id: "c1", sku: "DM7866-202", size: "42", quantity: 1, ask: 280, seller_id: "SE-00123" }]
+  }));
+
+  mountWtbMatch(router, { store, pageFile: "private/admin-wtb-match.html" });
+
+  assert.ok(routes.get.has("/admin/wtb-match"), "the page is served");
+  assert.ok(routes.post.has("/api/admin/wtb-match"), "and the search answers");
+
+  // The page the router hands out is the real one, with the paste box on it.
+  let html = "";
+  routes.get.get("/admin/wtb-match")(
+    {},
+    { set: () => {}, type: () => ({ send: (body) => { html = body; } }) }
+  );
+  assert.match(html, /id="paste"/);
+  assert.match(html, /\/api\/admin\/wtb-match/);
+
+  let answered = null;
+  await routes.post.get("/api/admin/wtb-match")(
+    { body: { input: "DM7866-202,42" } },
+    { json: (body) => { answered = body; } }
+  );
+
+  assert.equal(answered.rows.length, 1);
+  assert.equal(answered.rows[0].options[0].source, "Consignment");
 });

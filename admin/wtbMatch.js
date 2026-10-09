@@ -200,3 +200,95 @@ export function matchStock(wanted = [], stock = []) {
     return { sku: row.sku, size: row.size, line: row.line, options: found };
   });
 }
+
+/* ---------------- the three shelves, in one shape ---------------- */
+
+const money = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : null;
+};
+
+/*
+ * Our own stock, out of the Airtable Inventory Units, as unitRow leaves it.
+ *
+ * Only what is actually free: a unit promised to an order is not an answer to
+ * a new one. Its cost is what we paid, because the pair is already ours.
+ */
+export const warehouseOption = (unit) => ({
+  source: "Warehouse",
+  id: text(unit.id),
+  reference: text(unit.item_id),
+  sku: skuKey(unit.sku),
+  size: sizeKey(unit.size),
+  product_name: text(unit.product_name),
+  seller: "",
+  quantity: 1,
+  cost: money(unit.cost),
+  cost_means: "what we paid for it",
+  vat_type: text(unit.vat_type),
+  location: text(unit.location),
+  note: text(unit.condition)
+});
+
+/*
+ * A consignor's pair. His asking price is our cost, not his payout: the
+ * payout is what is left after us, and offering on it would be offering on
+ * money we never had.
+ */
+export const consignmentOption = (row) => ({
+  source: "Consignment",
+  id: text(row.id),
+  reference: "",
+  sku: skuKey(row.sku),
+  size: sizeKey(row.size),
+  product_name: text(row.product_name),
+  seller: text(row.seller_id),
+  quantity: Number(row.quantity) || 0,
+  cost: money(row.ask),
+  cost_means: "what the consignor asks",
+  vat_type: text(row.vat_type),
+  // A partner's pair is already on our shelf; a consignor's still has to come.
+  location: row.partner ? "Our warehouse" : "With the consignor",
+  note: ""
+});
+
+/*
+ * Partner stock. Only what is on the shelf - reserved is promised to a deal
+ * that may still happen, and sold or forwarded is gone.
+ */
+export const partnerOption = (row) => ({
+  source: "Partner",
+  id: text(row.id),
+  reference: "",
+  sku: skuKey(row.sku),
+  size: sizeKey(row.size),
+  product_name: text(row.product_name),
+  seller: text(row.seller_id),
+  quantity: 1,
+  cost: money(row.partner_price),
+  cost_means: "what the partner charges",
+  vat_type: text(row.vat_type),
+  location: "Our warehouse",
+  note: text(row.mode)
+});
+
+/*
+ * Everything we can actually get hold of, in one list.
+ *
+ * Each source decides for itself what "available" means, because each means
+ * something different by it, and a pair that is spoken for must not turn up
+ * as an offer.
+ */
+export function shelf({ warehouse = [], consignment = [], partner = [] } = {}) {
+  return [
+    ...warehouse
+      .filter((unit) => text(unit.availability).toLowerCase() === "available")
+      .map(warehouseOption),
+    ...consignment
+      .filter((row) => (Number(row.quantity) || 0) > 0)
+      .map(consignmentOption),
+    ...partner
+      .filter((row) => text(row.status) === "in_stock")
+      .map(partnerOption)
+  ];
+}

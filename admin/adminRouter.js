@@ -59,6 +59,7 @@ import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createConsignmentStockStore, mountConsignmentStock } from "./adminConsignmentStock.js";
+import { createWtbMatchStore, mountWtbMatch } from "./adminWtbMatch.js";
 import { mountStockExport } from "./stockExport.js";
 import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
 import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
@@ -545,6 +546,19 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     store: consignmentStock,
     audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-consignment-stock.html") : ""
+  });
+
+  /*
+   * WTB Match: a want-to-buy pasted in, against all three shelves at once
+   * (admin/adminWtbMatch.js, admin/wtbMatch.js, private/admin-wtb-match.html).
+   *
+   * It reads nothing of its own - it asks the three stores above, which
+   * already hold their rows for a few minutes, so a round of matching costs
+   * no calls of its own.
+   */
+  mountWtbMatch(router, {
+    store: createWtbMatchStore({ inventory, consignmentStock, partnerStock }),
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-wtb-match.html") : ""
   });
 
   // Export: the three stock screens as one Excel file or CSV

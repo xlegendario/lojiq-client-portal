@@ -451,7 +451,8 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
     };
   }
 
-  return { list, count, bringOutOffer };
+  // everything: the whole shelf, for the WTB matcher (admin/wtbMatch.js).
+  return { list, count, bringOutOffer, everything };
 }
 
 export function mountConsignmentStock(router, { store, audit = null, pageFile }) {
