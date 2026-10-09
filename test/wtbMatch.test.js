@@ -666,3 +666,47 @@ test("the export is a csv that opens in columns", () => {
   assert.ok(file.startsWith("\ufeff"), "so it opens as UTF-8");
   assert.ok(!file.includes(";"), "semicolons are what made it one long column");
 });
+
+test("the name is what is left when every article and every size is gone", () => {
+  // Two articles and two sizes on one line: taking one of each left the
+  // other half of both in the name.
+  assert.equal(
+    productFromLine("Air Jordan 4 Black Cat (2025) FV5029-010/IB4171-010 41, 44", "FV5029-010", "41"),
+    "Air Jordan 4 Black Cat (2025)"
+  );
+  assert.equal(
+    productFromLine("Air Jordan 4 Fear (2024) FQ8138-002 / FQ8213-002 43", "FQ8138-002", "43"),
+    "Air Jordan 4 Fear (2024)"
+  );
+  assert.equal(
+    productFromLine("Adidas Vento XLG Deluxe White Red JS1590 36 2/3, 37 1/3", "JS1590", "36 2/3"),
+    "Adidas Vento XLG Deluxe White Red"
+  );
+
+  // A number in the name is only a size once it is past the article.
+  assert.equal(
+    productFromLine("Adidas Adilette 22 Slides Grey Five GX6949 46", "GX6949", "46"),
+    "Adidas Adilette 22 Slides Grey Five"
+  );
+  assert.equal(
+    productFromLine("WTB New Balance 9060 Triple Black (U9060BPM) 38 EU", "U9060BPM", "38"),
+    "New Balance 9060 Triple Black"
+  );
+  assert.equal(
+    productFromLine("JQ4891 - adidas Campus 00s Mata 43 1/3", "JQ4891", "43 1/3"),
+    "adidas Campus 00s Mata"
+  );
+});
+
+test("an offer for one of two articles names the pair once, and plainly", () => {
+  assert.equal(
+    offerLine({
+      sku: "FV5029-010",
+      size: "44",
+      line: "Air Jordan 4 Black Cat (2025) FV5029-010/IB4171-010 41, 44",
+      price: 300,
+      vat: "VAT0"
+    }),
+    "FV5029-010 - Air Jordan 4 Black Cat (2025) 44 €300 VAT0"
+  );
+});

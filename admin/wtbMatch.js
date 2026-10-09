@@ -449,26 +449,62 @@ export const VAT_TYPES = ["VAT0", "Margin", "VAT21"];
  * he recognises his own request. "WTB", the dashes holding it together and
  * the "EU" after the size are ours to drop; everything else is his.
  */
-export function productFromLine(line, sku, size) {
-  let left = text(line);
+export function productFromLine(line) {
+  // Kept as he wrote them - the brackets round (2025) are part of the name.
+  const words = text(line).split(/[\s,;|]+/).filter(Boolean);
 
-  if (!left) return "";
+  if (!words.length) return "";
 
-  // A SKU holds dashes and a size holds a slash, so both are made safe
-  // before they are used to cut themselves out of the line.
-  const loose = (value) => text(value).replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
+  /*
+    Everything past the last article is where the sizes live, and everything
+    before it is the name. A number in front of the article is part of what
+    the shoe is called - the 22 in Adilette 22, the 9060 in New Balance 9060 -
+    and only a number behind it is a size.
 
-  left = left
-    .replace(new RegExp(`\\(?${loose(sku)}\\)?`, "i"), " ")
-    .replace(new RegExp(`${loose(size)}\\s*(EU)?\\s*$`, "i"), " ")
-    .replace(/^\s*WTB\b/i, " ")
+    FIXED - this cut out the one article and the one size it was handed and
+    left the rest where it stood. A line carrying two of each came out as
+    "Air Jordan 4 Black Cat (2025) /IB4171 010 41, 44", with half of both
+    still in the name, and that is what went to the buyer.
+  */
+  let last = -1;
+
+  words.forEach((word, at) => {
+    if (skusIn(bare(word)).length) last = at;
+  });
+
+  const kept = [];
+  const tail = last === -1 ? [] : words.slice(last + 1);
+
+  // An article in front of the last one is still an article: a pair sold
+  // under two numbers writes both, and neither belongs in the name.
+  for (const word of words.slice(0, last === -1 ? words.length : last)) {
+    if (!skusIn(bare(word)).length) kept.push(word);
+  }
+
+  // Behind the article, whatever is not a size is still how he wrote it.
+  // "EU" is ours to drop.
+  for (let i = 0; i < tail.length; i += 1) {
+    const word = bare(tail[i]);
+
+    if (/^\d{1,2}$/.test(word) && /^\d\/\d$/.test(bare(tail[i + 1] || ""))) {
+      i += 1;
+      continue;
+    }
+
+    if (isSize(word) || /^eu$/i.test(word) || skusIn(word).length) continue;
+
+    kept.push(tail[i]);
+  }
+
+  const left = kept
+    .filter((word) => !/^wtb$/i.test(word) && !/^[-–—/]+$/.test(word))
+    .join(" ")
     .replace(/\s*[-–—]\s*/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/^[\s,;|]+|[\s,;|]+$/g, "")
     .trim();
 
-  // "HQ9286,44" leaves a comma behind and nothing else. A name with no
-  // letters in it is not a name, and the stock's own one is used instead.
+  // "HQ9286,44" leaves nothing but punctuation. A name with no letters in it
+  // is not a name, and the stock's own one is used instead.
   return /[a-z]/i.test(left) ? left : "";
 }
 
@@ -499,7 +535,13 @@ export function offerLine({ sku, size, line = "", product_name = "", price, vat 
 
   if (!amount) return "";
 
-  const name = productFromLine(line, sku, size) || text(product_name);
+  /*
+    The name the table shows, which is the stock we are offering. The line
+    he pasted is the fallback, for a pair we have not got and therefore have
+    no name for - a message that says something other than the row it came
+    from is worse than a plainer one.
+  */
+  const name = text(product_name) || productFromLine(line);
 
   return [text(sku), "-", name, text(size), amount, text(vat)]
     .filter(Boolean)
