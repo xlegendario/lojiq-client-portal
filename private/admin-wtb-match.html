@@ -318,7 +318,7 @@
         <div class="filters">
           <span class="count" id="count"></span>
           <button class="btn ghost" id="offer" type="button">Copy offer text</button>
-          <button class="btn ghost" id="export" type="button">Export CSV</button>
+          <button class="btn ghost" id="export" type="button">Export Excel</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -327,6 +327,7 @@
                 <th>SKU</th>
                 <th>Size</th>
                 <th>Product</th>
+                <th>Sources</th>
                 <th>Source</th>
                 <th>Seller</th>
                 <th class="money">Qty</th>
@@ -373,7 +374,9 @@
     */
     const VAT_TYPES = ["VAT0", "Margin", "VAT21"];
 
-    const state = { wanted: [], rows: [], unreadable: [] };
+    const expanded = new Set();
+
+    const state = { wanted: [], rows: [], unreadable: [], missing: [] };
 
     function drawRead() {
       $("read").hidden = !state.wanted.length;
@@ -395,6 +398,9 @@
 
     function drawResults(out) {
       state.rows = out.rows || [];
+      // Kept, so opening a row does not make a shelf that was out
+      // of reach look as though it answered.
+      if (out.missing) state.missing = out.missing;
       $("results").hidden = !state.rows.length;
 
       for (const row of state.rows) {
@@ -414,30 +420,48 @@
         ? `Not on any shelf: ${empty.map((row) => `${row.sku} ${row.size}`).join(", ")}`
         : "";
 
-      $("missing").hidden = !(out.missing || []).length;
-      $("missing").innerHTML = (out.missing || []).length
-        ? `<strong>${out.missing.join(" and ")} could not be read just now.</strong> What is below is only what the other shelves hold, so treat a gap as unknown rather than as nothing.`
+      $("missing").hidden = !state.missing.length;
+      $("missing").innerHTML = state.missing.length
+        ? `<strong>${state.missing.join(" and ")} could not be read just now.</strong> What is below is only what the other shelves hold, so treat a gap as unknown rather than as nothing.`
         : "";
 
       $("resultsBody").innerHTML = state.rows.filter((row) => row.options.length).map((row) => {
+        const key = `${row.sku}|${row.size}`;
+        const open = expanded.has(key);
+        const shown = open ? row.options : row.options.slice(0, 1);
 
-        return row.options.map((option, i) => `
-          <tr>
+        return shown.map((option, i) => `
+          <tr${i === 0 ? ` class="lead" data-open="${esc(key)}"` : ""}>
             <td>${i === 0 ? esc(row.sku) : ""}</td>
             <td>${i === 0 ? esc(row.size) : ""}</td>
             <td>${esc(option.product_name)}</td>
+            <td>${i === 0 && row.options.length > 1
+              ? `<button class="btn ghost slim" type="button" data-open="${esc(key)}">${open ? "▾" : "▸"} ${row.options.length}</button>`
+              : (i === 0 ? "1" : "")}</td>
             <td><span class="pill">${esc(option.source)}</span></td>
             <td>${esc(option.seller_name || option.seller) || "—"}</td>
             <td class="money">${option.quantity}</td>
-            <td class="money" title="${esc(option.cost_means)}">${money(option.cost)}</td>
+            <td class="money" title="${esc(option.cost_means)}${option.units > 1 ? ` — cheapest of ${option.units}` : ""}">${money(option.cost)}</td>
             <td>${esc(option.vat_type) || "—"}</td>
             <td class="muted">${esc(option.ready_in || "")}</td>
-            <td class="money">${i === 0 ? `<input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="price" aria-label="Offer price">` : ""}</td>
-            <td>${i === 0 ? `<select class="input slim" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select>` : ""}</td>
+            <td class="money">${i === 0 ? `<input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(key)}" data-field="price" aria-label="Offer price">` : ""}</td>
+            <td>${i === 0 ? `<select class="input slim" data-offer="${esc(key)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select>` : ""}</td>
           </tr>
         `).join("");
       }).join("");
     }
+
+    $("resultsBody").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-open]");
+      if (!button) return;
+
+      const key = button.dataset.open;
+
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
+
+      drawResults({ rows: state.rows });
+    });
 
     $("resultsBody").addEventListener("input", (event) => {
       const field = event.target.closest("[data-offer]");
@@ -586,32 +610,36 @@
       runCorrected();
     });
 
-    // Semicolons, because a comma-separated list opens here as one column.
-    $("export").addEventListener("click", () => {
-      const head = ["SKU", "Size", "Product", "Source", "Seller", "Quantity", "Cost", "VAT", "Where"];
-      const lines = [head.join(";")];
+    /*
+      A real workbook, made by the server. The file this built itself was
+      semicolon-separated and opened as one long column, which is no
+      better than reading it off the screen.
+    */
+    $("export").addEventListener("click", async () => {
+      if (!state.rows.length) return;
 
-      for (const row of state.rows) {
-        if (!row.options.length) {
-          lines.push([row.sku, row.size, "", "none", "", "", "", "", ""].join(";"));
-          continue;
-        }
+      $("error").textContent = "";
 
-        for (const option of row.options) {
-          lines.push([
-            row.sku, row.size, option.product_name, option.source, option.seller,
-            option.quantity, option.cost ?? "", option.vat_type, option.location
-          ].map((cell) => String(cell ?? "").replace(/;/g, ",")).join(";"));
-        }
+      try {
+        const response = await fetch("/api/admin/wtb-match/export", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: state.rows })
+        });
+
+        if (!response.ok) throw new Error("The file could not be made");
+
+        const blob = await response.blob();
+        const link = document.createElement("a");
+
+        link.href = URL.createObjectURL(blob);
+        link.download = `wtb-match-${new Date().toISOString().slice(0, 10)}.xlsx`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } catch (err) {
+        $("error").textContent = err.message;
       }
-
-      const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-      const link = document.createElement("a");
-
-      link.href = URL.createObjectURL(blob);
-      link.download = `wtb-match-${new Date().toISOString().slice(0, 10)}.csv`;
-      link.click();
-      URL.revokeObjectURL(link.href);
     });
 
     $("paste").addEventListener("keydown", (event) => {

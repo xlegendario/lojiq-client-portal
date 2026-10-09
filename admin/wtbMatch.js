@@ -283,16 +283,58 @@ export function matchStock(wanted = [], stock = []) {
   }
 
   return wanted.map((row) => {
-    const found = [...(shelf.get(`${row.sku}|${row.size}`) || [])].sort((a, b) => {
-      const left = Number(a.cost);
-      const right = Number(b.cost);
+    const found = groupOptions(shelf.get(`${row.sku}|${row.size}`) || []);
 
-      if (Number.isFinite(left) && Number.isFinite(right) && left !== right) return left - right;
+    return { sku: row.sku, size: row.size, line: row.line, options: found, sources: found.length };
+  });
+}
 
-      return text(a.source).localeCompare(text(b.source));
-    });
+/*
+ * One line per place the pair can come from, not per pair.
+ *
+ * Five of ours on the shelf is one place to get it, not five offers: it
+ * filled the screen with the same row over and over and said nothing a
+ * quantity does not say better. A consignor is a place of his own, because
+ * asking two men is two conversations, and so is each partner.
+ *
+ * The cheapest of a group is what the line costs - that is the one you would
+ * take - and the quantities add up.
+ */
+export function groupOptions(options = []) {
+  const groups = new Map();
 
-    return { sku: row.sku, size: row.size, line: row.line, options: found };
+  for (const option of options) {
+    const key = text(option.source) === "Warehouse"
+      ? "Warehouse"
+      : `${text(option.source)}|${text(option.seller_record_id) || text(option.seller)}`;
+
+    const held = groups.get(key);
+
+    if (!held) {
+      groups.set(key, { ...option, quantity: Number(option.quantity) || 0, units: 1 });
+      continue;
+    }
+
+    held.quantity += Number(option.quantity) || 0;
+    held.units += 1;
+
+    const cost = Number(option.cost);
+
+    if (Number.isFinite(cost) && (!Number.isFinite(Number(held.cost)) || cost < Number(held.cost))) {
+      // The cheapest one in the group is the one an offer would be built on.
+      held.cost = option.cost;
+      held.id = option.id;
+      held.reference = option.reference;
+    }
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    const left = Number(a.cost);
+    const right = Number(b.cost);
+
+    if (Number.isFinite(left) && Number.isFinite(right) && left !== right) return left - right;
+
+    return text(a.source).localeCompare(text(b.source));
   });
 }
 

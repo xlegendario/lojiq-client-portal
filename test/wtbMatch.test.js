@@ -591,3 +591,74 @@ test("a line with a size but no article is still a failure worth seeing", () => 
   assert.deepEqual(wanted, []);
   assert.equal(unreadable.length, 2, "he wrote no article, and should be told");
 });
+
+/* ---------------- one line per place, not per pair ---------------- */
+
+test("five of our own on the shelf is one place to get it, not five offers", () => {
+  const { wanted } = parseRequest("JR9632,36");
+
+  const [row] = matchStock(wanted, shelf({
+    warehouse: Array.from({ length: 5 }, (_, i) => ({
+      id: `u${i}`, sku: "JR9632", size: "36", availability: "Available", cost: 150, product_name: "adidas XLG Runner Deluxe Wonder Beige"
+    })),
+    consignment: [{ id: "c1", sku: "JR9632", size: "36", quantity: 1, ask: 175, seller_id: "SE-00035", seller_record_id: "recD" }]
+  }));
+
+  assert.equal(row.sources, 2, "ours counts once, and the consignor once");
+  assert.deepEqual(row.options.map((o) => [o.source, o.quantity]), [["Warehouse", 5], ["Consignment", 1]]);
+});
+
+test("two consignors stay two places, and each keeps his own count", () => {
+  const { wanted } = parseRequest("1203A537-110,45");
+
+  const [row] = matchStock(wanted, shelf({
+    consignment: [
+      { id: "c1", sku: "1203A537-110", size: "45", quantity: 3, ask: 145, seller_id: "SE-00569", seller_record_id: "recA" },
+      { id: "c2", sku: "1203A537-110", size: "45", quantity: 8, ask: 150, seller_id: "SE-00879", seller_record_id: "recB" }
+    ]
+  }));
+
+  assert.equal(row.sources, 2);
+  assert.deepEqual(row.options.map((o) => o.quantity), [3, 8]);
+});
+
+test("the cheapest in a group is what the line costs", () => {
+  const { wanted } = parseRequest("JR9632,36");
+
+  const [row] = matchStock(wanted, shelf({
+    warehouse: [
+      { id: "u1", sku: "JR9632", size: "36", availability: "Available", cost: 180 },
+      { id: "u2", sku: "JR9632", size: "36", availability: "Available", cost: 150 },
+      { id: "u3", sku: "JR9632", size: "36", availability: "Available", cost: 165 }
+    ]
+  }));
+
+  assert.equal(row.options.length, 1);
+  assert.equal(row.options[0].cost, 150, "the one you would actually take");
+  assert.equal(row.options[0].quantity, 3);
+  assert.equal(row.options[0].units, 3, "so the screen can say it is the cheapest of three");
+});
+
+test("the export is a real workbook, not a semicolon file", async () => {
+  const store = createWtbMatchStore(stores());
+
+  const book = store.workbook([
+    {
+      sku: "JR9632",
+      size: "36",
+      offer_price: "190",
+      offer_vat: "Margin",
+      options: [{ source: "Warehouse", product_name: "adidas XLG Runner Deluxe Wonder Beige", quantity: 5, cost: 150, vat_type: "Margin", ready_in: "within 48 hours" }]
+    },
+    // A pair we have not got still gets a line: a file is read away from the
+    // screen, where the sentence above the table is not.
+    { sku: "FZ4810-200", size: "47", options: [] }
+  ]);
+
+  assert.ok(Buffer.isBuffer(book));
+  assert.equal(book.subarray(0, 2).toString("latin1"), "PK", "a zip, which is what an xlsx is");
+  assert.ok(book.length > 1000);
+
+  // A zip of xml parts, with a worksheet in it - not text with separators.
+  assert.match(book.toString("latin1"), /xl\/worksheets\/sheet1\.xml/);
+});

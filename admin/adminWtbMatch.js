@@ -15,6 +15,7 @@ import express from "express";
 import fs from "fs";
 
 import { matchStock, offerText, parseRequest, readyIn, shelf } from "./wtbMatch.js";
+import { xlsx } from "./xlsxWriter.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -139,7 +140,49 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
    */
   const offer = (rows) => ({ text: offerText(Array.isArray(rows) ? rows : []) });
 
-  return { search, offer };
+  /*
+   * The answer as a spreadsheet.
+   *
+   * A real workbook and not a csv: a semicolon file opens here as one long
+   * column, which is no better than reading it off the screen.
+   *
+   * A pair we have not got still gets a line. On the screen those are one
+   * sentence above the table, but a file is read away from the screen and a
+   * question with no answer beside it is worth seeing.
+   */
+  const COLUMNS = [
+    { label: "SKU", width: 16, read: (row, option) => row.sku },
+    { label: "Size", width: 10, read: (row) => row.size },
+    { label: "Product", width: 44, read: (row, option) => option?.product_name || "" },
+    { label: "Source", width: 14, read: (row, option) => option?.source || "not on any shelf" },
+    { label: "Seller", width: 18, read: (row, option) => option?.seller_name || option?.seller || "" },
+    { label: "Quantity", width: 10, read: (row, option) => (option ? Number(option.quantity) || 0 : null) },
+    { label: "Cost", width: 12, read: (row, option) => (option && option.cost !== null ? Number(option.cost) : null) },
+    { label: "VAT", width: 10, read: (row, option) => option?.vat_type || "" },
+    { label: "ETA", width: 18, read: (row, option) => option?.ready_in || "" },
+    { label: "Offer", width: 10, read: (row) => (text(row.offer_price) ? Number(String(row.offer_price).replace(",", ".")) : null) },
+    { label: "VAT out", width: 10, read: (row) => text(row.offer_vat) }
+  ];
+
+  function workbook(rows) {
+    const lines = [];
+
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const options = Array.isArray(row.options) && row.options.length ? row.options : [null];
+
+      for (const option of options) {
+        lines.push(COLUMNS.map((column) => {
+          const value = column.read(row, option);
+          return value === undefined ? null : value;
+        }));
+      }
+    }
+
+    return xlsx([{ name: "WTB Match", columns: COLUMNS, rows: lines }]);
+  }
+
+
+  return { search, offer, workbook };
 }
 
 export function mountWtbMatch(router, { store, pageFile }) {
@@ -159,6 +202,19 @@ export function mountWtbMatch(router, { store, pageFile }) {
     } catch (err) {
       console.error("[admin wtb match]", err.message);
       res.status(500).json({ error: `Matching failed: ${err.message}` });
+    }
+  });
+
+  router.post("/api/admin/wtb-match/export", express.json({ limit: "2mb" }), (req, res) => {
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+
+      res.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.set("Content-Disposition", `attachment; filename="wtb-match-${stamp}.xlsx"`);
+      res.send(store.workbook(req.body?.rows));
+    } catch (err) {
+      console.error("[admin wtb match export]", err.message);
+      res.status(500).json({ error: `The file could not be made: ${err.message}` });
     }
   });
 
