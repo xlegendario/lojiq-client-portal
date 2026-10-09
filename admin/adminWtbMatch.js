@@ -14,7 +14,7 @@
 import express from "express";
 import fs from "fs";
 
-import { matchStock, parseRequest, shelf } from "./wtbMatch.js";
+import { matchStock, offerText, parseRequest, shelf } from "./wtbMatch.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -64,7 +64,16 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock 
     };
   }
 
-  return { search };
+  /*
+   * The message for the buyer, written here rather than on the screen.
+   *
+   * The screen could put these lines together itself, but then the wording
+   * of an offer would live in two places and one of them would fall behind.
+   * The engine writes it, the tests cover it, and the screen only shows it.
+   */
+  const offer = (rows) => ({ text: offerText(Array.isArray(rows) ? rows : []) });
+
+  return { search, offer };
 }
 
 export function mountWtbMatch(router, { store, pageFile }) {
@@ -84,6 +93,15 @@ export function mountWtbMatch(router, { store, pageFile }) {
     } catch (err) {
       console.error("[admin wtb match]", err.message);
       res.status(500).json({ error: `Matching failed: ${err.message}` });
+    }
+  });
+
+  router.post("/api/admin/wtb-match/offer", express.json({ limit: "200kb" }), (req, res) => {
+    try {
+      res.json(store.offer(req.body?.rows));
+    } catch (err) {
+      console.error("[admin wtb match offer]", err.message);
+      res.status(500).json({ error: `The offer could not be written: ${err.message}` });
     }
   });
 }

@@ -339,3 +339,82 @@ test("a line with no article at all is still handed back", () => {
   assert.deepEqual(wanted, []);
   assert.equal(unreadable.length, 2);
 });
+
+/* ---------------- the offer that goes back to the buyer ---------------- */
+
+const { offerLine, offerText, productFromLine, VAT_TYPES } = await import("../admin/wtbMatch.js");
+
+test("an offer line is the buyer's own words with a price on the end", () => {
+  assert.equal(
+    offerLine({ sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: 130, vat: "VAT0" }),
+    "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0"
+  );
+
+  assert.equal(
+    offerLine({ sku: "DD9335-641", size: "38", line: "DD9335-641 - Jordan 1 Retro High OG Atmosphere (Women's) 38", price: 110, vat: "Margin" }),
+    "DD9335-641 - Jordan 1 Retro High OG Atmosphere (Women's) 38 €110 Margin"
+  );
+
+  // The WTB, the brackets round the article and the EU after the size are
+  // ours to drop; the name he wrote is his.
+  assert.equal(
+    offerLine({ sku: "U9060BPM", size: "38", line: "WTB New Balance 9060 Triple Black (U9060BPM) 38 EU", price: 129.5, vat: "VAT0" }),
+    "U9060BPM - New Balance 9060 Triple Black 38 €129,50 VAT0"
+  );
+});
+
+test("a csv line has no name in it, so the stock's own name is used", () => {
+  assert.equal(productFromLine("HQ9286,44", "HQ9286", "44"), "", "a comma is not a name");
+
+  assert.equal(
+    offerLine({ sku: "HQ9286", size: "44", line: "HQ9286,44", product_name: "adidas Samba ADV", price: 95, vat: "Margin" }),
+    "HQ9286 - adidas Samba ADV 44 €95 Margin"
+  );
+});
+
+test("a pair with no price on it is not an offer", () => {
+  assert.equal(offerLine({ sku: "X1", size: "42", line: "X1 - shoe 42", vat: "VAT0" }), "");
+  assert.equal(offerLine({ sku: "X1", size: "42", line: "X1 - shoe 42", price: "", vat: "VAT0" }), "");
+  assert.equal(offerLine({ sku: "X1", size: "42", line: "X1 - shoe 42", price: "nonsense" }), "");
+});
+
+test("the block that is pasted holds only what was priced, in the order asked", () => {
+  const text = offerText([
+    { sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: 130, vat: "VAT0" },
+    { sku: "AA1", size: "42", line: "AA1 - something 42" },
+    { sku: "DD9335-641", size: "38", line: "DD9335-641 - Jordan 1 38", price: 110, vat: "Margin" }
+  ]);
+
+  assert.deepEqual(text.split("\n"), [
+    "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0",
+    "DD9335-641 - Jordan 1 38 €110 Margin"
+  ]);
+});
+
+test("the VAT types are the three the stock actually uses", () => {
+  assert.deepEqual(VAT_TYPES, ["VAT0", "Margin", "VAT21"]);
+});
+
+test("the offer route writes the message, so the screen never has to", async () => {
+  const { mountWtbMatch } = await import("../admin/adminWtbMatch.js");
+
+  const routes = new Map();
+  const router = { get: () => {}, post: (path, ...rest) => routes.set(path, rest.at(-1)) };
+
+  mountWtbMatch(router, { store: createWtbMatchStore(stores()), pageFile: "" });
+
+  let answered = null;
+  routes.get("/api/admin/wtb-match/offer")(
+    {
+      body: {
+        rows: [
+          { sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: "130", vat: "VAT0" },
+          { sku: "AA1", size: "42", line: "AA1 - no price here 42" }
+        ]
+      }
+    },
+    { json: (body) => { answered = body; } }
+  );
+
+  assert.equal(answered.text, "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0");
+});

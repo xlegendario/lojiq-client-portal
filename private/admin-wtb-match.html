@@ -304,9 +304,16 @@
       <div class="warn-box" id="unreadable" hidden></div>
       <div class="warn-box" id="missing" hidden></div>
 
+      <div id="offerBox" hidden>
+        <h2 class="sub">The offer</h2>
+        <p class="hint">Copied already — paste it straight into the chat. Only the pairs you priced are in it.</p>
+        <textarea class="input paste" id="offerText" rows="5" readonly></textarea>
+      </div>
+
       <div id="results" hidden>
         <div class="filters">
           <span class="count" id="count"></span>
+          <button class="btn ghost" id="offer" type="button">Copy offer text</button>
           <button class="btn ghost" id="export" type="button">Export CSV</button>
         </div>
         <div class="table-wrap">
@@ -322,6 +329,8 @@
                 <th class="money">Cost</th>
                 <th>VAT</th>
                 <th>Where</th>
+                <th class="money">Offer</th>
+                <th>VAT out</th>
               </tr>
             </thead>
             <tbody id="resultsBody"></tbody>
@@ -358,6 +367,8 @@
       A line read wrong is corrected here and searched again - which is the
       whole reason the reading is shown before the shelves are opened.
     */
+    const VAT_TYPES = ["VAT0", "Margin", "VAT21"];
+
     const state = { wanted: [], rows: [], unreadable: [] };
 
     function drawRead() {
@@ -382,6 +393,13 @@
       state.rows = out.rows || [];
       $("results").hidden = !state.rows.length;
 
+      for (const row of state.rows) {
+        if (row.offer_vat === undefined) {
+          const first = row.options.find((option) => VAT_TYPES.includes(option.vat_type));
+          row.offer_vat = first ? first.vat_type : "VAT0";
+        }
+      }
+
       const found = state.rows.filter((row) => row.options.length).length;
       $("count").textContent = `${found} of ${state.rows.length} asked for are on a shelf`;
 
@@ -392,7 +410,9 @@
 
       $("resultsBody").innerHTML = state.rows.map((row) => {
         if (!row.options.length) {
-          return `<tr class="empty-row"><td>${esc(row.sku)}</td><td>${esc(row.size)}</td><td colspan="7" class="muted">Not on any shelf</td></tr>`;
+          return `<tr class="empty-row"><td>${esc(row.sku)}</td><td>${esc(row.size)}</td><td colspan="7" class="muted">Not on any shelf</td>
+            <td class="money"><input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="price" aria-label="Offer price"></td>
+            <td><select class="input slim" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select></td></tr>`;
         }
 
         return row.options.map((option, i) => `
@@ -406,10 +426,24 @@
             <td class="money" title="${esc(option.cost_means)}">${money(option.cost)}</td>
             <td>${esc(option.vat_type) || "—"}</td>
             <td class="muted">${esc(option.location)}</td>
+            <td class="money">${i === 0 ? `<input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="price" aria-label="Offer price">` : ""}</td>
+            <td>${i === 0 ? `<select class="input slim" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select>` : ""}</td>
           </tr>
         `).join("");
       }).join("");
     }
+
+    $("resultsBody").addEventListener("input", (event) => {
+      const field = event.target.closest("[data-offer]");
+      if (!field) return;
+
+      const [sku, size] = field.dataset.offer.split("|");
+      const row = state.rows.find((one) => one.sku === sku && one.size === size);
+      if (!row) return;
+
+      if (field.dataset.field === "price") row.offer_price = field.value.trim();
+      else row.offer_vat = field.value;
+    });
 
     async function run() {
       $("error").textContent = "";
@@ -469,6 +503,49 @@
       }
     });
 
+    $("offer").addEventListener("click", async () => {
+      const priced = state.rows.filter((row) => String(row.offer_price || "").trim());
+
+      if (!priced.length) {
+        $("error").textContent = "Put a price on at least one pair first.";
+        return;
+      }
+
+      $("error").textContent = "";
+
+      try {
+        const { text } = await api("/api/admin/wtb-match/offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rows: priced.map((row) => ({
+              sku: row.sku,
+              size: row.size,
+              line: row.line,
+              product_name: row.options[0]?.product_name || "",
+              price: row.offer_price,
+              vat: row.offer_vat
+            }))
+          })
+        });
+
+        $("offerBox").hidden = false;
+        $("offerText").value = text;
+        $("offerText").rows = Math.max(3, text.split("\n").length);
+
+        // Straight onto the clipboard, because the next thing he does
+        // is paste it. Selecting it is the fallback where the browser
+        // will not hand the clipboard over.
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          $("offerText").select();
+        }
+      } catch (err) {
+        $("error").textContent = err.message;
+      }
+    });
+
     $("go").addEventListener("click", run);
 
     $("clear").addEventListener("click", () => {
@@ -478,6 +555,7 @@
       state.unreadable = [];
       drawRead();
       $("results").hidden = true;
+      $("offerBox").hidden = true;
       $("missing").hidden = true;
       $("status").textContent = "";
       $("paste").focus();

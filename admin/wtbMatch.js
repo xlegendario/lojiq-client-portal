@@ -329,3 +329,76 @@ export function shelf({ warehouse = [], consignment = [], partner = [] } = {}) {
       .map(partnerOption)
   ];
 }
+
+/* ---------------- the offer, as it goes back to the buyer ---------------- */
+
+export const VAT_TYPES = ["VAT0", "Margin", "VAT21"];
+
+/*
+ * What is left of a line once the article and the size are taken out of it.
+ *
+ * The buyer wrote the name himself, so his own wording goes back to him and
+ * he recognises his own request. "WTB", the dashes holding it together and
+ * the "EU" after the size are ours to drop; everything else is his.
+ */
+export function productFromLine(line, sku, size) {
+  let left = text(line);
+
+  if (!left) return "";
+
+  // A SKU holds dashes and a size holds a slash, so both are made safe
+  // before they are used to cut themselves out of the line.
+  const loose = (value) => text(value).replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
+
+  left = left
+    .replace(new RegExp(`\\(?${loose(sku)}\\)?`, "i"), " ")
+    .replace(new RegExp(`${loose(size)}\\s*(EU)?\\s*$`, "i"), " ")
+    .replace(/^\s*WTB\b/i, " ")
+    .replace(/\s*[-–—]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s,;|]+|[\s,;|]+$/g, "")
+    .trim();
+
+  // "HQ9286,44" leaves a comma behind and nothing else. A name with no
+  // letters in it is not a name, and the stock's own one is used instead.
+  return /[a-z]/i.test(left) ? left : "";
+}
+
+const euro = (value) => {
+  // An empty box is not a price: Number("") is 0, which reads as a finite
+  // amount and would offer the pair for nothing. Nor is a real zero.
+  if (text(value) === "") return "";
+
+  const number = Number(String(value).replace(",", "."));
+
+  if (!Number.isFinite(number) || number <= 0) return "";
+
+  return Number.isInteger(number)
+    ? `€${number}`
+    : `€${number.toFixed(2).replace(".", ",")}`;
+};
+
+/*
+ * One line of an offer, ready to be pasted into the chat with the buyer:
+ *
+ *   JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0
+ *
+ * A pair with no price on it is not an offer and comes back empty, so the
+ * block that is pasted holds only what was actually priced.
+ */
+export function offerLine({ sku, size, line = "", product_name = "", price, vat = "" }) {
+  const amount = euro(price);
+
+  if (!amount) return "";
+
+  const name = productFromLine(line, sku, size) || text(product_name);
+
+  return [text(sku), "-", name, text(size), amount, text(vat)]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// The whole offer, in the order it was asked for.
+export const offerText = (rows = []) => rows.map(offerLine).filter(Boolean).join("\n");
