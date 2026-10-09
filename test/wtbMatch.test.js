@@ -639,26 +639,30 @@ test("the cheapest in a group is what the line costs", () => {
   assert.equal(row.options[0].units, 3, "so the screen can say it is the cheapest of three");
 });
 
-test("the export is a real workbook, not a semicolon file", async () => {
+test("the export is a csv that opens in columns", () => {
   const store = createWtbMatchStore(stores());
 
-  const book = store.workbook([
+  const file = store.exportFile([
     {
       sku: "JR9632",
       size: "36",
       offer_price: "190",
       offer_vat: "Margin",
-      options: [{ source: "Warehouse", product_name: "adidas XLG Runner Deluxe Wonder Beige", quantity: 5, cost: 150, vat_type: "Margin", ready_in: "within 48 hours" }]
+      options: [{ source: "Warehouse", product_name: "adidas XLG Runner, Wonder Beige", quantity: 5, cost: 150, vat_type: "Margin", ready_in: "within 48 hours" }]
     },
     // A pair we have not got still gets a line: a file is read away from the
     // screen, where the sentence above the table is not.
     { sku: "FZ4810-200", size: "47", options: [] }
   ]);
 
-  assert.ok(Buffer.isBuffer(book));
-  assert.equal(book.subarray(0, 2).toString("latin1"), "PK", "a zip, which is what an xlsx is");
-  assert.ok(book.length > 1000);
+  const lines = file.replace(/^\ufeff/, "").trim().split("\r\n");
 
-  // A zip of xml parts, with a worksheet in it - not text with separators.
-  assert.match(book.toString("latin1"), /xl\/worksheets\/sheet1\.xml/);
+  assert.equal(lines[0], "SKU,Size,Product,Source,Seller,Quantity,Cost,VAT,ETA,Offer,VAT out");
+
+  // A comma inside a product name is quoted, not a column of its own.
+  assert.equal(lines[1], 'JR9632,36,"adidas XLG Runner, Wonder Beige",Warehouse,,5,150,Margin,within 48 hours,190,Margin');
+  assert.equal(lines[2], "FZ4810-200,47,,not on any shelf,,,,,,,");
+
+  assert.ok(file.startsWith("\ufeff"), "so it opens as UTF-8");
+  assert.ok(!file.includes(";"), "semicolons are what made it one long column");
 });

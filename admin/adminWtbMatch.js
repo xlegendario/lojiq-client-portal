@@ -15,7 +15,7 @@ import express from "express";
 import fs from "fs";
 
 import { matchStock, offerText, parseRequest, readyIn, shelf } from "./wtbMatch.js";
-import { xlsx } from "./xlsxWriter.js";
+import { csv } from "./xlsxWriter.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -141,10 +141,11 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
   const offer = (rows) => ({ text: offerText(Array.isArray(rows) ? rows : []) });
 
   /*
-   * The answer as a spreadsheet.
+   * The answer as a file.
    *
-   * A real workbook and not a csv: a semicolon file opens here as one long
-   * column, which is no better than reading it off the screen.
+   * Comma separated and quoted, which is the one that opens in columns here;
+   * the semicolons this had at first arrived as a single long column. The
+   * same writer the stock screens use, so it behaves the same way they do.
    *
    * A pair we have not got still gets a line. On the screen those are one
    * sentence above the table, but a file is read away from the screen and a
@@ -164,7 +165,7 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
     { label: "VAT out", width: 10, read: (row) => text(row.offer_vat) }
   ];
 
-  function workbook(rows) {
+  function exportFile(rows) {
     const lines = [];
 
     for (const row of Array.isArray(rows) ? rows : []) {
@@ -178,11 +179,11 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
       }
     }
 
-    return xlsx([{ name: "WTB Match", columns: COLUMNS, rows: lines }]);
+    return csv({ columns: COLUMNS, rows: lines });
   }
 
 
-  return { search, offer, workbook };
+  return { search, offer, exportFile };
 }
 
 export function mountWtbMatch(router, { store, pageFile }) {
@@ -209,9 +210,9 @@ export function mountWtbMatch(router, { store, pageFile }) {
     try {
       const stamp = new Date().toISOString().slice(0, 10);
 
-      res.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.set("Content-Disposition", `attachment; filename="wtb-match-${stamp}.xlsx"`);
-      res.send(store.workbook(req.body?.rows));
+      res.set("Content-Type", "text/csv; charset=utf-8");
+      res.set("Content-Disposition", `attachment; filename="wtb-match-${stamp}.csv"`);
+      res.send(store.exportFile(req.body?.rows));
     } catch (err) {
       console.error("[admin wtb match export]", err.message);
       res.status(500).json({ error: `The file could not be made: ${err.message}` });

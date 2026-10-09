@@ -318,7 +318,7 @@
         <div class="filters">
           <span class="count" id="count"></span>
           <button class="btn ghost" id="offer" type="button">Copy offer text</button>
-          <button class="btn ghost" id="export" type="button">Export Excel</button>
+          <button class="btn ghost" id="export" type="button">Export CSV</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -634,7 +634,7 @@
         const link = document.createElement("a");
 
         link.href = URL.createObjectURL(blob);
-        link.download = `wtb-match-${new Date().toISOString().slice(0, 10)}.xlsx`;
+        link.download = `wtb-match-${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
         URL.revokeObjectURL(link.href);
       } catch (err) {
