@@ -218,7 +218,6 @@
     .warn-box { background: var(--wait-bg); color: var(--wait-text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 14px; }
     .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
     .empty-row td { color: var(--muted); }
-    .none-line { margin: 0 0 8px; }
     .row-source { color: var(--muted); font-size: 12px; }
     .field-error { color: var(--red); min-height: 18px; margin: 8px 0 0; font-size: 13px; }
     .file-btn { cursor: pointer; }
@@ -295,7 +294,7 @@
 
       <div id="read" hidden>
         <h2 class="sub">What it understood</h2>
-        <p class="hint">Correct a line before searching if it read something wrong.</p>
+        <p class="hint">Correct a line before searching, or fill in one it could not read.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>SKU</th><th>Size</th><th>From the line</th><th></th></tr></thead>
@@ -304,21 +303,19 @@
         </div>
       </div>
 
-      <div class="warn-box" id="unreadable" hidden></div>
       <div class="warn-box" id="missing" hidden></div>
 
-      <div id="offerBox" hidden>
-        <h2 class="sub">The offer</h2>
-        <p class="hint">Copied already — paste it straight into the chat. Only the pairs you priced are in it.</p>
-        <textarea class="input paste" id="offerText" rows="5" readonly></textarea>
-      </div>
-
       <div id="results" hidden>
-        <p class="hint none-line" id="none" hidden></p>
         <div class="filters">
           <span class="count" id="count"></span>
           <button class="btn ghost" id="offer" type="button">Copy offer text</button>
           <button class="btn ghost" id="export" type="button">Export CSV</button>
+        </div>
+
+        <div id="offerBox" hidden>
+          <h2 class="sub">The offer</h2>
+          <p class="hint">Copied already — paste it straight into the chat. Only the pairs you priced are in it.</p>
+          <textarea class="input paste" id="offerText" rows="5" readonly></textarea>
         </div>
         <div class="table-wrap">
           <table>
@@ -383,17 +380,13 @@
 
       $("readBody").innerHTML = state.wanted.map((row, index) => `
         <tr>
-          <td><input class="input slim" value="${esc(row.sku)}" data-index="${index}" data-field="sku" aria-label="SKU"></td>
-          <td><input class="input slim" value="${esc(row.size)}" data-index="${index}" data-field="size" aria-label="Size"></td>
+          <td><input class="input slim" value="${esc(row.sku)}" placeholder="article?" data-index="${index}" data-field="sku" aria-label="SKU"></td>
+          <td><input class="input slim" value="${esc(row.size)}" placeholder="size?" data-index="${index}" data-field="size" aria-label="Size"></td>
           <td class="muted">${esc(row.line || "")}</td>
           <td><button class="btn ghost slim" type="button" data-drop="${index}" aria-label="Remove this line">✕</button></td>
         </tr>
       `).join("");
 
-      $("unreadable").hidden = !state.unreadable.length;
-      $("unreadable").innerHTML = state.unreadable.length
-        ? `<strong>${state.unreadable.length} line${state.unreadable.length === 1 ? "" : "s"} could not be read.</strong> Nothing was looked up for ${state.unreadable.length === 1 ? "it" : "them"}:<ul>${state.unreadable.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`
-        : "";
     }
 
     function drawResults(out) {
@@ -412,13 +405,6 @@
 
       const found = state.rows.filter((row) => row.options.length).length;
       $("count").textContent = `${found} of ${state.rows.length} asked for are on a shelf`;
-
-      const empty = state.rows.filter((row) => !row.options.length);
-
-      $("none").hidden = !empty.length;
-      $("none").textContent = empty.length
-        ? `Not on any shelf: ${empty.map((row) => `${row.sku} ${row.size}`).join(", ")}`
-        : "";
 
       $("missing").hidden = !state.missing.length;
       $("missing").innerHTML = state.missing.length
@@ -487,8 +473,16 @@
           body: JSON.stringify({ input: $("paste").value })
         });
 
-        state.wanted = out.wanted || [];
-        state.unreadable = out.unreadable || [];
+        /*
+          A line it could not read becomes an empty row rather than a
+          warning. He knows what the shoe is and the machine does not;
+          filling in the article and the size searches it like any other.
+        */
+        state.wanted = [
+          ...(out.wanted || []),
+          ...(out.unreadable || []).map((line) => ({ sku: "", size: "", line }))
+        ];
+        state.unreadable = [];
         drawRead();
         drawResults(out);
 
@@ -509,7 +503,10 @@
       something the engine did not read for itself.
     */
     async function runCorrected() {
-      $("paste").value = state.wanted.map((row) => `${row.sku},${row.size}`).join("\n");
+      $("paste").value = state.wanted
+        .filter((row) => row.sku && row.size)
+        .map((row) => `${row.sku},${row.size}`)
+        .join("\n");
       await run();
     }
 
@@ -562,6 +559,8 @@
         $("offerBox").hidden = false;
         $("offerText").value = text;
         $("offerText").rows = Math.max(3, text.split("\n").length);
+        // Seen even on a long answer: it used to appear above the table.
+        $("offerBox").scrollIntoView({ block: "nearest" });
 
         // Straight onto the clipboard, because the next thing he does
         // is paste it. Selecting it is the fallback where the browser
