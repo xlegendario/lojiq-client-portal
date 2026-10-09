@@ -83,6 +83,39 @@ export function parcelUpdate(parcel, update = {}, now = new Date()) {
 }
 
 /*
+ * A deal is on its way as soon as one of its parcels is.
+ *
+ * NEW - the Unfulfilled Orders Log has done this all along: AfterShip sees
+ * InTransit and the order goes to Shipped. External Sales never had it,
+ * because our own parcels are set to shipped by the WMS when we pack them.
+ * A consignor posts his own box, so nobody here packs it and nothing ever
+ * moved the deal off Ready to Ship - which also kept its parcel out of the
+ * tracking run, since that only looked at deals already shipped. Seven deals
+ * sat that way on 09-10-2026, none of them followed.
+ *
+ * One moving parcel is enough: the buyer's order is out of the door even if
+ * a second box follows tomorrow. Delivered is the other way round - every
+ * box has to arrive - and that is dealDelivery below.
+ */
+export function dealShipped(sale, parcels, now = new Date()) {
+  const moving = parcels.filter(
+    (p) => text(p.tracking_number) && ["in_transit", "delivered"].includes(text(p.status))
+  );
+
+  if (!moving.length) return null;
+  if (["shipped", "delivered", "cancelled"].includes(text(sale.shipping_status))) return null;
+
+  const dates = moving
+    .map((p) => new Date(p.shipped_at || now).getTime())
+    .filter((time) => Number.isFinite(time));
+
+  return {
+    shipping_status: "shipped",
+    shipped_at: new Date(dates.length ? Math.min(...dates) : now.getTime()).toISOString()
+  };
+}
+
+/*
  * A deal is delivered when every parcel is, and not before: a buyer who got
  * one of three boxes has not had his order. The date is the last parcel's.
  */
@@ -90,7 +123,10 @@ export function dealDelivery(sale, parcels) {
   const withTracking = parcels.filter((p) => text(p.tracking_number));
   if (!withTracking.length || !withTracking.every((p) => p.status === "delivered")) return null;
   if (sale.shipping_status === "delivered") return null;
-  if (["cancelled", "pending", "ready_to_ship"].includes(text(sale.shipping_status))) return null;
+  // "ready_to_ship" is no longer refused here: dealShipped moves the deal on
+  // first, and a parcel that reports Delivered without ever reporting
+  // InTransit must not strand the deal one step short.
+  if (["cancelled", "pending"].includes(text(sale.shipping_status))) return null;
 
   const dates = withTracking.map((p) => new Date(p.delivered_at || Date.now()).getTime());
   return { shipping_status: "delivered", delivered_at: new Date(Math.max(...dates)).toISOString() };
@@ -111,7 +147,14 @@ export function createExternalSalesTracking({ db }) {
       "shipments?select=id,tracking_number,status,carrier,tracking_checked_at,created_at,external_sale_id," +
       "external_sales!inner(deal_number,shipping_status,payment_status,shipped_at)" +
       "&tracking_number=not.is.null&status=neq.delivered" +
-      "&external_sales.shipping_status=in.(shipped,delivered)" +
+      /*
+        ready_to_ship belongs here too. A consignor posts his own box, so the
+        deal is never packed by us and never reaches "shipped" on its own -
+        and leaving it out meant the one parcel that could have said so was
+        never looked at. Now the parcel is followed from the moment it has a
+        number, and dealShipped moves the deal when it starts moving.
+      */
+      "&external_sales.shipping_status=in.(ready_to_ship,shipped,delivered)" +
       `&order=tracking_checked_at.asc.nullsfirst&limit=${Math.min(Number(limit) || 100, 500)}`
     );
 
@@ -163,20 +206,55 @@ export function createExternalSalesTracking({ db }) {
     }
 
     const delivered = [];
+    const shipped = [];
 
     for (const saleId of touchedSales) {
       const [sale] = await db.get(`external_sales?select=*&id=eq.${saleId}`);
       if (!sale) continue;
 
       const after = await db.get(`shipments?select=*&external_sale_id=eq.${saleId}`);
-      const change = dealDelivery(sale, after);
+
+      /*
+        On its way first, then arrived. Both in one pass, because a parcel
+        that is already Delivered when we first see it has to carry the deal
+        the whole way rather than stop halfway.
+      */
+      let current = sale;
+      const onItsWay = dealShipped(current, after, now);
+
+      if (onItsWay) {
+        await db.patch(`external_sales?id=eq.${current.id}`, onItsWay);
+        current = { ...current, ...onItsWay };
+        shipped.push(dealId(current));
+      }
+
+      /*
+        Delivered only once everything is actually out.
+
+        A deal can be half ours and half a consignor's. His box is a parcel
+        from the moment he hands over the number, ours only exists once the
+        WMS packs it - so "every parcel delivered" can be true while our half
+        is still on the shelf. A pair that is in no box and is not his says
+        the deal is not finished, whatever the parcels say.
+      */
+      const pairs = await db.get(
+        `external_sale_pairs?select=shipment_id,consignor_fulfillment_status&sale_id=eq.${saleId}&cancelled_at=is.null`
+      );
+
+      const stillHere = pairs.some(
+        (pair) => !text(pair.shipment_id) && !text(pair.consignor_fulfillment_status)
+      );
+
+      if (stillHere) continue;
+
+      const change = dealDelivery(current, after);
       if (!change) continue;
 
-      await db.patch(`external_sales?id=eq.${sale.id}`, change);
-      delivered.push(dealId(sale));
+      await db.patch(`external_sales?id=eq.${current.id}`, change);
+      delivered.push(dealId(current));
     }
 
-    return { updated, delivered, unknown };
+    return { updated, shipped, delivered, unknown };
   }
 
   /*

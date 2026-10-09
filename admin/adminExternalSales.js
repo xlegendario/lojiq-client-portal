@@ -833,8 +833,27 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
   async function packShipList() {
     const sales = await db.get("external_sales?select=id,deal_number,buyer_name,buyer_company&shipping_status=eq.ready_to_ship&order=deal_number.asc&limit=500");
     if (!sales.length) return [];
-    const parcels = await db.get(`shipments?select=external_sale_id,tracking_number&external_sale_id=in.(${sales.map((x) => `"${x.id}"`).join(",")})`);
+    const ids = sales.map((x) => `"${x.id}"`).join(",");
+    const parcels = await db.get(`shipments?select=external_sale_id,tracking_number&external_sale_id=in.(${ids})`);
+
+    /*
+      A deal nobody here packs does not belong on this list.
+
+      A consignor posts his own box straight to the buyer, so his pairs are
+      never in a box of ours. A deal made up of nothing but his pairs has
+      no packing for the warehouse to do, and it sat here all the same -
+      seven of them on 09-10-2026, the oldest from the end of September.
+
+      A deal that is part his and part ours stays: our half is still packed
+      here.
+    */
+    const pairs = await db.get(`external_sale_pairs?select=sale_id,consignor_fulfillment_status&cancelled_at=is.null&sale_id=in.(${ids})`);
+    const oursToPack = new Set(
+      pairs.filter((pair) => !text(pair.consignor_fulfillment_status)).map((pair) => pair.sale_id)
+    );
+
     return sales
+      .filter((sale) => oursToPack.has(sale.id))
       .map((sale) => ({
         id: sale.id,
         deal: dealId(sale),
