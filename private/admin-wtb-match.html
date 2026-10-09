@@ -276,7 +276,7 @@
         <h1>WTB Match</h1>
       </div>
 
-      <p class="lede">Paste a want-to-buy — the line out of Discord or a <code>sku,size</code> list — and see every shelf it is on.</p>
+      <p class="lede">Paste a want-to-buy — the line out of Discord, a <code>sku,size</code> list, or a screenshot straight off the clipboard — and see every shelf it is on.</p>
 
       <div class="paste-box">
         <textarea class="input paste" id="paste" rows="6" spellcheck="false"
@@ -609,10 +609,15 @@
       }
     });
 
-    $("photo").addEventListener("change", async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
+    /*
+      A screenshot, read back as the lines a person would have pasted.
 
+      Taking a screenshot and pressing paste is the whole gesture; saving it
+      to a folder first and finding it again in a file picker is not. Both
+      roads end here, and both end in the paste box so the reading is shown
+      before anything is looked up.
+    */
+    async function readPicture(file) {
       $("error").textContent = "";
       $("status").textContent = "Reading the picture…";
 
@@ -620,7 +625,7 @@
         const image = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error(`${file.name} could not be opened`));
+          reader.onerror = () => reject(new Error(`${file.name || "That picture"} could not be opened`));
           reader.readAsDataURL(file);
         });
 
@@ -630,19 +635,36 @@
           body: JSON.stringify({ image })
         });
 
-        /*
-          Into the paste box and no further. What was read is shown in the
-          correction table like any other paste, so a misread digit is seen
-          and fixed before an offer is built on it.
-        */
         $("paste").value = text;
         await run();
       } catch (err) {
         $("error").textContent = err.message;
         $("status").textContent = "";
-      } finally {
-        event.target.value = "";
       }
+    }
+
+    $("photo").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+
+      if (file) await readPicture(file);
+
+      // Cleared, so choosing the same picture again still counts as a change.
+      event.target.value = "";
+    });
+
+    /*
+      Pasted straight in. A screenshot on the clipboard arrives as a file on
+      the paste event; anything else is ordinary text and is left alone, so
+      pasting a WTB still behaves exactly as it did.
+    */
+    $("paste").addEventListener("paste", (event) => {
+      const picture = [...(event.clipboardData?.files || [])]
+        .find((file) => file.type.startsWith("image/"));
+
+      if (!picture) return;
+
+      event.preventDefault();
+      readPicture(picture);
     });
 
     $("go").addEventListener("click", run);
