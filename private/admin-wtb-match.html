@@ -217,6 +217,8 @@
     .warn-box { background: var(--wait-bg); color: var(--wait-text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 14px; }
     .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
     .empty-row td { color: var(--muted); }
+    .none-line { margin: 0 0 8px; }
+    .row-source { color: var(--muted); font-size: 12px; }
     .field-error { color: var(--red); min-height: 18px; margin: 8px 0 0; font-size: 13px; }
     .file-btn { cursor: pointer; }
   </style>
@@ -311,6 +313,7 @@
       </div>
 
       <div id="results" hidden>
+        <p class="hint none-line" id="none" hidden></p>
         <div class="filters">
           <span class="count" id="count"></span>
           <button class="btn ghost" id="offer" type="button">Copy offer text</button>
@@ -403,17 +406,19 @@
       const found = state.rows.filter((row) => row.options.length).length;
       $("count").textContent = `${found} of ${state.rows.length} asked for are on a shelf`;
 
+      const empty = state.rows.filter((row) => !row.options.length);
+
+      $("none").hidden = !empty.length;
+      $("none").textContent = empty.length
+        ? `Not on any shelf: ${empty.map((row) => `${row.sku} ${row.size}`).join(", ")}`
+        : "";
+
       $("missing").hidden = !(out.missing || []).length;
       $("missing").innerHTML = (out.missing || []).length
         ? `<strong>${out.missing.join(" and ")} could not be read just now.</strong> What is below is only what the other shelves hold, so treat a gap as unknown rather than as nothing.`
         : "";
 
-      $("resultsBody").innerHTML = state.rows.map((row) => {
-        if (!row.options.length) {
-          return `<tr class="empty-row"><td>${esc(row.sku)}</td><td>${esc(row.size)}</td><td colspan="7" class="muted">Not on any shelf</td>
-            <td class="money"><input class="input slim offer-price" inputmode="decimal" value="${esc(row.offer_price ?? "")}" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="price" aria-label="Offer price"></td>
-            <td><select class="input slim" data-offer="${esc(row.sku)}|${esc(row.size)}" data-field="vat" aria-label="VAT type">${VAT_TYPES.map((type) => `<option${type === (row.offer_vat || "") ? " selected" : ""}>${type}</option>`).join("")}</select></td></tr>`;
-        }
+      $("resultsBody").innerHTML = state.rows.filter((row) => row.options.length).map((row) => {
 
         return row.options.map((option, i) => `
           <tr>
@@ -421,7 +426,7 @@
             <td>${i === 0 ? esc(row.size) : ""}</td>
             <td>${esc(option.product_name)}</td>
             <td><span class="pill">${esc(option.source)}</span></td>
-            <td>${esc(option.seller) || "—"}</td>
+            <td>${esc(option.seller) || "—"}${option.seller_source ? `<div class="row-source">${esc(option.seller_source)}</div>` : ""}</td>
             <td class="money">${option.quantity}</td>
             <td class="money" title="${esc(option.cost_means)}">${money(option.cost)}</td>
             <td>${esc(option.vat_type) || "—"}</td>

@@ -557,7 +557,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
    * no calls of its own.
    */
   mountWtbMatch(router, {
-    store: createWtbMatchStore({ inventory, consignmentStock, partnerStock }),
+    store: createWtbMatchStore({ inventory, consignmentStock, partnerStock, airtable }),
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-wtb-match.html") : ""
   });
 

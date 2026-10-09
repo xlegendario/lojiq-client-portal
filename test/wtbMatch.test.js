@@ -418,3 +418,48 @@ test("the offer route writes the message, so the screen never has to", async () 
 
   assert.equal(answered.text, "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0");
 });
+
+test("a seller who cannot ship today says so on the pair", async () => {
+  let asked = 0;
+
+  const airtable = {
+    select: async (table, options) => {
+      asked += 1;
+      assert.equal(table, "Sellers Database");
+      assert.match(options.formula, /Source/, "only the handful that have one");
+      return { records: [{ id: "recSUP", fields: { Source: "EU Supplier" } }] };
+    }
+  };
+
+  const store = createWtbMatchStore({
+    ...stores({
+      consignment: [
+        { id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSUP" },
+        { id: "c2", sku: "X1", size: "42", quantity: 1, ask: 140, seller_id: "SE-00035", seller_record_id: "recNORMAL" }
+      ]
+    }),
+    airtable
+  });
+
+  const out = await store.search("X1,42");
+  const [supplier, ordinary] = out.rows[0].options;
+
+  assert.equal(supplier.seller_source, "EU Supplier");
+  assert.equal(ordinary.seller_source, "", "an ordinary consignor has nothing to say here");
+
+  // Eleven of nine hundred sellers carry one, so it is read once and held.
+  await store.search("X1,42");
+  assert.equal(asked, 1);
+});
+
+test("a seller lookup that fails does not hold up the answer", async () => {
+  const store = createWtbMatchStore({
+    ...stores({ consignment: [{ id: "c1", sku: "X1", size: "42", quantity: 1, ask: 129, seller_id: "SE-00930", seller_record_id: "recSUP" }] }),
+    airtable: { select: async () => { throw new Error("Airtable timed out"); } }
+  });
+
+  const out = await store.search("X1,42");
+
+  assert.equal(out.rows[0].options.length, 1, "the stock is still the stock");
+  assert.equal(out.rows[0].options[0].seller_source, "");
+});

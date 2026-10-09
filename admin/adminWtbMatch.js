@@ -21,7 +21,35 @@ const text = (value) => (value === null || value === undefined ? "" : String(val
 /*
  * deps: the three stock stores, as adminRouter already builds them.
  */
-export function createWtbMatchStore({ inventory, consignmentStock, partnerStock }) {
+export function createWtbMatchStore({ inventory, consignmentStock, partnerStock, airtable = null, cacheMs = 300_000 }) {
+  /*
+   * What kind of seller a pair is coming from.
+   *
+   * Most consignors have nothing in Source and their pair is simply with
+   * them. The handful that do - EU Supplier, Asia, Marketplace - do not ship
+   * the same day, and the person making an offer has to know that before he
+   * promises anything. Eleven of nine hundred sellers carry one, so the whole
+   * list is read once and held.
+   */
+  let sellers = { at: 0, promise: null };
+
+  function sellerSources() {
+    if (!airtable) return Promise.resolve(new Map());
+
+    if (!sellers.promise || Date.now() - sellers.at > cacheMs) {
+      sellers = {
+        at: Date.now(),
+        promise: airtable
+          .select("Sellers Database", { fields: ["Source"], formula: "{Source} != ''", pageSize: 100 })
+          .then((result) => new Map((result?.records || []).map((record) => [record.id, text(record.fields?.Source)])))
+      };
+
+      sellers.promise.catch(() => { sellers = { at: 0, promise: null }; });
+    }
+
+    return sellers.promise;
+  }
+
   async function tryShelf(name, load) {
     try {
       return { name, rows: (await load()) || [], error: "" };
@@ -46,6 +74,15 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock 
       consignment: consignment.rows,
       partner: partner.rows
     });
+
+    // A seller who cannot ship today says so on the pair, not in someone's
+    // head. A lookup that fails leaves it blank rather than holding up the
+    // whole answer.
+    const sources = await sellerSources().catch(() => new Map());
+
+    for (const option of all) {
+      option.seller_source = sources.get(option.seller_record_id) || "";
+    }
 
     const rows = matchStock(wanted, all);
 

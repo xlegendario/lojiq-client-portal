@@ -280,6 +280,10 @@ export const consignmentOption = (row) => ({
   size: sizeKey(row.size),
   product_name: text(row.product_name),
   seller: text(row.seller_id),
+  seller_record_id: text(row.seller_record_id),
+  // Filled in by the store, which is the only thing here that can
+  // reach Airtable. Empty for an ordinary consignor.
+  seller_source: "",
   quantity: Number(row.quantity) || 0,
   cost: money(row.ask),
   cost_means: "what the consignor asks",
@@ -301,6 +305,10 @@ export const partnerOption = (row) => ({
   size: sizeKey(row.size),
   product_name: text(row.product_name),
   seller: text(row.seller_id),
+  seller_record_id: text(row.seller_record_id),
+  // Filled in by the store, which is the only thing here that can
+  // reach Airtable. Empty for an ordinary consignor.
+  seller_source: "",
   quantity: 1,
   cost: money(row.partner_price),
   cost_means: "what the partner charges",
