@@ -55,7 +55,18 @@ app.get("/store-signup", (_req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.json());
+/*
+ * One parser for the whole service, at Express's own 100kb, and that is
+ * right for every route here but one: a pasted screenshot is megabytes, and
+ * this would refuse it with a bare 413 long before the route that knows what
+ * to do with it ever runs. That path brings its own parser, so it is left
+ * alone here.
+ */
+const OWN_PARSER = ["/api/admin/wtb-match/photo"];
+
+app.use((req, res, next) => (
+  OWN_PARSER.includes(req.path) ? next() : express.json()(req, res, next)
+));
 app.use(express.urlencoded({ extended: false }));
 app.use(compression());
 
