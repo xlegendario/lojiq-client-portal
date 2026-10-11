@@ -323,6 +323,9 @@
     .buyer-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; max-height: 320px; overflow-y: auto; }
     .buyer-row { text-align: left; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
     .buyer-form .field { margin-bottom: 12px; }
+    .buyer-select { width: 100%; min-height: 52px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); font-size: 17px; color: var(--strong); margin-bottom: 8px; }
+    .buyer-select:disabled { color: var(--muted); }
+    .buyer-sub { margin: 0 2px 10px; }
     .buyer-form select { min-height: 52px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; color: var(--text); width: 100%; }
     .field.bad input, .field.bad select { border-color: var(--red); }
     .field.bad label { color: var(--red); }
@@ -541,6 +544,8 @@
         search_buyer: "Search your buyers",
         new_buyer: "+ New buyer",
         no_buyers: "You have no buyers yet. Add one.",
+        choose_buyer: "Choose a buyer…",
+        no_buyers_yet: "No buyers yet",
         f_company: "Company name",
         f_name: "Contact name",
         f_email: "E-mail (the invoice goes here)",
@@ -668,6 +673,8 @@
         search_buyer: "搜索您的买家",
         new_buyer: "+ 新买家",
         no_buyers: "您还没有买家，请添加一个。",
+        choose_buyer: "选择买家…",
+        no_buyers_yet: "还没有买家",
         f_company: "公司名称",
         f_name: "联系人",
         f_email: "邮箱（发票发到这里）",
@@ -1348,16 +1355,9 @@
     $("sendSearch").addEventListener("input", renderSend);
 
     $("view-new").addEventListener("click", (event) => {
-      const pickBuyer = event.target.closest("[data-inv-buyer]");
       const action = event.target.closest("[data-inv]")?.dataset.inv;
 
-      if (pickBuyer) {
-        inv.buyerId = pickBuyer.dataset.invBuyer;
-        inv.error = "";
-      } else if (action === "change") {
-        inv.buyerId = "";
-        inv.view = "pick";
-      } else if (action === "new") {
+      if (action === "new") {
         inv.view = "new";
         inv.bad = [];
         inv.error = "";
@@ -1383,7 +1383,11 @@
     });
 
     $("view-new").addEventListener("change", (event) => {
-      if (event.target.id === "invOn") {
+      if (event.target.id === "invBuyer") {
+        inv.buyerId = event.target.value;
+        inv.error = "";
+        renderSend();
+      } else if (event.target.id === "invOn") {
         inv.on = event.target.checked;
         inv.error = "";
         renderSend();
@@ -1397,9 +1401,6 @@
         inv.price = event.target.value;
         inv.error = "";
         updateInvoiceTotals();
-      } else if (event.target.id === "invBuyerSearch") {
-        inv.query = event.target.value;
-        $("invBuyerList").innerHTML = buyerList();
       } else if (event.target.dataset.invField) {
         inv.form[event.target.dataset.invField] = event.target.value;
       }
@@ -1452,7 +1453,6 @@
         const data = await api("/api/partner/buyers");
         inv.buyers = data.buyers || [];
         inv.countries = data.countries || [];
-        if (!inv.buyers.length) inv.view = "new";
       } catch (err) {
         if (err.message !== "not_signed_in") inv.error = t("try_again");
         inv.buyers = inv.buyers || [];
@@ -1497,30 +1497,18 @@
       if (inv.view === "same") return sameSection();
       if (inv.view === "new") return buyerForm();
 
+      // A dropdown of his buyers (the phone's own picker), what the chosen
+      // one is under it, and "+ New buyer" for one that is not in it yet.
       const chosen = inv.buyers.find((b) => b.id === inv.buyerId);
-      if (chosen) {
-        return `
-          <div class="buyer-chosen">
-            <div><b>${esc(chosen.label)}</b><small>${esc(buyerSub(chosen))}</small></div>
-            <button type="button" class="link" data-inv="change">${esc(t("change"))}</button>
-          </div>`;
-      }
+      const options = inv.buyers.length
+        ? `<option value="">${esc(t("choose_buyer"))}</option>` +
+          inv.buyers.map((b) => `<option value="${esc(b.id)}"${b.id === inv.buyerId ? " selected" : ""}>${esc(b.label)}</option>`).join("")
+        : `<option value="">${esc(t("no_buyers_yet"))}</option>`;
 
       return `
-        <input class="search" id="invBuyerSearch" type="search" autocomplete="off" placeholder="${esc(t("search_buyer"))}" value="${esc(inv.query)}">
-        <div id="invBuyerList">${buyerList()}</div>
+        <select class="buyer-select" id="invBuyer"${inv.buyers.length ? "" : " disabled"}>${options}</select>
+        ${chosen ? `<p class="hint buyer-sub">${esc(buyerSub(chosen))}</p>` : ""}
         <button type="button" class="btn file-btn" data-inv="new">${esc(t("new_buyer"))}</button>`;
-    }
-
-    function buyerList() {
-      const q = inv.query.trim().toLowerCase();
-      const list = inv.buyers.filter((b) => !q || `${b.label} ${b.email} ${b.city}`.toLowerCase().includes(q));
-
-      if (!inv.buyers.length) return `<p class="hint">${esc(t("no_buyers"))}</p>`;
-      if (!list.length) return `<p class="hint">${esc(t("no_match"))}</p>`;
-
-      return `<div class="buyer-list">${list.map((b) => `
-        <button type="button" class="buyer-row" data-inv-buyer="${esc(b.id)}"><b>${esc(b.label)}</b><small>${esc(buyerSub(b))}</small></button>`).join("")}</div>`;
     }
 
     function buyerForm() {
@@ -1542,7 +1530,7 @@
           </div>
           <p class="hint">${esc(t("name_hint"))}</p>
           <div class="actions">
-            ${inv.buyers?.length ? `<button class="btn" type="button" data-inv="cancel-new">${esc(t("cancel"))}</button>` : ""}
+            <button class="btn" type="button" data-inv="cancel-new">${esc(t("cancel"))}</button>
             <button class="btn primary" type="button" data-inv="save-buyer"${inv.saving ? " disabled" : ""}>${esc(inv.saving ? t("sending") : t("save_buyer"))}</button>
           </div>
         </div>`;
