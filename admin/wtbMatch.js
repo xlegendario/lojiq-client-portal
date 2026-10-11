@@ -799,8 +799,28 @@ export function offerLine({ sku, size, line = "", product_name = "", price, vat 
     .trim();
 }
 
-// The whole offer, in the order it was asked for.
-export const offerText = (rows = []) => rows.map(offerLine).filter(Boolean).join("\n");
+/*
+ * The message, as it is pasted into the chat.
+ *
+ * A bare block of prices is a quote with nobody saying it; the line above
+ * makes it an offer from a person, and the line below says the thing that
+ * is true of every one of these pairs - most of them are sitting with a
+ * consignor, and a consignor can have sold it somewhere else this morning.
+ * Saying so once at the bottom is better than saying it per pair, and far
+ * better than finding out afterwards.
+ */
+export const OFFER_OPENING = "Hello, I can offer the following:";
+export const OFFER_CLOSING = "Please note that availability still has to be confirmed for each pair.";
+
+// The whole offer, in the order the table is in.
+export function offerText(rows = []) {
+  const lines = rows.map(offerLine).filter(Boolean);
+
+  // Nothing priced is no message at all, not a greeting with a gap in it.
+  if (!lines.length) return "";
+
+  return [OFFER_OPENING, "", ...lines, "", OFFER_CLOSING].join("\n");
+}
 
 /* ---------------- when a pair can actually leave ---------------- */
 

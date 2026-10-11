@@ -366,7 +366,9 @@ test("a line with no article at all is carried on its name", () => {
 
 /* ---------------- the offer that goes back to the buyer ---------------- */
 
-const { offerLine, offerText, productFromLine, VAT_TYPES } = await import("../admin/wtbMatch.js");
+const {
+  offerLine, offerText, productFromLine, VAT_TYPES, OFFER_OPENING, OFFER_CLOSING
+} = await import("../admin/wtbMatch.js");
 
 test("an offer line is the buyer's own words with a price on the end", () => {
   assert.equal(
@@ -402,17 +404,36 @@ test("a pair with no price on it is not an offer", () => {
   assert.equal(offerLine({ sku: "XA1234", size: "42", line: "XA1234 - shoe 42", price: "nonsense" }), "");
 });
 
-test("the block that is pasted holds only what was priced, in the order asked", () => {
+test("the block that is pasted holds only what was priced, in the order shown", () => {
   const text = offerText([
     { sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: 130, vat: "VAT0" },
     { sku: "AA1234", size: "42", line: "AA1234 - something 42" },
     { sku: "DD9335-641", size: "38", line: "DD9335-641 - Jordan 1 38", price: 110, vat: "Margin" }
   ]);
 
+  // A greeting over it and the one thing that is true of every pair under
+  // it, so what he pastes is a message and not a bare block of prices.
   assert.deepEqual(text.split("\n"), [
+    OFFER_OPENING,
+    "",
     "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0",
-    "DD9335-641 - Jordan 1 38 €110 Margin"
+    "DD9335-641 - Jordan 1 38 €110 Margin",
+    "",
+    OFFER_CLOSING
   ]);
+});
+
+test("nothing priced is no message at all, not a greeting with a gap in it", () => {
+  assert.equal(offerText([{ sku: "AA1234", size: "42", line: "AA1234 - something 42" }]), "");
+  assert.equal(offerText([]), "");
+});
+
+test("the wording says who is offering and what is not promised yet", () => {
+  // Most of these pairs sit with a consignor, and a consignor can have sold
+  // one somewhere else this morning. Said once, at the bottom.
+  assert.match(OFFER_OPENING, /offer/i);
+  assert.match(OFFER_CLOSING, /availability/i);
+  assert.match(OFFER_CLOSING, /each pair/i);
 });
 
 test("the VAT types are the three the stock actually uses", () => {
@@ -440,7 +461,13 @@ test("the offer route writes the message, so the screen never has to", async () 
     { json: (body) => { answered = body; } }
   );
 
-  assert.equal(answered.text, "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0");
+  assert.deepEqual(answered.text.split("\n"), [
+    OFFER_OPENING,
+    "",
+    "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0",
+    "",
+    OFFER_CLOSING
+  ]);
 });
 
 test("a seller who cannot ship today says so on the pair", async () => {
