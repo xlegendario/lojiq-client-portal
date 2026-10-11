@@ -299,6 +299,40 @@
     .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
     .track { color: var(--primary-soft); text-decoration: none; word-break: break-all; text-align: right; }
 
+    /* ---------- invoice ---------- */
+
+    .card.invoice { margin-top: 14px; }
+    .check { display: flex; gap: 12px; align-items: flex-start; padding: 14px 12px; cursor: pointer; }
+    .check input { width: 24px; height: 24px; margin: 1px 0 0; flex: none; accent-color: var(--primary); }
+    .check b { display: block; color: var(--strong); font-size: 16px; }
+    .check small { display: block; color: var(--muted); font-size: 14px; margin-top: 2px; }
+    .inv-step { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; font-weight: 600; color: var(--strong); }
+    .inv-step + * { margin-bottom: 4px; }
+    .step-n { width: 24px; height: 24px; border-radius: 50%; background: var(--primary-tint); color: var(--primary-soft); font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+    .card-body > .inv-step:not(:first-child) { margin-top: 18px; }
+    .price-field { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 0 14px; }
+    .price-field input { flex: 1; min-width: 0; min-height: 52px; border: 0; background: none; font-size: 22px; font-weight: 600; color: var(--strong); outline: none; }
+    .price-field span { color: var(--muted); font-size: 18px; }
+    .price-field .per { font-size: 14px; white-space: nowrap; }
+    .buyer-chosen { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--panel-2); border-radius: 12px; padding: 12px 14px; }
+    .buyer-chosen b, .buyer-row b { display: block; color: var(--strong); }
+    .buyer-chosen small, .buyer-row small { display: block; color: var(--muted); font-size: 13px; word-break: break-word; }
+    .buyer-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; max-height: 320px; overflow-y: auto; }
+    .buyer-row { text-align: left; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+    .buyer-form .field { margin-bottom: 12px; }
+    .buyer-form select { min-height: 52px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; color: var(--text); width: 100%; }
+    .field.bad input, .field.bad select { border-color: var(--red); }
+    .field.bad label { color: var(--red); }
+    .same-box { display: flex; flex-direction: column; gap: 10px; }
+    .same-box > b { color: var(--strong); font-size: 17px; }
+    .total .receive b { color: #4ADE9A; font-size: 22px; }
+    .stats .buyer { color: var(--text); }
+    .pills { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+    .pill.inv { background: rgba(102, 179, 255, 0.12); color: var(--primary-soft); font-weight: 500; font-size: 12px; }
+    .pill.inv.good { background: rgba(22, 179, 100, 0.16); color: #4ADE9A; }
+    .pill.inv.wait { background: rgba(245, 158, 11, 0.16); color: #FBBF4C; }
+    a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+
     .tabbar {
       position: fixed;
       left: 0;
@@ -493,7 +527,54 @@
         no_tracking: "Not yet",
         shipped_on: "Sent on",
         fee_paid: "paid",
-        fee_open: "to pay"
+        fee_open: "to pay",
+        inv_generate: "Make an invoice for the buyer",
+        inv_generate_hint: "We email the invoice to your buyer.",
+        invoice_one_product: "An invoice is for one product. Remove the other products and send them in a separate forward.",
+        inv_buyer: "Buyer",
+        inv_price: "Price per pair (the buyer pays this)",
+        per_pair: "per pair",
+        change: "Change",
+        search_buyer: "Search your buyers",
+        new_buyer: "+ New buyer",
+        no_buyers: "You have no buyers yet. Add one.",
+        f_company: "Company name",
+        f_name: "Contact name",
+        f_email: "E-mail (the invoice goes here)",
+        f_vat: "VAT number (if they have one)",
+        f_address: "Street and number",
+        f_address2: "Address line 2",
+        f_zip: "Postcode",
+        f_city: "City",
+        f_country: "Country",
+        choose_country: "Choose a country",
+        name_hint: "Fill in the company name, or the contact name, or both.",
+        save_buyer: "Save buyer",
+        cancel: "Cancel",
+        buyer_missing: "Fill in the fields in red.",
+        buyer_refused: "This buyer could not be saved. Check the e-mail and the country.",
+        same_title: "Is this the same buyer?",
+        same_yes: "Yes, use this buyer",
+        same_no: "No, someone else",
+        sale_total: "Buyer pays",
+        you_receive: "You receive",
+        inv_need_buyer: "Choose the buyer.",
+        inv_need_price: "Fill in the price per pair.",
+        invoice_no_price: "Fill in the price per pair.",
+        invoice_no_buyer: "Choose the buyer.",
+        invoice_price_below_fee: "The price per pair must be higher than the forwarding fee.",
+        invoice_price_too_high: "This price looks too high. Please check it.",
+        invoice_unavailable: "Invoices are not available right now. Try again later.",
+        done_invoice: "Invoice for {buyer}: {total}. We email it to the buyer.",
+        done_receive: "You receive {amount} when the buyer has paid.",
+        done_hold: "We check the buyer first, then we send the invoice.",
+        invoice: "Invoice",
+        download: "Download",
+        buyer: "Buyer",
+        st_inv_preparing: "Invoice being made",
+        st_inv_waiting: "Waiting for buyer payment",
+        st_inv_to_pay: "Buyer paid · we pay you",
+        st_inv_paid: "Paid to you"
       },
       zh: {
         login_title: "您在 Lojiq 的库存",
@@ -573,7 +654,54 @@
         no_tracking: "暂无",
         shipped_on: "发出日期",
         fee_paid: "已付",
-        fee_open: "待付"
+        fee_open: "待付",
+        inv_generate: "为买家开发票",
+        inv_generate_hint: "我们会把发票通过邮件发给您的买家。",
+        invoice_one_product: "一张发票只能有一款商品。请删除其他商品，另外单独发货。",
+        inv_buyer: "买家",
+        inv_price: "每双价格（买家支付）",
+        per_pair: "每双",
+        change: "更换",
+        search_buyer: "搜索您的买家",
+        new_buyer: "+ 新买家",
+        no_buyers: "您还没有买家，请添加一个。",
+        f_company: "公司名称",
+        f_name: "联系人",
+        f_email: "邮箱（发票发到这里）",
+        f_vat: "增值税号（如有）",
+        f_address: "街道和门牌号",
+        f_address2: "地址第二行",
+        f_zip: "邮编",
+        f_city: "城市",
+        f_country: "国家",
+        choose_country: "选择国家",
+        name_hint: "请填写公司名称或联系人，或两者都填。",
+        save_buyer: "保存买家",
+        cancel: "取消",
+        buyer_missing: "请填写红色的栏位。",
+        buyer_refused: "无法保存该买家。请检查邮箱和国家。",
+        same_title: "这是同一个买家吗？",
+        same_yes: "是，用这个买家",
+        same_no: "不是，是另一个买家",
+        sale_total: "买家支付",
+        you_receive: "您收到",
+        inv_need_buyer: "请选择买家。",
+        inv_need_price: "请填写每双价格。",
+        invoice_no_price: "请填写每双价格。",
+        invoice_no_buyer: "请选择买家。",
+        invoice_price_below_fee: "每双价格必须高于转运服务费。",
+        invoice_price_too_high: "价格好像太高了，请检查。",
+        invoice_unavailable: "现在无法开发票，请稍后再试。",
+        done_invoice: "开给 {buyer} 的发票：{total}。我们会邮件发送给买家。",
+        done_receive: "买家付款后，您将收到 {amount}。",
+        done_hold: "我们先核对买家，然后发送发票。",
+        invoice: "发票",
+        download: "下载",
+        buyer: "买家",
+        st_inv_preparing: "发票准备中",
+        st_inv_waiting: "等待买家付款",
+        st_inv_to_pay: "买家已付款 · 我们将付款给您",
+        st_inv_paid: "已付给您"
       }
     };
 
@@ -943,6 +1071,7 @@
       const notice = send.notice ? `<div class="error">${esc(send.notice)}</div>` : "";
 
       $("sendBody").innerHTML = notice + body;
+      if (send.step === "check" && typeof updateInvoiceTotals === "function") updateInvoiceTotals();
       $("sendSearchWrap").hidden = send.step !== "pick";
       renderSendBar();
     }
@@ -1024,6 +1153,8 @@
       return `
         <div class="list">${rows.join("")}</div>
 
+        ${invoiceBlock()}
+
         <details class="card extra" id="sendExtra"${send.extraOpen || send.label || send.tracking ? " open" : ""}>
           <summary>${esc(t("label_optional"))}</summary>
           <div class="card-body">
@@ -1035,10 +1166,7 @@
           </div>
         </details>
 
-        <div class="total">
-          <div><span>${esc(t("pairs_total"))}</span><b>${pairs}</b></div>
-          <div><span>${esc(t("fee_total"))}</span><b>${esc(money(fee))}</b></div>
-        </div>
+        <div class="total">${invoiceTotals(pairs, fee)}</div>
 
         <div class="actions">
           <button class="btn" type="button" data-send="back">${esc(t("back"))}</button>
@@ -1054,6 +1182,13 @@
           <h3>${esc(r.display_id || "")}</h3>
           <p>${esc(r.pairs === 1 ? t("done_pair") : t("done_pairs").replace("{n}", r.pairs || 0))}</p>
           <p class="muted">${esc(t(r.shipping_status === "ready_to_ship" ? "done_ready" : "done_waiting"))}</p>
+          ${r.invoice && r.invoice.total ? `
+            <div class="total">
+              <div><span>${esc(t("sale_total"))}</span><b>${esc(money(r.invoice.total))}</b></div>
+              <div class="receive"><span>${esc(t("you_receive"))}</span><b>${esc(money(r.invoice.you_receive))}</b></div>
+            </div>
+            <p>${esc(t(r.invoice.status === "on_hold" ? "done_hold" : "done_invoice").replace("{buyer}", r.buyer).replace("{total}", money(r.invoice.total)))}</p>
+            <p class="muted">${esc(t("done_receive").replace("{amount}", money(r.invoice.you_receive)))}</p>` : ""}
         </div>
         <div class="actions">
           <button class="btn" type="button" data-send="again">${esc(t("send_more"))}</button>
@@ -1078,6 +1213,14 @@
         return { sku, size, qty };
       });
 
+      const problem = invoiceProblem();
+      if (problem) {
+        inv.error = problem;
+        renderSend();
+        $("invPrice")?.closest(".card")?.scrollIntoView({ block: "center" });
+        return;
+      }
+
       send.busy = true;
       send.notice = "";
       send.tracking = $("sendTracking")?.value.trim() || "";
@@ -1086,10 +1229,16 @@
       try {
         const data = await api("/api/partner/forwards", {
           method: "POST",
-          body: { lines, tracking: send.tracking, label: send.label?.dataUrl || "" }
+          body: {
+            lines,
+            tracking: send.tracking,
+            label: send.label?.dataUrl || "",
+            invoice: inv.on ? { buyer_id: inv.buyerId, price_per_pair: parsePrice(inv.price) } : undefined
+          }
         });
 
-        send.result = data.forward;
+        send.result = { ...data.forward, buyer: inv.buyers?.find((b) => b.id === inv.buyerId)?.label || "" };
+        resetInvoice();
         send.step = "done";
         send.picked.clear();
         send.label = null;
@@ -1100,6 +1249,10 @@
       } catch (err) {
         if (err.message === "not_signed_in") return;
         send.notice = t(err.message in WORDS.en ? err.message : "try_again");
+        if (err.message.startsWith("invoice_")) {
+          inv.error = send.notice;
+          send.notice = "";
+        }
         if (err.message === "pairs_gone") {
           send.step = "pick";
           send.busy = false;
@@ -1191,6 +1344,64 @@
 
     $("sendSearch").addEventListener("input", renderSend);
 
+    $("view-new").addEventListener("click", (event) => {
+      const pickBuyer = event.target.closest("[data-inv-buyer]");
+      const action = event.target.closest("[data-inv]")?.dataset.inv;
+
+      if (pickBuyer) {
+        inv.buyerId = pickBuyer.dataset.invBuyer;
+        inv.error = "";
+      } else if (action === "change") {
+        inv.buyerId = "";
+        inv.view = "pick";
+      } else if (action === "new") {
+        inv.view = "new";
+        inv.bad = [];
+        inv.error = "";
+      } else if (action === "cancel-new") {
+        inv.view = "pick";
+        inv.bad = [];
+        inv.error = "";
+      } else if (action === "save-buyer") {
+        return saveBuyer(false);
+      } else if (action === "same-yes") {
+        inv.buyerId = inv.same.id;
+        inv.view = "pick";
+        inv.form = {};
+        inv.same = null;
+      } else if (action === "same-no") {
+        inv.view = "new";
+        return saveBuyer(true);
+      } else {
+        return;
+      }
+
+      renderSend();
+    });
+
+    $("view-new").addEventListener("change", (event) => {
+      if (event.target.id === "invOn") {
+        inv.on = event.target.checked;
+        inv.error = "";
+        renderSend();
+      } else if (event.target.dataset.invField) {
+        inv.form[event.target.dataset.invField] = event.target.value;
+      }
+    });
+
+    $("view-new").addEventListener("input", (event) => {
+      if (event.target.id === "invPrice") {
+        inv.price = event.target.value;
+        inv.error = "";
+        updateInvoiceTotals();
+      } else if (event.target.id === "invBuyerSearch") {
+        inv.query = event.target.value;
+        $("invBuyerList").innerHTML = buyerList();
+      } else if (event.target.dataset.invField) {
+        inv.form[event.target.dataset.invField] = event.target.value;
+      }
+    });
+
     // The page is redrawn on every tap; keep what was typed and what was opened.
     $("view-new").addEventListener("input", (event) => {
       if (event.target.id === "sendTracking") send.tracking = event.target.value.trim();
@@ -1198,6 +1409,226 @@
     $("view-new").addEventListener("toggle", (event) => {
       if (event.target.id === "sendExtra") send.extraOpen = event.target.open;
     }, true);
+
+    /* ---------- invoice on a forward ---------- */
+
+    const inv = { on: false, buyerId: "", price: "", buyers: null, countries: [], view: "pick", query: "", form: {}, bad: [], same: null, error: "", saving: false, loading: false };
+
+    const BUYER_FIELDS = [
+      ["company_name", "f_company", false, "organization"],
+      ["full_name", "f_name", false, "name"],
+      ["email", "f_email", true, "email"],
+      ["vat_id", "f_vat", false, "off"],
+      ["address", "f_address", true, "address-line1"],
+      ["address_line_2", "f_address2", false, "address-line2"],
+      ["zipcode", "f_zip", true, "postal-code"],
+      ["city", "f_city", true, "address-level2"]
+    ];
+
+    const pickedSkus = () => new Set([...send.picked.keys()].map((key) => key.split("|")[0]));
+    const parsePrice = (value) => {
+      const n = Number(String(value || "").trim().replace(",", "."));
+      return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+    };
+    const buyerSub = (b) => [b.email, b.city, b.country].filter(Boolean).join(" · ");
+
+    // The highest fee among the pairs picked: the price has to be above it.
+    function highestFee() {
+      let high = 0;
+      for (const [key, qty] of send.picked) {
+        const [sku, size] = key.split("|");
+        for (const fee of (sizeEntry(sku, size)?.fees || []).slice(0, qty)) high = Math.max(high, fee);
+      }
+      return high;
+    }
+
+    async function loadBuyers() {
+      if (inv.loading || inv.buyers) return;
+      inv.loading = true;
+      try {
+        const data = await api("/api/partner/buyers");
+        inv.buyers = data.buyers || [];
+        inv.countries = data.countries || [];
+        if (!inv.buyers.length) inv.view = "new";
+      } catch (err) {
+        if (err.message !== "not_signed_in") inv.error = t("try_again");
+        inv.buyers = inv.buyers || [];
+      } finally {
+        inv.loading = false;
+        renderSend();
+      }
+    }
+
+    function invoiceBlock() {
+      const head = `
+        <label class="check">
+          <input type="checkbox" id="invOn"${inv.on ? " checked" : ""}>
+          <span><b>${esc(t("inv_generate"))}</b><small>${esc(t("inv_generate_hint"))}</small></span>
+        </label>`;
+
+      if (!inv.on) return `<div class="card invoice">${head}</div>`;
+      if (pickedSkus().size > 1) return `<div class="card invoice">${head}<div class="card-body"><div class="error">${esc(t("invoice_one_product"))}</div></div></div>`;
+
+      return `
+        <div class="card invoice">${head}
+          <div class="card-body">
+            <div class="inv-step"><span class="step-n">1</span>${esc(t("inv_buyer"))}</div>
+            ${buyerSection()}
+            <div class="inv-step"><span class="step-n">2</span>${esc(t("inv_price"))}</div>
+            <div class="price-field">
+              <span>€</span>
+              <input id="invPrice" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(inv.price)}">
+              <span class="per">${esc(t("per_pair"))}</span>
+            </div>
+            ${inv.error ? `<div class="error">${esc(inv.error)}</div>` : ""}
+          </div>
+        </div>`;
+    }
+
+    function buyerSection() {
+      if (inv.buyers === null) {
+        loadBuyers();
+        return `<div class="note">${esc(t("loading"))}</div>`;
+      }
+
+      if (inv.view === "same") return sameSection();
+      if (inv.view === "new") return buyerForm();
+
+      const chosen = inv.buyers.find((b) => b.id === inv.buyerId);
+      if (chosen) {
+        return `
+          <div class="buyer-chosen">
+            <div><b>${esc(chosen.label)}</b><small>${esc(buyerSub(chosen))}</small></div>
+            <button type="button" class="link" data-inv="change">${esc(t("change"))}</button>
+          </div>`;
+      }
+
+      return `
+        <input class="search" id="invBuyerSearch" type="search" autocomplete="off" placeholder="${esc(t("search_buyer"))}" value="${esc(inv.query)}">
+        <div id="invBuyerList">${buyerList()}</div>
+        <button type="button" class="btn file-btn" data-inv="new">${esc(t("new_buyer"))}</button>`;
+    }
+
+    function buyerList() {
+      const q = inv.query.trim().toLowerCase();
+      const list = inv.buyers.filter((b) => !q || `${b.label} ${b.email} ${b.city}`.toLowerCase().includes(q));
+
+      if (!inv.buyers.length) return `<p class="hint">${esc(t("no_buyers"))}</p>`;
+      if (!list.length) return `<p class="hint">${esc(t("no_match"))}</p>`;
+
+      return `<div class="buyer-list">${list.map((b) => `
+        <button type="button" class="buyer-row" data-inv-buyer="${esc(b.id)}"><b>${esc(b.label)}</b><small>${esc(buyerSub(b))}</small></button>`).join("")}</div>`;
+    }
+
+    function buyerForm() {
+      const field = ([name, word, required, auto]) => `
+        <div class="field${inv.bad.includes(name) ? " bad" : ""}">
+          <label for="inv_${name}">${esc(t(word))}${required ? " *" : ""}</label>
+          <input id="inv_${name}" data-inv-field="${name}" autocomplete="${auto}" value="${esc(inv.form[name] || "")}"${name === "email" ? ' type="email" inputmode="email" autocapitalize="off"' : ""}>
+        </div>`;
+
+      return `
+        <div class="buyer-form">
+          ${BUYER_FIELDS.map(field).join("")}
+          <div class="field${inv.bad.includes("country") ? " bad" : ""}">
+            <label for="invCountry">${esc(t("f_country"))} *</label>
+            <select id="invCountry" data-inv-field="country">
+              <option value="">${esc(t("choose_country"))}</option>
+              ${inv.countries.map((c) => `<option${inv.form.country === c ? " selected" : ""}>${esc(c)}</option>`).join("")}
+            </select>
+          </div>
+          <p class="hint">${esc(t("name_hint"))}</p>
+          <div class="actions">
+            ${inv.buyers?.length ? `<button class="btn" type="button" data-inv="cancel-new">${esc(t("cancel"))}</button>` : ""}
+            <button class="btn primary" type="button" data-inv="save-buyer"${inv.saving ? " disabled" : ""}>${esc(inv.saving ? t("sending") : t("save_buyer"))}</button>
+          </div>
+        </div>`;
+    }
+
+    function sameSection() {
+      return `
+        <div class="same-box">
+          <b>${esc(t("same_title"))}</b>
+          <div class="buyer-chosen"><div><b>${esc(inv.same.label)}</b><small>${esc(buyerSub(inv.same))}</small></div></div>
+          <div class="actions">
+            <button class="btn" type="button" data-inv="same-no">${esc(t("same_no"))}</button>
+            <button class="btn primary" type="button" data-inv="same-yes">${esc(t("same_yes"))}</button>
+          </div>
+        </div>`;
+    }
+
+    function missingFields() {
+      const f = inv.form;
+      const bad = [];
+      if (!String(f.company_name || "").trim() && !String(f.full_name || "").trim()) bad.push("company_name", "full_name");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(f.email || "").trim())) bad.push("email");
+      for (const name of ["address", "zipcode", "city", "country"]) if (!String(f[name] || "").trim()) bad.push(name);
+      return bad;
+    }
+
+    async function saveBuyer(confirmNew = false) {
+      inv.bad = missingFields();
+      inv.error = inv.bad.length ? t("buyer_missing") : "";
+      if (inv.bad.length) return renderSend();
+
+      inv.saving = true;
+      renderSend();
+
+      try {
+        const data = await api("/api/partner/buyers", { method: "POST", body: { ...inv.form, confirm_new: confirmNew } });
+
+        if (data.same) {
+          inv.same = data.same;
+          inv.view = "same";
+        } else {
+          inv.buyers = [...inv.buyers.filter((b) => b.id !== data.buyer.id), data.buyer];
+          inv.buyerId = data.buyer.id;
+          inv.view = "pick";
+          inv.form = {};
+        }
+      } catch (err) {
+        if (err.message !== "not_signed_in") inv.error = t(err.message in WORDS.en ? err.message : "try_again");
+      } finally {
+        inv.saving = false;
+        renderSend();
+      }
+    }
+
+    // Live, without redrawing the page (that would close the phone keyboard).
+    function updateInvoiceTotals() {
+      const { pairs, fee } = pickedTotals();
+      const price = parsePrice(inv.price);
+      const sale = Math.round(price * pairs * 100) / 100;
+      if ($("totSale")) $("totSale").textContent = price ? money(sale) : "—";
+      if ($("totReceive")) $("totReceive").textContent = price ? money(Math.round((sale - fee) * 100) / 100) : "—";
+    }
+
+    function invoiceTotals(pairs, fee) {
+      if (!inv.on || pickedSkus().size > 1) {
+        return `<div><span>${esc(t("pairs_total"))}</span><b>${pairs}</b></div><div><span>${esc(t("fee_total"))}</span><b>${esc(money(fee))}</b></div>`;
+      }
+
+      return `
+        <div><span>${esc(t("pairs_total"))}</span><b>${pairs}</b></div>
+        <div><span>${esc(t("sale_total"))}</span><b id="totSale">—</b></div>
+        <div><span>${esc(t("fee_total"))}</span><b>− ${esc(money(fee))}</b></div>
+        <div class="receive"><span>${esc(t("you_receive"))}</span><b id="totReceive">—</b></div>`;
+    }
+
+    // What has to be right before sending, said in his words.
+    function invoiceProblem() {
+      if (!inv.on) return "";
+      if (pickedSkus().size > 1) return t("invoice_one_product");
+      if (!inv.buyerId || inv.view !== "pick") return t("inv_need_buyer");
+      const price = parsePrice(inv.price);
+      if (!price) return t("inv_need_price");
+      if (price <= highestFee()) return t("invoice_price_below_fee");
+      return "";
+    }
+
+    function resetInvoice() {
+      Object.assign(inv, { on: false, buyerId: "", price: "", view: "pick", query: "", form: {}, bad: [], same: null, error: "" });
+    }
 
     /* ---------- sent ---------- */
 
@@ -1269,8 +1700,17 @@
                 <a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a></div>`).join("")
               : `<div class="detail-row"><span class="muted">${esc(t("tracking"))}</span><span class="muted">${esc(t("no_tracking"))}</span></div>`}
             ${f.shipped_at ? `<div class="detail-row"><span class="muted">${esc(t("shipped_on"))}</span><span>${esc(niceDate(dayOfStamp(f.shipped_at)))}</span></div>` : ""}
-            <div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>${esc(money(f.fee))} · ${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></div>
+            ${f.invoice ? "" : `<div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>${esc(money(f.fee))} · ${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></div>`}
           </div>
+          ${f.invoice ? `
+            <div class="detail">
+              <div class="detail-row"><span class="muted">${esc(t("buyer"))}</span><span>${esc(f.invoice.buyer)}</span></div>
+              <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><span>${esc(money(f.invoice.total))} (${f.pairs} × ${esc(money(f.invoice.price_per_pair))})</span></div>
+              <div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>− ${esc(money(f.invoice.fee))}</span></div>
+              <div class="detail-row"><span class="muted">${esc(t("you_receive"))}</span><b>${esc(money(f.invoice.you_receive))}</b></div>
+              <div class="detail-row"><span class="muted">${esc(t("invoice"))}</span><span>${esc(f.invoice.number || t("st_inv_preparing"))}</span></div>
+            </div>
+            ${f.invoice.has_pdf ? `<a class="btn file-btn" href="/api/partner/forwards/${encodeURIComponent(f.id)}/invoice" target="_blank" rel="noopener">${esc(t("download"))} ${esc(f.invoice.number)}</a>` : ""}` : ""}
         </div>` : "";
 
       return `
@@ -1278,9 +1718,12 @@
           <button class="card-head" type="button" data-sent-open="${esc(f.id)}" aria-expanded="${isOpen}">
             <div class="card-text">
               <div class="card-title">${esc(f.display_id)}</div>
-              <div class="stats"><span>${esc(niceDate(dayOfStamp(f.created_at)))}</span><span>${f.pairs} ${esc(t(f.pairs === 1 ? "pair" : "pairs"))}</span></div>
+              <div class="stats"><span>${esc(niceDate(dayOfStamp(f.created_at)))}</span><span>${f.pairs} ${esc(t(f.pairs === 1 ? "pair" : "pairs"))}</span>${f.invoice?.buyer ? `<span class="buyer">${esc(f.invoice.buyer)}</span>` : ""}</div>
             </div>
-            <span class="pill ${status.tone}">${esc(t(status.word))}</span>
+            <div class="pills">
+              <span class="pill ${status.tone}">${esc(t(status.word))}</span>
+              ${f.invoice ? `<span class="pill inv${f.invoice.stage === "paid" ? " good" : f.invoice.stage === "to_pay" ? " wait" : ""}">${esc(t(`st_inv_${f.invoice.stage}`))}</span>` : ""}
+            </div>
             ${CHEV}
           </button>${body}
         </div>`;

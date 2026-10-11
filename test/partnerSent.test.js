@@ -65,6 +65,7 @@ test("forwards and their pairs are read for this partner only", async () => {
   const db = {
     async get(path) {
       paths.push(path);
+      if (path.startsWith("forward_invoices")) return [];
       return path.startsWith("forwarding_log") ? [forward({})] : [pair({})];
     }
   };

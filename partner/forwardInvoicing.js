@@ -1,0 +1,448 @@
+// partner/forwardInvoicing.js
+//
+// The invoice on a forward a partner made with "Generate invoice".
+//
+// It stays a forward: the pairs leave through forwarding_log and Pack & Ship
+// like any other. What the invoice adds, in Rompslomp (Dario, 11-10-2026):
+//
+//   sales invoice   Kickz Caviar B.V., margin template, the total the buyer
+//                   pays; "FWD-000040" on the line with the pairs under it,
+//                   in the usual KC number series, mailed to the buyer
+//   journal entry   "Voorraadcorrectie {invoice}" for total - fee
+//   expense         the purchase from the partner, total - fee, in Payout by
+//                   Kickz Caviar B.V. (admin/purchaseExpense.js), on his
+//                   Seller ID as supplier
+//   forward fee     settled by the invoice, so the forward is marked paid in
+//                   Forwarding Payments instead of being billed to him
+//
+// What we keep is the fee, as margin on the sale. The partner is paid the
+// purchase once the buyer has paid us; until then it waits.
+//
+// Built from the External Sales invoicing's parts (the same routes, accounts,
+// contact rules and journal), but nothing goes into External Sales.
+//
+// Every Rompslomp id is written to forward_invoices as soon as it exists, and
+// the invoice carries an api_reference, so a run that stops halfway is simply
+// run again.
+
+import { ROUTES, contactBody, invoiceDates, journalBody, matchContact } from "../admin/externalSalesInvoicing.js";
+import { compareSizes } from "../admin/stockRefine.js";
+import { displayId, forwardMoney } from "../admin/adminForwarding.js";
+
+const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
+const round2 = (value) => Math.round(Number(value || 0) * 100) / 100;
+const euro = (value) => `€${round2(value).toFixed(2)}`;
+
+export const ROUTE = "Margin";
+const RETRY_AFTER_MS = 2 * 60_000;
+
+export class InvoiceError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// What Rompslomp knows this invoice by, so it is found again, never made twice.
+export const invoiceReference = (forward) => `${displayId(forward)}-${ROUTE}`;
+
+/*
+ * The money of one invoiced forward. The fee is the forward's fee as Finance
+ * counts it (each pair its own, or the partner's standard); what the partner
+ * gets is what is left.
+ */
+export function forwardInvoiceMoney({ forward, pairs, pricePerPair }) {
+  const total = round2(Number(pricePerPair) * pairs.length);
+  const fee = round2(forwardMoney({ ...forward, shipping_costs: 0 }, pairs).fee);
+  return { total, fee, purchase: round2(total - fee) };
+}
+
+/*
+ * The pairs under the forward number, counted per size so twenty pairs stay
+ * one line: "U9060ECA New Balance 9060 — Size 40 ×2, 41 — 3 pairs × €120 = €360".
+ */
+export function forwardInvoiceLine(pairs, pricePerPair) {
+  const sizes = new Map();
+  for (const pair of pairs) sizes.set(text(pair.size) || "?", (sizes.get(text(pair.size) || "?") || 0) + 1);
+
+  const first = pairs[0] || {};
+  const name = [text(first.sku), text(first.product_name)].filter(Boolean).join(" ");
+  const list = [...sizes].sort(([a], [b]) => compareSizes(a, b)).map(([size, n]) => (n > 1 ? `${size} ×${n}` : size)).join(", ");
+  const n = pairs.length;
+
+  return `${name} — ${sizes.size > 1 ? "Sizes" : "Size"} ${list} — ${n} ${n === 1 ? "pair" : "pairs"} × ${euro(pricePerPair)} = ${euro(n * Number(pricePerPair))}`;
+}
+
+export function forwardInvoiceBody({ forward, pairs, pricePerPair, contactId, buyerVatId = "", now = new Date() }) {
+  const route = ROUTES[ROUTE];
+  const total = round2(Number(pricePerPair) * pairs.length);
+
+  return {
+    sales_invoice: {
+      ...invoiceDates(now),
+      payment_method: "pay_transfer",
+      description: "",
+      contact_id: Number(contactId),
+      currency: "eur",
+      currency_exchange_rate: "1.0",
+      template_id: route.templateId,
+      vat_number: text(buyerVatId) || null,
+      api_reference: invoiceReference(forward),
+      sale_type: "supply",
+      distance_sale: false,
+      invoice_lines: [{
+        description: displayId(forward),
+        extended_description: forwardInvoiceLine(pairs, pricePerPair),
+        price_per_unit: total.toFixed(2),
+        quantity: "1.0",
+        vat_rate: "",
+        vat_type_id: route.vatTypeId
+      }]
+    }
+  };
+}
+
+export function forwardInvoiceMail({ forward, invoiceNumber, buyer, total, to, from, replyTo, pdf }) {
+  const name = text(buyer?.company_name) || text(buyer?.full_name) || "customer";
+
+  return {
+    to,
+    from: { email: from, name: "Kickz Caviar" },
+    replyTo,
+    subject: `Your invoice ${invoiceNumber} for ${displayId(forward)}`,
+    text:
+      `Dear ${name},\n\n` +
+      `Please find attached the invoice for ${displayId(forward)} (${euro(total)}).\n` +
+      "Payment is due within 7 days of the invoice date; please mention the invoice number with your payment.\n\n" +
+      `If you have any questions, email us at ${replyTo || "info@kickzcaviar.nl"} - replies to this address are not read.\n\n` +
+      "Thank you for your business.\n\nKind regards,\nKickz Caviar",
+    attachments: [{ content: pdf, type: "application/pdf", filename: `Invoice ${invoiceNumber}.pdf`, disposition: "attachment" }]
+  };
+}
+
+// The partner as the supplier of the purchase, from the Sellers Database.
+export function sellerFromFields(sellerId, fields = {}) {
+  return {
+    seller_id: text(fields["Seller ID"]) || sellerId,
+    company_name: text(fields["Company Name"]),
+    full_name: text(fields["Full Name"]),
+    name: text(fields["Full Name"]) || text(fields["Company Name"]),
+    email: text(fields["Email"]),
+    address: text(fields["Address"]),
+    zipcode: text(fields["Zipcode"]),
+    city: text(fields["City"]),
+    country_code: text(fields["Country Code"]),
+    vat_id: text(fields["VAT ID"])
+  };
+}
+
+/*
+ * deps:
+ *   db          createSupabaseRest
+ *   rompslomp   createRompslomp (Kickz Caviar B.V., the sales company)
+ *   purchases   createPurchaseExpense (books in Payout by Kickz Caviar B.V.)
+ *   sellerOf    (sellerRecordId, sellerId) -> seller fields for the supplier
+ *   sendMail    ({ to, from, replyTo, subject, text, attachments })
+ *   mailFrom, replyTo
+ */
+export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sendMail, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", now = () => new Date() }) {
+  const configured = Boolean(rompslomp?.configured);
+  const running = new Set();
+
+  async function load(id) {
+    const [row] = await db.get(`forward_invoices?select=*&id=eq.${id}`);
+    if (!row) throw new InvoiceError("That invoice does not exist.", 404);
+
+    const [forward] = await db.get(`forwarding_log?select=*&id=eq.${row.forwarding_log_id}`);
+    const pairs = await db.get(`partner_stock?select=id,sku,size,product_name,forwarding_fee&forwarding_log_id=eq.${row.forwarding_log_id}&order=size.asc`);
+    const [buyer] = row.buyer_id ? await db.get(`buyers?select=*&id=eq.${row.buyer_id}`) : [];
+
+    return { row, forward, pairs: pairs || [], buyer: buyer || null };
+  }
+
+  const save = async (id, fields) => {
+    const [row] = await db.patch(`forward_invoices?id=eq.${id}`, { ...fields, updated_at: now().toISOString() });
+    return row;
+  };
+
+  // The forward's invoice row, made when the partner sends the pairs.
+  async function open({ forward, pairs, partner, buyerId, pricePerPair, hold = null }) {
+    const money = forwardInvoiceMoney({ forward, pairs, pricePerPair });
+    const first = pairs[0] || {};
+
+    const [row] = await db.insert("forward_invoices", [{
+      forwarding_log_id: forward.id,
+      seller_record_id: partner.sellerRecordId,
+      seller_id: partner.sellerId,
+      buyer_id: buyerId,
+      sku: text(first.sku).toUpperCase(),
+      product_name: text(first.product_name) || null,
+      pair_count: pairs.length,
+      price_per_pair: round2(pricePerPair),
+      total: money.total,
+      fee_total: money.fee,
+      purchase_total: money.purchase,
+      status: hold ? "on_hold" : "to_invoice",
+      hold_reason: hold ? "possible_duplicate_buyer" : null,
+      possible_duplicate_of: hold?.id || null,
+      buyer_payment_status: "open",
+      partner_payout_status: "waiting"
+    }]);
+
+    return row;
+  }
+
+  /*
+   * The buyer's contact in Rompslomp: the one stored on the buyer, else one
+   * with the same VAT number or exactly the same name, else a new one
+   * numbered with the Buyer ID. Stored on the buyer either way.
+   */
+  async function contactFor(buyer) {
+    const stored = text(buyer.rompslomp_contact_id);
+    if (stored && (await rompslomp.getContact(stored).catch(() => null))) return stored;
+
+    let id = null;
+    for (const q of [text(buyer.vat_id), text(buyer.company_name), text(buyer.full_name)].filter(Boolean)) {
+      const match = matchContact(await rompslomp.searchContacts(q), buyer);
+      if (match) {
+        id = String(match.id);
+        break;
+      }
+    }
+
+    if (!id) {
+      const body = contactBody(buyer);
+      if (!body.contact.country_code || !body.contact.address) throw new InvoiceError("The buyer has no address or country; the invoice needs them.");
+      id = String((await rompslomp.createContact(body)).id);
+    }
+
+    await db.patch(`buyers?id=eq.${buyer.id}`, { rompslomp_contact_id: id });
+    return id;
+  }
+
+  async function journalFor(invoiceNumber, date, amount) {
+    const description = `Voorraadcorrectie ${invoiceNumber}`;
+    const existing = (await rompslomp.recentJournals()).find((j) => text(j.description) === description);
+    if (existing) return existing;
+    return rompslomp.createJournal(journalBody({ route: ROUTE, invoiceNumber, date, amount }));
+  }
+
+  /*
+   * Does every step that is not done yet, in order. Stops at the first that
+   * fails, writes down which, and leaves the rest for the next run.
+   */
+  async function run(id) {
+    if (!configured) throw new InvoiceError("Invoicing needs ROMPSLOMP_API_TOKEN on this service.", 503);
+    if (running.has(id)) return null;
+    running.add(id);
+
+    let step = "loading";
+
+    try {
+      let { row, forward, pairs, buyer } = await load(id);
+      if (!["to_invoice", "failed"].includes(row.status)) return row;
+      if (!forward) throw new InvoiceError("The forward is gone.");
+      if (!buyer) throw new InvoiceError("The invoice has no buyer.");
+      if (pairs.length !== row.pair_count) throw new InvoiceError(`The forward has ${pairs.length} pairs, the invoice ${row.pair_count}.`);
+
+      step = "contact";
+      if (!row.rompslomp_contact_id) row = await save(id, { rompslomp_contact_id: await contactFor(buyer) });
+
+      step = "invoice";
+      if (!row.invoice_id) {
+        const reference = invoiceReference(forward);
+        let invoice = await rompslomp.findInvoice(reference);
+        if (!invoice) {
+          invoice = await rompslomp.createInvoice(forwardInvoiceBody({
+            forward, pairs, pricePerPair: row.price_per_pair, contactId: row.rompslomp_contact_id, buyerVatId: buyer.vat_id, now: now()
+          }));
+        }
+        if (invoice.status !== "published" || !invoice.invoice_number) invoice = await rompslomp.publishInvoice(invoice.id);
+
+        // Saved first, whatever comes next: an invoice that exists in
+        // Rompslomp must be visible here.
+        row = await save(id, { invoice_id: String(invoice.id), invoice_number: invoice.invoice_number, invoice_date: invoice.date });
+
+        if (Math.abs(round2(invoice.price_with_vat) - round2(row.total)) > 0.01) {
+          throw new InvoiceError(`Invoice ${invoice.invoice_number} came out at ${euro(invoice.price_with_vat)}, the forward says ${euro(row.total)}. Check it in Rompslomp.`);
+        }
+      }
+
+      step = "stock correction";
+      if (!row.journal_id) {
+        const journal = await journalFor(row.invoice_number, row.invoice_date, row.purchase_total);
+        row = await save(id, { journal_id: String(journal.id) });
+      }
+
+      step = "purchase";
+      if (!row.expense_id) {
+        const seller = await sellerOf(row.seller_record_id, row.seller_id);
+        const sizes = [...new Set(pairs.map((p) => text(p.size)))].join(", ");
+        const booked = await purchases.book({
+          unit: { product_name: `${row.sku} ${text(row.product_name)}`.trim(), size: `${row.pair_count} pairs (${sizes})`, vat_type: ROUTE, price: row.purchase_total },
+          seller,
+          deal: displayId(forward),
+          date: row.invoice_date
+        });
+        row = await save(id, { expense_id: booked.expense_id, expense_number: booked.expense_number || null, expense_company_id: booked.company_id });
+      }
+
+      step = "forwarding fee";
+      if (!row.fee_settled_at) {
+        await db.patch(`forwarding_log?id=eq.${forward.id}`, {
+          payment_status: "paid",
+          paid_at: now().toISOString(),
+          payment_note: `Settled in invoice ${row.invoice_number}`
+        });
+        row = await save(id, { fee_settled_at: now().toISOString() });
+      }
+
+      step = "mail";
+      if (!row.mailed_at) {
+        if (!text(buyer.email)) throw new InvoiceError("The buyer has no email address.");
+        const pdf = (await rompslomp.pdf(row.invoice_id)).toString("base64");
+        await sendMail(forwardInvoiceMail({ forward, invoiceNumber: row.invoice_number, buyer, total: row.total, to: text(buyer.email), from: mailFrom, replyTo, pdf }));
+        row = await save(id, { mailed_at: now().toISOString() });
+      }
+
+      row = await save(id, { status: "invoiced", error: null });
+      console.log(`[forward-invoice] ${displayId(forward)}: ${row.invoice_number} ${euro(row.total)}, partner gets ${euro(row.purchase_total)}`);
+      return row;
+    } catch (err) {
+      const message = `${step}: ${err.message}`;
+      console.error(`[forward-invoice] ${id} failed at ${message}`);
+      await save(id, { status: "failed", error: message.slice(0, 500) }).catch(() => {});
+      throw err;
+    } finally {
+      running.delete(id);
+    }
+  }
+
+  /*
+   * Every few minutes: an invoice left on "to invoice" (the service restarted
+   * mid-run) is run again, and an invoiced forward whose invoice is paid in
+   * Rompslomp makes the partner's money payable.
+   */
+  async function sweep() {
+    if (!configured) return;
+
+    const stale = new Date(now().getTime() - RETRY_AFTER_MS).toISOString();
+    for (const row of await db.get(`forward_invoices?select=id&status=eq.to_invoice&updated_at=lt.${stale}&limit=20`)) {
+      await run(row.id).catch(() => {});
+    }
+
+    for (const row of await db.get("forward_invoices?select=id,invoice_id,invoice_number&status=eq.invoiced&buyer_payment_status=eq.open&limit=200")) {
+      try {
+        const invoice = await rompslomp.getInvoice(row.invoice_id);
+        if (invoice?.payment_status === "paid") {
+          await save(row.id, { buyer_payment_status: "paid", buyer_paid_at: now().toISOString(), partner_payout_status: "to_pay" });
+          console.log(`[forward-invoice] ${row.invoice_number} paid by the buyer; partner payout is due`);
+        }
+      } catch (err) {
+        console.warn(`[forward-invoice] payment of ${row.invoice_number} not read:`, err.message);
+      }
+    }
+  }
+
+  async function pdf(row) {
+    if (!row?.invoice_id) throw new InvoiceError("No invoice yet.", 404);
+    return rompslomp.pdf(row.invoice_id);
+  }
+
+  /* ---------------- the admin's side ---------------- */
+
+  // An invoice row with the names the admin reads it by.
+  async function withNames(rows) {
+    const ids = [...new Set(rows.flatMap((row) => [row.buyer_id, row.possible_duplicate_of]).filter(Boolean))];
+    const buyers = ids.length ? await db.get(`buyers?select=id,buyer_number,company_name,full_name,email,city,country&id=in.(${ids.map((id) => `"${id}"`).join(",")})`) : [];
+    const byId = new Map(buyers.map((b) => [b.id, b]));
+    const describe = (b) => (b ? {
+      id: b.id,
+      buyer_id: b.buyer_number ? `BU-${String(b.buyer_number).padStart(5, "0")}` : "",
+      name: [text(b.company_name), text(b.full_name)].filter(Boolean).join(" · "),
+      email: text(b.email),
+      place: [text(b.city), text(b.country)].filter(Boolean).join(", ")
+    } : null);
+
+    return rows.map((row) => ({ ...row, buyer: describe(byId.get(row.buyer_id)), duplicate: describe(byId.get(row.possible_duplicate_of)) }));
+  }
+
+  // The invoices of these forwards, by forward id.
+  async function forForwards(forwardIds) {
+    if (!forwardIds.length) return new Map();
+    const rows = [];
+    for (let i = 0; i < forwardIds.length; i += 100) {
+      const list = forwardIds.slice(i, i + 100).map((id) => `"${id}"`).join(",");
+      rows.push(...(await db.get(`forward_invoices?select=*&forwarding_log_id=in.(${list})`)));
+    }
+    return new Map((await withNames(rows)).map((row) => [row.forwarding_log_id, row]));
+  }
+
+  // Every invoiced forward with what the partner is owed, payable first.
+  async function payouts() {
+    const rows = await db.get("forward_invoices?select=*&order=created_at.desc&limit=1000");
+    const forwards = rows.length
+      ? await db.get(`forwarding_log?select=id,forwarding_number,seller_name,seller_id&id=in.(${rows.map((r) => `"${r.forwarding_log_id}"`).join(",")})`)
+      : [];
+    const byId = new Map(forwards.map((f) => [f.id, f]));
+    const order = { to_pay: 0, waiting: 1, paid: 2 };
+
+    return (await withNames(rows))
+      .map((row) => ({ ...row, display_id: displayId(byId.get(row.forwarding_log_id) || {}), seller_name: text(byId.get(row.forwarding_log_id)?.seller_name) }))
+      .sort((a, b) => (order[a.partner_payout_status] ?? 3) - (order[b.partner_payout_status] ?? 3));
+  }
+
+  /*
+   * Dario's answer on a held invoice. Same buyer: the invoice goes to the
+   * buyer we already had, the partner is linked to that one and the
+   * look-alike he just made is dropped. Different: the new buyer is a buyer
+   * of its own and is never asked about again. Either way the invoice runs.
+   */
+  async function resolveHold(id, same, { buyers }) {
+    const { row } = await load(id);
+    if (row.status !== "on_hold") throw new InvoiceError("This invoice is not waiting for a decision.");
+
+    if (same) {
+      if (!row.possible_duplicate_of) throw new InvoiceError("There is no other buyer to use.");
+      const made = row.buyer_id;
+
+      await buyers.link(row.seller_record_id, row.possible_duplicate_of);
+      await buyers.markChecked(row.seller_record_id, row.possible_duplicate_of);
+      await save(id, { buyer_id: row.possible_duplicate_of, status: "to_invoice", hold_reason: null });
+
+      // The forward names its buyer too; it names the right one from now on.
+      const [kept] = await db.get(`buyers?select=*&id=eq.${row.possible_duplicate_of}`);
+      if (kept) {
+        await db.patch(`forwarding_log?id=eq.${row.forwarding_log_id}`, {
+          buyer_record_id: text(kept.airtable_record_id) || null,
+          buyer_id: kept.buyer_number ? `BU-${String(kept.buyer_number).padStart(5, "0")}` : null,
+          buyer_name: text(kept.company_name) || text(kept.full_name),
+          buyer_country: text(kept.country) || null
+        });
+      }
+
+      // The look-alike goes when nothing else points at it.
+      const others = await db.get(`forward_invoices?select=id&buyer_id=eq.${made}&limit=1`);
+      if (!others.length) {
+        await db.remove(`partner_buyers?seller_record_id=eq.${encodeURIComponent(row.seller_record_id)}&buyer_id=eq.${made}`).catch(() => {});
+        await db.remove(`buyers?id=eq.${made}&rompslomp_contact_id=is.null`).catch((err) => console.warn("[forward-invoice] look-alike buyer kept:", err.message));
+      }
+    } else {
+      await buyers.markChecked(row.seller_record_id, row.buyer_id);
+      await save(id, { status: "to_invoice", hold_reason: null });
+    }
+
+    return run(id);
+  }
+
+  async function setPartnerPaid(id, paid, note = "") {
+    const { row } = await load(id);
+    if (paid && row.partner_payout_status === "waiting") throw new InvoiceError("The buyer has not paid yet, so the partner is not owed anything yet.");
+
+    return save(id, paid
+      ? { partner_payout_status: "paid", partner_paid_at: now().toISOString(), partner_paid_note: text(note) || null }
+      : { partner_payout_status: row.buyer_payment_status === "paid" ? "to_pay" : "waiting", partner_paid_at: null, partner_paid_note: null });
+  }
+
+  return { configured, open, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
+}

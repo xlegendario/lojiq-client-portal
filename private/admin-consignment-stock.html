@@ -530,7 +530,7 @@
       $("navMwtb").innerHTML = navViews.filter((view) => view.section === "mwtb").map(link).join("");
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
-        `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
+        `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       $("navWarehouse").innerHTML =

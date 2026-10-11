@@ -885,7 +885,7 @@
 
       $("navStore").innerHTML = navViews.filter((v) => v.section === "store").map(link).join("");
       $("navMwtb").innerHTML = navViews.filter((v) => v.section === "mwtb").map(link).join("");
-      $("navMoney").innerHTML = finance.map(link).join("") + `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a>` +
+      $("navMoney").innerHTML = finance.map(link).join("") + `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
         `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       document.querySelectorAll("[data-nav-count]").forEach((el) => {

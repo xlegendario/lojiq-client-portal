@@ -262,7 +262,7 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   pageFile        private/admin.html
  *   supabaseUrl, serviceKey  for Forward Service (forwarding_log)
  */
-export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch, externalSalesSyncMs = 5 * 60_000 }) {
+export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch, externalSalesSyncMs = 5 * 60_000, forwardInvoices = null }) {
   const router = express.Router();
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
@@ -390,7 +390,8 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     store: createForwardingStore({ supabaseUrl, serviceKey, fetchImpl }),
     audit,
     callWms: (pathName, body) => deps.callWms(pathName, body),
-    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-forwarding.html") : ""
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-forwarding.html") : "",
+    forwardInvoices
   });
 
   // bol pages: offers the bol sync refused because bol's page is another

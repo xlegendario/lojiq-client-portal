@@ -29,11 +29,16 @@ import { createSupabaseRest } from "../admin/externalSalesSync.js";
 import { loadPartnerPairs, summarizeStock } from "./partnerStock.js";
 import { ForwardError, createPartnerForward, loadForwardable, summarizeForwardable } from "./partnerForward.js";
 import { loadForwards } from "./partnerSent.js";
+import { BuyerError, createPartnerBuyers } from "./partnerBuyers.js";
+import { createForwardInvoicing, sellerFromFields } from "./forwardInvoicing.js";
+import { createRompslomp } from "../admin/externalSalesInvoicing.js";
+import { createPurchaseExpense } from "../admin/purchaseExpense.js";
 
 export const PARTNER_COOKIE = "lojiq_partner";
 
 const USERS_CACHE_MS = 60_000;
 const FEE_CACHE_MS = 10 * 60_000;
+const SWEEP_MS = 5 * 60_000;
 
 // A label photo or PDF from a phone, as a data URL: a few megabytes.
 export const FORWARD_BODY_LIMIT = "15mb";
@@ -65,7 +70,8 @@ const usable = (account) => account.email && account.hash.startsWith("scrypt$") 
  *   adminSecret   LOJIQ_ADMIN_SECRET; the partner secret is derived from it
  *   supabaseUrl, serviceKey
  *   pageFile      private/partner.html
- *   services      { airtable, sellersTable, kickzBaseUrl, internalSecret, wmsBaseUrl }
+ *   services      { airtable, sellersTable, kickzBaseUrl, internalSecret, wmsBaseUrl,
+ *                   rompslompToken, rompslompCompanyId, sendMail, mailFrom, replyTo }
  *   fetchImpl     for the tests
  *   now           for the tests
  */
@@ -235,8 +241,51 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     return data;
   }
 
+  // The Kickz Caviar portal as it answers, refusals included: a buyer that
+  // already exists comes back as a 409 with that buyer, which is an answer.
+  async function kcRaw(pathName, body) {
+    if (!base(services.kickzBaseUrl) || !text(services.internalSecret)) throw new Error("Kickz Caviar portal not configured");
+
+    const response = await fetchImpl(`${base(services.kickzBaseUrl)}${pathName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-kc-secret": services.internalSecret },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000)
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || data.ok === false) throw Object.assign(new Error(`Kickz Caviar answered ${response.status}`), { status: response.status, data });
+    return data;
+  }
+
+  const buyers = createPartnerBuyers({ db, callKc: kcRaw, now });
+
+  const rompslomp = createRompslomp({ token: services.rompslompToken, companyId: services.rompslompCompanyId || undefined, fetchImpl });
+
+  const invoicing = createForwardInvoicing({
+    db,
+    rompslomp,
+    purchases: createPurchaseExpense({
+      rompslomp,
+      forCompany: (companyId) => createRompslomp({ token: services.rompslompToken, companyId, fetchImpl })
+    }),
+    async sellerOf(sellerRecordId, sellerId) {
+      const record = await services.airtable(services.sellersTable || "Sellers Database").find(sellerRecordId);
+      return sellerFromFields(sellerId, record?.fields);
+    },
+    sendMail: services.sendMail,
+    mailFrom: services.mailFrom,
+    replyTo: services.replyTo
+  });
+
+  if (enabled && invoicing.configured && services.sendMail && !services.noSweep) {
+    setInterval(() => invoicing.sweep().catch((err) => console.error("[forward-invoice] sweep failed:", err.message)), SWEEP_MS).unref();
+  }
+
   const forwardDeps = {
     db,
+    buyers,
+    invoicing,
     callKc(pathName, body) {
       if (!base(services.kickzBaseUrl) || !text(services.internalSecret)) {
         throw new ForwardError("try_again", 503, { reason: "Kickz Caviar portal not configured" });
@@ -289,14 +338,14 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
 
     try {
-      const forward = await createPartnerForward(forwardDeps, req.partner, req.body);
+      const forward = await createPartnerForward(forwardDeps, req.partner, req.body, { defaultFee: await defaultFee(req.partner) });
 
       console.log(`[partner] ${req.partner.sellerId} made ${forward.display_id}: ${forward.pairs} pair(s), ${forward.shipping_status}`);
       res.json({ forward });
     } catch (err) {
       if (err instanceof ForwardError) {
         if (err.status >= 500) console.error(`[partner] forward for ${req.partner.sellerId} failed:`, err.reason || err.code);
-        return res.status(err.status).json({ error: err.code, short: err.short || [] });
+        return res.status(err.status).json({ error: err.code, short: err.short || [], fee: err.fee });
       }
 
       console.error(`[partner] forward for ${req.partner.sellerId} failed:`, err.message);
@@ -308,14 +357,60 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
 
   router.get("/api/partner/forwards", async (req, res) => {
     try {
-      res.json({ forwards: await loadForwards(db, req.partner.sellerRecordId) });
+      res.json({ forwards: await loadForwards(db, req.partner.sellerRecordId), invoicing: invoicing.configured });
     } catch (err) {
       console.error(`[partner] forwards for ${req.partner.sellerId} failed:`, err.message);
       res.status(502).json({ error: "try_again" });
     }
   });
 
-  return { router, enabled, db };
+  // The invoice of one of his own forwards, served through here: the partner
+  // never gets a Rompslomp address.
+  router.get("/api/partner/forwards/:id/invoice", async (req, res) => {
+    try {
+      const id = text(req.params.id);
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(404).json({ error: "not_found" });
+
+      const [row] = await db.get(
+        `forward_invoices?select=*&forwarding_log_id=eq.${id}&seller_record_id=eq.${encodeURIComponent(req.partner.sellerRecordId)}`
+      );
+      if (!row?.invoice_id) return res.status(404).json({ error: "not_found" });
+
+      const pdf = await invoicing.pdf(row);
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `inline; filename="Invoice ${text(row.invoice_number) || "draft"}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      console.error(`[partner] invoice pdf for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  /* ----- buyers ----- */
+
+  router.get("/api/partner/buyers", async (req, res) => {
+    try {
+      res.json(await buyers.list(req.partner.sellerRecordId));
+    } catch (err) {
+      console.error(`[partner] buyers for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  router.post("/api/partner/buyers", express.json({ limit: "20kb" }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      res.json(await buyers.create(req.partner.sellerRecordId, req.body || {}));
+    } catch (err) {
+      if (err instanceof BuyerError) return res.status(err.status).json({ error: err.code, fields: err.fields || [], reasons: err.reasons || [] });
+
+      console.error(`[partner] new buyer for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  return { router, enabled, db, invoicing, buyers };
 }
 
 export function partnerPagePath(dirname) {

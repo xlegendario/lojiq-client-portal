@@ -101,7 +101,7 @@ test("a forward is made through the Kickz Caviar portal with the picked pairs", 
 
   const result = await createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 2 }], tracking: "1Z FV6 483 68" });
 
-  assert.deepEqual(result, { id: "f1", display_id: "FWD-000040", pairs: 2, shipping_status: "awaiting_label" });
+  assert.deepEqual(result, { id: "f1", display_id: "FWD-000040", pairs: 2, shipping_status: "awaiting_label", invoice: null });
   assert.equal(d.calls.length, 1);
   assert.equal(d.calls[0].path, "/api/internal/forwarding/create");
   assert.deepEqual(d.calls[0].body.pair_ids.sort(), ["p1", "p2"]);

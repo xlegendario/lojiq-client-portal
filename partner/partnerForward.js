@@ -130,20 +130,45 @@ export function cleanLines(input) {
   return lines;
 }
 
-// The pair ids for the lines, or the lines that no longer have enough.
+// The pairs for the lines (and their ids), or the lines that no longer have enough.
 export function pickPairs(rows, lines) {
   const groups = groupPairs(rows);
-  const ids = [];
+  const picked = [];
   const short = [];
 
   for (const line of lines) {
     const pairs = groups.get(`${line.sku}|${line.size}`) || [];
 
     if (pairs.length < line.qty) short.push({ ...line, available: pairs.length });
-    else ids.push(...pairs.slice(0, line.qty).map((pair) => pair.id));
+    else picked.push(...pairs.slice(0, line.qty));
   }
 
-  return { ids, short };
+  return { ids: picked.map((pair) => pair.id), picked, short };
+}
+
+/*
+ * The invoice the partner asked for, checked before anything is made:
+ *   - one product per invoice, so there is one price to fill in (Dario,
+ *     11-10-2026: he sells per SKU, and every extra field is a chance to
+ *     get it wrong)
+ *   - a buyer that is his
+ *   - a price above the fee of every pair, or what he gets would be negative
+ */
+export function checkInvoice({ invoice, lines, picked, defaultFee }) {
+  const skus = new Set(lines.map((line) => line.sku));
+  if (skus.size !== 1) throw new ForwardError("invoice_one_product");
+
+  const price = round2(String(invoice?.price_per_pair ?? "").replace(",", "."));
+  if (!(price > 0)) throw new ForwardError("invoice_no_price");
+  if (price > 100000) throw new ForwardError("invoice_price_too_high");
+
+  const highestFee = Math.max(0, ...picked.map((pair) => feeOf(pair, defaultFee)));
+  if (price <= highestFee) throw new ForwardError("invoice_price_below_fee", 400, { fee: highestFee });
+
+  const buyerId = text(invoice?.buyer_id);
+  if (!/^[0-9a-f-]{36}$/i.test(buyerId)) throw new ForwardError("invoice_no_buyer");
+
+  return { price, buyerId };
 }
 
 export async function loadForwardable(db, sellerRecordId) {
@@ -182,7 +207,7 @@ export function labelFile(dataUrl) {
  *   callKc      (path, body) => Kickz Caviar portal, internal secret
  *   callWms     (path, body) => WMS
  */
-export async function createPartnerForward({ db, callKc, callWms }, partner, body) {
+export async function createPartnerForward({ db, callKc, callWms, buyers = null, invoicing = null }, partner, body, { defaultFee = 0 } = {}) {
   const lines = cleanLines(body?.lines);
   const tracking = trackingList(body?.tracking);
 
@@ -194,8 +219,26 @@ export async function createPartnerForward({ db, callKc, callWms }, partner, bod
     if (!label) throw new ForwardError("bad_label");
   }
 
-  const { ids, short } = pickPairs(await loadForwardable(db, partner.sellerRecordId), lines);
+  const { ids, picked, short } = pickPairs(await loadForwardable(db, partner.sellerRecordId), lines);
   if (short.length) throw new ForwardError("pairs_gone", 409, { short });
+
+  // Everything about the invoice is checked before the pairs are touched.
+  let invoice = null;
+  let buyer = null;
+  let hold = null;
+
+  if (body?.invoice) {
+    if (!invoicing?.configured || !buyers) throw new ForwardError("invoice_unavailable", 503);
+
+    invoice = checkInvoice({ invoice: body.invoice, lines, picked, defaultFee });
+    if (!(await buyers.owns(partner.sellerRecordId, invoice.buyerId))) throw new ForwardError("invoice_no_buyer");
+
+    [buyer] = await db.get(`buyers?select=*&id=eq.${invoice.buyerId}`);
+    if (!buyer) throw new ForwardError("invoice_no_buyer");
+
+    // The first invoice to a buyer that looks like one of ours waits for Dario.
+    hold = await buyers.duplicateCheck(partner.sellerRecordId, invoice.buyerId);
+  }
 
   // The label goes to storage first, so the forward is made with it in one go.
   const labels = [];
@@ -218,16 +261,51 @@ export async function createPartnerForward({ db, callKc, callWms }, partner, bod
     labels_needed: 0,
     tracking_numbers: tracking,
     labels,
-    buyer: null,
-    notes: `Made by ${partner.name} in the partner dashboard`
+    buyer: buyer
+      ? {
+          record_id: text(buyer.airtable_record_id) || null,
+          buyer_id: buyer.buyer_number ? `BU-${String(buyer.buyer_number).padStart(5, "0")}` : null,
+          name: text(buyer.company_name) || text(buyer.full_name),
+          country: text(buyer.country)
+        }
+      : null,
+    notes: `Made by ${partner.name} in the partner dashboard${invoice ? ", with invoice" : ""}`
   });
 
   const forward = data.forward || {};
-
-  return {
+  const result = {
     id: forward.id,
     display_id: forward.display_id,
     pairs: ids.length,
-    shipping_status: forward.shipping_status
+    shipping_status: forward.shipping_status,
+    invoice: null
   };
+
+  if (!invoice) return result;
+
+  /*
+   * The pairs are off the shelf from here on, whatever happens to the
+   * invoice. A failure to even write it down is logged loudly; the forward
+   * stands and the admin sees a forward without its invoice.
+   */
+  try {
+    const row = await invoicing.open({
+      forward: { ...forward, unit_forwarding_fee: forward.unit_forwarding_fee ?? defaultFee },
+      pairs: data.pairs?.length ? data.pairs : picked,
+      partner,
+      buyerId: invoice.buyerId,
+      pricePerPair: invoice.price,
+      hold
+    });
+
+    result.invoice = { status: row.status, total: Number(row.total), fee: Number(row.fee_total), you_receive: Number(row.purchase_total) };
+
+    // Rompslomp takes a few seconds; the partner does not wait for it.
+    if (row.status === "to_invoice") invoicing.run(row.id).catch(() => {});
+  } catch (err) {
+    console.error(`[partner] ${forward.display_id} made, but its invoice was NOT written down:`, err.message);
+    result.invoice = { status: "failed" };
+  }
+
+  return result;
 }

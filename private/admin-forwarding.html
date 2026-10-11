@@ -218,6 +218,10 @@
     .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
     .sidebar-foot strong { color: var(--text); }
     .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+    .hold-box { border: 1px solid var(--warning); border-radius: 10px; padding: 12px; margin: 0 0 14px; background: var(--wait-bg); }
+    .hold-box p { margin: 4px 0 8px; }
+    .hold-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .bad-text { color: var(--bad-text); }
   </style>
 </head>
 <body>
@@ -234,6 +238,7 @@
       <div class="nav-group" id="navMoney" hidden>
         <div id="navMoneyLinks"></div>
         <button class="nav-item" type="button" data-mode="payments">Forwarding Payments <small id="unpaidCount"></small></button>
+        <button class="nav-item" type="button" data-mode="partner-payouts">Partner Payouts <small id="payoutCount"></small></button>
         <a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>
       </div>
 
@@ -388,11 +393,14 @@
      *   forwards  Forward Service: labels, tracking and shipping, per status.
      *   payments  Finance > Forwarding Payments: what partners still owe for
      *             forwards, per partner, to mark paid.
+     *   partner-payouts  Finance > Partner Payouts: what WE owe a partner for
+     *             a forward he invoiced to his buyer, once that buyer paid.
      */
     const params = new URLSearchParams(location.search);
 
     const state = {
-      mode: params.get("view") === "payments" ? "payments" : "forwards",
+      mode: ["payments", "partner-payouts"].includes(params.get("view")) ? params.get("view") : "forwards",
+      payouts: [],
       shipping: "awaiting_label",
       forwards: [],
       picked: new Set(),
@@ -429,7 +437,7 @@
     } catch {}
 
     function currentSection() {
-      return state.mode === "payments" ? "money" : "forwarding";
+      return state.mode === "forwards" ? "forwarding" : "money";
     }
 
     function saveNavSections() {
@@ -450,6 +458,7 @@
       });
 
       document.querySelector('[data-mode="payments"]').classList.toggle("active", state.mode === "payments");
+      document.querySelector('[data-mode="partner-payouts"]').classList.toggle("active", state.mode === "partner-payouts");
     }
 
     // Counts for every tab, from the same cached endpoint the main page uses.
@@ -504,6 +513,7 @@
       }
 
       if (event.target.closest('[data-mode="payments"]')) switchTo("payments");
+      if (event.target.closest('[data-mode="partner-payouts"]')) switchTo("partner-payouts");
     });
 
     function switchTo(mode, shipping = state.shipping) {
@@ -515,8 +525,8 @@
         try { localStorage.setItem("lojiq-admin-forwarding-tab", shipping); } catch {}
       }
 
-      history.replaceState(null, "", mode === "payments"
-        ? "/admin/forwarding?view=payments"
+      history.replaceState(null, "", mode !== "forwards"
+        ? `/admin/forwarding?view=${mode}`
         : `/admin/forwarding?tab=${encodeURIComponent(shipping)}`);
 
       openNavSections.add(currentSection());
@@ -580,6 +590,8 @@
     /* ---------------- render ---------------- */
 
     function render() {
+      if (state.mode === "partner-payouts") return renderPartnerPayouts();
+
       const rows = visibleForwards();
       const payments = state.mode === "payments";
 
@@ -620,7 +632,7 @@
               <td><span class="id">${esc(row.display_id)}</span></td>
               <td>${esc(dayFmt.format(new Date(row.forwarding_date)))}</td>
               <td>${esc(row.seller_name || row.seller_id)}</td>
-              <td>${dash(row.buyer_name)}</td>
+              <td>${dash(row.buyer_name)}${row.invoice ? ` ${invoicePill(row.invoice)}` : ""}</td>
               <td class="money">${row.pair_count}</td>
               <td class="money">${countCell((row.tracking_numbers || []).length)}</td>
               <td class="money">${countCell((row.labels || []).length)}</td>
@@ -803,14 +815,16 @@
           ["Tracking", tracking || '<span class="dash">None yet</span>'],
           ["Labels", labels || '<span class="dash">None yet</span>']
         ]),
-        feeTable(row),
-        panelGroup("Costs", [
+        invoiceGroup(row),
+        row.invoice ? "" : feeTable(row),
+        row.invoice ? "" : panelGroup("Costs", [
           ["Fee", `${row.pair_count} pair(s) = ${euro(row.money.fee)}`],
           ["Shipping costs", euro(row.money.shipping)],
           ["Payable by partner", `<strong>${euro(row.money.payable)}</strong>`],
           ["Payment", row.shipping_status === "cancelled" ? '<span class="dash">Not owed (cancelled)</span>' : paymentPill(row)],
           ["Paid on", row.paid_at ? esc(dateFmt.format(new Date(row.paid_at))) : ""]
         ]),
+        row.invoice ? panelGroup("Fee", [["Fee", `${row.pair_count} pair(s) = ${euro(row.money.fee)}`], ["Payment", `${paymentPill(row)} ${esc(row.payment_note || "")}`]]) : "",
         row.notes ? panelGroup("Notes", [["Notes", esc(row.notes)]]) : "",
         `<section class="group"><h3>History</h3>${timeline}</section>`
       ].join("");
@@ -900,6 +914,16 @@
     /* ---------------- loading ---------------- */
 
     async function load() {
+      if (state.mode === "partner-payouts") {
+        try {
+          state.payouts = (await api("/api/admin/forwarding/partner-payouts")).payouts || [];
+          render();
+        } catch (err) {
+          $("rows").innerHTML = `<tr><td colspan="8" class="empty">${esc(err.message)}</td></tr>`;
+        }
+        return;
+      }
+
       const payments = state.mode === "payments";
       const query = new URLSearchParams({
         shipping: payments ? "all" : state.shipping,
@@ -942,6 +966,9 @@
         });
 
         $("unpaidCount").textContent = unpaid || "";
+
+        const payouts = await api("/api/admin/forwarding/partner-payouts").catch(() => ({ payouts: [] }));
+        $("payoutCount").textContent = (payouts.payouts || []).filter((inv) => inv.partner_payout_status === "to_pay").length || "";
 
         const current = $("sellerFilter").value;
         $("sellerFilter").innerHTML = `<option value="">Every partner</option>` +
@@ -1131,6 +1158,139 @@
     $("editCancel").addEventListener("click", () => {
       $("editDialog").close();
       load();
+    });
+
+    /* ---------------- invoices on partner forwards ---------------- */
+
+    const INVOICE_STATUS = {
+      on_hold: ["Check buyer", "wait"],
+      to_invoice: ["Making invoice", "move"],
+      invoiced: ["Invoiced", "good"],
+      failed: ["Invoice failed", "bad"]
+    };
+    const PAYOUT_STATUS = {
+      waiting: ["Buyer not paid yet", "wait"],
+      to_pay: ["To pay partner", "move"],
+      paid: ["Partner paid", "good"]
+    };
+
+    const invoicePill = (inv) => {
+      const [label, cls] = INVOICE_STATUS[inv.status] || [inv.status, ""];
+      return `<span class="pill ${cls}">${esc(label)}</span>`;
+    };
+    const payoutPill = (inv) => {
+      const [label, cls] = PAYOUT_STATUS[inv.partner_payout_status] || [inv.partner_payout_status, ""];
+      return `<span class="pill ${cls}">${esc(label)}</span>`;
+    };
+    const buyerText = (b) => b ? `${esc(b.name)}${b.buyer_id ? ` <span class="sub">${esc(b.buyer_id)}</span>` : ""}<br><span class="sub">${esc([b.email, b.place].filter(Boolean).join(" · "))}</span>` : "";
+    const stamp = (value) => value ? esc(dateFmt.format(new Date(value))) : "";
+
+    function invoiceGroup(row) {
+      const inv = row.invoice;
+      if (!inv) return "";
+
+      const hold = inv.status === "on_hold" ? `
+        <div class="hold-box">
+          <strong>Is this the same buyer as one we already have?</strong>
+          <p class="sub">The partner made a new buyer that looks like an existing one. The invoice waits until you choose.</p>
+          <dl><dt>New</dt><dd>${buyerText(inv.buyer)}</dd><dt>Existing</dt><dd>${buyerText(inv.duplicate)}</dd></dl>
+          <div class="hold-actions">
+            <button class="act" type="button" data-inv-action="same" data-inv-id="${esc(inv.id)}">Same buyer: use the existing one</button>
+            <button class="act" type="button" data-inv-action="different" data-inv-id="${esc(inv.id)}">Different buyer</button>
+          </div>
+        </div>` : "";
+
+      const actions = [
+        inv.status === "failed" ? `<button class="act" type="button" data-inv-action="retry" data-inv-id="${esc(inv.id)}">Retry</button>` : "",
+        inv.partner_payout_status === "to_pay" ? `<button class="act" type="button" data-inv-action="paid" data-inv-id="${esc(inv.id)}">Mark paid to partner</button>` : "",
+        inv.partner_payout_status === "paid" ? `<button class="act" type="button" data-inv-action="unpaid" data-inv-id="${esc(inv.id)}">Mark not paid</button>` : ""
+      ].join("");
+
+      return `${hold}${panelGroup("Invoice", [
+        ["Status", invoicePill(inv)],
+        ["Problem", inv.error ? `<span class="bad-text">${esc(inv.error)}</span>` : ""],
+        ["Buyer", buyerText(inv.buyer)],
+        ["Price", `${inv.pair_count} × ${euro(inv.price_per_pair)} = <strong>${euro(inv.total)}</strong>`],
+        ["Forwarding fee", `− ${euro(inv.fee_total)} (our margin)`],
+        ["Partner gets", `<strong>${euro(inv.purchase_total)}</strong>`],
+        ["Invoice", inv.invoice_number ? `<a href="/api/admin/forwarding/invoice-pdf?id=${encodeURIComponent(inv.id)}" target="_blank" rel="noopener">${esc(inv.invoice_number)}</a> · ${esc(inv.invoice_date || "")}` : ""],
+        ["Stock correction", inv.journal_id ? `Voorraadcorrectie ${esc(inv.invoice_number)} (${euro(inv.purchase_total)})` : ""],
+        ["Purchase", inv.expense_id ? `Expense ${esc(inv.expense_number || inv.expense_id)} in Payout by Kickz Caviar` : ""],
+        ["Mailed", stamp(inv.mailed_at)],
+        ["Buyer paid", inv.buyer_paid_at ? stamp(inv.buyer_paid_at) : inv.status === "invoiced" ? '<span class="dash">Not yet</span>' : ""],
+        ["Partner payout", payoutPill(inv)],
+        ["Paid to partner", inv.partner_paid_at ? `${stamp(inv.partner_paid_at)}${inv.partner_paid_note ? ` · ${esc(inv.partner_paid_note)}` : ""}` : ""],
+        ["", actions ? `<div class="hold-actions">${actions}</div>` : ""]
+      ])}`;
+    }
+
+    async function invoiceAction(id, action) {
+      if (action === "paid" && !confirm("Mark this partner payout as paid?")) return;
+      if (action === "same" && !confirm("Use the existing buyer for this invoice? The look-alike the partner made is removed.")) return;
+
+      try {
+        await api("/api/admin/forwarding/invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, action })
+        });
+        toast({ retry: "Invoice done.", same: "Existing buyer used; invoice made.", different: "New buyer kept; invoice made.", paid: "Marked paid to the partner.", unpaid: "Marked not paid." }[action] || "Done.");
+      } catch (err) {
+        toast(err.message);
+      }
+
+      load();
+      loadCounts();
+    }
+
+    $("panelBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-inv-action]");
+      if (button) invoiceAction(button.dataset.invId, button.dataset.invAction);
+    });
+
+    function renderPartnerPayouts() {
+      const query = $("searchInput").value.trim().toLowerCase();
+      const rows = state.payouts.filter((inv) => !query || [inv.display_id, inv.invoice_number, inv.seller_name, inv.seller_id, inv.buyer?.name, inv.sku].join(" ").toLowerCase().includes(query));
+
+      $("crumb").textContent = "Finance";
+      $("viewTitle").textContent = "Partner Payouts";
+      document.title = "Partner Payouts · Finance · Lojiq Admin";
+      $("paymentFilter").hidden = true;
+      $("actionbar").hidden = true;
+      const due = rows.filter((inv) => inv.partner_payout_status === "to_pay");
+      $("count").textContent = `${due.length} to pay · ${euro(due.reduce((sum, inv) => sum + Number(inv.purchase_total), 0))}`;
+      drawNavSections();
+
+      $("tableHead").innerHTML = `
+        <tr>
+          <th>Forward</th>
+          <th>Partner</th>
+          <th>Buyer</th>
+          <th>Invoice</th>
+          <th class="money">Buyer paid</th>
+          <th class="money">Partner gets</th>
+          <th>Status</th>
+          <th></th>
+        </tr>`;
+
+      $("rows").innerHTML = rows.length
+        ? rows.map((inv) => `
+            <tr>
+              <td><span class="id">${esc(inv.display_id)}</span><br><span class="sub">${esc(inv.sku)} · ${inv.pair_count} pair(s)</span></td>
+              <td>${esc(inv.seller_name || inv.seller_id)}</td>
+              <td>${esc(inv.buyer?.name || "")}</td>
+              <td>${inv.invoice_number ? `<a href="/api/admin/forwarding/invoice-pdf?id=${encodeURIComponent(inv.id)}" target="_blank" rel="noopener">${esc(inv.invoice_number)}</a>` : invoicePill(inv)}<br><span class="sub">${euro(inv.total)}</span></td>
+              <td class="money">${inv.buyer_paid_at ? esc(dayFmt.format(new Date(inv.buyer_paid_at))) : '<span class="dash">—</span>'}</td>
+              <td class="money"><strong>${euro(inv.purchase_total)}</strong></td>
+              <td>${inv.status === "invoiced" ? payoutPill(inv) : invoicePill(inv)}</td>
+              <td>${inv.partner_payout_status === "to_pay" ? `<button class="act" type="button" data-payout-paid="${esc(inv.id)}">Mark paid</button>` : ""}</td>
+            </tr>`).join("")
+        : `<tr><td colspan="8" class="empty">No invoiced forwards yet.</td></tr>`;
+    }
+
+    $("rows").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-payout-paid]");
+      if (button) invoiceAction(button.dataset.payoutPaid, "paid");
     });
 
     /* ---------------- payments ---------------- */

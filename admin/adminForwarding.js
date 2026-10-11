@@ -342,7 +342,7 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
  *
  * deps: store (createForwardingStore), audit, callWms(path, body)
  */
-export function mountForwarding(router, { store, audit, callWms, pageFile }) {
+export function mountForwarding(router, { store, audit, callWms, pageFile, forwardInvoices = null }) {
   const page = pageFile && fs.existsSync(pageFile) ? fs.readFileSync(pageFile, "utf8") : "";
 
   const send = (res, err) => {
@@ -390,11 +390,83 @@ export function mountForwarding(router, { store, audit, callWms, pageFile }) {
           { forwards: 0, pairs: 0, fee: 0, shipping: 0, payable: 0, unpaid: 0, profit_ex_vat: 0 }
         );
 
+      // A forward the partner made with an invoice carries it along.
+      if (forwardInvoices?.invoicing) {
+        const invoices = await forwardInvoices.invoicing.forForwards(forwards.map((row) => row.id)).catch((err) => {
+          console.error("[admin forwarding] invoices not loaded:", err.message);
+          return new Map();
+        });
+        for (const row of forwards) row.invoice = invoices.get(row.id) || null;
+      }
+
       res.json({ forwards, totals });
     } catch (err) {
       send(res, err);
     }
   });
+
+  /*
+   * The invoice on a partner's forward (partner/forwardInvoicing.js):
+   *   retry      run the steps that are not done yet
+   *   same       held invoice: the buyer is the one we already have
+   *   different  held invoice: it is a new buyer after all
+   *   paid       we paid the partner what the invoice left him
+   *   unpaid     that was a mistake
+   */
+  if (forwardInvoices?.invoicing) {
+    const { invoicing, buyers } = forwardInvoices;
+
+    router.get("/api/admin/forwarding/partner-payouts", async (req, res) => {
+      try {
+        res.json({ payouts: await invoicing.payouts() });
+      } catch (err) {
+        send(res, err);
+      }
+    });
+
+    router.get("/api/admin/forwarding/invoice-pdf", async (req, res) => {
+      try {
+        const { row } = await invoicing.load(text(req.query.id));
+        const pdf = await invoicing.pdf(row);
+        res.set("Content-Type", "application/pdf");
+        res.set("Content-Disposition", `inline; filename="Invoice ${text(row.invoice_number)}.pdf"`);
+        res.send(pdf);
+      } catch (err) {
+        res.status(err.status || 502).json({ error: err.message });
+      }
+    });
+
+    router.post("/api/admin/forwarding/invoice", express.json({ limit: "10kb" }), async (req, res) => {
+      const id = text(req.body?.id);
+      const action = text(req.body?.action);
+
+      try {
+        const { row: before } = await invoicing.load(id);
+        let after;
+
+        if (action === "retry") after = await invoicing.run(id).catch(async (err) => ({ ...(await invoicing.load(id)).row, failed: err.message }));
+        else if (action === "same" || action === "different") {
+          after = await invoicing.resolveHold(id, action === "same", { buyers })
+            .catch(async (err) => ({ ...(await invoicing.load(id)).row, failed: err.message }));
+        } else if (action === "paid" || action === "unpaid") after = await invoicing.setPartnerPaid(id, action === "paid", req.body?.note);
+        else throw new ForwardingError("Unknown action.");
+
+        const forward = await store.get(before.forwarding_log_id);
+        await log(req, `forward_invoice_${action}`, forward, {
+          invoice: after?.invoice_number || before.invoice_number || null,
+          status: { from: before.status, to: after?.status },
+          payout: { from: before.partner_payout_status, to: after?.partner_payout_status },
+          error: after?.failed || null
+        });
+
+        if (after?.failed) return res.status(502).json({ error: after.failed });
+        res.json({ invoice: after });
+      } catch (err) {
+        if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
+        send(res, err);
+      }
+    });
+  }
 
   // What was done to one forward here, newest first, for the side panel.
   router.get("/api/admin/forwarding/history", async (req, res) => {

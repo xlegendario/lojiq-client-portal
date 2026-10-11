@@ -174,6 +174,32 @@ app.use(apiAccess.router);
 app.use(apiAccess.errorHandler);
 
 /*
+ * Partner dashboard: /partner and /api/partner, for suppliers whose pairs are
+ * on our shelf. Accounts in Supabase partner_users; see partner/partnerPortal.js.
+ */
+const partnerPortal = createPartnerPortal({
+  adminSecret: LOJIQ_ADMIN_SECRET,
+  supabaseUrl: SUPABASE_URL,
+  serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+  pageFile: partnerPagePath(__dirname),
+  services: {
+    airtable,
+    sellersTable: AIRTABLE_SELLERS_TABLE,
+    kickzBaseUrl: KICKZ_PORTAL_BASE_URL,
+    internalSecret: COUNTER_OFFERS_SECRET,
+    wmsBaseUrl: RETURN_SERVICE_BASE_URL,
+    // The invoice on a forward: the same Rompslomp and mail as External Sales.
+    rompslompToken: ROMPSLOMP_API_TOKEN,
+    rompslompCompanyId: ROMPSLOMP_COMPANY_ID,
+    sendMail: sendInvoiceMail,
+    mailFrom: EXTERNAL_INVOICE_FROM,
+    replyTo: EXTERNAL_INVOICE_REPLY_TO
+  }
+});
+
+app.use(partnerPortal.router);
+
+/*
  * Lojiq Admin: /admin and /api/admin, for Dario and his partner. Its own
  * accounts and its own signed cookie; nothing in it trusts a merchant id from
  * the browser. See admin/adminRouter.js.
@@ -207,30 +233,13 @@ const adminPortal = createAdminPortal({
   },
   pageFile: adminPagePath(__dirname),
   supabaseUrl: SUPABASE_URL,
-  serviceKey: SUPABASE_SERVICE_ROLE_KEY
+  serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+  // The invoices partners make on their forwards, handled in Forward Service.
+  forwardInvoices: { invoicing: partnerPortal.invoicing, buyers: partnerPortal.buyers }
 });
 
 app.use(adminPortal.router);
 
-/*
- * Partner dashboard: /partner and /api/partner, for suppliers whose pairs are
- * on our shelf. Accounts in Supabase partner_users; see partner/partnerPortal.js.
- */
-const partnerPortal = createPartnerPortal({
-  adminSecret: LOJIQ_ADMIN_SECRET,
-  supabaseUrl: SUPABASE_URL,
-  serviceKey: SUPABASE_SERVICE_ROLE_KEY,
-  pageFile: partnerPagePath(__dirname),
-  services: {
-    airtable,
-    sellersTable: AIRTABLE_SELLERS_TABLE,
-    kickzBaseUrl: KICKZ_PORTAL_BASE_URL,
-    internalSecret: COUNTER_OFFERS_SECRET,
-    wmsBaseUrl: RETURN_SERVICE_BASE_URL
-  }
-});
-
-app.use(partnerPortal.router);
 
 function asText(value) {
   if (value === null || value === undefined) return "";
