@@ -444,7 +444,9 @@
 
         return shown.map((option, i) => `
           <tr${i === 0 ? ` class="lead" data-open="${esc(key)}"` : ""}>
-            <td>${i === 0 ? esc(row.sku) : ""}</td>
+            <td>${i === 0 ? esc(row.sku) : ""}${i === 0 && row.by_name
+              ? ` <span class="muted" title="Reached through the product name - the article number was not readable in the picture">by name</span>`
+              : ""}</td>
             <td>${i === 0 ? esc(row.size) : ""}</td>
             <td>${esc(option.product_name)}</td>
             <td>${i === 0 && row.options.length > 1
@@ -618,23 +620,71 @@
       before anything is looked up.
     */
     /*
-      A screenshot, cut into strips rather than shrunk.
+      A screenshot, trimmed and cut into strips rather than shrunk.
 
       A picture is read best up to about 1568 pixels on its longest edge, and
-      a tall screenshot used to be scaled down to fit that whole. On a grid of
-      product cards that is fatal: the article number is a six-pixel grey code
-      under the name, and taking another fifth off it is the difference
-      between reading twenty-four of them and reading four.
+      a tall screenshot used to be scaled down to fit that whole. On a phone
+      screenshot that is doubly wasteful: nine tenths of it is the black band
+      above and below the thing that was actually photographed, and what is
+      left gets scaled down to make room for it.
 
-      So a tall one is cut into bands instead, each inside the limit on its
-      own and therefore at the resolution it was taken at. The bands overlap,
-      because a card sitting on the seam would otherwise be cut in half, and
-      the duplicates that creates cost nothing - the parser already treats the
-      same pair asked for twice as one question.
+      So the plain border comes off first, and what is left is brought to the
+      reader's own size - up, if it was small - and cut into bands if it is
+      still too tall to take in at once. The bands overlap, because an item
+      sitting on the seam would otherwise be cut in half, and the duplicates
+      that creates cost nothing: the parser already treats the same pair
+      asked for twice as one question.
     */
     const LONGEST_EDGE = 1568;
     const OVERLAP = 140;
     const MOST_BANDS = 8;
+    // Past this, enlarging stops adding anything and only costs.
+    const MOST_ENLARGEMENT = 2;
+
+    /*
+      What is left of a picture once the plain border is taken off.
+
+      A phone screenshot of a shop's page is a strip of content in a field of
+      black, and that black is most of the picture. Rows and columns that are
+      all one colour - whichever colour the corner is - are not content, and
+      the first and last that are not give the box worth reading.
+    */
+    function contentBox(pixels, width, height) {
+      const at = (x, y) => (y * width + x) * 4;
+      const [r0, g0, b0] = [pixels[0], pixels[1], pixels[2]];
+      // Video black is not quite 0,0,0 and a white page is not quite 255.
+      const plain = (i) => Math.abs(pixels[i] - r0) < 14
+        && Math.abs(pixels[i + 1] - g0) < 14
+        && Math.abs(pixels[i + 2] - b0) < 14;
+
+      // Every fourth pixel: a band of content a thousand pixels wide is not
+      // going to hide between two samples.
+      const rowIsPlain = (y) => {
+        for (let x = 0; x < width; x += 4) if (!plain(at(x, y))) return false;
+        return true;
+      };
+
+      const columnIsPlain = (x) => {
+        for (let y = 0; y < height; y += 4) if (!plain(at(x, y))) return false;
+        return true;
+      };
+
+      let top = 0;
+      let bottom = height - 1;
+      let left = 0;
+      let right = width - 1;
+
+      while (top < bottom && rowIsPlain(top)) top += 1;
+      while (bottom > top && rowIsPlain(bottom)) bottom -= 1;
+      while (left < right && columnIsPlain(left)) left += 1;
+      while (right > left && columnIsPlain(right)) right -= 1;
+
+      const box = { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+
+      // A picture that is all one colour has no content box; reading the
+      // whole of it is the honest answer, and the model can say it is blank.
+      return box.width > 40 && box.height > 40 ? box : { x: 0, y: 0, width, height };
+    }
 
     function pictureBands(file) {
       return new Promise((resolve, reject) => {
@@ -643,13 +693,27 @@
         image.onerror = () => reject(new Error(`${file.name || "That picture"} could not be opened`));
 
         image.onload = () => {
-          // Only the width can force a scale now; the height is handled by
-          // cutting rather than shrinking.
-          const scale = Math.min(1, LONGEST_EDGE / image.width);
-          const width = Math.round(image.width * scale);
-          const height = Math.round(image.height * scale);
+          const whole = document.createElement("canvas");
 
+          whole.width = image.width;
+          whole.height = image.height;
+
+          const paper = whole.getContext("2d", { willReadFrequently: true });
+
+          paper.drawImage(image, 0, 0);
           URL.revokeObjectURL(image.src);
+
+          const box = contentBox(
+            paper.getImageData(0, 0, image.width, image.height).data,
+            image.width,
+            image.height
+          );
+
+          // Only the width can force a scale; the height is handled by
+          // cutting rather than shrinking.
+          const scale = Math.min(MOST_ENLARGEMENT, LONGEST_EDGE / box.width);
+          const width = Math.round(box.width * scale);
+          const height = Math.round(box.height * scale);
 
           const step = Math.max(1, LONGEST_EDGE - OVERLAP);
           const bands = [];
@@ -662,8 +726,8 @@
             canvas.height = tall;
 
             canvas.getContext("2d").drawImage(
-              image,
-              0, top / scale, image.width, tall / scale,
+              whole,
+              box.x, box.y + top / scale, box.width, tall / scale,
               0, 0, width, tall
             );
 

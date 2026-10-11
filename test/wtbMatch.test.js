@@ -75,8 +75,18 @@ test("a line it cannot read is handed back, not swallowed", () => {
     "looking for anything in 42 please\nDM7866-202 - shoe 43"
   );
 
-  assert.deepEqual(wanted.map((row) => `${row.sku} ${row.size}`), ["DM7866-202 43"]);
-  assert.deepEqual(unreadable, ["looking for anything in 42 please"], "so the screen can show it");
+  assert.deepEqual(unreadable, [], "the parser alone cannot tell prose from a name");
+
+  /*
+    A sentence with a size in it reads exactly like a card off a screenshot:
+    some words, then a size, and no article number anywhere. Only the shelf
+    can say which of the two it was, so the parser hands both on and the
+    search sends back the one nothing answers to.
+  */
+  assert.deepEqual(wanted.map((row) => `${row.sku}|${row.name}|${row.size}`), [
+    "|looking for anything in please|42",
+    "DM7866-202||43"
+  ]);
 });
 
 test("a SKU with no size after it is not a request", () => {
@@ -314,7 +324,12 @@ test("the name is left alone however many numbers it holds", () => {
 test("a woman's shoe keeps its own bracket out of it", () => {
   const { wanted } = parseRequest("WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU");
 
-  assert.deepEqual(wanted, [{ sku: "HQ4309-003", size: "38", line: "WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU" }]);
+  assert.deepEqual(wanted, [{
+    sku: "HQ4309-003",
+    name: "",
+    size: "38",
+    line: "WTB Nike Mind 001 Slide Light Smoke Grey (Women's) (HQ4309-003) 38 EU"
+  }]);
 });
 
 test("Discord's own mark-up is not part of the article", () => {
@@ -332,14 +347,21 @@ test("Discord's own mark-up is not part of the article", () => {
   ]);
 });
 
-test("a line with no article at all is still handed back", () => {
-  // A name and a size, which is nothing to match on.
+test("a line with no article at all is carried on its name", () => {
   const { wanted, unreadable } = parseRequest("Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L\nWTB");
 
-  assert.deepEqual(wanted, []);
   // "WTB" on its own is a heading, not a request nobody could read. Saying
   // so about it was noise, and Dario said as much on the first real paste.
-  assert.deepEqual(unreadable, ["Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L"]);
+  assert.deepEqual(unreadable, []);
+
+  // No article number to read, so the name goes in its place and the shelf
+  // is asked which article that is.
+  assert.deepEqual(wanted, [{
+    sku: "",
+    name: "Supreme Warriors Applique Zip Up Hooded Sweatshirt Red",
+    size: "L",
+    line: "Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L"
+  }]);
 });
 
 /* ---------------- the offer that goes back to the buyer ---------------- */
@@ -582,14 +604,17 @@ test("every size on a long line is taken, and the same one only once", () => {
   ]);
 });
 
-test("a line with a size but no article is still a failure worth seeing", () => {
+test("a line with a size but no article is asked for by name", () => {
   const { wanted, unreadable } = parseRequest([
     "Supreme Warriors Applique Zip Up Hooded Sweatshirt Red L",
     "Adidas XLG Runner Deluxe Wonder Gray - 43 1/3"
   ].join("\n"));
 
-  assert.deepEqual(wanted, []);
-  assert.equal(unreadable.length, 2, "he wrote no article, and should be told");
+  assert.deepEqual(unreadable, []);
+  assert.deepEqual(wanted.map((row) => `${row.name} / ${row.size}`), [
+    "Supreme Warriors Applique Zip Up Hooded Sweatshirt Red / L",
+    "Adidas XLG Runner Deluxe Wonder Gray / 43 1/3"
+  ]);
 });
 
 /* ---------------- one line per place, not per pair ---------------- */
@@ -709,4 +734,144 @@ test("an offer for one of two articles names the pair once, and plainly", () => 
     }),
     "FV5029-010 - Air Jordan 4 Black Cat (2025) 44 €300 VAT0"
   );
+});
+
+/* ---------------- the pair that only has a name ---------------- */
+
+/*
+  A screenshot of a shop's grid carries the name in readable type and the
+  article number as a smudge four pixels high. Reading the smudge is not
+  possible - the pixels are not there - so the name is what comes back, and
+  the shelf is asked which article that is.
+*/
+
+const named = (extra) => ({
+  sku: "HR9479",
+  size: "38 2/3",
+  product_name: "adidas Campus 00s Better Scarlet Cloud White",
+  availability: "Available",
+  cost: 120,
+  ...extra
+});
+
+test("a card with no readable article is found on its name", async () => {
+  const store = createWtbMatchStore(stores({ warehouse: [named({ id: "u1" })] }));
+
+  const out = await store.search("adidas Campus 00s Better Scarlet Cloud White 38 2/3");
+
+  assert.equal(out.rows.length, 1);
+
+  // It answers with the article it turned out to be, so the offer and the
+  // file after it are no different from a line he typed the number on.
+  assert.equal(out.rows[0].sku, "HR9479");
+  assert.equal(out.rows[0].by_name, true);
+  assert.equal(out.rows[0].options[0].source, "Warehouse");
+  assert.deepEqual(out.unreadable, []);
+});
+
+test("the two names do not have to be written the same way", () => {
+  const stock = shelf({ warehouse: [named({ id: "u1" })] });
+
+  // The shop leaves the brand off, and writes the bracket its own way.
+  const [row] = matchStock(
+    [{ sku: "", name: "Campus 00s Better Scarlet Cloud White", size: "38 2/3" }],
+    stock
+  );
+
+  assert.equal(row.sku, "HR9479");
+
+  // An apostrophe and a bracket are not what makes two shoes different.
+  const womens = shelf({
+    warehouse: [named({ id: "u2", sku: "IF3998", product_name: "adidas Samba OG (Women's)" })]
+  });
+
+  assert.equal(
+    matchStock([{ sku: "", name: "adidas Samba OG Womens", size: "38 2/3" }], womens)[0].sku,
+    "IF3998"
+  );
+});
+
+test("a name that reaches two articles answers with neither", () => {
+  const stock = shelf({
+    warehouse: [
+      named({ id: "u1", sku: "IE3439", product_name: "adidas Samba OG White Gum" }),
+      named({ id: "u2", sku: "ID1450", product_name: "adidas Samba OG Dark Brown Tweed" })
+    ]
+  });
+
+  // "Samba OG" is twenty shoes. Offering on whichever came first is worse
+  // than saying it could not be read.
+  const [row] = matchStock([{ sku: "", name: "adidas Samba OG", size: "38 2/3" }], stock);
+
+  assert.equal(row.sku, "");
+  assert.deepEqual(row.options, []);
+
+  // The whole name reaches one of them, and that one is answered.
+  assert.equal(
+    matchStock([{ sku: "", name: "adidas Samba OG Dark Brown Tweed", size: "38 2/3" }], stock)[0].sku,
+    "ID1450"
+  );
+});
+
+test("one word is not a name", () => {
+  const stock = shelf({ warehouse: [named({ id: "u1" })] });
+
+  assert.equal(matchStock([{ sku: "", name: "Campus", size: "38 2/3" }], stock)[0].sku, "");
+});
+
+test("a size we do not hold is a pair we do not have, not a name we cannot read", () => {
+  const stock = shelf({ warehouse: [named({ id: "u1" })] });
+  const asked = [{ sku: "", name: "adidas Campus 00s Better Scarlet Cloud White", size: "44" }];
+
+  const [row] = matchStock(asked, stock);
+
+  /*
+    We hold that shoe in 38 2/3 and not in 44. The name still says which
+    shoe he means, and saying so is the useful answer: he gets the article
+    number and an empty shelf under it, rather than an empty box asking him
+    to go and look the number up himself.
+  */
+  assert.equal(row.sku, "HR9479");
+  assert.equal(row.by_name, true);
+  assert.deepEqual(row.options, []);
+});
+
+test("a name the shelf cannot place is not answered either way", async () => {
+  const store = createWtbMatchStore(stores({ warehouse: [named({ id: "u1" })] }));
+
+  const out = await store.search([
+    "looking for anything in 42 please",
+    "New Balance 1000 Cordura Black Cement 44.5",
+    "adidas Campus 00s Better Scarlet Cloud White 38 2/3"
+  ].join("\n"));
+
+  /*
+    A sentence with a size in it parses exactly like a card off a grid, and
+    nothing here can tell the two apart. What can be said is that we do not
+    know which shoe either of them is - so neither is answered with "not on
+    any shelf", which would be a claim about a shoe we never identified.
+  */
+  assert.equal(out.rows.length, 1, "only the one it could place");
+  assert.equal(out.rows[0].sku, "HR9479");
+
+  // They stand in the correction table instead, size already filled in and
+  // the article number waiting for him.
+  assert.deepEqual(out.wanted.map((row) => `${row.sku}|${row.size}`), [
+    "|42",
+    "|44.5",
+    "HR9479|38 2/3"
+  ]);
+  assert.deepEqual(out.unreadable, []);
+});
+
+test("a pair we really do not have still comes back as a gap", async () => {
+  const store = createWtbMatchStore(stores({ warehouse: [named({ id: "u1" })] }));
+
+  const out = await store.search("FQ8138-002 42");
+
+  // He wrote an article number, so the question was readable. An empty
+  // answer to it is a pair we do not hold, and that is worth seeing.
+  assert.equal(out.rows.length, 1);
+  assert.equal(out.rows[0].sources, 0);
+  assert.deepEqual(out.unreadable, []);
 });

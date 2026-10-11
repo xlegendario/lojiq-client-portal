@@ -115,10 +115,37 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
       option.ready_in = readyIn(option);
     }
 
-    const rows = matchStock(wanted, all);
+    const matched = matchStock(wanted, all);
+
+    /*
+      A name the shelf could not place is not an answer either way.
+      "Looking for anything in 42 please" parses exactly like a card off a
+      screenshot - some words and a size, with no article number anywhere -
+      and we cannot tell the two apart. What we can say is that we do not
+      know which shoe it is, and "not on any shelf" would be a claim we
+      have no business making about a shoe we never identified.
+
+      So it stays out of the answer and stands in the correction table
+      instead, with its size already filled in and the article number
+      waiting for him. A row that does have an article is a different
+      thing: an empty answer to that one is a pair we really do not hold,
+      and that is worth seeing.
+    */
+    const rows = [];
+    const asked = [];
+
+    matched.forEach((row, at) => {
+      // With the article it turned out to be, not the empty box the name
+      // came in with: the correction table shows what it decided, and a
+      // second search - which goes out as "article,size" - still carries
+      // the row instead of dropping it.
+      asked.push({ ...wanted[at], sku: row.sku });
+
+      if (row.sku) rows.push(row);
+    });
 
     return {
-      wanted,
+      wanted: asked,
       unreadable,
       rows,
       // What was actually looked through, so a thin answer can be told apart

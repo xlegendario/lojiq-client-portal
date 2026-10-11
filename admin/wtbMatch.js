@@ -62,6 +62,78 @@ export function sizeKey(value) {
 export const skuKey = (value) => text(value).toUpperCase().replace(/\s+/g, "");
 
 /*
+ * A product name as this compares it.
+ *
+ * Nothing but the words: two sources write the same shoe as "Samba OG
+ * (Women's)" and "Samba OG Womens", and neither the brackets, the
+ * apostrophe nor the plural is what makes them different shoes. The
+ * possessive goes before the punctuation does, so "Women's" leaves "women"
+ * behind and not a stray "s", and a trailing "s" comes off the longer words
+ * so that "Womens" lands on the same key.
+ *
+ * The result is not English - "Campus" keys as "campu" - and it does not
+ * need to be. Both sides of every comparison are put through this, and a
+ * key is only ever compared with another key.
+ */
+export const nameKey = (value) => text(value)
+  .toLowerCase()
+  .replace(/['’]s\b/g, "")
+  .replace(/[^a-z0-9]+/g, " ")
+  .trim()
+  .split(" ")
+  // Short words are left alone: "00s" is how a shoe is called and "s" on
+  // its own is nothing at all.
+  .map((word) => (word.length > 4 && word.endsWith("s") ? word.slice(0, -1) : word))
+  .join(" ");
+
+/*
+ * Which article a name belongs to.
+ *
+ * A screenshot of a shop's grid carries the name in readable type and the
+ * article number as a smudge four pixels high, so for those the name is all
+ * there is to go on. The name is matched whole where it can be, and
+ * otherwise one name being contained in the other counts - a shop writing
+ * "Samba OG Dark Brown Tweed" and our shelf writing "adidas Samba OG Dark
+ * Brown Tweed" is the same shoe.
+ *
+ * The size is deliberately not part of this. The question here is which
+ * shoe he means, and a size we happen not to hold does not make the shoe
+ * unrecognisable - it makes it a pair we do not have, which is a different
+ * answer and a useful one.
+ *
+ * What it will not do is guess. If the name reaches more than one article
+ * the answer is nothing at all, because "Samba OG" is twenty different
+ * shoes and offering on whichever came first is worse than admitting the
+ * number could not be read.
+ */
+export function theArticleCalled(name, index) {
+  const asked = nameKey(name).split(" ").filter(Boolean);
+
+  // One word is not a name. "Jordan" is a thousand shoes.
+  if (asked.length < 2) return "";
+
+  const whole = index.get(asked.join(" "));
+
+  if (whole?.size === 1) return [...whole][0];
+
+  const found = new Set();
+
+  for (const [key, skus] of index) {
+    const words = key.split(" ");
+    const [few, many] = words.length < asked.length ? [words, asked] : [asked, words];
+
+    if (!few.every((word) => many.includes(word))) continue;
+
+    for (const sku of skus) found.add(sku);
+
+    // Two is already too many; a third changes nothing.
+    if (found.size > 1) return "";
+  }
+
+  return found.size === 1 ? [...found][0] : "";
+}
+
+/*
  * What a want-to-buy is asking for.
  *
  * Takes what is pasted in, whatever shape it came in: the "sku,size" csv the
@@ -198,7 +270,9 @@ export function parseRequest(input) {
 
     const add = (forSkus, forSizes, from) => {
       for (const size of forSizes) {
-        for (const sku of forSkus) rows.push({ sku: skuKey(sku), size: sizeKey(size), line: from });
+        for (const sku of forSkus) {
+          rows.push({ sku: skuKey(sku), name: "", size: sizeKey(size), line: from });
+        }
       }
     };
 
@@ -224,7 +298,27 @@ export function parseRequest(input) {
         continue;
       }
 
-      // Sizes and no article at all: a request nobody can answer.
+      /*
+        Sizes and a name, but no article. A screenshot of a shop's grid
+        comes out this way every time: the name is in readable type and
+        the article number under it is a smudge four pixels high, so the
+        name is all there is. It is carried as the name and the shelf is
+        asked which article that is.
+      */
+      const named = [spare, line].filter(Boolean).join(" ").trim();
+      const name = productFromLine(named);
+
+      if (name) {
+        for (const size of sizes) {
+          rows.push({ sku: "", name, size: sizeKey(size), line: named });
+        }
+
+        spare = "";
+        pending = null;
+        continue;
+      }
+
+      // Sizes and nothing else at all: a request nobody can answer.
       unreadable.push(line);
       continue;
     }
@@ -236,7 +330,7 @@ export function parseRequest(input) {
       rather than dropped in silence - "wtb" and "some examples:" are not
       requests, but a sentence nobody could read is one.
     */
-    if (/[A-Za-z]/.test(line) && !/^wtb/i.test(line)) {
+    if (/[A-Za-z]/.test(line) && !/^wtb/i.test(line)) {
       if (spare && spare.split(" ").length >= 4) unreadable.push(spare);
       spare = line;
       pending = null;
@@ -253,7 +347,7 @@ export function parseRequest(input) {
   const wanted = [];
 
   for (const row of rows) {
-    const key = `${row.sku}|${row.size}`;
+    const key = `${row.sku}|${text(row.name)}|${row.size}`;
 
     if (seen.has(key)) continue;
 
@@ -275,17 +369,44 @@ export function parseRequest(input) {
  */
 export function matchStock(wanted = [], stock = []) {
   const shelf = new Map();
+  const articles = new Map();
 
   for (const unit of stock) {
-    const key = `${skuKey(unit.sku)}|${sizeKey(unit.size)}`;
+    const sku = skuKey(unit.sku);
+    const key = `${sku}|${sizeKey(unit.size)}`;
+
     if (!shelf.has(key)) shelf.set(key, []);
     shelf.get(key).push(unit);
+
+    const name = nameKey(unit.product_name);
+
+    if (!name) continue;
+
+    if (!articles.has(name)) articles.set(name, new Set());
+    articles.get(name).add(sku);
   }
 
   return wanted.map((row) => {
-    const found = groupOptions(shelf.get(`${row.sku}|${row.size}`) || []);
+    /*
+      A pair recognised by its name answers with the article it turned out
+      to be, and is looked up like any other from there on - so the offer,
+      the file and the screen all get what they need, and a size we do not
+      hold comes back as a pair we do not have rather than as a name we
+      could not read. Where the name reached nothing the article stays
+      empty, and the line he wrote is what is shown back to him.
+    */
+    const sku = row.sku || theArticleCalled(row.name, articles);
+    const found = sku ? groupOptions(shelf.get(`${sku}|${row.size}`) || []) : [];
 
-    return { sku: row.sku, size: row.size, line: row.line, options: found, sources: found.length };
+    return {
+      sku,
+      size: row.size,
+      line: row.line,
+      name: text(row.name),
+      by_name: Boolean(!row.sku && sku),
+      options: found,
+      sources: found.length
+    };
   });
 }
 
@@ -473,11 +594,22 @@ export function productFromLine(line) {
   });
 
   const kept = [];
-  const tail = last === -1 ? [] : words.slice(last + 1);
+
+  /*
+    With no article anywhere, everything is behind it. A card off a shop's
+    grid is written that way - the name, and then the sizes, with the
+    article number a smudge too small to read - and a size is no more part
+    of the name there than it is on a line that has an article on it.
+
+    FIXED - this kept the whole line when there was no article in it, so
+    "Supreme Hooded Sweatshirt Red L" went looking for a shoe called
+    "... Red L" and of course found none.
+  */
+  const tail = last === -1 ? words : words.slice(last + 1);
 
   // An article in front of the last one is still an article: a pair sold
   // under two numbers writes both, and neither belongs in the name.
-  for (const word of words.slice(0, last === -1 ? words.length : last)) {
+  for (const word of words.slice(0, last === -1 ? 0 : last)) {
     if (!skusIn(bare(word)).length) kept.push(word);
   }
 
