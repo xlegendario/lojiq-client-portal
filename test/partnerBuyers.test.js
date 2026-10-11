@@ -6,7 +6,7 @@ import { cleanBuyerInput, createPartnerBuyers, similarBuyer } from "../partner/p
 
 const SELLER = "recJIMMY";
 const ours = { id: "b-ours", buyer_number: 35, company_name: "Sneaker Palace B.V.", full_name: "Tom", email: "tom@palace.test", zipcode: "1012 AB", city: "Amsterdam", country: "Netherlands", country_code: "NL" };
-const input = { company_name: "Kicks Berlin GmbH", full_name: "Lena", email: "lena@kb.test", address: "Torstr 5", zipcode: "10119", city: "Berlin", country: "Germany" };
+const input = { company_name: "Kicks Berlin GmbH", full_name: "Lena", email: "lena@kb.test", vat_id: "DE123456789", address: "Torstr 5", zipcode: "10119", city: "Berlin", country: "Germany" };
 
 test("look-alikes: same name without legal form, or same postcode with a name that starts the same", () => {
   assert.equal(similarBuyer([ours], { company_name: "Sneaker-Palace" })?.id, "b-ours");
@@ -18,6 +18,8 @@ test("look-alikes: same name without legal form, or same postcode with a name th
 test("a buyer needs a name, an email and a full address", () => {
   assert.deepEqual(cleanBuyerInput({}).missing, ["name", "email", "address", "zipcode", "city", "country"]);
   assert.deepEqual(cleanBuyerInput(input).missing, []);
+  assert.deepEqual(cleanBuyerInput({ ...input, vat_id: "" }).missing, ["vat_id"], "a company needs its VAT number");
+  assert.deepEqual(cleanBuyerInput({ ...input, company_name: "", vat_id: "" }).missing, [], "a private buyer does not");
 });
 
 function setup(kc) {

@@ -94,6 +94,8 @@ export function cleanBuyerInput(input = {}) {
   const missing = [];
   if (!row.company_name && !row.full_name) missing.push("name");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) missing.push("email");
+  // A company is invoiced with its VAT number (Dario, 11-10-2026).
+  if (row.company_name && !row.vat_id) missing.push("vat_id");
   if (!row.address) missing.push("address");
   if (!row.zipcode) missing.push("zipcode");
   if (!row.city) missing.push("city");

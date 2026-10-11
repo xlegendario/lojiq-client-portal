@@ -307,6 +307,9 @@
     .pill.move { background: rgba(47, 128, 237, 0.18); color: var(--primary-soft); }
     .pill.good { background: rgba(22, 179, 100, 0.16); color: #4ADE9A; }
     .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
+    .tracking-list summary { list-style: none; cursor: pointer; }
+    .tracking-list summary::-webkit-details-marker { display: none; }
+    .tracking-all { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 0 0 10px; }
     .track { color: var(--primary-soft); text-decoration: none; word-break: break-all; text-align: right; }
 
     /* ---------- invoice ---------- */
@@ -428,7 +431,7 @@
         <div id="sendBody"><div class="note" data-t="loading">Loading…</div></div>
       </section>
       <section id="view-sent" data-view hidden>
-        <h2 data-t="tab_sent">Sent</h2>
+        <h2 data-t="tab_sent">Forwards</h2>
         <div id="sentList"><div class="note" data-t="loading">Loading…</div></div>
       </section>
     </main>
@@ -450,7 +453,7 @@
         </button>
         <button class="tab" role="tab" type="button" data-tab="sent" aria-selected="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h13"/><path d="M12 6l6 6-6 6"/><path d="M21 5v14"/></svg>
-          <span data-t="tab_sent">Sent</span>
+          <span data-t="tab_sent">Forwards</span>
         </button>
       </div>
     </nav>
@@ -472,7 +475,7 @@
         sign_out: "Sign out",
         tab_stock: "Stock",
         tab_new: "Send pairs",
-        tab_sent: "Sent",
+        tab_sent: "Forwards",
         coming: "This part is being built.",
         wrong_login: "E-mail or password is wrong.",
         too_many_attempts: "Too many tries. Wait 15 minutes.",
@@ -508,7 +511,7 @@
         next: "Next",
         size: "Size",
         labels_title: "Shipping labels",
-        labels_hint: "Add the label of every box, as a PDF or a photo. We read the tracking number for you.",
+        labels_hint: "Upload all labels for this order.",
         label_reading: "Reading the label…",
         label_unread: "We could not read this label. Type the tracking number:",
         label_used: "This label was already used for {fwd}.",
@@ -533,20 +536,21 @@
         done_ready: "We pack and ship them.",
         done_waiting: "We ship them when we have the label.",
         send_more: "Send more",
-        see_sent: "See sent",
+        see_sent: "See forwards",
         no_pairs: "Choose at least 1 pair.",
         too_many_pairs: "That is too many pairs for one shipment. Use 500 or fewer.",
         pairs_gone: "Some pairs are not available any more. The list is updated, please check again.",
         bad_tracking: "This tracking number does not look right.",
         bad_label: "The label must be a PDF, JPG or PNG file.",
-        no_sent: "You have not sent any pairs yet.",
-        sec_open: "With us",
+        no_sent: "You have no forwards yet.",
+        sec_open: "Pending",
         sec_done: "Done",
         st_waiting: "Waiting for label",
         st_ready: "We pack it",
         st_shipped: "Sent",
         st_cancelled: "Cancelled",
         no_tracking: "Not yet",
+        n_tracking: "{n} tracking numbers",
         shipped_on: "Sent on",
         fee_paid: "paid",
         fee_open: "to pay",
@@ -554,7 +558,7 @@
         inv_generate_hint: "We email the invoice to your buyer.",
         invoice_one_product: "An invoice is for one product. Remove the other products and send them in a separate forward.",
         inv_buyer: "Buyer",
-        inv_price: "Price per pair (the buyer pays this)",
+        inv_price: "Price per pair (your selling price)",
         per_pair: "per pair",
         change: "Change",
         search_buyer: "Search your buyers",
@@ -565,14 +569,14 @@
         f_company: "Company name",
         f_name: "Contact name",
         f_email: "E-mail (the invoice goes here)",
-        f_vat: "VAT number (if they have one)",
+        f_vat: "VAT number (required for a company)",
         f_address: "Street and number",
         f_address2: "Address line 2",
         f_zip: "Postcode",
         f_city: "City",
         f_country: "Country",
         choose_country: "Choose a country",
-        name_hint: "Fill in the company name, or the contact name, or both.",
+        name_hint: "Fill company name, contact name, or both.",
         save_buyer: "Save buyer",
         cancel: "Cancel",
         buyer_missing: "Fill in the fields in red.",
@@ -610,7 +614,7 @@
         sign_out: "退出",
         tab_stock: "库存",
         tab_new: "发货",
-        tab_sent: "已发货",
+        tab_sent: "发货记录",
         coming: "此部分正在建设中。",
         wrong_login: "邮箱或密码错误。",
         too_many_attempts: "尝试次数太多，请等 15 分钟。",
@@ -646,7 +650,7 @@
         next: "下一步",
         size: "尺码",
         labels_title: "快递面单",
-        labels_hint: "请添加每个箱子的面单（PDF 或照片）。我们会自动读取快递单号。",
+        labels_hint: "上传这个订单的所有面单。",
         label_reading: "正在读取面单…",
         label_unread: "无法读取这张面单，请输入快递单号：",
         label_used: "这张面单已经用于 {fwd}。",
@@ -671,20 +675,21 @@
         done_ready: "我们会打包并发出。",
         done_waiting: "收到面单后我们就发出。",
         send_more: "继续发货",
-        see_sent: "查看已发货",
+        see_sent: "查看发货记录",
         no_pairs: "请至少选择 1 双。",
         too_many_pairs: "一次发货太多了，请不要超过 500 双。",
         pairs_gone: "有些鞋已经不可用了。列表已更新，请再检查一次。",
         bad_tracking: "快递单号好像不对。",
         bad_label: "面单必须是 PDF、JPG 或 PNG 文件。",
         no_sent: "您还没有发过货。",
-        sec_open: "处理中",
+        sec_open: "待处理",
         sec_done: "已完成",
         st_waiting: "等待面单",
         st_ready: "正在打包",
         st_shipped: "已发出",
         st_cancelled: "已取消",
         no_tracking: "暂无",
+        n_tracking: "{n} 个快递单号",
         shipped_on: "发出日期",
         fee_paid: "已付",
         fee_open: "待付",
@@ -692,7 +697,7 @@
         inv_generate_hint: "我们会把发票通过邮件发给您的买家。",
         invoice_one_product: "一张发票只能有一款商品。请删除其他商品，另外单独发货。",
         inv_buyer: "买家",
-        inv_price: "每双价格（买家支付）",
+        inv_price: "每双价格（您的售价）",
         per_pair: "每双",
         change: "更换",
         search_buyer: "搜索您的买家",
@@ -703,14 +708,14 @@
         f_company: "公司名称",
         f_name: "联系人",
         f_email: "邮箱（发票发到这里）",
-        f_vat: "增值税号（如有）",
+        f_vat: "增值税号（公司必填）",
         f_address: "街道和门牌号",
         f_address2: "地址第二行",
         f_zip: "邮编",
         f_city: "城市",
         f_country: "国家",
         choose_country: "选择国家",
-        name_hint: "请填写公司名称或联系人，或两者都填。",
+        name_hint: "填写公司名称、联系人，或两者都填。",
         save_buyer: "保存买家",
         cancel: "取消",
         buyer_missing: "请填写红色的栏位。",
@@ -1633,6 +1638,7 @@
 
       return `
         <div class="buyer-form">
+          <p class="hint">${esc(t("name_hint"))}</p>
           ${BUYER_FIELDS.map(field).join("")}
           <div class="field${inv.bad.includes("country") ? " bad" : ""}">
             <label for="invCountry">${esc(t("f_country"))} *</label>
@@ -1641,7 +1647,6 @@
               ${inv.countries.map((c) => `<option${inv.form.country === c ? " selected" : ""}>${esc(c)}</option>`).join("")}
             </select>
           </div>
-          <p class="hint">${esc(t("name_hint"))}</p>
           <div class="actions">
             <button class="btn" type="button" data-inv="cancel-new">${esc(t("cancel"))}</button>
             <button class="btn primary" type="button" data-inv="save-buyer"${inv.saving ? " disabled" : ""}>${esc(inv.saving ? t("sending") : t("save_buyer"))}</button>
@@ -1666,6 +1671,8 @@
       const bad = [];
       if (!String(f.company_name || "").trim() && !String(f.full_name || "").trim()) bad.push("company_name", "full_name");
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(f.email || "").trim())) bad.push("email");
+      // A company is invoiced with its VAT number (Dario, 11-10-2026).
+      if (String(f.company_name || "").trim() && !String(f.vat_id || "").trim()) bad.push("vat_id");
       for (const name of ["address", "zipcode", "city", "country"]) if (!String(f[name] || "").trim()) bad.push(name);
       return bad;
     }
@@ -1784,6 +1791,20 @@
       $("sentList").innerHTML = section(t("sec_open"), open) + section(t("sec_done"), rest);
     }
 
+    const trackLink = (n) => `<a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a>`;
+
+    // One number in its row; more fold behind "4 tracking numbers".
+    function trackingRows(f) {
+      if (!f.tracking.length) return `<div class="detail-row"><span class="muted">${esc(t("tracking"))}</span><span class="muted">${esc(t("no_tracking"))}</span></div>`;
+      if (f.tracking.length === 1) return `<div class="detail-row"><span class="muted">${esc(t("tracking"))}</span>${trackLink(f.tracking[0])}</div>`;
+
+      return `
+        <details class="tracking-list">
+          <summary class="detail-row"><span class="muted">${esc(t("tracking"))}</span><span>${esc(t("n_tracking").replace("{n}", f.tracking.length))} ▾</span></summary>
+          <div class="tracking-all">${f.tracking.map(trackLink).join("")}</div>
+        </details>`;
+    }
+
     function sentCard(f) {
       const status = STATUS[f.status] || STATUS.awaiting_label;
       const isOpen = sent.open.has(f.id);
@@ -1799,10 +1820,7 @@
               </div>
             </div>`).join("")}
           <div class="detail">
-            ${f.tracking.length ? f.tracking.map((n) => `
-              <div class="detail-row"><span class="muted">${esc(t("tracking"))}</span>
-                <a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a></div>`).join("")
-              : `<div class="detail-row"><span class="muted">${esc(t("tracking"))}</span><span class="muted">${esc(t("no_tracking"))}</span></div>`}
+            ${trackingRows(f)}
             ${f.shipped_at ? `<div class="detail-row"><span class="muted">${esc(t("shipped_on"))}</span><span>${esc(niceDate(dayOfStamp(f.shipped_at)))}</span></div>` : ""}
             ${f.invoice ? "" : `<div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>${esc(money(f.fee))} · ${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></div>`}
           </div>
