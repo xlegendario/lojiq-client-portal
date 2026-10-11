@@ -430,7 +430,21 @@
       }
 
       const found = state.rows.filter((row) => row.options.length).length;
-      $("count").textContent = `${found} of ${state.rows.length} asked for are on a shelf`;
+
+      /*
+        The count has to add up to what he pasted, not to what the engine
+        managed to make of it. A line read off a picture whose article
+        number nobody could place is not in the results at all - it is
+        sitting in the table above with an empty article box - and leaving
+        it out of the count made four of five look like the whole list on
+        a paste that had seven lines in it.
+      */
+      const waiting = state.wanted.filter((row) => !row.sku).length;
+
+      $("count").textContent = [
+        `${found} of ${state.rows.length} asked for are on a shelf`,
+        waiting ? `${waiting} still need an article number, above` : ""
+      ].filter(Boolean).join(" · ");
 
       $("missing").hidden = !state.missing.length;
       $("missing").innerHTML = state.missing.length
