@@ -141,8 +141,8 @@ export function readCookie(req, name) {
   return "";
 }
 
-export function cookieHeader(req, value, maxAgeSeconds) {
-  const attrs = [`${COOKIE}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${maxAgeSeconds}`];
+export function cookieHeader(req, value, maxAgeSeconds, name = COOKIE) {
+  const attrs = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${maxAgeSeconds}`];
 
   // Secure everywhere except a local run, which has no https to send it over.
   if (!["localhost", "127.0.0.1"].includes(req.hostname)) attrs.push("Secure");

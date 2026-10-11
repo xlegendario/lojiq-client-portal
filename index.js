@@ -9,6 +9,7 @@ import compression from "compression";
 import cron from "node-cron";
 import { apiAccessPagePath, createApiAccess } from "./apiAccess.js";
 import { adminPagePath, createAdminPortal } from "./admin/adminRouter.js";
+import { createPartnerPortal, partnerPagePath } from "./partner/partnerPortal.js";
 import { createAuditLog } from "./admin/adminAudit.js";
 import { createSavedFilters } from "./admin/adminFilters.js";
 
@@ -62,7 +63,7 @@ app.use(express.static(path.join(__dirname, "public")));
  * to do with it ever runs. That path brings its own parser, so it is left
  * alone here.
  */
-const OWN_PARSER = ["/api/admin/wtb-match/photo"];
+const OWN_PARSER = ["/api/admin/wtb-match/photo", "/api/partner/forwards"];
 
 app.use((req, res, next) => (
   OWN_PARSER.includes(req.path) ? next() : express.json()(req, res, next)
@@ -210,6 +211,26 @@ const adminPortal = createAdminPortal({
 });
 
 app.use(adminPortal.router);
+
+/*
+ * Partner dashboard: /partner and /api/partner, for suppliers whose pairs are
+ * on our shelf. Accounts in Supabase partner_users; see partner/partnerPortal.js.
+ */
+const partnerPortal = createPartnerPortal({
+  adminSecret: LOJIQ_ADMIN_SECRET,
+  supabaseUrl: SUPABASE_URL,
+  serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+  pageFile: partnerPagePath(__dirname),
+  services: {
+    airtable,
+    sellersTable: AIRTABLE_SELLERS_TABLE,
+    kickzBaseUrl: KICKZ_PORTAL_BASE_URL,
+    internalSecret: COUNTER_OFFERS_SECRET,
+    wmsBaseUrl: RETURN_SERVICE_BASE_URL
+  }
+});
+
+app.use(partnerPortal.router);
 
 function asText(value) {
   if (value === null || value === undefined) return "";

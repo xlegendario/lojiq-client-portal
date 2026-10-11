@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#08080A">
+  <title>Lojiq Partner</title>
+  <link rel="icon" href="/favicon.png">
+  <style>
+    /* Same palette as the store portal and the admin: flat near-black, Lojiq
+       blue as the only accent. Built for a phone first; a desktop just gets
+       the same column in the middle. */
+    :root {
+      --bg: #08080A;
+      --panel: #121215;
+      --panel-2: #17171B;
+      --border: #26262B;
+      --text: #E9E9EE;
+      --muted: #8B8B95;
+      --strong: #FFFFFF;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --primary-tint: rgba(102, 179, 255, 0.16);
+      --red: #FF7A70;
+      --red-bg: rgba(240, 68, 56, 0.16);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    [hidden] { display: none !important; }
+    button, input { font: inherit; color: inherit; }
+    :focus-visible { outline: 2px solid var(--primary-soft); outline-offset: 2px; }
+
+    /* ---------- shared ---------- */
+
+    .btn {
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+
+    .lang {
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* ---------- login ---------- */
+
+    .login {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: calc(24px + var(--safe-top)) 20px calc(24px + var(--safe-bottom));
+      max-width: 420px;
+      margin: 0 auto;
+      gap: 20px;
+    }
+    .login-top { display: flex; justify-content: space-between; align-items: center; }
+    .login-top img { width: 112px; height: auto; }
+    .login h1 { margin: 0; font-size: 26px; color: var(--strong); }
+    .login p { margin: 0; color: var(--muted); }
+    .login form { display: flex; flex-direction: column; gap: 14px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 14px; color: var(--muted); }
+    .field input {
+      min-height: 52px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 17px;
+    }
+    .field input:focus { border-color: var(--primary-soft); outline: none; }
+    .error { color: var(--red); background: var(--red-bg); border-radius: 10px; padding: 10px 12px; font-size: 15px; }
+
+    /* ---------- app ---------- */
+
+    .app { max-width: 640px; margin: 0 auto; min-height: 100vh; min-height: 100dvh; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: calc(10px + var(--safe-top)) 16px 10px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+    }
+    .topbar img { width: 72px; height: auto; }
+    .who { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .signout { background: none; border: 0; color: var(--muted); font-size: 14px; padding: 8px 4px; cursor: pointer; }
+
+    .content { padding: 16px 16px calc(160px + var(--safe-bottom)); }
+    .content h2 { margin: 0 0 12px; font-size: 22px; color: var(--strong); }
+    .soon {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      color: var(--muted);
+    }
+
+
+    /* ---------- stock ---------- */
+
+    .summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: -4px 0 14px; color: var(--muted); font-size: 15px; }
+    .summary b { color: var(--strong); font-size: 20px; }
+
+    .search {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    .search:focus { border-color: var(--primary-soft); outline: none; }
+
+    .seg { display: flex; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 3px; margin-bottom: 14px; }
+    .seg button { flex: 1; min-height: 40px; border: 0; border-radius: 9px; background: none; color: var(--muted); font-size: 15px; cursor: pointer; }
+    .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--strong); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border); }
+
+    .list { display: flex; flex-direction: column; gap: 10px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .card-head {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: none;
+      border: 0;
+      text-align: left;
+      cursor: pointer;
+    }
+    .thumb { width: 52px; height: 52px; flex: none; border-radius: 10px; background: #fff; object-fit: contain; }
+    .thumb.empty { background: var(--panel-2); }
+    .card-text { flex: 1; min-width: 0; }
+    .card-title { color: var(--strong); font-weight: 600; font-size: 15px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .count { flex: none; text-align: right; }
+    .count b { display: block; color: var(--strong); font-size: 20px; line-height: 1.1; }
+    .count span { color: var(--muted); font-size: 12px; }
+    .chev { flex: none; width: 18px; height: 18px; color: var(--muted); transition: transform 0.15s; }
+    .card.open .chev { transform: rotate(180deg); }
+    .card-body { padding: 0 12px 12px; }
+
+    .sizes { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; }
+    .size {
+      min-height: 56px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .size b { color: var(--strong); font-size: 15px; }
+    .size span { color: var(--muted); font-size: 13px; }
+    .size[aria-pressed="true"] { border-color: var(--primary-soft); background: var(--primary-tint); }
+    .size[aria-pressed="true"] span { color: var(--primary-soft); }
+
+    .detail { margin-top: 10px; background: var(--panel-2); border-radius: 10px; padding: 4px 12px; }
+    .detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 15px; }
+    .detail-row + .detail-row { border-top: 1px solid var(--border); }
+    .detail-row .muted { color: var(--muted); }
+
+    .stats { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 13px; margin-top: 3px; }
+    .done { color: var(--muted); }
+    .card.done .card-title { color: var(--text); }
+
+    .prow { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+    .prow + .prow { border-top: 1px solid var(--border); }
+    .prow .thumb { width: 40px; height: 40px; border-radius: 8px; }
+    .prow .card-title { font-size: 14px; font-weight: 500; }
+    .prow .count b { font-size: 16px; }
+
+    .note { color: var(--muted); text-align: center; padding: 28px 12px; }
+    .retry { margin-top: 12px; }
+
+    /* ---------- send pairs ---------- */
+
+    .hint { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+    .muted { color: var(--muted); }
+    .count b.chosen { color: var(--primary-soft); }
+    .count span { white-space: nowrap; }
+    .size.full { opacity: 0.75; }
+    .card-head.static { cursor: default; }
+
+    .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; }
+    .line + .line { border-top: 1px solid var(--border); }
+    .line-size { font-size: 16px; color: var(--strong); }
+    .stepper { display: flex; align-items: center; gap: 4px; }
+    .stepper b { min-width: 36px; text-align: center; font-size: 18px; color: var(--strong); }
+    .stepper button {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .stepper button:disabled { opacity: 0.35; cursor: default; }
+
+    details.extra { margin-top: 14px; }
+    details.extra summary { padding: 14px 12px; cursor: pointer; color: var(--text); font-weight: 600; }
+    details.extra .field { margin-bottom: 12px; }
+    .file-btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; }
+    .file-name { margin-top: 8px; font-size: 14px; color: var(--muted); word-break: break-all; }
+    .link { background: none; border: 0; color: var(--primary-soft); font-size: 14px; cursor: pointer; padding: 4px; }
+
+    .total { margin-top: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px; }
+    .total div { display: flex; justify-content: space-between; padding: 10px 0; font-size: 16px; }
+    .total div + div { border-top: 1px solid var(--border); }
+    .total b { color: var(--strong); font-size: 18px; }
+
+    .actions { display: flex; gap: 10px; margin-top: 16px; }
+    .actions .btn { flex: 1; }
+    .actions .btn.primary { flex: 2; }
+
+    .done-box { text-align: center; padding: 28px 12px 8px; }
+    .done-box svg { width: 56px; height: 56px; color: #4ADE9A; }
+    .done-box h3 { margin: 10px 0 6px; font-size: 24px; color: var(--strong); }
+    .done-box p { margin: 4px 0; }
+
+    .sendbar {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(76px + var(--safe-bottom));
+      z-index: 6;
+      width: calc(100% - 32px);
+      max-width: 608px;
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 14px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    }
+    .sendbar b { font-size: 18px; }
+    .sendbar-go { font-weight: 700; white-space: nowrap; }
+
+    /* ---------- sent ---------- */
+
+    .section { margin: 18px 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .section:first-child { margin-top: 0; }
+    .pill { flex: none; font-size: 13px; font-weight: 600; padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
+    .pill.wait { background: rgba(245, 158, 11, 0.16); color: #FBBF4C; }
+    .pill.move { background: rgba(47, 128, 237, 0.18); color: var(--primary-soft); }
+    .pill.good { background: rgba(22, 179, 100, 0.16); color: #4ADE9A; }
+    .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
+    .track { color: var(--primary-soft); text-decoration: none; word-break: break-all; text-align: right; }
+
+    .tabbar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 5;
+      display: flex;
+      justify-content: center;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      padding-bottom: var(--safe-bottom);
+    }
+    .tabbar-inner { display: flex; width: 100%; max-width: 640px; }
+    .tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      padding: 10px 4px 12px;
+      background: none;
+      border: 0;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .tab svg { width: 24px; height: 24px; }
+    .tab[aria-selected="true"] { color: var(--primary-soft); }
+  </style>
+</head>
+<body>
+
+  <!-- ================= login ================= -->
+  <main class="login" id="loginView" hidden>
+    <div class="login-top">
+      <img src="/logo.png" alt="Lojiq">
+      <button class="lang" type="button" data-lang-toggle>中文</button>
+    </div>
+    <div>
+      <h1 data-t="login_title">Your stock at Lojiq</h1>
+      <p data-t="login_intro">Sign in to see your stock and send pairs.</p>
+    </div>
+    <form id="loginForm" novalidate>
+      <div class="field">
+        <label for="loginEmail" data-t="email">E-mail</label>
+        <input id="loginEmail" type="email" autocomplete="username" inputmode="email" autocapitalize="off" required>
+      </div>
+      <div class="field">
+        <label for="loginPassword" data-t="password">Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="error" id="loginError" role="alert" hidden></div>
+      <button class="btn primary" id="loginButton" type="submit" data-t="sign_in">Sign in</button>
+    </form>
+  </main>
+
+  <!-- ================= app ================= -->
+  <div class="app" id="appView" hidden>
+    <header class="topbar">
+      <img src="/logo.png" alt="Lojiq">
+      <span class="who" id="who"></span>
+      <button class="lang" type="button" data-lang-toggle>中文</button>
+      <button class="signout" type="button" id="signOut" data-t="sign_out">Sign out</button>
+    </header>
+
+    <main class="content">
+      <section id="view-stock" data-view>
+        <h2 data-t="tab_stock">Stock</h2>
+        <div class="summary" id="stockSummary"></div>
+        <input class="search" id="stockSearch" type="search" autocomplete="off" data-t-placeholder="search_stock">
+        <div class="seg" role="group">
+          <button type="button" data-stock-mode="product" aria-pressed="true" data-t="by_product">By product</button>
+          <button type="button" data-stock-mode="arrival" aria-pressed="false" data-t="by_arrival">By arrival</button>
+        </div>
+        <div class="list" id="stockList"><div class="note" data-t="loading">Loading…</div></div>
+      </section>
+      <section id="view-new" data-view hidden>
+        <h2 data-t="tab_new">Send pairs</h2>
+        <div id="sendSearchWrap"><input class="search" id="sendSearch" type="search" autocomplete="off" data-t-placeholder="search_stock"></div>
+        <div id="sendBody"><div class="note" data-t="loading">Loading…</div></div>
+      </section>
+      <section id="view-sent" data-view hidden>
+        <h2 data-t="tab_sent">Sent</h2>
+        <div id="sentList"><div class="note" data-t="loading">Loading…</div></div>
+      </section>
+    </main>
+
+    <button class="sendbar" id="sendBar" type="button" hidden>
+      <span id="sendBarText"></span>
+      <span class="sendbar-go" data-t="next">Next</span>
+    </button>
+
+    <nav class="tabbar" aria-label="Main">
+      <div class="tabbar-inner" role="tablist">
+        <button class="tab" role="tab" type="button" data-tab="stock" aria-selected="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>
+          <span data-t="tab_stock">Stock</span>
+        </button>
+        <button class="tab" role="tab" type="button" data-tab="new" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+          <span data-t="tab_new">Send pairs</span>
+        </button>
+        <button class="tab" role="tab" type="button" data-tab="sent" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h13"/><path d="M12 6l6 6-6 6"/><path d="M21 5v14"/></svg>
+          <span data-t="tab_sent">Sent</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <script>
+    /* ---------- language ---------- */
+
+    // Short, plain words on purpose: the partner reads English as a second
+    // language, so every label is also in Simplified Chinese.
+    const WORDS = {
+      en: {
+        login_title: "Your stock at Lojiq",
+        login_intro: "Sign in to see your stock and send pairs.",
+        email: "E-mail",
+        password: "Password",
+        sign_in: "Sign in",
+        signing_in: "Signing in…",
+        sign_out: "Sign out",
+        tab_stock: "Stock",
+        tab_new: "Send pairs",
+        tab_sent: "Sent",
+        coming: "This part is being built.",
+        wrong_login: "E-mail or password is wrong.",
+        too_many_attempts: "Too many tries. Wait 15 minutes.",
+        try_again: "Something went wrong. Try again.",
+        fill_both: "Fill in your e-mail and password.",
+        loading: "Loading…",
+        search_stock: "Search SKU or name",
+        by_product: "By product",
+        by_arrival: "By arrival",
+        pairs: "pairs",
+        pair: "pair",
+        products: "products",
+        left: "left",
+        in: "in",
+        sold: "sold by us",
+        forwarded: "sent by you",
+        arrived: "Arrived",
+        on_hold: "On hold for a sale",
+        nothing_left: "All gone",
+        left_of: "left of",
+        no_stock: "No pairs here right now.",
+        no_match: "Nothing found.",
+        tap_size: "Tap a size to see when it arrived.",
+        retry: "Try again",
+        wh_lojiq: "Lojiq",
+        wh_h23: "H23",
+        fee: "fee",
+        chosen: "chosen",
+        nothing_to_send: "There are no pairs you can send right now.",
+        pick_hint: "Tap a size to add 1 pair. Tap again to add more.",
+        next: "Next",
+        size: "Size",
+        label_optional: "Label and tracking (optional)",
+        label_hint: "Do you have the shipping label already? Add it here. If not, send it to Dario later.",
+        tracking: "Tracking number",
+        label_add: "Add label (PDF or photo)",
+        label_change: "Change label",
+        label_too_big: "This file is too big. Use a file under 10 MB.",
+        remove: "Remove",
+        pairs_total: "Pairs",
+        fee_total: "Forwarding fee",
+        back: "Back",
+        send: "Send",
+        sending: "Sending…",
+        done_pairs: "{n} pairs are ready to be sent.",
+        done_pair: "1 pair is ready to be sent.",
+        done_ready: "We pack and ship them.",
+        done_waiting: "We ship them when we have the label.",
+        send_more: "Send more",
+        see_sent: "See sent",
+        no_pairs: "Choose at least 1 pair.",
+        too_many_pairs: "That is too many pairs for one shipment. Use 500 or fewer.",
+        pairs_gone: "Some pairs are not available any more. The list is updated, please check again.",
+        bad_tracking: "This tracking number does not look right.",
+        bad_label: "The label must be a PDF, JPG or PNG file.",
+        no_sent: "You have not sent any pairs yet.",
+        sec_open: "With us",
+        sec_done: "Done",
+        st_waiting: "Waiting for label",
+        st_ready: "We pack it",
+        st_shipped: "Sent",
+        st_cancelled: "Cancelled",
+        no_tracking: "Not yet",
+        shipped_on: "Sent on",
+        fee_paid: "paid",
+        fee_open: "to pay"
+      },
+      zh: {
+        login_title: "您在 Lojiq 的库存",
+        login_intro: "登录查看库存和发货。",
+        email: "邮箱",
+        password: "密码",
+        sign_in: "登录",
+        signing_in: "正在登录…",
+        sign_out: "退出",
+        tab_stock: "库存",
+        tab_new: "发货",
+        tab_sent: "已发货",
+        coming: "此部分正在建设中。",
+        wrong_login: "邮箱或密码错误。",
+        too_many_attempts: "尝试次数太多，请等 15 分钟。",
+        try_again: "出错了，请重试。",
+        fill_both: "请填写邮箱和密码。",
+        loading: "加载中…",
+        search_stock: "搜索货号或名称",
+        by_product: "按商品",
+        by_arrival: "按到货日期",
+        pairs: "双",
+        pair: "双",
+        products: "款",
+        left: "剩余",
+        in: "到货",
+        sold: "我们卖出",
+        forwarded: "您发出",
+        arrived: "到货",
+        on_hold: "已预留待售",
+        nothing_left: "已全部出库",
+        left_of: "剩余 / 共",
+        no_stock: "目前没有库存。",
+        no_match: "没有找到。",
+        tap_size: "点一个尺码，查看到货日期。",
+        retry: "重试",
+        wh_lojiq: "Lojiq",
+        wh_h23: "H23",
+        fee: "服务费",
+        chosen: "已选",
+        nothing_to_send: "目前没有可以发货的鞋。",
+        pick_hint: "点一个尺码加 1 双，再点一次再加 1 双。",
+        next: "下一步",
+        size: "尺码",
+        label_optional: "面单和单号（可选）",
+        label_hint: "如果已有快递面单，请在这里添加。没有的话，以后发给 Dario。",
+        tracking: "快递单号",
+        label_add: "添加面单（PDF 或照片）",
+        label_change: "更换面单",
+        label_too_big: "文件太大，请使用小于 10 MB 的文件。",
+        remove: "删除",
+        pairs_total: "数量",
+        fee_total: "转运服务费",
+        back: "返回",
+        send: "发货",
+        sending: "正在提交…",
+        done_pairs: "{n} 双已准备发货。",
+        done_pair: "1 双已准备发货。",
+        done_ready: "我们会打包并发出。",
+        done_waiting: "收到面单后我们就发出。",
+        send_more: "继续发货",
+        see_sent: "查看已发货",
+        no_pairs: "请至少选择 1 双。",
+        too_many_pairs: "一次发货太多了，请不要超过 500 双。",
+        pairs_gone: "有些鞋已经不可用了。列表已更新，请再检查一次。",
+        bad_tracking: "快递单号好像不对。",
+        bad_label: "面单必须是 PDF、JPG 或 PNG 文件。",
+        no_sent: "您还没有发过货。",
+        sec_open: "处理中",
+        sec_done: "已完成",
+        st_waiting: "等待面单",
+        st_ready: "正在打包",
+        st_shipped: "已发出",
+        st_cancelled: "已取消",
+        no_tracking: "暂无",
+        shipped_on: "发出日期",
+        fee_paid: "已付",
+        fee_open: "待付"
+      }
+    };
+
+    const LANG_KEY = "lojiq-partner-lang";
+
+    function startLang() {
+      try {
+        const saved = localStorage.getItem(LANG_KEY);
+        if (saved === "en" || saved === "zh") return saved;
+      } catch {}
+
+      return /^zh/i.test(navigator.language || "") ? "zh" : "en";
+    }
+
+    let lang = startLang();
+    const t = (key) => WORDS[lang][key] || WORDS.en[key] || key;
+
+    function applyLang() {
+      document.documentElement.lang = lang === "zh" ? "zh-Hans" : "en";
+      document.querySelectorAll("[data-t]").forEach((el) => { el.textContent = t(el.dataset.t); });
+      document.querySelectorAll("[data-t-placeholder]").forEach((el) => { el.placeholder = t(el.dataset.tPlaceholder); });
+      if (typeof stock !== "undefined" && stock.data) renderStock();
+      if (typeof send !== "undefined") renderSend();
+      if (typeof sent !== "undefined") renderSent();
+      // The button names the other language, in that language.
+      document.querySelectorAll("[data-lang-toggle]").forEach((el) => { el.textContent = lang === "zh" ? "English" : "中文"; });
+    }
+
+    document.querySelectorAll("[data-lang-toggle]").forEach((el) => el.addEventListener("click", () => {
+      lang = lang === "zh" ? "en" : "zh";
+      try { localStorage.setItem(LANG_KEY, lang); } catch {}
+      applyLang();
+    }));
+
+    /* ---------- server ---------- */
+
+    const $ = (id) => document.getElementById(id);
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        method: options.method || "GET",
+        headers: options.body ? { "Content-Type": "application/json" } : {},
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        credentials: "same-origin"
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 401 && !path.endsWith("/login")) {
+        showLogin();
+        throw new Error("not_signed_in");
+      }
+      if (!response.ok) throw new Error(data.error || "try_again");
+
+      return data;
+    }
+
+    /* ---------- screens ---------- */
+
+    function showLogin() {
+      $("appView").hidden = true;
+      $("loginView").hidden = false;
+      $("loginPassword").value = "";
+    }
+
+    function showApp(partner) {
+      $("loginView").hidden = true;
+      $("appView").hidden = false;
+      $("who").textContent = partner.name || partner.email;
+      openTab(location.hash.replace("#", "") || "stock");
+    }
+
+    function openTab(name) {
+      if (!["stock", "new", "sent"].includes(name)) name = "stock";
+
+      document.querySelectorAll("[data-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
+      document.querySelectorAll("[data-view]").forEach((view) => { view.hidden = view.id !== `view-${name}`; });
+      if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
+      window.scrollTo(0, 0);
+      if (name === "stock") loadStock();
+      if (name === "new") loadSend();
+      if (name === "sent") loadSent();
+      if (typeof send !== "undefined") renderSendBar();
+    }
+
+    document.querySelectorAll("[data-tab]").forEach((tab) => tab.addEventListener("click", () => openTab(tab.dataset.tab)));
+
+    $("loginForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const email = $("loginEmail").value.trim();
+      const password = $("loginPassword").value;
+      const error = $("loginError");
+      const button = $("loginButton");
+
+      error.hidden = true;
+      if (!email || !password) {
+        error.textContent = t("fill_both");
+        error.hidden = false;
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = t("signing_in");
+
+      try {
+        const data = await api("/api/partner/login", { method: "POST", body: { email, password } });
+        showApp(data.partner);
+      } catch (err) {
+        error.textContent = t(err.message in WORDS.en ? err.message : "try_again");
+        error.hidden = false;
+      } finally {
+        button.disabled = false;
+        button.textContent = t("sign_in");
+      }
+    });
+
+    $("signOut").addEventListener("click", async () => {
+      await api("/api/partner/logout", { method: "POST" }).catch(() => {});
+      showLogin();
+    });
+
+    /* ---------- stock ---------- */
+
+    const stock = { data: null, at: 0, mode: "product", open: new Set(), size: new Map(), loading: false };
+
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+
+    function niceDate(day) {
+      if (!day) return "?";
+      const [y, m, d] = day.split("-").map(Number);
+      return new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+        .format(new Date(Date.UTC(y, m - 1, d)));
+    }
+
+    const whName = (w) => (WORDS.en[`wh_${w}`] ? t(`wh_${w}`) : w);
+    const severalWarehouses = () => (stock.data?.totals.warehouses.length || 0) > 1;
+    const thumb = (src) => (src ? `<img class="thumb" src="${esc(src)}" alt="" loading="lazy">` : '<div class="thumb empty"></div>');
+
+    async function loadStock(force = false) {
+      if (stock.loading || (!force && stock.data && Date.now() - stock.at < 60_000)) return;
+
+      stock.loading = true;
+      if (!stock.data) $("stockList").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
+
+      try {
+        stock.data = await api("/api/partner/stock");
+        stock.at = Date.now();
+        renderStock();
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        $("stockList").innerHTML = `<div class="note">${esc(t("try_again"))}<br><button class="btn retry" type="button" id="stockRetry">${esc(t("retry"))}</button></div>`;
+        $("stockRetry").addEventListener("click", () => loadStock(true));
+      } finally {
+        stock.loading = false;
+      }
+    }
+
+    const matches = (item, query) => !query || `${item.sku} ${item.name} ${item.brand || ""}`.toLowerCase().includes(query);
+
+    function renderStock() {
+      const data = stock.data;
+      if (!data) return;
+
+      const parts = [`<span><b>${data.totals.on_shelf}</b> ${esc(t("pairs"))}</span>`, `<span>${data.totals.products} ${esc(t("products"))}</span>`];
+      if (severalWarehouses()) {
+        for (const w of data.totals.warehouses) parts.push(`<span>${esc(whName(w.warehouse))} ${w.count}</span>`);
+      }
+      $("stockSummary").innerHTML = parts.join("");
+
+      document.querySelectorAll("[data-stock-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.stockMode === stock.mode)));
+
+      const query = $("stockSearch").value.trim().toLowerCase();
+      $("stockList").innerHTML = stock.mode === "product" ? productCards(data.products, query) : arrivalCards(data.arrivals, query);
+    }
+
+    function productCards(products, query) {
+      const shown = products.filter((p) => matches(p, query));
+      if (!products.length) return `<div class="note">${esc(t("no_stock"))}</div>`;
+      if (!shown.length) return `<div class="note">${esc(t("no_match"))}</div>`;
+
+      return shown.map((p) => {
+        const open = stock.open.has(`p:${p.sku}`);
+        const picked = stock.size.get(p.sku);
+        const body = open ? `
+          <div class="card-body">
+            <div class="sizes">${p.sizes.map((s) => `
+              <button class="size" type="button" data-size="${esc(p.sku)}|${esc(s.size)}" aria-pressed="${s.size === picked}">
+                <b>${esc(s.size)}</b><span>${s.count}</span>
+              </button>`).join("")}
+            </div>
+            ${sizeDetail(p, picked)}
+          </div>` : "";
+
+        return `
+          <div class="card${open ? " open" : ""}">
+            <button class="card-head" type="button" data-open="p:${esc(p.sku)}" aria-expanded="${open}">
+              ${thumb(p.image)}
+              <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
+              <div class="count"><b>${p.count}</b><span>${esc(t("pairs"))}</span></div>
+              ${CHEV}
+            </button>${body}
+          </div>`;
+      }).join("");
+    }
+
+    function sizeDetail(product, picked) {
+      const entry = product.sizes.find((s) => s.size === picked);
+      if (!entry) return `<div class="detail"><div class="detail-row"><span class="muted">${esc(t("tap_size"))}</span></div></div>`;
+
+      const rows = entry.arrivals.map((a) => `
+        <div class="detail-row">
+          <span>${esc(t("arrived"))} ${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</span>
+          <b>${a.count} ${esc(t(a.count === 1 ? "pair" : "pairs"))}</b>
+        </div>`);
+      if (entry.onHold) rows.push(`<div class="detail-row"><span class="muted">${esc(t("on_hold"))}</span><span class="muted">${entry.onHold}</span></div>`);
+
+      return `<div class="detail">${rows.join("")}</div>`;
+    }
+
+    function arrivalCards(arrivals, query) {
+      const shown = arrivals
+        .map((a) => ({ ...a, products: a.products.filter((p) => matches(p, query)) }))
+        .filter((a) => !query || a.products.length);
+      if (!arrivals.length) return `<div class="note">${esc(t("no_stock"))}</div>`;
+      if (!shown.length) return `<div class="note">${esc(t("no_match"))}</div>`;
+
+      return shown.map((a) => {
+        const key = `a:${a.date}|${a.warehouse}`;
+        const open = stock.open.has(key) || Boolean(query);
+        const done = a.left === 0;
+        const body = open ? `
+          <div class="card-body">${a.products.map((p) => `
+            <div class="prow">
+              ${thumb(p.image)}
+              <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
+              <div class="count"><b>${p.left}</b><span>${esc(t("left_of"))} ${p.received}</span></div>
+            </div>`).join("")}
+          </div>` : "";
+
+        return `
+          <div class="card${open ? " open" : ""}${done ? " done" : ""}">
+            <button class="card-head" type="button" data-open="${esc(key)}" aria-expanded="${open}">
+              <div class="card-text">
+                <div class="card-title">${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</div>
+                <div class="stats"><span>${a.received} ${esc(t("in"))}</span><span>${a.sold} ${esc(t("sold"))}</span><span>${a.forwarded} ${esc(t("forwarded"))}</span></div>
+              </div>
+              <div class="count">${done ? `<span class="done">${esc(t("nothing_left"))}</span>` : `<b>${a.left}</b><span>${esc(t("left"))}</span>`}</div>
+              ${CHEV}
+            </button>${body}
+          </div>`;
+      }).join("");
+    }
+
+    $("stockList").addEventListener("click", (event) => {
+      const tile = event.target.closest("[data-size]");
+      const head = event.target.closest("[data-open]");
+
+      if (tile) {
+        const [sku, size] = tile.dataset.size.split("|");
+        if (stock.size.get(sku) === size) stock.size.delete(sku);
+        else stock.size.set(sku, size);
+        renderStock();
+      } else if (head) {
+        const key = head.dataset.open;
+        if (stock.open.has(key)) stock.open.delete(key);
+        else stock.open.add(key);
+        renderStock();
+      }
+    });
+
+    document.querySelectorAll("[data-stock-mode]").forEach((b) => b.addEventListener("click", () => {
+      stock.mode = b.dataset.stockMode;
+      renderStock();
+    }));
+
+    $("stockSearch").addEventListener("input", renderStock);
+
+    /* ---------- send pairs ---------- */
+
+    const send = { data: null, at: 0, step: "pick", picked: new Map(), open: new Set(), label: null, busy: false, result: null, notice: "" };
+
+    const money = (value) => new Intl.NumberFormat(lang === "zh" ? "zh-CN" : "en-GB", { style: "currency", currency: "EUR" }).format(value || 0);
+    const pickKey = (sku, size) => `${sku}|${size}`;
+
+    function sizeEntry(sku, size) {
+      const product = send.data?.products.find((p) => p.sku === sku);
+      return product?.sizes.find((s) => s.size === size) || null;
+    }
+
+    function pickedTotals() {
+      let pairs = 0;
+      let fee = 0;
+
+      for (const [key, qty] of send.picked) {
+        const [sku, size] = key.split("|");
+        const entry = sizeEntry(sku, size);
+        pairs += qty;
+        fee += (entry?.fees || []).slice(0, qty).reduce((sum, f) => sum + f, 0);
+      }
+
+      return { pairs, fee: Math.round(fee * 100) / 100 };
+    }
+
+    // After a reload, nobody keeps more than is still there.
+    function clampPicked() {
+      for (const [key, qty] of [...send.picked]) {
+        const [sku, size] = key.split("|");
+        const available = sizeEntry(sku, size)?.available || 0;
+        if (!available) send.picked.delete(key);
+        else if (qty > available) send.picked.set(key, available);
+      }
+    }
+
+    async function loadSend(force = false) {
+      if (send.busy || (!force && send.data && Date.now() - send.at < 60_000)) return;
+
+      if (!send.data) $("sendBody").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
+
+      try {
+        send.data = await api("/api/partner/forwardable");
+        send.at = Date.now();
+        clampPicked();
+        renderSend();
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        $("sendBody").innerHTML = `<div class="note">${esc(t("try_again"))}<br><button class="btn retry" type="button" data-send="reload">${esc(t("retry"))}</button></div>`;
+      }
+    }
+
+    function renderSend() {
+      if (!send.data && send.step !== "done") return;
+
+      const body = send.step === "check" ? checkScreen() : send.step === "done" ? doneScreen() : pickScreen();
+      const notice = send.notice ? `<div class="error">${esc(send.notice)}</div>` : "";
+
+      $("sendBody").innerHTML = notice + body;
+      $("sendSearchWrap").hidden = send.step !== "pick";
+      renderSendBar();
+    }
+
+    function renderSendBar() {
+      const bar = $("sendBar");
+      const { pairs, fee } = pickedTotals();
+      const show = send.step === "pick" && pairs > 0 && !$("view-new").hidden;
+
+      bar.hidden = !show;
+      if (!show) return;
+
+      $("sendBarText").innerHTML = `<b>${pairs}</b> ${esc(t(pairs === 1 ? "pair" : "pairs"))} · ${esc(t("fee"))} ${esc(money(fee))}`;
+    }
+
+    function pickScreen() {
+      const products = send.data.products;
+      const query = $("sendSearch").value.trim().toLowerCase();
+      const shown = products.filter((p) => matches(p, query));
+
+      if (!products.length) return `<div class="note">${esc(t("nothing_to_send"))}</div>`;
+      if (!shown.length) return `<div class="note">${esc(t("no_match"))}</div>`;
+
+      return `<p class="hint">${esc(t("pick_hint"))}</p><div class="list">${shown.map((p) => {
+        const chosen = p.sizes.reduce((sum, s) => sum + (send.picked.get(pickKey(p.sku, s.size)) || 0), 0);
+        const open = send.open.has(p.sku) || Boolean(query) || chosen > 0;
+
+        const tiles = open ? `
+          <div class="card-body"><div class="sizes">${p.sizes.map((s) => {
+            const qty = send.picked.get(pickKey(p.sku, s.size)) || 0;
+            const full = qty >= s.available;
+            return `
+              <button class="size${full ? " full" : ""}" type="button" data-add="${esc(p.sku)}|${esc(s.size)}" aria-pressed="${qty > 0}">
+                <b>${esc(s.size)}</b><span>${qty ? `${qty} / ${s.available}` : `${s.available} ${esc(t("left"))}`}</span>
+              </button>`;
+          }).join("")}</div></div>` : "";
+
+        return `
+          <div class="card${open ? " open" : ""}">
+            <button class="card-head" type="button" data-send-open="${esc(p.sku)}" aria-expanded="${open}">
+              ${thumb(p.image)}
+              <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
+              <div class="count">${chosen ? `<b class="chosen">${chosen}</b><span>${esc(t("chosen"))}</span>` : `<b>${p.count}</b><span>${esc(t("pairs"))}</span>`}</div>
+              ${CHEV}
+            </button>${tiles}
+          </div>`;
+      }).join("")}</div>`;
+    }
+
+    function checkScreen() {
+      const { pairs, fee } = pickedTotals();
+      const rows = [];
+
+      for (const p of send.data.products) {
+        const sizes = p.sizes.filter((s) => send.picked.get(pickKey(p.sku, s.size)));
+        if (!sizes.length) continue;
+
+        rows.push(`
+          <div class="card"><div class="card-head static">
+            ${thumb(p.image)}
+            <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
+          </div>
+          <div class="card-body">${sizes.map((s) => {
+            const qty = send.picked.get(pickKey(p.sku, s.size));
+            return `
+              <div class="line">
+                <span class="line-size">${esc(t("size"))} ${esc(s.size)}</span>
+                <div class="stepper">
+                  <button type="button" data-minus="${esc(p.sku)}|${esc(s.size)}" aria-label="−">−</button>
+                  <b>${qty}</b>
+                  <button type="button" data-add="${esc(p.sku)}|${esc(s.size)}" aria-label="+"${qty >= s.available ? " disabled" : ""}>+</button>
+                </div>
+              </div>`;
+          }).join("")}</div></div>`);
+      }
+
+      const labelName = send.label ? esc(send.label.name) : "";
+
+      return `
+        <div class="list">${rows.join("")}</div>
+
+        <details class="card extra" id="sendExtra"${send.extraOpen || send.label || send.tracking ? " open" : ""}>
+          <summary>${esc(t("label_optional"))}</summary>
+          <div class="card-body">
+            <p class="hint">${esc(t("label_hint"))}</p>
+            <div class="field"><label for="sendTracking">${esc(t("tracking"))}</label><input id="sendTracking" autocomplete="off" autocapitalize="characters" value="${esc(send.tracking || "")}"></div>
+            <label class="btn file-btn" for="sendLabel">${esc(send.label ? t("label_change") : t("label_add"))}</label>
+            <input id="sendLabel" type="file" accept="application/pdf,image/jpeg,image/png" hidden>
+            ${labelName ? `<div class="file-name">${labelName} <button type="button" class="link" data-send="drop-label">${esc(t("remove"))}</button></div>` : ""}
+          </div>
+        </details>
+
+        <div class="total">
+          <div><span>${esc(t("pairs_total"))}</span><b>${pairs}</b></div>
+          <div><span>${esc(t("fee_total"))}</span><b>${esc(money(fee))}</b></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" type="button" data-send="back">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-send="submit"${send.busy || !pairs ? " disabled" : ""}>${esc(send.busy ? t("sending") : `${t("send")} ${pairs} ${t(pairs === 1 ? "pair" : "pairs")}`)}</button>
+        </div>`;
+    }
+
+    function doneScreen() {
+      const r = send.result || {};
+      return `
+        <div class="done-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12.5l3 3 5-6"/></svg>
+          <h3>${esc(r.display_id || "")}</h3>
+          <p>${esc(r.pairs === 1 ? t("done_pair") : t("done_pairs").replace("{n}", r.pairs || 0))}</p>
+          <p class="muted">${esc(t(r.shipping_status === "ready_to_ship" ? "done_ready" : "done_waiting"))}</p>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" data-send="again">${esc(t("send_more"))}</button>
+          <button class="btn primary" type="button" data-send="to-sent">${esc(t("see_sent"))}</button>
+        </div>`;
+    }
+
+    function readLabel(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function submitSend() {
+      if (send.busy) return;
+
+      const lines = [...send.picked].map(([key, qty]) => {
+        const [sku, size] = key.split("|");
+        return { sku, size, qty };
+      });
+
+      send.busy = true;
+      send.notice = "";
+      send.tracking = $("sendTracking")?.value.trim() || "";
+      renderSend();
+
+      try {
+        const data = await api("/api/partner/forwards", {
+          method: "POST",
+          body: { lines, tracking: send.tracking, label: send.label?.dataUrl || "" }
+        });
+
+        send.result = data.forward;
+        send.step = "done";
+        send.picked.clear();
+        send.label = null;
+        send.tracking = "";
+        send.data = null;
+        stock.data = null;
+        sent.data = null;
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        send.notice = t(err.message in WORDS.en ? err.message : "try_again");
+        if (err.message === "pairs_gone") {
+          send.step = "pick";
+          send.busy = false;
+          await loadSend(true);
+        }
+      } finally {
+        send.busy = false;
+        renderSend();
+        window.scrollTo(0, 0);
+      }
+    }
+
+    function addOne(key) {
+      const [sku, size] = key.split("|");
+      const available = sizeEntry(sku, size)?.available || 0;
+      const qty = send.picked.get(key) || 0;
+      if (qty < available) send.picked.set(key, qty + 1);
+    }
+
+    $("view-new").addEventListener("click", async (event) => {
+      const add = event.target.closest("[data-add]");
+      const minus = event.target.closest("[data-minus]");
+      const head = event.target.closest("[data-send-open]");
+      const action = event.target.closest("[data-send]")?.dataset.send;
+
+      if (add) {
+        addOne(add.dataset.add);
+        send.notice = "";
+      } else if (minus) {
+        const key = minus.dataset.minus;
+        const qty = (send.picked.get(key) || 0) - 1;
+        if (qty > 0) send.picked.set(key, qty);
+        else send.picked.delete(key);
+        if (!send.picked.size) send.step = "pick";
+      } else if (head) {
+        const sku = head.dataset.sendOpen;
+        if (send.open.has(sku)) send.open.delete(sku);
+        else send.open.add(sku);
+      } else if (action === "next") {
+        send.step = "check";
+        send.notice = "";
+        window.scrollTo(0, 0);
+      } else if (action === "back") {
+        send.tracking = $("sendTracking")?.value.trim() || "";
+        send.step = "pick";
+      } else if (action === "submit") {
+        return submitSend();
+      } else if (action === "drop-label") {
+        send.label = null;
+      } else if (action === "again") {
+        send.step = "pick";
+        send.result = null;
+        return loadSend(true);
+      } else if (action === "to-sent") {
+        send.step = "pick";
+        send.result = null;
+        return openTab("sent");
+      } else if (action === "reload") {
+        return loadSend(true);
+      } else {
+        return;
+      }
+
+      renderSend();
+    });
+
+    $("view-new").addEventListener("change", async (event) => {
+      if (event.target.id !== "sendLabel") return;
+
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      send.tracking = $("sendTracking")?.value.trim() || "";
+      if (file.size > 10 * 1024 * 1024) {
+        send.notice = t("label_too_big");
+      } else {
+        send.notice = "";
+        send.label = { name: file.name, dataUrl: await readLabel(file) };
+      }
+      renderSend();
+    });
+
+    $("sendBar").addEventListener("click", () => {
+      send.step = "check";
+      send.notice = "";
+      renderSend();
+      window.scrollTo(0, 0);
+    });
+
+    $("sendSearch").addEventListener("input", renderSend);
+
+    // The page is redrawn on every tap; keep what was typed and what was opened.
+    $("view-new").addEventListener("input", (event) => {
+      if (event.target.id === "sendTracking") send.tracking = event.target.value.trim();
+    });
+    $("view-new").addEventListener("toggle", (event) => {
+      if (event.target.id === "sendExtra") send.extraOpen = event.target.open;
+    }, true);
+
+    /* ---------- sent ---------- */
+
+    const sent = { data: null, at: 0, open: new Set(), loading: false };
+
+    const STATUS = {
+      awaiting_label: { word: "st_waiting", tone: "wait" },
+      ready_to_ship: { word: "st_ready", tone: "move" },
+      shipped: { word: "st_shipped", tone: "good" },
+      cancelled: { word: "st_cancelled", tone: "off" }
+    };
+
+    // The day of a timestamp on the warehouse's clock, as the page writes dates.
+    function dayOfStamp(iso) {
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return "";
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+    }
+
+    async function loadSent(force = false) {
+      if (sent.loading || (!force && sent.data && Date.now() - sent.at < 60_000)) return;
+
+      sent.loading = true;
+      if (!sent.data) $("sentList").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
+
+      try {
+        sent.data = (await api("/api/partner/forwards")).forwards;
+        sent.at = Date.now();
+        renderSent();
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        $("sentList").innerHTML = `<div class="note">${esc(t("try_again"))}<br><button class="btn retry" type="button" data-sent-reload>${esc(t("retry"))}</button></div>`;
+      } finally {
+        sent.loading = false;
+      }
+    }
+
+    function renderSent() {
+      if (!sent.data) return;
+      if (!sent.data.length) {
+        $("sentList").innerHTML = `<div class="note">${esc(t("no_sent"))}</div>`;
+        return;
+      }
+
+      const open = sent.data.filter((f) => f.status === "awaiting_label" || f.status === "ready_to_ship");
+      const rest = sent.data.filter((f) => !open.includes(f));
+      const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
+
+      $("sentList").innerHTML = section(t("sec_open"), open) + section(t("sec_done"), rest);
+    }
+
+    function sentCard(f) {
+      const status = STATUS[f.status] || STATUS.awaiting_label;
+      const isOpen = sent.open.has(f.id);
+
+      const body = isOpen ? `
+        <div class="card-body">
+          ${f.products.map((p) => `
+            <div class="prow">
+              ${thumb(p.image)}
+              <div class="card-text">
+                <div class="card-title">${esc(p.name || p.sku)}</div>
+                <div class="card-sub">${p.sizes.map((s) => `${esc(s.size)}${s.count > 1 ? ` ×${s.count}` : ""}`).join(" · ")}</div>
+              </div>
+            </div>`).join("")}
+          <div class="detail">
+            ${f.tracking.length ? f.tracking.map((n) => `
+              <div class="detail-row"><span class="muted">${esc(t("tracking"))}</span>
+                <a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a></div>`).join("")
+              : `<div class="detail-row"><span class="muted">${esc(t("tracking"))}</span><span class="muted">${esc(t("no_tracking"))}</span></div>`}
+            ${f.shipped_at ? `<div class="detail-row"><span class="muted">${esc(t("shipped_on"))}</span><span>${esc(niceDate(dayOfStamp(f.shipped_at)))}</span></div>` : ""}
+            <div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>${esc(money(f.fee))} · ${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></div>
+          </div>
+        </div>` : "";
+
+      return `
+        <div class="card${isOpen ? " open" : ""}">
+          <button class="card-head" type="button" data-sent-open="${esc(f.id)}" aria-expanded="${isOpen}">
+            <div class="card-text">
+              <div class="card-title">${esc(f.display_id)}</div>
+              <div class="stats"><span>${esc(niceDate(dayOfStamp(f.created_at)))}</span><span>${f.pairs} ${esc(t(f.pairs === 1 ? "pair" : "pairs"))}</span></div>
+            </div>
+            <span class="pill ${status.tone}">${esc(t(status.word))}</span>
+            ${CHEV}
+          </button>${body}
+        </div>`;
+    }
+
+    $("sentList").addEventListener("click", (event) => {
+      if (event.target.closest("[data-sent-reload]")) return loadSent(true);
+
+      const head = event.target.closest("[data-sent-open]");
+      if (!head) return;
+
+      const id = head.dataset.sentOpen;
+      if (sent.open.has(id)) sent.open.delete(id);
+      else sent.open.add(id);
+      renderSent();
+    });
+
+    applyLang();
+    api("/api/partner/me").then((data) => showApp(data.partner)).catch(() => showLogin());
+  </script>
+</body>
+</html>
