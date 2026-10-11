@@ -394,6 +394,25 @@
 
     function drawResults(out) {
       state.rows = out.rows || [];
+
+      /*
+        Grouped by who it comes from.
+
+        Dario's partner found the same consignor on two lines three rows
+        apart and had to read the whole table to notice. Two pairs from one
+        man is one message, one pickup and one conversation about the price,
+        and that only shows if his lines sit together.
+
+        Our own shelf carries no seller name and goes first, as the one block
+        it is; a pair nobody holds has no seller either and goes last. The
+        sort is stable, so inside one seller the order is still the order he
+        pasted - and the offer and the file are built from this same list, so
+        what he sends matches what he is looking at.
+      */
+      const whose = (row) => String(row.options[0]?.seller_name || row.options[0]?.seller || "").toLowerCase();
+      const rank = (row) => (row.options.length ? (whose(row) ? 1 : 0) : 2);
+
+      state.rows.sort((a, b) => rank(a) - rank(b) || whose(a).localeCompare(whose(b)));
       // Kept, so opening a row does not make a shelf that was out
       // of reach look as though it answered.
       if (out.missing) state.missing = out.missing;
