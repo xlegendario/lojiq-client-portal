@@ -367,7 +367,7 @@ test("a line with no article at all is carried on its name", () => {
 /* ---------------- the offer that goes back to the buyer ---------------- */
 
 const {
-  offerLine, offerText, productFromLine, VAT_TYPES, OFFER_OPENING, OFFER_CLOSING
+  offerLine, offerText, productFromLine, VAT_TYPES, OFFER_OPENING, offerClosing
 } = await import("../admin/wtbMatch.js");
 
 test("an offer line is the buyer's own words with a price on the end", () => {
@@ -419,8 +419,43 @@ test("the block that is pasted holds only what was priced, in the order shown", 
     "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0",
     "DD9335-641 - Jordan 1 38 €110 Margin",
     "",
-    OFFER_CLOSING
+    offerClosing(2)
   ]);
+});
+
+test("one pair is not each pair", () => {
+  const one = offerText([
+    { sku: "JQ4891", size: "43 1/3", line: "JQ4891 - adidas Campus 00s Mata 43 1/3", price: 130, vat: "VAT0" }
+  ]);
+
+  assert.equal(one.split("\n").at(-1), "Please note that final availability still has to be confirmed.");
+  assert.doesNotMatch(one, /each pair/);
+
+  // And a list still reads as one.
+  assert.match(offerClosing(2), /for each pair\.$/);
+  assert.match(offerClosing(2), /final availability/);
+});
+
+test("the message says when the pair can leave, behind the scheme", () => {
+  // A buyer choosing between two offers is choosing on the date as much as
+  // on the price, and the date belongs to the option the price was built on.
+  assert.equal(
+    offerLine({
+      sku: "U9060BPM",
+      size: "42",
+      line: "U9060BPM - New Balance 9060 Triple Black 42",
+      price: 150,
+      vat: "Margin",
+      eta: "within 48 hours"
+    }),
+    "U9060BPM - New Balance 9060 Triple Black 42 €150 Margin (within 48 hours)"
+  );
+
+  // Nothing known about the date leaves the line as it was.
+  assert.equal(
+    offerLine({ sku: "U9060BPM", size: "42", line: "U9060BPM - shoe 42", price: 150, vat: "Margin" }),
+    "U9060BPM - shoe 42 €150 Margin"
+  );
 });
 
 test("nothing priced is no message at all, not a greeting with a gap in it", () => {
@@ -432,8 +467,8 @@ test("the wording says who is offering and what is not promised yet", () => {
   // Most of these pairs sit with a consignor, and a consignor can have sold
   // one somewhere else this morning. Said once, at the bottom.
   assert.match(OFFER_OPENING, /offer/i);
-  assert.match(OFFER_CLOSING, /availability/i);
-  assert.match(OFFER_CLOSING, /each pair/i);
+  assert.match(offerClosing(3), /final availability/i);
+  assert.match(offerClosing(3), /each pair/i);
 });
 
 test("the VAT types are the three the stock actually uses", () => {
@@ -466,7 +501,7 @@ test("the offer route writes the message, so the screen never has to", async () 
     "",
     "JQ4891 - adidas Campus 00s Mata 43 1/3 €130 VAT0",
     "",
-    OFFER_CLOSING
+    offerClosing(1)
   ]);
 });
 

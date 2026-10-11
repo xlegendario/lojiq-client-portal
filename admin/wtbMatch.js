@@ -779,7 +779,7 @@ const euro = (value) => {
  * A pair with no price on it is not an offer and comes back empty, so the
  * block that is pasted holds only what was actually priced.
  */
-export function offerLine({ sku, size, line = "", product_name = "", price, vat = "" }) {
+export function offerLine({ sku, size, line = "", product_name = "", price, vat = "", eta = "" }) {
   const amount = euro(price);
 
   if (!amount) return "";
@@ -792,7 +792,16 @@ export function offerLine({ sku, size, line = "", product_name = "", price, vat 
   */
   const name = text(product_name) || productFromLine(line);
 
-  return [text(sku), "-", name, text(size), amount, text(vat)]
+  /*
+    When it can leave, behind the scheme, in brackets. A buyer deciding
+    between two offers is deciding on the date as much as on the price,
+    and a pair sitting with a supplier in Asia is a different offer from
+    one on our own shelf at the same money. Brackets, because "Margin
+    within 48 hours" read as one thing and it is two.
+  */
+  const when = text(eta) ? `(${text(eta)})` : "";
+
+  return [text(sku), "-", name, text(size), amount, text(vat), when]
     .filter(Boolean)
     .join(" ")
     .replace(/\s+/g, " ")
@@ -810,7 +819,15 @@ export function offerLine({ sku, size, line = "", product_name = "", price, vat 
  * better than finding out afterwards.
  */
 export const OFFER_OPENING = "Hello, I can offer the following:";
-export const OFFER_CLOSING = "Please note that availability still has to be confirmed for each pair.";
+
+/*
+ * One pair is not "each pair". A note written for a list reads as
+ * boilerplate under a single line, and boilerplate is what people stop
+ * reading - which is the one thing this sentence cannot afford.
+ */
+export const offerClosing = (pairs = 0) => (pairs === 1
+  ? "Please note that final availability still has to be confirmed."
+  : "Please note that final availability still has to be confirmed for each pair.");
 
 // The whole offer, in the order the table is in.
 export function offerText(rows = []) {
@@ -819,7 +836,7 @@ export function offerText(rows = []) {
   // Nothing priced is no message at all, not a greeting with a gap in it.
   if (!lines.length) return "";
 
-  return [OFFER_OPENING, "", ...lines, "", OFFER_CLOSING].join("\n");
+  return [OFFER_OPENING, "", ...lines, "", offerClosing(lines.length)].join("\n");
 }
 
 /* ---------------- when a pair can actually leave ---------------- */

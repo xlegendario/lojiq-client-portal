@@ -619,6 +619,9 @@
               size: row.size,
               line: row.line,
               product_name: row.options[0]?.product_name || "",
+              // Off the same option the price was built on, so the date in
+              // the message is the date of the pair he is actually pricing.
+              eta: row.options[0]?.ready_in || "",
               price: row.offer_price,
               vat: row.offer_vat
             }))
