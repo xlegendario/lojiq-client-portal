@@ -307,6 +307,8 @@
     .pill.move { background: rgba(47, 128, 237, 0.18); color: var(--primary-soft); }
     .pill.good { background: rgba(22, 179, 100, 0.16); color: #4ADE9A; }
     .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
+    .pill.bad { background: var(--red-bg); color: var(--red); }
+    .fee-line { display: inline-flex; align-items: center; gap: 8px; }
     .tracking-list summary { list-style: none; cursor: pointer; }
     .tracking-list summary::-webkit-details-marker { display: none; }
     .tracking-all { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 0 0 10px; }
@@ -552,8 +554,8 @@
         no_tracking: "Not yet",
         n_tracking: "{n} tracking numbers",
         shipped_on: "Sent on",
-        fee_paid: "paid",
-        fee_open: "to pay",
+        fee_paid: "Paid",
+        fee_open: "To pay",
         inv_generate: "Make an invoice for the buyer",
         inv_generate_hint: "We email the invoice to your buyer.",
         invoice_one_product: "An invoice is for one product. Remove the other products and send them in a separate forward.",
@@ -1822,7 +1824,7 @@
           <div class="detail">
             ${trackingRows(f)}
             ${f.shipped_at ? `<div class="detail-row"><span class="muted">${esc(t("shipped_on"))}</span><span>${esc(niceDate(dayOfStamp(f.shipped_at)))}</span></div>` : ""}
-            ${f.invoice ? "" : `<div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>${esc(money(f.fee))} · ${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></div>`}
+            ${f.invoice ? "" : `<div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span class="fee-line">${esc(money(f.fee))} <span class="pill ${f.fee_paid ? "good" : "bad"}">${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></span></div>`}
           </div>
           ${f.invoice ? `
             <div class="detail">
