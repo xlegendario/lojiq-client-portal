@@ -309,12 +309,12 @@
     .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
     .pill.bad { background: var(--red-bg); color: var(--red); }
     .fee-line { display: inline-flex; align-items: center; gap: 8px; }
-    .money-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px; margin-bottom: 18px; }
-    .money-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 10px 0; }
+    .money-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 2px 14px; margin-bottom: 18px; }
+    .money-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 0; }
     .money-row + .money-row { border-top: 1px solid var(--border); }
-    .money-row span { flex: 1; min-width: 150px; }
-    .money-row b { font-size: 20px; }
-    .money-row small { color: var(--muted); }
+    .money-row b { font-size: 18px; color: var(--strong); white-space: nowrap; }
+    .money-row b.ok-text { color: #4ADE9A; }
+    .money-row small { color: var(--muted); font-size: 13px; }
     .tracking-list summary { list-style: none; cursor: pointer; }
     .tracking-list summary::-webkit-details-marker { display: none; }
     .tracking-all { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 0 0 10px; }
@@ -554,7 +554,7 @@
         sec_open: "Pending",
         sec_done: "Done",
         sec_fee: "Fee to pay",
-        fee_to_pay_total: "Forwarding fee to pay",
+        fee_to_pay_total: "Fee to pay",
         all_fees_paid: "All forwarding fees paid",
         we_pay_you: "We still pay you",
         forward_one: "forward",
@@ -699,7 +699,7 @@
         sec_open: "待处理",
         sec_done: "已完成",
         sec_fee: "待付服务费",
-        fee_to_pay_total: "待付转运服务费",
+        fee_to_pay_total: "待付服务费",
         all_fees_paid: "所有转运服务费已付",
         we_pay_you: "我们待付给您",
         forward_one: "笔",
@@ -1823,9 +1823,9 @@
       const summary = `
         <div class="money-box">
           ${owed.length
-            ? `<div class="money-row"><span>${esc(t("fee_to_pay_total"))}</span><b class="bad-text">${esc(money(owedTotal))}</b><small>${count(owed.length)}</small></div>`
+            ? `<div class="money-row"><span>${esc(t("fee_to_pay_total"))} <small>· ${count(owed.length)}</small></span><b>${esc(money(owedTotal))}</b></div>`
             : `<div class="money-row"><span class="ok-text">${esc(t("all_fees_paid"))} ✓</span></div>`}
-          ${ours.length ? `<div class="money-row"><span>${esc(t("we_pay_you"))}</span><b class="ok-text">${esc(money(oursTotal))}</b><small>${count(ours.length)}</small></div>` : ""}
+          ${ours.length ? `<div class="money-row"><span>${esc(t("we_pay_you"))} <small>· ${count(ours.length)}</small></span><b class="ok-text">${esc(money(oursTotal))}</b></div>` : ""}
         </div>`;
 
       const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
