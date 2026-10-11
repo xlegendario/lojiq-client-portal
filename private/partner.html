@@ -554,6 +554,7 @@
         sec_open: "Pending",
         sec_done: "Done",
         sec_fee: "Fee to pay",
+        sec_cancelled: "Cancelled",
         fee_to_pay_total: "Fee to pay",
         all_fees_paid: "All forwarding fees paid",
         we_pay_you: "We still pay you",
@@ -699,6 +700,7 @@
         sec_open: "待处理",
         sec_done: "已完成",
         sec_fee: "待付服务费",
+        sec_cancelled: "已取消",
         fee_to_pay_total: "待付服务费",
         all_fees_paid: "所有转运服务费已付",
         we_pay_you: "我们待付给您",
@@ -1812,7 +1814,8 @@
       const live = sent.data.filter((f) => f.status !== "cancelled");
       const pending = sent.data.filter((f) => f.status === "awaiting_label" || f.status === "ready_to_ship");
       const feeToPay = sent.data.filter((f) => f.status === "shipped" && !f.fee_paid);
-      const done = sent.data.filter((f) => !pending.includes(f) && !feeToPay.includes(f));
+      const cancelled = sent.data.filter((f) => f.status === "cancelled");
+      const done = sent.data.filter((f) => !pending.includes(f) && !feeToPay.includes(f) && !cancelled.includes(f));
 
       const owed = live.filter((f) => !f.fee_paid);
       const owedTotal = owed.reduce((sum, f) => sum + Number(f.fee || 0), 0);
@@ -1830,7 +1833,7 @@
 
       const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
 
-      $("sentList").innerHTML = summary + section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done);
+      $("sentList").innerHTML = summary + section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done) + section(t("sec_cancelled"), cancelled);
     }
 
     const trackLink = (n) => `<a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a>`;
