@@ -211,6 +211,8 @@
     .size.empty { opacity: 0.45; }
     .tiles-hint { margin: 8px 0 0; font-size: 13px; }
 
+    .card-sub.where { color: var(--primary-soft); }
+
     .note { color: var(--muted); text-align: center; padding: 28px 12px; }
     .retry { margin-top: 12px; }
 
@@ -768,7 +770,11 @@
           <div class="card${open ? " open" : ""}">
             <button class="card-head" type="button" data-open="p:${esc(p.sku)}" aria-expanded="${open}">
               ${thumb(p.image)}
-              <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
+              <div class="card-text">
+                <div class="card-title">${esc(p.name || p.sku)}</div>
+                <div class="card-sub">${esc(p.sku)}</div>
+                ${severalWarehouses() ? `<div class="card-sub where">${warehouseLine(p.warehouses)}</div>` : ""}
+              </div>
               <div class="count"><b>${p.count}</b><span>${esc(t("pairs"))}</span></div>
               ${CHEV}
             </button>${body}
@@ -780,6 +786,12 @@
       const entry = product.sizes.find((s) => s.size === picked);
       if (!entry) return `<div class="detail"><div class="detail-row"><span class="muted">${esc(t("tap_size"))}</span></div></div>`;
 
+      // With more than one warehouse, first where the pairs of this size are.
+      const split = severalWarehouses()
+        ? entry.warehouses.map((w) => `
+          <div class="detail-row"><span>${esc(whName(w.warehouse))}</span><b>${w.count} ${esc(t(w.count === 1 ? "pair" : "pairs"))}</b></div>`)
+        : [];
+
       const rows = entry.arrivals.map((a) => `
         <div class="detail-row">
           <span>${esc(t("arrived"))} ${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</span>
@@ -787,8 +799,10 @@
         </div>`);
       if (entry.onHold) rows.push(`<div class="detail-row"><span class="muted">${esc(t("on_hold"))}</span><span class="muted">${entry.onHold}</span></div>`);
 
-      return `<div class="detail">${rows.join("")}</div>`;
+      return `${split.length ? `<div class="detail">${split.join("")}</div>` : ""}<div class="detail">${rows.join("")}</div>`;
     }
+
+    const warehouseLine = (list) => (severalWarehouses() ? list.map((w) => `${esc(whName(w.warehouse))} ${w.count}`).join(" · ") : "");
 
     // One block per day, and in it one card per product that came that day.
     function arrivalCards(arrivals, query) {

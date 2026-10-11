@@ -66,7 +66,10 @@ test("the day is the warehouse's day, not UTC", () => {
 });
 
 test("a second warehouse is counted apart", () => {
-  const { totals, arrivals } = summarizeStock([pair({}), pair({}), pair({ warehouse: "h23" })]);
+  const { totals, arrivals, products } = summarizeStock([pair({}), pair({}), pair({ warehouse: "h23" })]);
+
+  assert.deepEqual(products[0].warehouses, [{ warehouse: "lojiq", count: 2 }, { warehouse: "h23", count: 1 }]);
+  assert.deepEqual(products[0].sizes[0].warehouses, [{ warehouse: "lojiq", count: 2 }, { warehouse: "h23", count: 1 }]);
 
   assert.deepEqual(totals.warehouses, [{ warehouse: "lojiq", count: 2 }, { warehouse: "h23", count: 1 }]);
   assert.equal(arrivals.length, 2);

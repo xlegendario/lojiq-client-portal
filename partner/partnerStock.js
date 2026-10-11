@@ -112,20 +112,26 @@ export function summarizeStock(rows) {
       brand: text(row.brand),
       image: text(row.image_url),
       count: 0,
+      warehouses: new Map(),
       sizes: new Map()
     }));
 
     product.count += 1;
+    product.warehouses.set(warehouse, (product.warehouses.get(warehouse) || 0) + 1);
     if (!product.name && row.product_name) product.name = text(row.product_name);
     if (!product.image && row.image_url) product.image = text(row.image_url);
 
-    const sizeEntry = bump(product.sizes, size, () => ({ size, count: 0, onHold: 0, arrivals: new Map() }));
+    const sizeEntry = bump(product.sizes, size, () => ({ size, count: 0, onHold: 0, warehouses: new Map(), arrivals: new Map() }));
     sizeEntry.count += 1;
+    sizeEntry.warehouses.set(warehouse, (sizeEntry.warehouses.get(warehouse) || 0) + 1);
     if (status === "reserved") sizeEntry.onHold += 1;
 
     const sizeArrival = bump(sizeEntry.arrivals, `${day}|${warehouse}`, () => ({ date: day, warehouse, count: 0 }));
     sizeArrival.count += 1;
   }
+
+  // Per warehouse, the biggest first: "Lojiq 12 · H23 13" reads as a split.
+  const byWarehouse = (map) => [...map].map(([warehouse, count]) => ({ warehouse, count })).sort((a, b) => b.count - a.count || a.warehouse.localeCompare(b.warehouse));
 
   const newestFirst = (a, b) => b.date.localeCompare(a.date) || a.warehouse.localeCompare(b.warehouse);
 
@@ -133,14 +139,19 @@ export function summarizeStock(rows) {
     totals: {
       on_shelf: onShelf,
       products: products.size,
-      warehouses: [...warehouses].map(([warehouse, count]) => ({ warehouse, count })).sort((a, b) => b.count - a.count)
+      warehouses: byWarehouse(warehouses)
     },
     products: [...products.values()]
       .map((product) => ({
         ...product,
+        warehouses: byWarehouse(product.warehouses),
         sizes: [...product.sizes.values()]
           .sort((a, b) => compareSizes(a.size, b.size))
-          .map((entry) => ({ ...entry, arrivals: [...entry.arrivals.values()].sort((a, b) => a.date.localeCompare(b.date)) }))
+          .map((entry) => ({
+            ...entry,
+            warehouses: byWarehouse(entry.warehouses),
+            arrivals: [...entry.arrivals.values()].sort((a, b) => a.date.localeCompare(b.date))
+          }))
       }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
     arrivals: [...arrivals.values()]

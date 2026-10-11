@@ -26,6 +26,10 @@ const PAGE = 1000;
 const COLUMNS = "id,sku,size,product_name,brand,image_url,mode,partner_price,markup,forwarding_fee,received_at";
 const FORWARDABLE_MODES = new Set(["forwarding", "both"]);
 
+// Only what is on our own shelf: a pair in another warehouse is not ours to
+// pack, and a forward made here is packed by us.
+export const OWN_WAREHOUSE = "lojiq";
+
 export const MAX_PAIRS = 500;
 
 export class ForwardError extends Error {
@@ -148,7 +152,7 @@ export async function loadForwardable(db, sellerRecordId) {
 
   for (let offset = 0; ; offset += PAGE) {
     const page = await db.get(
-      `partner_stock?select=${COLUMNS}&seller_record_id=eq.${seller}&status=eq.in_stock&order=id.asc&limit=${PAGE}&offset=${offset}`
+      `partner_stock?select=${COLUMNS}&seller_record_id=eq.${seller}&status=eq.in_stock&warehouse=eq.${OWN_WAREHOUSE}&order=id.asc&limit=${PAGE}&offset=${offset}`
     );
 
     rows.push(...(page || []));

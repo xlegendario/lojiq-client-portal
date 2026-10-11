@@ -138,3 +138,12 @@ test("a bad label or tracking number stops the forward before anything happens",
   await assert.rejects(createPartnerForward(d, partner, { lines, tracking: "abc" }), (err) => err.code === "bad_tracking");
   assert.equal(d.calls.length, 0);
 });
+
+test("only pairs on our own shelf can be sent from here", async () => {
+  const { loadForwardable } = await import("../partner/partnerForward.js");
+  const paths = [];
+  await loadForwardable({ get: async (path) => (paths.push(path), []) }, "recJIMMY00000001");
+
+  assert.ok(paths[0].includes("warehouse=eq.lojiq"));
+  assert.ok(paths[0].includes("status=eq.in_stock"));
+});
