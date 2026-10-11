@@ -447,6 +447,7 @@
         nothing_left: "All gone",
         left_of: "left of",
         left_of_hint: "Left / came in, per size.",
+        and_more: "& {n} more",
         no_stock: "No pairs here right now.",
         no_match: "Nothing found.",
         tap_size: "Tap a size to see its location and arrival.",
@@ -526,6 +527,7 @@
         nothing_left: "已全部出库",
         left_of: "剩余 / 共",
         left_of_hint: "每个尺码：剩余 / 到货。",
+        and_more: "等另外 {n} 处",
         no_stock: "目前没有库存。",
         no_match: "没有找到。",
         tap_size: "点一个尺码，查看位置和到货日期。",
@@ -800,7 +802,12 @@
       return `${split.length ? `<div class="detail">${split.join("")}</div>` : ""}<div class="detail">${rows.join("")}</div>`;
     }
 
-    const warehouseLine = (list) => list.map((w) => `${esc(whName(w.warehouse))} ${w.count}`).join(" · ");
+    // Two locations fit on the card; with more, the biggest and how many more.
+    // The list comes biggest first; tapping a size shows every location.
+    function warehouseLine(list) {
+      const named = list.map((w) => `${esc(whName(w.warehouse))} ${w.count}`);
+      return named.length > 2 ? `${named[0]} ${esc(t("and_more").replace("{n}", named.length - 1))}` : named.join(" · ");
+    }
 
     // One block per day, and in it one card per product that came that day.
     function arrivalCards(arrivals, query) {
