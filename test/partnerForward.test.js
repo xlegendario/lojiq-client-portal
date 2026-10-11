@@ -5,7 +5,7 @@ import {
   ForwardError,
   cleanLines,
   createPartnerForward,
-  labelFile,
+  checkLabels,
   pickPairs,
   summarizeForwardable
 } from "../partner/partnerForward.js";
@@ -74,68 +74,80 @@ test("lines are merged per SKU and size and must be whole, positive numbers", ()
   assert.throws(() => cleanLines([{ sku: "X", size: "1", qty: 501 }]), (err) => err.code === "too_many_pairs");
 });
 
-test("a label must really be a PDF, JPEG or PNG", () => {
-  assert.equal(labelFile(PDF)?.ext, "pdf");
-  assert.equal(labelFile(`data:application/pdf;base64,${Buffer.from("not a pdf at all".repeat(20)).toString("base64")}`), null);
-  assert.equal(labelFile("https://example.com/label.pdf"), null);
+const UPS = "1Z999AA10123456784";
+const label = (tracking = [UPS], data_url = PDF) => ({ data_url, name: "label.pdf", tracking });
+
+test("every forward needs its labels, each with a real tracking number", () => {
+  assert.throws(() => checkLabels([]), (err) => err.code === "label_missing");
+  assert.throws(() => checkLabels([label([UPS], "data:text/plain;base64,aGVsbG8=")]), (err) => err.code === "bad_label");
+  assert.throws(() => checkLabels([label([])]), (err) => err.code === "label_no_tracking");
+  assert.throws(() => checkLabels([label(["1Z999AA10123456785"])]), (err) => err.code === "bad_tracking", "a UPS number with a wrong check digit");
+  assert.throws(() => checkLabels([label([UPS]), label([UPS])]), (err) => err.code === "label_twice");
+
+  const { tracking, labels } = checkLabels([label(["1z 999 aa1 0123456784"]), label(["05222389098799", "CZ123456789"])]);
+  assert.deepEqual(tracking, [UPS, "05222389098799", "CZ123456789"]);
+  assert.equal(labels[0].file.ext, "pdf");
 });
 
-function deps(rows) {
+function deps(rows, used = []) {
   const calls = [];
   return {
     calls,
-    db: { get: async () => rows },
+    db: { get: async (path) => (path.startsWith("forwarding_log") ? used : rows) },
     async callKc(path, body) {
       calls.push({ to: "kc", path, body });
       return { ok: true, forward: { id: "f1", display_id: "FWD-000040", shipping_status: body.labels.length ? "ready_to_ship" : "awaiting_label" } };
     },
     async callWms(path, body) {
       calls.push({ to: "wms", path, body });
-      return { url: "https://labels/x.pdf", filename: "x.pdf" };
+      return { url: `https://labels/${body.tracking}.pdf`, filename: `${body.tracking}.pdf` };
     }
   };
 }
 
-test("a forward is made through the Kickz Caviar portal with the picked pairs", async () => {
+test("a forward is made through the Kickz Caviar portal with the picked pairs and its labels", async () => {
   const d = deps([pair("p1"), pair("p2"), pair("p3", { size: "43" })]);
 
-  const result = await createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 2 }], tracking: "1Z FV6 483 68" });
+  const result = await createPartnerForward(d, partner, {
+    lines: [{ sku: "A05FW702", size: "44", qty: 2 }],
+    labels: [label([UPS]), label(["05222389098799", "05222389098711"])]
+  });
 
-  assert.deepEqual(result, { id: "f1", display_id: "FWD-000040", pairs: 2, shipping_status: "awaiting_label", invoice: null });
-  assert.equal(d.calls.length, 1);
-  assert.equal(d.calls[0].path, "/api/internal/forwarding/create");
-  assert.deepEqual(d.calls[0].body.pair_ids.sort(), ["p1", "p2"]);
-  assert.equal(d.calls[0].body.seller_record_id, "recJIMMY00000001");
-  assert.deepEqual(d.calls[0].body.tracking_numbers, ["1ZFV648368"]);
-  assert.equal(d.calls[0].body.buyer, null);
+  assert.deepEqual(result, { id: "f1", display_id: "FWD-000040", pairs: 2, shipping_status: "ready_to_ship", invoice: null });
+  assert.deepEqual(d.calls.map((c) => c.to), ["wms", "wms", "kc"], "labels are stored first");
+
+  const made = d.calls[2].body;
+  assert.equal(made.seller_record_id, "recJIMMY00000001");
+  assert.deepEqual(made.pair_ids.sort(), ["p1", "p2"]);
+  assert.deepEqual(made.tracking_numbers, [UPS, "05222389098799", "05222389098711"]);
+  assert.deepEqual(made.labels.map((l) => l.tracking), [UPS, "05222389098799, 05222389098711"]);
+  assert.equal(made.buyer, null);
 });
 
-test("a label is stored first and goes into the forward", async () => {
-  const d = deps([pair("p1")]);
+test("a label already on a forward is refused before anything is made", async () => {
+  const d = deps([pair("p1")], [{ forwarding_number: 37, tracking_numbers: [UPS] }]);
 
-  await createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], label: PDF });
-
-  assert.deepEqual(d.calls.map((c) => c.to), ["wms", "kc"]);
-  assert.equal(d.calls[0].path, "/api/upload-label-file");
-  assert.equal(d.calls[1].body.labels[0].url, "https://labels/x.pdf");
+  await assert.rejects(
+    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], labels: [label()] }),
+    (err) => err.code === "label_used" && err.used.forward === "FWD-000037"
+  );
+  assert.equal(d.calls.length, 0);
 });
 
 test("nothing is made when a size no longer has enough pairs", async () => {
   const d = deps([pair("p1")]);
 
   await assert.rejects(
-    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 2 }], label: PDF }),
+    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 2 }], labels: [label()] }),
     (err) => err.code === "pairs_gone" && err.status === 409
   );
   assert.equal(d.calls.length, 0, "no label stored and no forward made");
 });
 
-test("a bad label or tracking number stops the forward before anything happens", async () => {
+test("a forward without labels is refused", async () => {
   const d = deps([pair("p1")]);
-  const lines = [{ sku: "A05FW702", size: "44", qty: 1 }];
 
-  await assert.rejects(createPartnerForward(d, partner, { lines, label: "data:text/plain;base64,aGVsbG8=" }), (err) => err.code === "bad_label");
-  await assert.rejects(createPartnerForward(d, partner, { lines, tracking: "abc" }), (err) => err.code === "bad_tracking");
+  await assert.rejects(createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 1 }] }), (err) => err.code === "label_missing");
   assert.equal(d.calls.length, 0);
 });
 

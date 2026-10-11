@@ -252,6 +252,13 @@
     .file-name { margin-top: 8px; font-size: 14px; color: var(--muted); word-break: break-all; }
     .link { background: none; border: 0; color: var(--primary-soft); font-size: 14px; cursor: pointer; padding: 4px; }
 
+    .card.labels { margin-top: 14px; }
+    .label-row { display: flex; align-items: flex-start; gap: 10px; background: var(--panel-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+    .label-text { flex: 1; min-width: 0; font-size: 14px; }
+    .label-text b { display: block; color: var(--strong); word-break: break-all; }
+    .label-text .typed { margin-top: 6px; width: 100%; min-height: 46px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; }
+    .ok-text { color: #4ADE9A; }
+    .bad-text { color: var(--red); }
     .total { margin-top: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px; }
     .total div { display: flex; justify-content: space-between; padding: 10px 0; font-size: 16px; }
     .total div + div { border-top: 1px solid var(--border); }
@@ -500,12 +507,21 @@
         pick_hint: "Tap a size to add 1 pair. Tap again to add more.",
         next: "Next",
         size: "Size",
-        label_optional: "Label and tracking (optional)",
-        label_hint: "Do you have the shipping label already? Add it here. If not, send it to Dario later.",
+        labels_title: "Shipping labels",
+        labels_hint: "Add the label of every box, as a PDF or a photo. We read the tracking number for you.",
+        label_reading: "Reading the label…",
+        label_unread: "We could not read this label. Type the tracking number:",
+        label_used: "This label was already used for {fwd}.",
+        label_used_short: "One of the labels was already used. Remove it.",
+        label_missing: "Add the shipping label of every box.",
+        labels_reading: "Wait a moment, the labels are still being read.",
+        label_no_tracking: "Type the tracking number of every label that could not be read.",
+        label_twice: "The same tracking number is on two labels. Remove one.",
+        too_many_labels: "That is too many labels for one forward.",
         tracking: "Tracking number",
-        label_add: "Add label (PDF or photo)",
+        label_add: "+ Add label (PDF or photo)",
         label_change: "Change label",
-        label_too_big: "This file is too big. Use a file under 10 MB.",
+        label_too_big: "This file is too big. Use a file under 20 MB.",
         remove: "Remove",
         pairs_total: "Pairs",
         fee_total: "Forwarding fee",
@@ -629,12 +645,21 @@
         pick_hint: "点一个尺码加 1 双，再点一次再加 1 双。",
         next: "下一步",
         size: "尺码",
-        label_optional: "面单和单号（可选）",
-        label_hint: "如果已有快递面单，请在这里添加。没有的话，以后发给 Dario。",
+        labels_title: "快递面单",
+        labels_hint: "请添加每个箱子的面单（PDF 或照片）。我们会自动读取快递单号。",
+        label_reading: "正在读取面单…",
+        label_unread: "无法读取这张面单，请输入快递单号：",
+        label_used: "这张面单已经用于 {fwd}。",
+        label_used_short: "有一张面单已经用过了，请删除。",
+        label_missing: "请添加每个箱子的快递面单。",
+        labels_reading: "请稍等，面单还在读取中。",
+        label_no_tracking: "无法读取的面单，请输入快递单号。",
+        label_twice: "两张面单的快递单号相同，请删除一张。",
+        too_many_labels: "一次发货的面单太多了。",
         tracking: "快递单号",
-        label_add: "添加面单（PDF 或照片）",
+        label_add: "+ 添加面单（PDF 或照片）",
         label_change: "更换面单",
-        label_too_big: "文件太大，请使用小于 10 MB 的文件。",
+        label_too_big: "文件太大，请使用小于 20 MB 的文件。",
         remove: "删除",
         pairs_total: "数量",
         fee_total: "转运服务费",
@@ -763,7 +788,7 @@
         showLogin();
         throw new Error("not_signed_in");
       }
-      if (!response.ok) throw new Error(data.error || "try_again");
+      if (!response.ok) throw Object.assign(new Error(data.error || "try_again"), { data });
 
       return data;
     }
@@ -1024,7 +1049,7 @@
 
     /* ---------- send pairs ---------- */
 
-    const send = { data: null, at: 0, step: "pick", picked: new Map(), open: new Set(), label: null, busy: false, result: null, notice: "" };
+    const send = { data: null, at: 0, step: "pick", picked: new Map(), open: new Set(), labels: [], busy: false, result: null, notice: "" };
 
     const money = (value) => new Intl.NumberFormat(lang === "zh" ? "zh-CN" : "en-GB", { style: "currency", currency: "EUR" }).format(value || 0);
     const pickKey = (sku, size) => `${sku}|${size}`;
@@ -1158,23 +1183,12 @@
           }).join("")}</div></div>`);
       }
 
-      const labelName = send.label ? esc(send.label.name) : "";
-
       return `
         <div class="list">${rows.join("")}</div>
 
         ${invoiceBlock()}
 
-        <details class="card extra" id="sendExtra"${send.extraOpen || send.label || send.tracking ? " open" : ""}>
-          <summary>${esc(t("label_optional"))}</summary>
-          <div class="card-body">
-            <p class="hint">${esc(t("label_hint"))}</p>
-            <div class="field"><label for="sendTracking">${esc(t("tracking"))}</label><input id="sendTracking" autocomplete="off" autocapitalize="characters" value="${esc(send.tracking || "")}"></div>
-            <label class="btn file-btn" for="sendLabel">${esc(send.label ? t("label_change") : t("label_add"))}</label>
-            <input id="sendLabel" type="file" accept="application/pdf,image/jpeg,image/png" hidden>
-            ${labelName ? `<div class="file-name">${labelName} <button type="button" class="link" data-send="drop-label">${esc(t("remove"))}</button></div>` : ""}
-          </div>
-        </details>
+        ${labelsBlock()}
 
         <div class="total">${invoiceTotals(pairs, fee)}</div>
 
@@ -1206,15 +1220,6 @@
         </div>`;
     }
 
-    function readLabel(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
-    }
-
     async function submitSend() {
       if (send.busy) return;
 
@@ -1222,6 +1227,14 @@
         const [sku, size] = key.split("|");
         return { sku, size, qty };
       });
+
+      const labelIssue = labelProblem();
+      if (labelIssue) {
+        send.notice = labelIssue;
+        renderSend();
+        document.querySelector(".card.labels")?.scrollIntoView({ block: "center" });
+        return;
+      }
 
       const problem = invoiceProblem();
       if (problem) {
@@ -1233,7 +1246,6 @@
 
       send.busy = true;
       send.notice = "";
-      send.tracking = $("sendTracking")?.value.trim() || "";
       renderSend();
 
       try {
@@ -1241,8 +1253,7 @@
           method: "POST",
           body: {
             lines,
-            tracking: send.tracking,
-            label: send.label?.dataUrl || "",
+            labels: send.labels.map((l) => ({ data_url: l.dataUrl, name: l.name, tracking: labelNumbers(l) })),
             invoice: inv.on ? { buyer_id: inv.buyerId, price_per_pair: parsePrice(inv.price) } : undefined
           }
         });
@@ -1251,14 +1262,14 @@
         resetInvoice();
         send.step = "done";
         send.picked.clear();
-        send.label = null;
-        send.tracking = "";
+        send.labels = [];
         send.data = null;
         stock.data = null;
         sent.data = null;
       } catch (err) {
         if (err.message === "not_signed_in") return;
         send.notice = t(err.message in WORDS.en ? err.message : "try_again");
+        if (err.message === "label_used" && err.data?.used) send.notice = t("label_used").replace("{fwd}", err.data.used.forward);
         if (err.message.startsWith("invoice_")) {
           inv.error = send.notice;
           send.notice = "";
@@ -1306,12 +1317,9 @@
         send.notice = "";
         window.scrollTo(0, 0);
       } else if (action === "back") {
-        send.tracking = $("sendTracking")?.value.trim() || "";
         send.step = "pick";
       } else if (action === "submit") {
         return submitSend();
-      } else if (action === "drop-label") {
-        send.label = null;
       } else if (action === "again") {
         send.step = "pick";
         send.result = null;
@@ -1326,22 +1334,6 @@
         return;
       }
 
-      renderSend();
-    });
-
-    $("view-new").addEventListener("change", async (event) => {
-      if (event.target.id !== "sendLabel") return;
-
-      const file = event.target.files?.[0];
-      if (!file) return;
-
-      send.tracking = $("sendTracking")?.value.trim() || "";
-      if (file.size > 10 * 1024 * 1024) {
-        send.notice = t("label_too_big");
-      } else {
-        send.notice = "";
-        send.label = { name: file.name, dataUrl: await readLabel(file) };
-      }
       renderSend();
     });
 
@@ -1406,13 +1398,134 @@
       }
     });
 
-    // The page is redrawn on every tap; keep what was typed and what was opened.
-    $("view-new").addEventListener("input", (event) => {
-      if (event.target.id === "sendTracking") send.tracking = event.target.value.trim();
+    /* ---------- shipping labels ---------- */
+
+    // Every forward comes with the label of every box. Each file is read as
+    // soon as it is added; the partner types a number only when it cannot be.
+    let labelSeq = 0;
+
+    const labelOk = (l) => l.status === "read" && l.numbers.length && !l.used;
+    const labelNumbers = (l) => (l.status === "read" ? l.numbers.map((n) => n.tracking) : [l.typed.trim().toUpperCase().replace(/[\s-]/g, "")]).filter(Boolean);
+
+    function labelsBlock() {
+      const rows = send.labels.map((l) => {
+        let status;
+        if (l.status === "reading") status = `<span class="muted">${esc(t("label_reading"))}</span>`;
+        else if (l.used) status = `<span class="bad-text">${esc(t("label_used").replace("{fwd}", l.used.forward))}</span>`;
+        else if (l.status === "read") status = l.numbers.map((n) => `<span class="ok-text">✓ ${esc(n.carrier)} ${esc(n.tracking)}</span>`).join("<br>");
+        else status = `
+          <span class="muted">${esc(t("label_unread"))}</span>
+          <input class="typed" data-label-typed="${l.id}" autocomplete="off" autocapitalize="characters" placeholder="${esc(t("tracking"))}" value="${esc(l.typed)}">`;
+
+        return `
+          <div class="label-row">
+            <div class="label-text"><b>${esc(l.name)}</b><div>${status}</div></div>
+            <button type="button" class="link" data-label-drop="${l.id}" aria-label="${esc(t("remove"))}">✕</button>
+          </div>`;
+      }).join("");
+
+      return `
+        <div class="card labels">
+          <div class="card-body">
+            <div class="inv-step"><span class="step-n">✓</span>${esc(t("labels_title"))} *</div>
+            <p class="hint">${esc(t("labels_hint"))}</p>
+            ${rows}
+            <label class="btn file-btn" for="sendLabels">${esc(t("label_add"))}</label>
+            <input id="sendLabels" type="file" accept="application/pdf,image/*" multiple hidden>
+          </div>
+        </div>`;
+    }
+
+    function fileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // A phone photo is several megabytes; 2000 pixels on the long side is
+    // plenty to read a label and keeps the upload quick.
+    async function shrinkPhoto(file) {
+      const url = URL.createObjectURL(file);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = url;
+        });
+        const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/jpeg", 0.88);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    async function addLabels(files) {
+      for (const file of files) {
+        const entry = { id: ++labelSeq, name: file.name || "label", status: "reading", numbers: [], used: null, typed: "", dataUrl: "" };
+        send.labels.push(entry);
+        renderSend();
+
+        try {
+          const pdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+          if (pdf && file.size > 20 * 1024 * 1024) throw new Error("label_too_big");
+          entry.dataUrl = pdf ? await fileAsDataUrl(file) : await shrinkPhoto(file);
+
+          const data = await api("/api/partner/labels/read", { method: "POST", body: { data_url: entry.dataUrl } });
+          const found = (data.labels || []).filter((n) => n.valid);
+          entry.used = found.find((n) => n.used)?.used || null;
+          entry.numbers = found;
+          entry.status = found.length ? "read" : "unread";
+        } catch (err) {
+          if (err.message === "not_signed_in") return;
+          if (!entry.dataUrl) {
+            send.labels = send.labels.filter((l) => l !== entry);
+            send.notice = t(err.message in WORDS.en ? err.message : "bad_label");
+          } else {
+            entry.status = "unread";
+          }
+        }
+        renderSend();
+      }
+    }
+
+    // What has to be right about the labels before sending, in his words.
+    function labelProblem() {
+      if (!send.labels.length) return t("label_missing");
+      if (send.labels.some((l) => l.status === "reading")) return t("labels_reading");
+      if (send.labels.some((l) => l.used)) return t("label_used_short");
+      if (send.labels.some((l) => !labelNumbers(l).length)) return t("label_no_tracking");
+      return "";
+    }
+
+    $("view-new").addEventListener("change", (event) => {
+      if (event.target.id !== "sendLabels") return;
+      const files = [...(event.target.files || [])];
+      event.target.value = "";
+      send.notice = "";
+      addLabels(files);
     });
-    $("view-new").addEventListener("toggle", (event) => {
-      if (event.target.id === "sendExtra") send.extraOpen = event.target.open;
-    }, true);
+
+    $("view-new").addEventListener("click", (event) => {
+      const drop = event.target.closest("[data-label-drop]");
+      if (!drop) return;
+      send.labels = send.labels.filter((l) => String(l.id) !== drop.dataset.labelDrop);
+      renderSend();
+    });
+
+    $("view-new").addEventListener("input", (event) => {
+      const id = event.target.dataset.labelTyped;
+      if (!id) return;
+      const entry = send.labels.find((l) => String(l.id) === id);
+      if (entry) entry.typed = event.target.value;
+    });
 
     /* ---------- invoice on a forward ---------- */
 

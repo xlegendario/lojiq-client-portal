@@ -31,6 +31,8 @@ import { ForwardError, createPartnerForward, loadForwardable, summarizeForwardab
 import { loadForwards } from "./partnerSent.js";
 import { BuyerError, createPartnerBuyers } from "./partnerBuyers.js";
 import { createForwardInvoicing, sellerFromFields } from "./forwardInvoicing.js";
+import { createLabelReader, labelFromDataUrl } from "./labelReader.js";
+import { usedTracking } from "./partnerForward.js";
 import { createRompslomp } from "../admin/externalSalesInvoicing.js";
 import { createPurchaseExpense } from "../admin/purchaseExpense.js";
 
@@ -40,8 +42,11 @@ const USERS_CACHE_MS = 60_000;
 const FEE_CACHE_MS = 10 * 60_000;
 const SWEEP_MS = 5 * 60_000;
 
-// A label photo or PDF from a phone, as a data URL: a few megabytes.
-export const FORWARD_BODY_LIMIT = "15mb";
+// Labels as data URLs: a few PDFs or (shrunk) phone photos per forward.
+export const FORWARD_BODY_LIMIT = "25mb";
+
+// What Claude takes in one go: a PDF up to 32 MB, a picture up to 5 MB.
+const READ_LIMITS = { "application/pdf": 20 * 1024 * 1024, "image/jpeg": 5 * 1024 * 1024, "image/png": 5 * 1024 * 1024 };
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -71,7 +76,8 @@ const usable = (account) => account.email && account.hash.startsWith("scrypt$") 
  *   supabaseUrl, serviceKey
  *   pageFile      private/partner.html
  *   services      { airtable, sellersTable, kickzBaseUrl, internalSecret, wmsBaseUrl,
- *                   rompslompToken, rompslompCompanyId, sendMail, mailFrom, replyTo }
+ *                   rompslompToken, rompslompCompanyId, sendMail, mailFrom, replyTo,
+ *                   anthropicApiKey, labelReader }
  *   fetchImpl     for the tests
  *   now           for the tests
  */
@@ -345,10 +351,41 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     } catch (err) {
       if (err instanceof ForwardError) {
         if (err.status >= 500) console.error(`[partner] forward for ${req.partner.sellerId} failed:`, err.reason || err.code);
-        return res.status(err.status).json({ error: err.code, short: err.short || [], fee: err.fee });
+        return res.status(err.status).json({ error: err.code, short: err.short || [], fee: err.fee, used: err.used });
       }
 
       console.error(`[partner] forward for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  /* ----- labels ----- */
+
+  // Reads the tracking number(s) off one label the partner just added, and
+  // says when one of them is on a forward already.
+  const labelReader = services.labelReader || createLabelReader({ apiKey: services.anthropicApiKey });
+
+  router.post("/api/partner/labels/read", express.json({ limit: FORWARD_BODY_LIMIT }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    const file = labelFromDataUrl(req.body?.data_url);
+    if (!file) return res.status(400).json({ error: "bad_label" });
+    if (file.buffer.length > READ_LIMITS[file.mime]) return res.status(400).json({ error: "label_too_big" });
+
+    try {
+      const labels = await labelReader.read(file).catch((err) => {
+        console.error(`[partner] label of ${req.partner.sellerId} not read:`, err.message);
+        return [];
+      });
+
+      for (const label of labels) {
+        if (label.valid) label.used = await usedTracking(db, [label.tracking]);
+      }
+
+      console.log(`[partner] ${req.partner.sellerId} label read: ${labels.map((l) => `${l.carrier} ${l.tracking}${l.valid ? "" : " (not valid)"}`).join(", ") || "nothing"}`);
+      res.json({ labels, reading: labelReader.configured });
+    } catch (err) {
+      console.error(`[partner] label read for ${req.partner.sellerId} failed:`, err.message);
       res.status(502).json({ error: "try_again" });
     }
   });

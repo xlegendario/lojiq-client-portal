@@ -17,7 +17,8 @@
 // A partner can make a forward, never change or cancel one.
 
 import { compareSizes } from "../admin/stockRefine.js";
-import { trackingList } from "../admin/adminForwarding.js";
+import { displayId } from "../admin/adminForwarding.js";
+import { labelFromDataUrl, typedTrackingOk } from "./labelReader.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -185,18 +186,48 @@ export async function loadForwardable(db, sellerRecordId) {
   }
 }
 
-// A label the partner attached: a PDF, JPEG or PNG as a data URL.
-export function labelFile(dataUrl) {
-  const match = /^data:([a-z/+-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(text(dataUrl));
-  if (!match) return null;
+// Most labels one forward takes: more boxes than this is a mistake.
+export const MAX_LABELS = 20;
 
-  const buffer = Buffer.from(match[2], "base64");
-  if (buffer.length < 100) return null;
-  if (buffer.subarray(0, 5).toString("latin1") === "%PDF-") return { mime: "application/pdf", ext: "pdf", buffer };
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mime: "image/jpeg", ext: "jpg", buffer };
-  if (buffer.subarray(0, 4).toString("hex") === "89504e47") return { mime: "image/png", ext: "png", buffer };
+/*
+ * The labels the partner added, checked: every forward has at least one,
+ * every label is a real PDF or picture, and every label has its tracking
+ * number(s) - read from it or typed. Returns the files and all numbers.
+ */
+export function checkLabels(input) {
+  const list = Array.isArray(input) ? input : [];
+  if (!list.length) throw new ForwardError("label_missing");
+  if (list.length > MAX_LABELS) throw new ForwardError("too_many_labels");
 
-  return null;
+  const seen = new Set();
+  const labels = list.map((item) => {
+    const file = labelFromDataUrl(item?.data_url);
+    if (!file) throw new ForwardError("bad_label");
+
+    const numbers = (Array.isArray(item?.tracking) ? item.tracking : [item?.tracking]).filter((n) => text(n));
+    if (!numbers.length) throw new ForwardError("label_no_tracking");
+
+    const tracking = numbers.map((n) => {
+      const ok = typedTrackingOk(n);
+      if (!ok) throw new ForwardError("bad_tracking");
+      if (seen.has(ok.tracking)) throw new ForwardError("label_twice");
+      seen.add(ok.tracking);
+      return ok.tracking;
+    });
+
+    return { file, tracking, name: text(item?.name) };
+  });
+
+  return { labels, tracking: [...seen] };
+}
+
+// A tracking number that is already on a forward: that label was used.
+export async function usedTracking(db, numbers) {
+  if (!numbers.length) return null;
+  const list = numbers.map((n) => `"${n}"`).join(",");
+  const [hit] = await db.get(`forwarding_log?select=forwarding_number,tracking_numbers&tracking_numbers=ov.{${list}}&limit=1`);
+  if (!hit) return null;
+  return { forward: displayId(hit), tracking: (hit.tracking_numbers || []).find((n) => numbers.includes(n)) };
 }
 
 /*
@@ -209,15 +240,11 @@ export function labelFile(dataUrl) {
  */
 export async function createPartnerForward({ db, callKc, callWms, buyers = null, invoicing = null }, partner, body, { defaultFee = 0 } = {}) {
   const lines = cleanLines(body?.lines);
-  const tracking = trackingList(body?.tracking);
 
-  if (tracking.some((number) => !/^[A-Za-z0-9-]{6,40}$/.test(number))) throw new ForwardError("bad_tracking");
-
-  let label = null;
-  if (text(body?.label)) {
-    label = labelFile(body.label);
-    if (!label) throw new ForwardError("bad_label");
-  }
+  // A forward always comes with its label(s), never "later on WhatsApp".
+  const { labels: files, tracking } = checkLabels(body?.labels);
+  const used = await usedTracking(db, tracking);
+  if (used) throw new ForwardError("label_used", 409, { used });
 
   const { ids, picked, short } = pickPairs(await loadForwardable(db, partner.sellerRecordId), lines);
   if (short.length) throw new ForwardError("pairs_gone", 409, { short });
@@ -240,18 +267,17 @@ export async function createPartnerForward({ db, callKc, callWms, buyers = null,
     hold = await buyers.duplicateCheck(partner.sellerRecordId, invoice.buyerId);
   }
 
-  // The label goes to storage first, so the forward is made with it in one go.
+  // The labels go to storage first, so the forward is made with them in one go.
   const labels = [];
-  if (label) {
-    const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+  for (const label of files) {
     const stored = await callWms("/api/upload-label-file", {
       folder: "forwarding",
-      file_name: `${partner.sellerId}-${stamp}${tracking[0] ? `-${tracking[0]}` : ""}.${label.ext}`,
-      file_data_url: `data:${label.mime};base64,${label.buffer.toString("base64")}`,
-      tracking: tracking[0] || ""
+      file_name: `${partner.sellerId}-${label.tracking[0]}.${label.file.ext}`,
+      file_data_url: `data:${label.file.mime};base64,${label.file.buffer.toString("base64")}`,
+      tracking: label.tracking[0]
     });
 
-    labels.push({ url: stored.url, filename: stored.filename, tracking: tracking[0] || null, uploaded_at: new Date().toISOString() });
+    labels.push({ url: stored.url, filename: stored.filename, tracking: label.tracking.join(", "), uploaded_at: new Date().toISOString() });
   }
 
   const data = await callKc("/api/internal/forwarding/create", {

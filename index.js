@@ -63,7 +63,7 @@ app.use(express.static(path.join(__dirname, "public")));
  * to do with it ever runs. That path brings its own parser, so it is left
  * alone here.
  */
-const OWN_PARSER = ["/api/admin/wtb-match/photo", "/api/partner/forwards"];
+const OWN_PARSER = ["/api/admin/wtb-match/photo", "/api/partner/forwards", "/api/partner/labels/read"];
 
 app.use((req, res, next) => (
   OWN_PARSER.includes(req.path) ? next() : express.json()(req, res, next)
@@ -193,7 +193,9 @@ const partnerPortal = createPartnerPortal({
     rompslompCompanyId: ROMPSLOMP_COMPANY_ID,
     sendMail: sendInvoiceMail,
     mailFrom: EXTERNAL_INVOICE_FROM,
-    replyTo: EXTERNAL_INVOICE_REPLY_TO
+    replyTo: EXTERNAL_INVOICE_REPLY_TO,
+    // Reads tracking numbers off the labels a partner adds.
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY
   }
 });
 
