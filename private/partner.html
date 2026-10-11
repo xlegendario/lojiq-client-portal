@@ -449,7 +449,7 @@
         left_of_hint: "Left / came in, per size.",
         no_stock: "No pairs here right now.",
         no_match: "Nothing found.",
-        tap_size: "Tap a size to see when it arrived.",
+        tap_size: "Tap a size to see its location and arrival.",
         retry: "Try again",
         wh_lojiq: "Lojiq",
         wh_h23: "H23",
@@ -528,7 +528,7 @@
         left_of_hint: "每个尺码：剩余 / 到货。",
         no_stock: "目前没有库存。",
         no_match: "没有找到。",
-        tap_size: "点一个尺码，查看到货日期。",
+        tap_size: "点一个尺码，查看位置和到货日期。",
         retry: "重试",
         wh_lojiq: "Lojiq",
         wh_h23: "H23",
@@ -773,7 +773,7 @@
               <div class="card-text">
                 <div class="card-title">${esc(p.name || p.sku)}</div>
                 <div class="card-sub">${esc(p.sku)}</div>
-                ${severalWarehouses() ? `<div class="card-sub where">${warehouseLine(p.warehouses)}</div>` : ""}
+                <div class="card-sub where">${warehouseLine(p.warehouses)}</div>
               </div>
               <div class="count"><b>${p.count}</b><span>${esc(t("pairs"))}</span></div>
               ${CHEV}
@@ -786,11 +786,9 @@
       const entry = product.sizes.find((s) => s.size === picked);
       if (!entry) return `<div class="detail"><div class="detail-row"><span class="muted">${esc(t("tap_size"))}</span></div></div>`;
 
-      // With more than one warehouse, first where the pairs of this size are.
-      const split = severalWarehouses()
-        ? entry.warehouses.map((w) => `
-          <div class="detail-row"><span>${esc(whName(w.warehouse))}</span><b>${w.count} ${esc(t(w.count === 1 ? "pair" : "pairs"))}</b></div>`)
-        : [];
+      // First where the pairs of this size are, then the days they came in.
+      const split = entry.warehouses.map((w) => `
+          <div class="detail-row"><span>${esc(whName(w.warehouse))}</span><b>${w.count} ${esc(t(w.count === 1 ? "pair" : "pairs"))}</b></div>`);
 
       const rows = entry.arrivals.map((a) => `
         <div class="detail-row">
@@ -802,7 +800,7 @@
       return `${split.length ? `<div class="detail">${split.join("")}</div>` : ""}<div class="detail">${rows.join("")}</div>`;
     }
 
-    const warehouseLine = (list) => (severalWarehouses() ? list.map((w) => `${esc(whName(w.warehouse))} ${w.count}`).join(" · ") : "");
+    const warehouseLine = (list) => list.map((w) => `${esc(whName(w.warehouse))} ${w.count}`).join(" · ");
 
     // One block per day, and in it one card per product that came that day.
     function arrivalCards(arrivals, query) {
@@ -815,7 +813,7 @@
       return shown.map((a) => `
         <div class="day">
           <div class="day-head">
-            <span>${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</span>
+            <span>${esc(niceDate(a.date))} · ${esc(whName(a.warehouse))}</span>
             <span>${a.left ? `${a.left} ${esc(t("left_of"))} ${a.received}` : esc(t("nothing_left"))}</span>
           </div>
           <div class="list">${a.products.map((p) => arrivalProductCard(a, p)).join("")}</div>
