@@ -204,6 +204,13 @@
     .prow .card-title { font-size: 14px; font-weight: 500; }
     .prow .count b { font-size: 16px; }
 
+    .day + .day { margin-top: 18px; }
+    .day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 2px 8px; font-size: 14px; color: var(--muted); }
+    .day-head span:first-child { color: var(--strong); font-weight: 600; font-size: 16px; }
+    .size.static { cursor: default; }
+    .size.empty { opacity: 0.45; }
+    .tiles-hint { margin: 8px 0 0; font-size: 13px; }
+
     .note { color: var(--muted); text-align: center; padding: 28px 12px; }
     .retry { margin-top: 12px; }
 
@@ -437,6 +444,7 @@
         on_hold: "On hold for a sale",
         nothing_left: "All gone",
         left_of: "left of",
+        left_of_hint: "Left / came in, per size.",
         no_stock: "No pairs here right now.",
         no_match: "Nothing found.",
         tap_size: "Tap a size to see when it arrived.",
@@ -515,6 +523,7 @@
         on_hold: "已预留待售",
         nothing_left: "已全部出库",
         left_of: "剩余 / 共",
+        left_of_hint: "每个尺码：剩余 / 到货。",
         no_stock: "目前没有库存。",
         no_match: "没有找到。",
         tap_size: "点一个尺码，查看到货日期。",
@@ -781,38 +790,48 @@
       return `<div class="detail">${rows.join("")}</div>`;
     }
 
+    // One block per day, and in it one card per product that came that day.
     function arrivalCards(arrivals, query) {
       const shown = arrivals
         .map((a) => ({ ...a, products: a.products.filter((p) => matches(p, query)) }))
-        .filter((a) => !query || a.products.length);
+        .filter((a) => a.products.length);
       if (!arrivals.length) return `<div class="note">${esc(t("no_stock"))}</div>`;
       if (!shown.length) return `<div class="note">${esc(t("no_match"))}</div>`;
 
-      return shown.map((a) => {
-        const key = `a:${a.date}|${a.warehouse}`;
-        const open = stock.open.has(key) || Boolean(query);
-        const done = a.left === 0;
-        const body = open ? `
-          <div class="card-body">${a.products.map((p) => `
-            <div class="prow">
-              ${thumb(p.image)}
-              <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
-              <div class="count"><b>${p.left}</b><span>${esc(t("left_of"))} ${p.received}</span></div>
-            </div>`).join("")}
-          </div>` : "";
+      return shown.map((a) => `
+        <div class="day">
+          <div class="day-head">
+            <span>${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</span>
+            <span>${a.left ? `${a.left} ${esc(t("left_of"))} ${a.received}` : esc(t("nothing_left"))}</span>
+          </div>
+          <div class="list">${a.products.map((p) => arrivalProductCard(a, p)).join("")}</div>
+        </div>`).join("");
+    }
 
-        return `
-          <div class="card${open ? " open" : ""}${done ? " done" : ""}">
-            <button class="card-head" type="button" data-open="${esc(key)}" aria-expanded="${open}">
-              <div class="card-text">
-                <div class="card-title">${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</div>
-                <div class="stats"><span>${a.received} ${esc(t("in"))}</span><span>${a.sold} ${esc(t("sold"))}</span><span>${a.forwarded} ${esc(t("forwarded"))}</span></div>
-              </div>
-              <div class="count">${done ? `<span class="done">${esc(t("nothing_left"))}</span>` : `<b>${a.left}</b><span>${esc(t("left"))}</span>`}</div>
-              ${CHEV}
-            </button>${body}
-          </div>`;
-      }).join("");
+    function arrivalProductCard(a, p) {
+      const key = `a:${a.date}|${a.warehouse}|${p.sku}`;
+      const open = stock.open.has(key);
+      const done = p.left === 0;
+      const body = open ? `
+        <div class="card-body">
+          <div class="sizes">${p.sizes.map((s) => `
+            <div class="size static${s.left ? "" : " empty"}"><b>${esc(s.size)}</b><span>${s.left} / ${s.received}</span></div>`).join("")}
+          </div>
+          <p class="hint tiles-hint">${esc(t("left_of_hint"))}</p>
+        </div>` : "";
+
+      return `
+        <div class="card${open ? " open" : ""}${done ? " done" : ""}">
+          <button class="card-head" type="button" data-open="${esc(key)}" aria-expanded="${open}">
+            ${thumb(p.image)}
+            <div class="card-text">
+              <div class="card-title">${esc(p.name || p.sku)}</div>
+              <div class="stats"><span>${p.received} ${esc(t("in"))}</span><span>${p.sold} ${esc(t("sold"))}</span><span>${p.forwarded} ${esc(t("forwarded"))}</span></div>
+            </div>
+            <div class="count">${done ? `<span class="done">${esc(t("nothing_left"))}</span>` : `<b>${p.left}</b><span>${esc(t("left"))}</span>`}</div>
+            ${CHEV}
+          </button>${body}
+        </div>`;
     }
 
     $("stockList").addEventListener("click", (event) => {

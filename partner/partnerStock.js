@@ -78,9 +78,27 @@ export function summarizeStock(rows) {
     if (status === "sold") arrival.sold += 1;
     if (status === "forwarded") arrival.forwarded += 1;
 
-    const arrivalProduct = bump(arrival.products, sku, () => ({ sku, name: text(row.product_name), image: text(row.image_url), received: 0, left: 0 }));
+    // Per SKU within that day: a day often brings more than one product, and
+    // the partner recognises a delivery by what was in it.
+    const arrivalProduct = bump(arrival.products, sku, () => ({
+      sku,
+      name: text(row.product_name),
+      image: text(row.image_url),
+      received: 0,
+      left: 0,
+      sold: 0,
+      forwarded: 0,
+      sizes: new Map()
+    }));
     arrivalProduct.received += 1;
     if (here) arrivalProduct.left += 1;
+    if (status === "sold") arrivalProduct.sold += 1;
+    if (status === "forwarded") arrivalProduct.forwarded += 1;
+    if (!arrivalProduct.image && row.image_url) arrivalProduct.image = text(row.image_url);
+
+    const arrivalSize = bump(arrivalProduct.sizes, size, () => ({ size, received: 0, left: 0 }));
+    arrivalSize.received += 1;
+    if (here) arrivalSize.left += 1;
 
     if (!here) continue;
 
@@ -128,7 +146,9 @@ export function summarizeStock(rows) {
     arrivals: [...arrivals.values()]
       .map((arrival) => ({
         ...arrival,
-        products: [...arrival.products.values()].sort((a, b) => b.left - a.left || b.received - a.received || a.name.localeCompare(b.name))
+        products: [...arrival.products.values()]
+          .map((product) => ({ ...product, sizes: [...product.sizes.values()].sort((a, b) => compareSizes(a.size, b.size)) }))
+          .sort((a, b) => b.left - a.left || b.received - a.received || a.name.localeCompare(b.name))
       }))
       .sort(newestFirst)
   };

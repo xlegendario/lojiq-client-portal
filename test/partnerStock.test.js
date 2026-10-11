@@ -51,7 +51,11 @@ test("by arrival: every pair that came in, newest day first, with what became of
     { received: arrivals[0].received, left: arrivals[0].left, sold: arrivals[0].sold, forwarded: arrivals[0].forwarded },
     { received: 4, left: 1, sold: 1, forwarded: 2 }
   );
-  assert.deepEqual(arrivals[0].products.map((p) => [p.sku, p.left, p.received]), [["A05FW702", 1, 3], ["U9060ECA", 0, 1]]);
+  assert.deepEqual(
+    arrivals[0].products.map((p) => [p.sku, p.received, p.left, p.sold, p.forwarded]),
+    [["A05FW702", 3, 1, 1, 1], ["U9060ECA", 1, 0, 0, 1]]
+  );
+  assert.deepEqual(arrivals[0].products[0].sizes, [{ size: "44", received: 3, left: 1 }]);
   assert.equal(arrivals[1].left, 0);
 });
 
