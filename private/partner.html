@@ -788,18 +788,25 @@
       const entry = product.sizes.find((s) => s.size === picked);
       if (!entry) return `<div class="detail"><div class="detail-row"><span class="muted">${esc(t("tap_size"))}</span></div></div>`;
 
-      // First where the pairs of this size are, then the days they came in.
-      const split = entry.warehouses.map((w) => `
-          <div class="detail-row"><span>${esc(whName(w.warehouse))}</span><b>${w.count} ${esc(t(w.count === 1 ? "pair" : "pairs"))}</b></div>`);
+      const pairs = (n) => `${n} ${esc(t(n === 1 ? "pair" : "pairs"))}`;
 
-      const rows = entry.arrivals.map((a) => `
-        <div class="detail-row">
-          <span>${esc(t("arrived"))} ${esc(niceDate(a.date))}${severalWarehouses() ? ` · ${esc(whName(a.warehouse))}` : ""}</span>
-          <b>${a.count} ${esc(t(a.count === 1 ? "pair" : "pairs"))}</b>
-        </div>`);
+      // One row per location and day, the biggest location first. With more
+      // than one location, a line above it adds them up per location.
+      const rank = new Map(entry.warehouses.map((w, i) => [w.warehouse, i]));
+      const rows = [...entry.arrivals]
+        .sort((x, y) => (rank.get(x.warehouse) ?? 99) - (rank.get(y.warehouse) ?? 99) || x.date.localeCompare(y.date))
+        .map((a) => `
+          <div class="detail-row">
+            <span>${esc(whName(a.warehouse))} · ${esc(t("arrived"))} ${esc(niceDate(a.date))}</span>
+            <b>${pairs(a.count)}</b>
+          </div>`);
       if (entry.onHold) rows.push(`<div class="detail-row"><span class="muted">${esc(t("on_hold"))}</span><span class="muted">${entry.onHold}</span></div>`);
 
-      return `${split.length ? `<div class="detail">${split.join("")}</div>` : ""}<div class="detail">${rows.join("")}</div>`;
+      const split = entry.warehouses.length > 1
+        ? `<div class="detail-row"><span class="muted">${entry.warehouses.map((w) => `${esc(whName(w.warehouse))} ${w.count}`).join(" · ")}</span></div>`
+        : "";
+
+      return `<div class="detail">${split}${rows.join("")}</div>`;
     }
 
     // Two locations fit on the card; with more, the biggest and how many more.
