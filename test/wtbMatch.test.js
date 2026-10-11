@@ -875,3 +875,80 @@ test("a pair we really do not have still comes back as a gap", async () => {
   assert.equal(out.rows[0].sources, 0);
   assert.deepEqual(out.unreadable, []);
 });
+
+/* ---------------- a code in a name is not an article ---------------- */
+
+const reading = (line) => parseRequest(line).wanted.map((row) => `${row.sku || `[${row.name}]`} ${row.size}`);
+
+test("a model code inside the name is part of the name", () => {
+  /*
+    Dario's second screenshot: every word that looked like an article was
+    taken for one, so one card came back as two requests - HS4-S in 43.5
+    and 1201A440-301 in 43.5 - and one of those is a shoe that does not
+    exist. The number a shop prints sits at the end, under the title.
+  */
+  assert.deepEqual(
+    reading("ASICS HS4-S Gel-Sonoma 15-50 Gore-Tex Aruba Blue Graphite 1201A440-301 43.5"),
+    ["1201A440-301 43.5"]
+  );
+
+  assert.deepEqual(
+    reading("New Balance 1906D Protection Pack White M1906DE 38.5"),
+    ["M1906DE 38.5"]
+  );
+
+  // Discord writes the article first, and a code further along the name
+  // must not take its place.
+  assert.deepEqual(
+    reading("HQ2037-002 - New Balance 1906D Protection Pack 42"),
+    ["HQ2037-002 42"]
+  );
+
+  // A dash between the article and the size belongs to neither.
+  assert.deepEqual(
+    reading("WTB - Nike Air Force 1 Low Un-Tiffany HQ2037-002 - 43"),
+    ["HQ2037-002 43"]
+  );
+
+  // Two numbers for one pair are written side by side, and both are real.
+  assert.deepEqual(reading("FQ7928-001 / HM8965-001 42"), ["FQ7928-001 42", "HM8965-001 42"]);
+});
+
+test("a name whose article was not readable keeps its own code", () => {
+  // The code is what the shoe is called; handing back "New Balance
+  // Protection Pack White" is a name he never wrote, and one the shelf
+  // cannot place either.
+  assert.deepEqual(
+    reading("New Balance 1906D Protection Pack White 38.5"),
+    ["[New Balance 1906D Protection Pack White] 38.5"]
+  );
+
+  // And a hyphen inside a word stays inside it.
+  assert.deepEqual(
+    reading("ASICS HS4-S Gel-Sonoma 15-50 Gore-Tex Aruba Blue Graphite 43.5"),
+    ["[ASICS HS4-S Gel-Sonoma 15-50 Gore-Tex Aruba Blue Graphite] 43.5"]
+  );
+});
+
+test("two sizes next to each other are a range; two far apart are a name", () => {
+  // A clog is sold as 36-37, and that is one request.
+  assert.deepEqual(reading("Crocs Classic Clog Hello Kitty and Friends Pastel 36-37"), [
+    "[Crocs Classic Clog Hello Kitty and Friends Pastel] 36-37"
+  ]);
+
+  // "Gel-Sonoma 15-50" is what the shoe is called. Reading it as a range
+  // put a size on the screen that nobody asked for.
+  assert.deepEqual(reading("ASICS Gel-Sonoma 15-50 43.5"), ["[ASICS Gel-Sonoma 15-50] 43.5"]);
+});
+
+test("the same shoe in two makes is two articles, not one asked for twice", () => {
+  // Dario took these for a duplicate. They are the men's and the women's,
+  // and the card prints a different number under each.
+  assert.deepEqual(
+    reading([
+      "Saucony ProGrid Omni 9 Silver Pink S70739-16 40",
+      "Saucony ProGrid Omni 9 Silver Pink (Women's) S60739-16 40"
+    ].join("\n")),
+    ["S70739-16 40", "S60739-16 40"]
+  );
+});

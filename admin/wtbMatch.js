@@ -142,7 +142,25 @@ export function theArticleCalled(name, index) {
  * A size as a word, and nothing else.
  */
 const CLOTHING = /^(XXS|XS|S|M|L|XL|XXL|XXXL)$/i;
-const RANGE = /^\d{1,2}-\d{1,2}$/;
+const RANGE = /^(\d{1,2})-(\d{1,2})$/;
+
+/*
+ * A pair of sizes, as a clog or a slide is sold: 38-39, 36-37.
+ *
+ * Both ends have to be sizes and they have to be next to each other.
+ * "Gel-Sonoma 15-50" is what the shoe is called, and reading it as a range
+ * from 15 to 50 put a size on the screen that nobody asked for.
+ */
+function isRange(value) {
+  const found = RANGE.exec(value);
+
+  if (!found) return false;
+
+  const low = Number(found[1]);
+  const high = Number(found[2]);
+
+  return inSizes(low) && inSizes(high) && high - low > 0 && high - low <= 2;
+}
 const NUMBER = /^(\d{1,2})(?:[.,]\d+)?(?: \d\/\d)?$/;
 
 /*
@@ -153,18 +171,18 @@ const NUMBER = /^(\d{1,2})(?:[.,]\d+)?(?: \d\/\d)?$/;
  * three sources sits between 35 and 49, so 15 to 60 is wide enough for a
  * child's size and narrow enough to ignore the name of the shoe.
  */
+const inSizes = (number) => number >= 15 && number <= 60;
+
 function isSize(word) {
   const value = text(word);
 
-  if (CLOTHING.test(value) || RANGE.test(value)) return true;
+  if (CLOTHING.test(value) || isRange(value)) return true;
 
   const number = NUMBER.exec(value);
 
   if (!number) return false;
 
-  const whole = Number(number[1]);
-
-  return whole >= 15 && whole <= 60;
+  return inSizes(Number(number[1]));
 }
 
 const SKU_TOKEN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
@@ -174,6 +192,15 @@ function looksLikeSku(token) {
 
   if (word.length < 5 || !/\d/.test(word)) return false;
   if (!SKU_TOKEN.test(word) || isSize(word)) return false;
+
+  /*
+    Two short numbers either side of a dash. Where they are next to each
+    other it is a clog's pair of sizes and isSize has already said so;
+    where they are not it is part of a name - the 15-50 in "Gel-Sonoma
+    15-50" - and either way it is far too short to be an article. The
+    shortest article anywhere in the stock is six characters.
+  */
+  if (RANGE.test(word)) return false;
   if (/[A-Za-z]/.test(word) || word.includes("-")) return true;
 
   /*
@@ -199,6 +226,99 @@ const skusIn = (token) => text(token).split("/").map(text).filter(looksLikeSku);
 // and "(Women's)", "(W)" and "(2025)" are not. The brackets come off and what
 // is left is judged on its own.
 const bare = (token) => text(token).replace(/^[([{]+|[)\]}]+$/g, "");
+
+// What holds two numbers for one pair together: "FQ7928-001 / HM8965-001",
+// or with a dash or an "or" between them.
+const JOINER = /^(?:[-–—/+&]+|or)$/i;
+
+// The other half of "38 2/3", which is part of a size without looking like
+// one on its own.
+const FRACTION = /^\d\/\d$/;
+
+/*
+ * The article numbers on a line, and where they sit.
+ *
+ * An article number stands at one end of what he wrote - at the front, the
+ * way Discord writes it, or at the back of the name, the way a shop's card
+ * prints it under the title. A code in the middle of a name is part of what
+ * the shoe is called: the HS4-S in "ASICS HS4-S Gel-Sonoma", the 1906D in
+ * "New Balance 1906D Protection Pack White".
+ *
+ * FIXED - every word that looked like an article was taken for one, so a
+ * single card came back as two requests: HS4-S in 43.5 and 1201A440-301 in
+ * 43.5, one of them a shoe that does not exist. The same line could also
+ * lose its real article to a model code further along.
+ *
+ * A pair really sold under two numbers writes them side by side, so a run
+ * of articles with nothing but a joiner between them counts as one.
+ */
+export function articlesIn(words = []) {
+  const hits = [];
+
+  words.forEach((word, at) => {
+    const found = skusIn(bare(word));
+
+    if (found.length) hits.push({ at, found });
+  });
+
+  const nothing = { skus: [], from: -1, last: -1 };
+
+  if (!hits.length) return nothing;
+
+  /*
+    Where the sizes begin, which is where the name ends. The dash in
+    "HQ2037-002 - 43" belongs to neither, and leaving it standing here put
+    the article one word short of the end and lost it to the name.
+  */
+  let end = words.length - 1;
+
+  while (end >= 0) {
+    const word = bare(words[end]);
+
+    if (!isSize(word) && !FRACTION.test(word) && !/^eu$/i.test(word) && !JOINER.test(word)) break;
+
+    end -= 1;
+  }
+
+  const joined = (left, right) => words
+    .slice(left + 1, right)
+    .every((word) => JOINER.test(bare(word)));
+
+  const runFrom = (start, step) => {
+    let i = start;
+
+    for (;;) {
+      const next = i + step;
+
+      if (next < 0 || next >= hits.length) break;
+      if (!joined(Math.min(hits[i].at, hits[next].at), Math.max(hits[i].at, hits[next].at))) break;
+
+      i = next;
+    }
+
+    return i;
+  };
+
+  const kept = [];
+
+  // Anchored at the front of the line.
+  if (hits[0].at === 0) kept.push(...hits.slice(0, runFrom(0, 1) + 1));
+
+  // Anchored at the end of the name, right in front of the sizes.
+  if (hits[hits.length - 1].at === end) {
+    for (const hit of hits.slice(runFrom(hits.length - 1, -1))) {
+      if (!kept.includes(hit)) kept.push(hit);
+    }
+  }
+
+  if (!kept.length) return nothing;
+
+  return {
+    skus: kept.flatMap((hit) => hit.found),
+    from: kept[0].at,
+    last: kept[kept.length - 1].at
+  };
+}
 
 /*
  * What a want-to-buy is asking for.
@@ -242,17 +362,7 @@ export function parseRequest(input) {
 
     // Where the last article sits, so the sizes behind it can be told from
     // the numbers in front of it.
-    let last = -1;
-    const skus = [];
-
-    words.forEach((word, at) => {
-      const found = skusIn(word);
-
-      if (!found.length) return;
-
-      skus.push(...found);
-      last = at;
-    });
+    const { skus, last } = articlesIn(words);
 
     // "37 1/3" arrives as two words and is one size.
     const tail = skus.length ? words.slice(last + 1) : words;
@@ -587,11 +697,7 @@ export function productFromLine(line) {
     "Air Jordan 4 Black Cat (2025) /IB4171 010 41, 44", with half of both
     still in the name, and that is what went to the buyer.
   */
-  let last = -1;
-
-  words.forEach((word, at) => {
-    if (skusIn(bare(word)).length) last = at;
-  });
+  const { from, last } = articlesIn(words);
 
   const kept = [];
 
@@ -607,11 +713,10 @@ export function productFromLine(line) {
   */
   const tail = last === -1 ? words : words.slice(last + 1);
 
-  // An article in front of the last one is still an article: a pair sold
-  // under two numbers writes both, and neither belongs in the name.
-  for (const word of words.slice(0, last === -1 ? 0 : last)) {
-    if (!skusIn(bare(word)).length) kept.push(word);
-  }
+  // Everything in front of the article is the name, codes of its own and
+  // all: "ASICS HS4-S Gel-Sonoma" is called that, and handing back "ASICS
+  // Gel-Sonoma" is not his wording any more.
+  for (const word of words.slice(0, from === -1 ? 0 : from)) kept.push(word);
 
   // Behind the article, whatever is not a size is still how he wrote it.
   // "EU" is ours to drop.
@@ -623,15 +728,27 @@ export function productFromLine(line) {
       continue;
     }
 
-    if (isSize(word) || /^eu$/i.test(word) || skusIn(word).length) continue;
+    /*
+      An article is never back here - the run that counts ends where the
+      sizes begin - and throwing away anything that merely looks like one
+      cost the name its model code: "New Balance 1906D Protection Pack
+      White" came back as "New Balance Protection Pack White".
+    */
+    if (isSize(word) || /^eu$/i.test(word)) continue;
 
     kept.push(tail[i]);
   }
 
+  /*
+    A dash standing on its own is what holds his line together and goes;
+    one inside a word is part of the word. Taking every dash out turned
+    "ASICS HS4-S Gel-Sonoma" into "ASICS HS4 S Gel Sonoma" and handed him
+    back a name he never wrote.
+  */
   const left = kept
     .filter((word) => !/^wtb$/i.test(word) && !/^[-–—/]+$/.test(word))
     .join(" ")
-    .replace(/\s*[-–—]\s*/g, " ")
+    .replace(/\s+[-–—]+\s*|\s*[-–—]+\s+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
