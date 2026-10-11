@@ -309,6 +309,12 @@
     .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
     .pill.bad { background: var(--red-bg); color: var(--red); }
     .fee-line { display: inline-flex; align-items: center; gap: 8px; }
+    .money-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px; margin-bottom: 18px; }
+    .money-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 10px 0; }
+    .money-row + .money-row { border-top: 1px solid var(--border); }
+    .money-row span { flex: 1; min-width: 150px; }
+    .money-row b { font-size: 20px; }
+    .money-row small { color: var(--muted); }
     .tracking-list summary { list-style: none; cursor: pointer; }
     .tracking-list summary::-webkit-details-marker { display: none; }
     .tracking-all { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 0 0 10px; }
@@ -547,6 +553,12 @@
         no_sent: "You have no forwards yet.",
         sec_open: "Pending",
         sec_done: "Done",
+        sec_fee: "Fee to pay",
+        fee_to_pay_total: "Forwarding fee to pay",
+        all_fees_paid: "All forwarding fees paid",
+        we_pay_you: "We still pay you",
+        forward_one: "forward",
+        forward_many: "forwards",
         st_waiting: "Waiting for label",
         st_ready: "We pack it",
         st_shipped: "Sent",
@@ -686,6 +698,12 @@
         no_sent: "您还没有发过货。",
         sec_open: "待处理",
         sec_done: "已完成",
+        sec_fee: "待付服务费",
+        fee_to_pay_total: "待付转运服务费",
+        all_fees_paid: "所有转运服务费已付",
+        we_pay_you: "我们待付给您",
+        forward_one: "笔",
+        forward_many: "笔",
         st_waiting: "等待面单",
         st_ready: "正在打包",
         st_shipped: "已发出",
@@ -1786,11 +1804,33 @@
         return;
       }
 
-      const open = sent.data.filter((f) => f.status === "awaiting_label" || f.status === "ready_to_ship");
-      const rest = sent.data.filter((f) => !open.includes(f));
+      /*
+        Each forward in one place: not shipped yet, shipped with its fee
+        still open, or done. The money at the top counts every open fee,
+        the same total the admin's Forwarding Payments shows for him.
+      */
+      const live = sent.data.filter((f) => f.status !== "cancelled");
+      const pending = sent.data.filter((f) => f.status === "awaiting_label" || f.status === "ready_to_ship");
+      const feeToPay = sent.data.filter((f) => f.status === "shipped" && !f.fee_paid);
+      const done = sent.data.filter((f) => !pending.includes(f) && !feeToPay.includes(f));
+
+      const owed = live.filter((f) => !f.fee_paid);
+      const owedTotal = owed.reduce((sum, f) => sum + Number(f.fee || 0), 0);
+      const ours = live.filter((f) => f.invoice?.stage === "to_pay");
+      const oursTotal = ours.reduce((sum, f) => sum + Number(f.invoice.you_receive || 0), 0);
+      const count = (n) => `${n} ${esc(t(n === 1 ? "forward_one" : "forward_many"))}`;
+
+      const summary = `
+        <div class="money-box">
+          ${owed.length
+            ? `<div class="money-row"><span>${esc(t("fee_to_pay_total"))}</span><b class="bad-text">${esc(money(owedTotal))}</b><small>${count(owed.length)}</small></div>`
+            : `<div class="money-row"><span class="ok-text">${esc(t("all_fees_paid"))} ✓</span></div>`}
+          ${ours.length ? `<div class="money-row"><span>${esc(t("we_pay_you"))}</span><b class="ok-text">${esc(money(oursTotal))}</b><small>${count(ours.length)}</small></div>` : ""}
+        </div>`;
+
       const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
 
-      $("sentList").innerHTML = section(t("sec_open"), open) + section(t("sec_done"), rest);
+      $("sentList").innerHTML = summary + section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done);
     }
 
     const trackLink = (n) => `<a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a>`;
