@@ -30,6 +30,9 @@
     }
 
     * { box-sizing: border-box; }
+    /* Tapping a size fast must add pairs, not zoom in (iPhone double-tap).
+       Pinch to zoom still works. */
+    html, body, button, a, input, select, label { touch-action: manipulation; }
     html, body { margin: 0; background: var(--bg); color: var(--text); }
     body {
       font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
