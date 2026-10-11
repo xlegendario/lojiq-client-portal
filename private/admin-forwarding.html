@@ -218,6 +218,7 @@
     .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
     .sidebar-foot strong { color: var(--text); }
     .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+    .act.danger { border-color: var(--red); color: var(--bad-text); }
     .hold-box { border: 1px solid var(--warning); border-radius: 10px; padding: 12px; margin: 0 0 14px; background: var(--wait-bg); }
     .hold-box p { margin: 4px 0 8px; }
     .hold-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -768,6 +769,10 @@
 
       $("panelActions").innerHTML = [
         `<button class="act" type="button" data-panel-edit>Labels &amp; costs</button>`,
+        // Only what has not left yet: shipped pairs are gone.
+        row.shipping_status === "awaiting_label" || row.shipping_status === "ready_to_ship"
+          ? `<button class="act danger" type="button" data-panel-cancel>Cancel forward</button>`
+          : "",
         state.mode === "payments" && row.shipping_status !== "cancelled"
           ? row.payment_status === "paid"
             ? `<button class="act" type="button" data-panel-paid="false">Mark unpaid</button>`
@@ -907,9 +912,49 @@
         return;
       }
 
+      if (event.target.closest("[data-panel-cancel]")) {
+        await cancelForward(state.selected);
+        return;
+      }
+
       const paidButton = event.target.closest("[data-panel-paid]");
       if (paidButton) await setPaid([state.selected], paidButton.dataset.panelPaid === "true");
     });
+
+    /*
+      Cancel a forward that has not been shipped: its pairs go back on the
+      partner's shelf (and on sale again where they were listed). A forward
+      with an invoice keeps its invoice - that is credited by hand in
+      Rompslomp first, so the question says so.
+    */
+    async function cancelForward(id) {
+      const row = state.forwards.find((forward) => forward.id === id);
+      if (!row) return;
+
+      const invoiced = row.invoice && row.invoice.invoice_number;
+      const question = invoiced
+        ? `${row.display_id} has invoice ${row.invoice.invoice_number}. Cancelling does NOT credit it: credit the invoice, the stock correction and the purchase in Rompslomp yourself.
+
+Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf?`
+        : `Cancel ${row.display_id}? Its ${row.pair_count} pair(s) go back on the partner's shelf and can be sold or forwarded again.`;
+
+      if (!confirm(question)) return;
+
+      try {
+        const data = await api("/api/admin/forwarding/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, shipping_status: "cancelled" })
+        });
+
+        replaceForward(data.forward);
+        toast(`${data.forward.display_id} cancelled. ${data.released ?? 0} pair(s) back on the shelf.`);
+        load();
+        loadCounts();
+      } catch (err) {
+        toast(err.message);
+      }
+    }
 
     /* ---------------- loading ---------------- */
 
