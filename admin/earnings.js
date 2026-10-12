@@ -70,6 +70,9 @@ export function unitChannel(unit = {}) {
   const linked = (name) => Boolean((unit[name] || []).length);
   const ticket = text(unit["Ticket Number"]);
 
+  // A cancelled order is not a sale, whatever else is written on the pair.
+  if (text(first(unit["Fulfillment Status (UOL)"])) === "Cancelled") return "";
+
   if (linked("External Sales Log")
     || text(unit["External Deal ID"]).startsWith("EXTD-")
     || ticket.startsWith("EXTD-")) return "External sales";
@@ -129,6 +132,9 @@ export function unitEarning(unit = {}, { wtb = null, order = "" } = {}) {
     order: wtbId || text(order) || text(first(unit["Order ID (UOL)"])),
     shop_order: text(first(unit["Shopify Order Number"])),
     item: text(unit["Item ID"]),
+    // What the order is doing, so a pair that has not gone out yet can be
+    // told from one that has without leaving the screen.
+    status: text(first(unit["Fulfillment Status (UOL)"])),
     sku: text(unit.SKU),
     size: text(unit.Size),
     product: text(unit["Product Name"]),
@@ -175,6 +181,7 @@ export function externalEarning(sale = {}, pairs = []) {
 
   return {
     channel: "External sales",
+    status: text(sale.stage) === "negotiating" ? "Draft" : text(sale.shipping_status) || text(sale.payment_status),
     date: day(sale.sale_date) || day(sale.created_at),
     reference: sale.deal_number ? `EXTD-${String(sale.deal_number).padStart(6, "0")}` : text(sale.id),
     order: sale.deal_number ? `EXTD-${String(sale.deal_number).padStart(6, "0")}` : "",

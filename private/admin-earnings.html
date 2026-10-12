@@ -372,6 +372,7 @@
                 <th>Date</th>
                 <th>Channel</th>
                 <th>Order</th>
+                <th>Status</th>
                 <th>SKU</th>
                 <th>Size</th>
                 <th>Product</th>
@@ -510,6 +511,7 @@
           <td>${esc(row.date)}</td>
           <td><span class="pill">${esc(row.channel)}</span></td>
           <td>${esc(row.reference)}</td>
+          <td>${esc(row.status)}</td>
           <td>${esc(row.sku)}</td>
           <td>${esc(row.size)}</td>
           <td>${esc(row.product)}${row.pairs > 1 ? ` <span class="hint">${esc(pairs(row.pairs))}</span>` : ""}</td>

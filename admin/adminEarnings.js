@@ -103,16 +103,15 @@ return when.toISOString().slice(0, 10);
 /*
  * Which units to ask Airtable for.
  *
- * Not "Availability Status is Sold", which was the first answer and the
- * wrong one. That flag is about stock, and it lags: of the orders fulfilled
- * in October, 39 pairs were still marked Reserved, and over a year 581 of
- * them - 9.372 euro of profit the screen never saw while the order said
- * Fulfilled and the parcel said Delivered.
+ * Not "Availability Status is Sold". That flag is about stock and it lags:
+ * 690 pairs were still marked Reserved while the order said Fulfilled and
+ * the parcel said Delivered.
  *
- * What a sale is, is the order being fulfilled. So the gate is the order's
- * own status, which the unit carries as a lookup: Fulfilled, or Store
- * Fulfilled. Cancelled, Allocated and Ready to Ship are left out, and
- * rightly - those have not gone anywhere yet, or have come back.
+ * A store order counts once a pair is bought against it - which is what
+ * having an Inventory Unit with a purchase price on it means. The deal is
+ * made at that point, so Allocated, Ready to Ship and Awaiting Label all
+ * count; only Cancelled does not. Store Fulfilled is left in so it can be
+ * seen on the screen, because it is the one that should not be ours.
  *
  * Member WTB pairs come along whatever the period, because the unit holds
  * no date for them at all; the date is on the WTB and the period is cut
@@ -131,10 +130,12 @@ export function soldFormula({ from = "", to = "" } = {}) {
     return edges.length ? `, ${edges.join(", ")}` : "";
   };
 
-  const fulfilled = 'OR({Fulfillment Status (UOL)} = "Fulfilled", {Fulfillment Status (UOL)} = "Store Fulfilled")';
+  // Everything but a cancelled order. The deal is made when the pair is
+  // bought against it, not when the parcel goes.
+  const live = '{Fulfillment Status (UOL)} != "Cancelled"';
 
   return `OR(`
-    + `AND(${fulfilled}, {Date Fulfilled} != BLANK()${window("Date Fulfilled")}), `
+    + `AND({Unfulfilled Orders Log} != "", ${live}, {Date Fulfilled} != BLANK()${window("Date Fulfilled")}), `
     + `AND({Affiliates Sales Log} != "", {Date Sold (External)} != BLANK()${window("Date Sold (External)")}), `
     + `{Member WTB ID} != ""`
     + `)`;
