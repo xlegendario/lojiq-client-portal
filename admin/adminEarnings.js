@@ -42,7 +42,8 @@ const UNIT_FIELDS = [
   "Member WTB ID", "Shopify Order Number", "Store Name", "UOL Order Source",
   "Unfulfilled Orders Log", "Member WTBs", "External Sales Log",
   // What tells the three apart where the links are silent.
-  "Ticket Number", "External Deal ID", "Affiliates Sales Log", "Date Sold (External)"
+  "Ticket Number", "External Deal ID", "Affiliates Sales Log", "Date Sold (External)",
+  "Fulfillment Status (UOL)"
 ];
 
 export const ORDERS = "Unfulfilled Orders Log";
@@ -100,25 +101,43 @@ return when.toISOString().slice(0, 10);
 };
 
 /*
- * Which sold units to ask Airtable for.
+ * Which units to ask Airtable for.
  *
- * All 4.393 of them is forty-four pages and ten seconds, which is no way
- * to open a screen. A month is a fraction of that - but the undated ones
- * have to come along whatever the period, because a Member WTB has no
- * Sales Date at all and would otherwise never be in any month. There are
- * 470 of those and they are cheap; the saving is on the rest.
+ * Not "Availability Status is Sold", which was the first answer and the
+ * wrong one. That flag is about stock, and it lags: of the orders fulfilled
+ * in October, 39 pairs were still marked Reserved, and over a year 581 of
+ * them - 9.372 euro of profit the screen never saw while the order said
+ * Fulfilled and the parcel said Delivered.
+ *
+ * What a sale is, is the order being fulfilled. So the gate is the order's
+ * own status, which the unit carries as a lookup: Fulfilled, or Store
+ * Fulfilled. Cancelled, Allocated and Ready to Ship are left out, and
+ * rightly - those have not gone anywhere yet, or have come back.
+ *
+ * Member WTB pairs come along whatever the period, because the unit holds
+ * no date for them at all; the date is on the WTB and the period is cut
+ * afterwards. There are 28 of them, so they are free.
+ *
+ * All 4.397 sold units is forty-four pages and ten seconds, which is no
+ * way to open a screen. This asks for a period and gets one.
  */
 export function soldFormula({ from = "", to = "" } = {}) {
-const window = [];
+  const window = (field) => {
+    const edges = [];
 
-if (from && shift(from, -1)) window.push(`IS_AFTER({Sales Date}, "${shift(from, -1)}")`);
-if (to && shift(to, 1)) window.push(`IS_BEFORE({Sales Date}, "${shift(to, 1)}")`);
+    if (from && shift(from, -1)) edges.push(`IS_AFTER({${field}}, "${shift(from, -1)}")`);
+    if (to && shift(to, 1)) edges.push(`IS_BEFORE({${field}}, "${shift(to, 1)}")`);
 
-const sold = '{Availability Status} = "Sold"';
+    return edges.length ? `, ${edges.join(", ")}` : "";
+  };
 
-return window.length
-  ? `AND(${sold}, OR({Sales Date} = BLANK(), ${window.length > 1 ? `AND(${window.join(", ")})` : window[0]}))`
-  : sold;
+  const fulfilled = 'OR({Fulfillment Status (UOL)} = "Fulfilled", {Fulfillment Status (UOL)} = "Store Fulfilled")';
+
+  return `OR(`
+    + `AND(${fulfilled}, {Date Fulfilled} != BLANK()${window("Date Fulfilled")}), `
+    + `AND({Affiliates Sales Log} != "", {Date Sold (External)} != BLANK()${window("Date Sold (External)")}), `
+    + `{Member WTB ID} != ""`
+    + `)`;
 }
 
 /*
