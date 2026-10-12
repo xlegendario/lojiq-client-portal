@@ -1522,7 +1522,7 @@
       if (kind === "payments") {
         if (state.stores.length && (state.storeMode === "exclude" ? state.stores.includes(row.store) : !state.stores.includes(row.store))) return false;
         if (state.kind !== "all" && row.source !== state.kind) return false;
-        return !needle || [row.store, row.label, row.number, row.product, row.sku].join(" ").toLowerCase().includes(needle);
+        return !needle || [row.store, row.label, row.number, row.invoice, row.product, row.sku].join(" ").toLowerCase().includes(needle);
       }
 
       const shippingOk = state.shipping === "shipped" ? row.shipping === "Shipped"
@@ -1597,7 +1597,7 @@
       ? `<tr><th class="check"></th><th class="image">Picture</th><th class="id">Item ID</th><th>Type</th><th>Product</th><th>Size</th>
          <th>Order / WTB ID</th><th>Shopify</th><th class="money">Payout</th><th class="money">Shipping Deduction</th><th class="status">Verification Status</th>
          <th class="status">Shipping Status</th><th>Track</th><th class="date">Purchase Date</th></tr>`
-      : `<tr><th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify</th>
+      : `<tr><th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify</th><th>Rompslomp Invoice</th>
          <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th><th class="status">Shipping Status</th><th>Track</th>
          <th class="date">Date</th><th class="actions">Actions</th></tr>`;
 
@@ -1668,7 +1668,7 @@
         </div></td></tr>`;
       } else {
         const age = daysSince(group.oldest);
-        head = `<tr class="group-row"><td colspan="14"><div class="group-head">
+        head = `<tr class="group-row"><td colspan="15"><div class="group-head">
           ${groupBox}
           <strong>${esc(group.store)}</strong>
           <span class="meta">${group.rows.length} open</span>
@@ -1708,6 +1708,7 @@
           <td class="id">${render("id", { value: row.label })}</td>
           <td><span class="kind">${row.source === "store" ? "Order" : "WTB"}</span></td>
           <td>${render("text", { value: row.number })}</td>
+          <td>${row.invoice ? `<span class="copy-cell">${render("text", { value: row.invoice })}${copyButton(row.invoice, "Invoice number")}</span>` : '<span class="dash">—</span>'}</td>
           <td>${render("text", { value: row.product })}</td>
           <td>${render("text", { value: row.size })}</td>
           <td class="money">${render("money", { value: row.amount })}</td>

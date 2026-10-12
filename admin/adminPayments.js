@@ -31,7 +31,7 @@ export const PAYMENT_TABLES = {
     numberField: "Shopify Order Number",
     dateField: "Order Date",
     fields: ["Order ID", "Store Name", "Client", "Shopify Order Number", "Shopify Product Name", "SKU", "Size", "Picture",
-      "Invoice Price (VAT Included)", "Invoice Status", "Payment Link", "Payment Batches", "Order Date", "Fulfillment Status",
+      "Invoice Price (VAT Included)", "Invoice Status", "Rompslomp Invoice Number", "Payment Link", "Payment Batches", "Order Date", "Fulfillment Status",
       "Shipping Status", "Tracking URL"]
   },
   mwtb: {
@@ -134,6 +134,8 @@ function rowFor(source, record, merchants) {
     merchant_id: merchantId,
     label: text(f[spec.idField]),
     number: source === "store" ? text(f["Shopify Order Number"]) : "",
+    // Only store orders are invoiced through Rompslomp; a Member WTB has none.
+    invoice: source === "store" ? text(f["Rompslomp Invoice Number"]) : "",
     product: text(f["Shopify Product Name"] || f["Product Name"]),
     sku: text(first(f.SKU)),
     size: text(f.Size),
@@ -166,7 +168,7 @@ export async function loadOpenPayments(airtable, { stores = [], storeMode = "inc
 
   const rows = lists.flat().filter((row) => {
     if (wanted.size && (storeMode === "exclude" ? wanted.has(row.store) : !wanted.has(row.store))) return false;
-    if (needle && ![row.store, row.label, row.number, row.product, row.sku].join(" ").toLowerCase().includes(needle)) return false;
+    if (needle && ![row.store, row.label, row.number, row.invoice, row.product, row.sku].join(" ").toLowerCase().includes(needle)) return false;
     return true;
   });
 
