@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  unitEarning, externalEarning, inPeriod, totals, byMonth, earningsCsv, day, CHANNELS
+  unitEarning, unitChannel, unitWtbId, externalEarning, inPeriod, totals, byMonth,
+  earningsCsv, day, CHANNELS
 } from "../admin/earnings.js";
 
 /* ---------------- a pair sold through Airtable ---------------- */
@@ -21,7 +22,9 @@ const SHOP = {
   "Item ID": "PCS-006200",
   SKU: "DM7866-202",
   Size: "42",
-  "Shopify Order Number": ["16527"]
+  "Shopify Order Number": ["16527"],
+  "Date Fulfilled": ["2026-08-10"],
+  "Unfulfilled Orders Log": ["recUOL"]
 };
 
 test("a lookup holding one thing is still one thing", () => {
@@ -58,22 +61,66 @@ test("a sold pair is the figures Airtable already works out", () => {
   assert.equal(row.commission, 0);
 });
 
-test("a Member WTB takes its date from the day it was paid for", () => {
+test("a Member WTB is dated on the day the deal was made", () => {
   /*
     The unit's own Sales Date is the fulfilment date of a store order or
-    the day an external sale was sold. For a Member WTB neither happened
-    and the field is empty on every single one of them - which is how the
-    whole channel stayed out of every month until someone counted.
+    the day an old external sale went out. For a Member WTB neither
+    happened and the field is empty on every single one of them - which is
+    how the whole channel stayed out of every month until someone counted.
   */
-  const unit = { ...SHOP, "Sales Date": [], "Member WTB ID": ["MWTB-000415"] };
+  const unit = { ...SHOP, "Sales Date": [], "Date Fulfilled": [], "Unfulfilled Orders Log": [], "Member WTB ID": ["MWTB-000415"] };
 
-  assert.equal(unitEarning(unit).date, "", "nothing to go on, and it says so");
+  assert.equal(unitEarning(unit).date, "", "no confirmed WTB behind it, and it says so");
 
-  const row = unitEarning(unit, { paidAt: "2026-09-03T08:21:00.000Z" });
+  const row = unitEarning(unit, { wtb: { id: "MWTB-000415", created: "2026-09-01T08:21:00.000Z" } });
 
   assert.equal(row.channel, "Member WTBs");
-  assert.equal(row.date, "2026-09-03");
+  assert.equal(row.date, "2026-09-01", "the day it was confirmed, not the day it was paid");
   assert.equal(row.reference, "MWTB-000415");
+});
+
+test("the links say which channel, and the ticket number says it where they are silent", () => {
+  /*
+    Reading the links alone put 4.141 of 4.397 sold pairs under store
+    orders. A pair sold since the external sales moved to Supabase has no
+    Airtable row to link to - only "EXTD-000113" written on it - and was
+    then counted a second time inside its own deal.
+  */
+  assert.equal(unitChannel(SHOP), "Store orders");
+  assert.equal(unitChannel({ "Unfulfilled Orders Log": ["recUOL"] }), "Store orders");
+
+  assert.equal(unitChannel({ "External Deal ID": "EXTD-000113" }), "External sales");
+  assert.equal(unitChannel({ "Ticket Number": "EXTD-000109" }), "External sales");
+  assert.equal(unitChannel({ "External Sales Log": ["recX"] }), "External sales");
+
+  // The affiliate log is the external sales of before the current one.
+  assert.equal(unitChannel({ "Affiliates Sales Log": ["recA"] }), "External sales");
+
+  assert.equal(unitChannel({ "Ticket Number": "MWTB-000311" }), "Member WTBs");
+  assert.equal(unitChannel({ "Member WTB ID": ["MWTB-000415"] }), "Member WTBs");
+
+  // A marketplace ticket and nothing else is not placed. Calling it a
+  // store order would be a guess dressed as a fact.
+  assert.equal(unitChannel({ "Ticket Number": "6389154062202108312" }), "");
+  assert.equal(unitChannel({}), "");
+
+  assert.equal(unitWtbId({ "Ticket Number": "MWTB-000311" }), "MWTB-000311");
+  assert.equal(unitWtbId({ "Ticket Number": "ORD-004554" }), "");
+});
+
+test("an old external sale is dated off the log it was written in", () => {
+  const unit = {
+    ...SHOP,
+    "Unfulfilled Orders Log": [],
+    "Date Fulfilled": [],
+    "Affiliates Sales Log": ["recA"],
+    "Date Sold (External)": ["2025-08-05"]
+  };
+
+  const row = unitEarning(unit);
+
+  assert.equal(row.channel, "External sales");
+  assert.equal(row.date, "2025-08-05");
 });
 
 test("a marketplace takes its cut and a shop of our own does not", () => {

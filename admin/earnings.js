@@ -48,22 +48,72 @@ export function day(value) {
 /* ---------------- a pair sold through Airtable ---------------- */
 
 /*
+ * Which of the three a sold pair went out through.
+ *
+ * The links say it where they are filled, and the ticket number says it
+ * where they are not - a pair sold since the external sales moved to
+ * Supabase has no Airtable row to link to, only "EXTD-000113" written on
+ * it. Reading the links alone put 4.141 of 4.397 sold pairs under store
+ * orders, external ones included, and those were then counted a second
+ * time inside their deal.
+ *
+ * The Affiliate Sales Log is the external sales of before the current one:
+ * the same channel under its old name, running to May 2026 and never
+ * carrying an EXTD number. It belongs with external sales, which is what
+ * it was, and not under a name the business no longer uses.
+ *
+ * Anything else - a ticket number from a marketplace and nothing else, or
+ * nothing at all - is not placed. Forty-five of them, and calling them
+ * store orders would be a guess dressed as a fact.
+ */
+export function unitChannel(unit = {}) {
+  const linked = (name) => Boolean((unit[name] || []).length);
+  const ticket = text(unit["Ticket Number"]);
+
+  if (linked("External Sales Log")
+    || text(unit["External Deal ID"]).startsWith("EXTD-")
+    || ticket.startsWith("EXTD-")) return "External sales";
+
+  if (linked("Member WTBs") || (unit["Member WTB ID"] || []).length || ticket.startsWith("MWTB-")) {
+    return "Member WTBs";
+  }
+
+  if (linked("Affiliates Sales Log")) return "External sales";
+  if (linked("Unfulfilled Orders Log")) return "Store orders";
+
+  return "";
+}
+
+// The Member WTB a pair belongs to, by the number it is known by.
+export const unitWtbId = (unit = {}) => {
+  const found = text(first(unit["Member WTB ID"])) || text(unit["Ticket Number"]);
+  return found.startsWith("MWTB-") ? found : "";
+};
+
+/*
  * One sold unit, as a line on the screen.
  *
- * paidAt is the Member WTB's own payment date, looked up by the caller: the
- * unit cannot see it. Without it a Member WTB has no date at all, and a row
- * with no date falls out of every period - which is exactly what hid this
- * whole channel until now.
+ * Each channel is dated at its own source, because no field on the unit
+ * covers all three. A store order has Date Fulfilled, which is the one
+ * Dario works from. An external sale of the old kind has Date Sold
+ * (External) - named for a channel it no longer describes, since it comes
+ * off the Affiliate Sales Log. A Member WTB has neither, so the date is
+ * the WTB's own Created Time, handed in by the caller.
  */
-export function unitEarning(unit = {}, { paidAt = "", order = "" } = {}) {
-  const wtb = text(first(unit["Member WTB ID"]));
-  const channel = wtb ? "Member WTBs" : "Store orders";
+export function unitEarning(unit = {}, { wtb = null, order = "" } = {}) {
+  const channel = unitChannel(unit);
+
+  const when = channel === "Member WTBs"
+    ? day(wtb?.created)
+    : channel === "External sales"
+      ? day(unit["Date Sold (External)"]) || day(unit["Sales Date"])
+      : day(unit["Date Fulfilled"]) || day(unit["Sales Date"]);
+
+  const wtbId = unitWtbId(unit);
 
   return {
     channel,
-    date: channel === "Member WTBs"
-      ? day(paidAt) || day(unit["Sales Date"])
-      : day(unit["Sales Date"]) || day(unit["Date Fulfilled"]),
+    date: when,
     /*
       The number the deal is known by: MWTB-000415, ORD-004554. Not the
       Shopify number, which is the shop's own and is not what anything
@@ -75,8 +125,8 @@ export function unitEarning(unit = {}, { paidAt = "", order = "" } = {}) {
       looking up, so leaving the cell empty would be the wrong kind of
       honest.
     */
-    reference: wtb || text(order) || text(first(unit["Order ID (UOL)"])) || text(unit["Item ID"]),
-    order: wtb || text(order) || text(first(unit["Order ID (UOL)"])),
+    reference: wtbId || text(order) || text(first(unit["Order ID (UOL)"])) || text(unit["Item ID"]),
+    order: wtbId || text(order) || text(first(unit["Order ID (UOL)"])),
     shop_order: text(first(unit["Shopify Order Number"])),
     item: text(unit["Item ID"]),
     sku: text(unit.SKU),

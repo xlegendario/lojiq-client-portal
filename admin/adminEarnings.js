@@ -23,7 +23,9 @@
 import express from "express";
 import fs from "node:fs";
 
-import { unitEarning, externalEarning, inPeriod, totals, byMonth, earningsCsv, CHANNELS } from "./earnings.js";
+import {
+  unitEarning, unitChannel, unitWtbId, externalEarning, inPeriod, totals, byMonth, earningsCsv, CHANNELS
+} from "./earnings.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -38,7 +40,9 @@ const UNIT_FIELDS = [
   "Sales Date", "Date Fulfilled", "Purchase Price", "Selling Price", "Final Selling Price",
   "Gross Profit", "Gross Profit (after TAX)", "Marketplace Commission", "Net Profit",
   "Member WTB ID", "Shopify Order Number", "Store Name", "UOL Order Source",
-  "Unfulfilled Orders Log", "Member WTBs", "External Sales Log"
+  "Unfulfilled Orders Log", "Member WTBs", "External Sales Log",
+  // What tells the three apart where the links are silent.
+  "Ticket Number", "External Deal ID", "Affiliates Sales Log", "Date Sold (External)"
 ];
 
 export const ORDERS = "Unfulfilled Orders Log";
@@ -118,13 +122,6 @@ return window.length
 }
 
 /*
- * When each Member WTB was paid for.
- *
- * Paid At rather than the day it was asked for: a WTB can sit open for a
- * week, and the money arriving is the day the deal was made.
- */
-
-/*
  * deps:
  *   airtable   the admin reader - select(table, { formula, fields, ... })
  *   db         createSupabaseRest, for the external sales
@@ -161,23 +158,41 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
     return records.map((record) => record.fields || {});
   }
 
-  async function wtbPaidAt() {
+  /*
+   * The Member WTBs that became a deal, and when.
+   *
+   * Confirmed is the line: an offer that was sent and never answered is
+   * not earnings, and of 153 WTBs seventeen are confirmed. Created Time
+   * rather than Paid At, because the deal is made when it is confirmed -
+   * ten of those seventeen are still waiting for the money, and dating
+   * them on payment would keep them out of every month until it arrives.
+   *
+   * Created Time rather than Date, which is the same day on every row we
+   * have and can be edited by hand where Created Time cannot.
+   */
+  async function confirmedWtbs() {
     if (!airtable) return new Map();
 
     const records = await readAll(MEMBER_WTBS, {
-      formula: '{Payment Status} = "Paid"',
-      fields: ["Member WTB ID", "Paid At", "Date"]
+      formula: '{Purchase Status} = "Confirmed"',
+      fields: ["Member WTB ID", "Created Time", "Date", "Payment Status"]
     });
 
-    const when = new Map();
+    const found = new Map();
 
     for (const record of records) {
       const id = text(record.fields?.["Member WTB ID"]);
 
-      if (id) when.set(id, text(record.fields?.["Paid At"]) || text(record.fields?.Date));
+      if (!id) continue;
+
+      found.set(id, {
+        id,
+        created: text(record.fields?.["Created Time"]) || text(record.fields?.Date),
+        paid: text(record.fields?.["Payment Status"]) === "Paid"
+      });
     }
 
-    return when;
+    return found;
   }
 
   async function externalSales() {
@@ -215,21 +230,44 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
   }
 
   async function build(period) {
-    const [units, paidAt, external] = await Promise.all([
+    const [units, wtbs, external] = await Promise.all([
       soldUnits(period),
-      wtbPaidAt(),
+      confirmedWtbs(),
       externalSales()
     ]);
 
-    // A unit that is also on an external sale is counted there, as part of
-    // that deal. Counting it here as well would book the pair twice.
-    const mine = units.filter((unit) => !(unit["External Sales Log"] || []).length);
+    /*
+      A pair whose deal lives in Supabase is counted there, as part of that
+      deal, and must not be counted here as well. The Airtable link is
+      empty on every one of them since the move, so the EXTD number on the
+      unit is what gives it away - thirteen were being booked twice.
+
+      The external sales of before that one are a different matter: they
+      are on the old Affiliate Sales Log, carry no EXTD number and exist
+      nowhere else, so they are read here.
+    */
+    const bySupabase = new Set(external.map((row) => row.reference));
+
+    const mine = units.filter((unit) => {
+      if ((unit["External Sales Log"] || []).length) return false;
+
+      const deal = text(unit["External Deal ID"]) || text(unit["Ticket Number"]);
+
+      return !(deal.startsWith("EXTD-") && bySupabase.has(deal));
+    });
+
     const orders = await orderNumbers(airtable, mine, orderBook);
 
     const fromAirtable = mine.map((unit) => unitEarning(unit, {
-      paidAt: paidAt.get(text(unit["Member WTB ID"])) || "",
+      wtb: wtbs.get(unitWtbId(unit)) || null,
       order: orders.get((unit["Unfulfilled Orders Log"] || [])[0]) || ""
-    }));
+    }))
+      /*
+        A pair the channel cannot place, and a Member WTB that was never
+        confirmed, are not earnings. They are not dropped in silence: both
+        come back with no date, which is where the screen shows them.
+      */
+      .filter((row) => row.channel);
 
     return [...fromAirtable, ...external];
   }
@@ -257,7 +295,22 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
   async function earnings({ from = "", to = "", channel = "" } = {}) {
     const all = await everything({ from, to });
     const wanted = CHANNELS.includes(channel) ? all.filter((row) => row.channel === channel) : all;
-    const { rows, undated } = inPeriod(wanted, { from, to });
+
+    /*
+      A pair with no selling price on it is not a sale this can report.
+      Most of them are the StockX years: bought, gone, and what they went
+      for was never written back on the unit. Counting them would put
+      their purchase in the figures against nothing at all - 135.930 euro
+      of cost against 73.511 of sales, which says the business lost money
+      it did not lose.
+
+      They are counted and named, not dropped: the number is the size of
+      what is missing, and it belongs on the screen.
+    */
+    const priced = wanted.filter((row) => row.selling !== null || row.gross_after_tax !== null);
+    const unpriced = wanted.length - priced.length;
+
+    const { rows, undated } = inPeriod(priced, { from, to });
 
     return {
       from,
@@ -277,14 +330,13 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
         rather than listed, so the number is still in front of him without
         two hundred empty lines under it.
       */
-      undated: undated
-        .filter((row) => row.selling !== null || row.gross_after_tax !== null)
-        .map((row) => ({
-          channel: row.channel, reference: row.reference, order: row.order, item: row.item,
-          product: row.product, sku: row.sku, size: row.size,
-          selling: row.selling, gross_after_tax: row.gross_after_tax
-        })),
-      undated_without_money: undated.filter((row) => row.selling === null && row.gross_after_tax === null).length
+      undated: undated.map((row) => ({
+        channel: row.channel, reference: row.reference, order: row.order, item: row.item,
+        product: row.product, sku: row.sku, size: row.size,
+        selling: row.selling, gross_after_tax: row.gross_after_tax
+      })),
+      // Sold, but with no selling price anywhere on them. See above.
+      without_price: unpriced
     };
   }
 

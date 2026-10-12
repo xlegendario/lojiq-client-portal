@@ -536,7 +536,9 @@
           : undated.length
             ? `${undated.length} sold pairs have no date, so they are in none of the months above.`
             : "",
-        silent ? `${silent} more are marked sold with no order and no price behind them.` : ""
+        silent
+          ? `${silent} more are sold with no selling price anywhere on them - mostly the StockX years, where what they went for was never written back - so they are left out of the figures entirely.`
+          : ""
       ].filter(Boolean).join(" ");
 
       $("undatedBody").innerHTML = undated.map((row) => `
@@ -562,7 +564,7 @@
       drawSummary(data.totals);
       drawMonths(state.channel ? [] : data.months);
       drawRows(rows);
-      drawUndated(data.undated || [], data.undated_without_money || 0);
+      drawUndated(data.undated || [], data.without_price || 0);
 
       /*
         The figures at the top always cover the whole period, whichever tab
