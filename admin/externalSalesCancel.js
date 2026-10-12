@@ -28,6 +28,20 @@ import { ExternalSalesError, dealId, round2 } from "./externalSalesSync.js";
 import { invoicePlanFor } from "./externalSalesInvoicing.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
+
+/*
+ * What the buyer actually handed over.
+ *
+ * On a deal paid in one go there is often no paid_amount at all - being
+ * paid said it - so the total stands in for it. Once a discount or a cancel
+ * has made the total smaller, that is no longer true and the written-down
+ * amount is the larger of the two. Whichever is bigger is the money that
+ * came in.
+ */
+export const whatCameIn = (sale = {}) => Math.max(
+  round2(sale.paid_amount),
+  sale.payment_status === "paid" ? round2(sale.total_selling_price) : 0
+);
 const UUID = /^[0-9a-f-]{36}$/i;
 
 /*
@@ -121,7 +135,7 @@ export function cancelPlan({ sale, pairs, pairIds, invoices = [] }) {
     : 0;
 
   const openInvoices = invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id));
-  const paid = sale.payment_status === "paid" ? round2(sale.total_selling_price) : round2(sale.paid_amount);
+  const paid = whatCameIn(sale);
   const refund = round2(Math.max(0, paid - round2(sale.refunded_amount) - newTotal));
 
   return {
@@ -201,7 +215,7 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
   }, 0));
 
   const openInvoices = invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id));
-  const paid = sale.payment_status === "paid" ? round2(sale.total_selling_price) : round2(sale.paid_amount);
+  const paid = whatCameIn(sale);
 
   return {
     ok: !problems.length && lines.length > 0,
@@ -300,9 +314,7 @@ export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
   const openInvoices = invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id));
 
   // What is actually held, after anything already sent back.
-  const paid = round2(
-    (sale.payment_status === "paid" ? round2(sale.total_selling_price) : round2(sale.paid_amount))
-  ) - round2(sale.refunded_amount);
+  const paid = round2(whatCameIn(sale) - round2(sale.refunded_amount));
 
   /*
     An invoice that is still unpaid is corrected and sent again, keeping its
@@ -678,9 +690,19 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
     if (invoices.some((i) => i.kind === "sale")) fields.bookkeeping_status = "to_invoice";
 
+    /*
+      What came in is written down, because the deal's own total is about to
+      drop below it and would otherwise be the only record of it.
+
+      FIXED - this also set the deal to "partially paid", which says money
+      is still owed to us when the opposite is true: the buyer paid in full
+      and is owed the difference back. It sent Dario to Mark as paid with
+      a negative amount, where nothing would take it. The deal stays paid;
+      what is owed back shows up under "Refund still to be paid back", and
+      Mark refunded is the button that settles it.
+    */
     if (sale.payment_status === "paid" && result.refund > 0) {
-      fields.payment_status = "partially_paid";
-      fields.paid_amount = round2(sale.total_selling_price);
+      fields.paid_amount = whatCameIn(sale);
     }
 
     await db.patch(`external_sales?id=eq.${sale.id}`, fields);

@@ -2453,7 +2453,15 @@
       const consignorPairs = (state.detail.pairs || []).filter((p) => p.consignor_fulfillment_status).length;
       const weShip = !consignorPairs || consignorPairs < (state.detail.pairs || []).length;
       const shipped = ["shipped", "delivered", "cancelled"].includes(s.shipping_status);
-      const unpaid = ["pending", "partially_paid"].includes(s.payment_status);
+      /*
+        Still waiting for money. A deal where more came in than it is now
+        worth is not: there the money has to go the other way, and Mark
+        refunded is the button for it.
+      */
+      const stillOpen = Number(s.total_selling_price || 0)
+        - Math.max(Number(s.paid_amount || 0), s.payment_status === "paid" ? Number(s.total_selling_price || 0) : 0)
+        + Number(s.refunded_amount || 0);
+      const unpaid = ["pending", "partially_paid"].includes(s.payment_status) && stillOpen > 0.005;
 
       $("panelTitle").textContent = s.deal;
 
@@ -3152,7 +3160,11 @@
       }
 
       // What the buyer has actually handed over, after anything sent back.
-      const held = Number(s.payment_status === "paid" ? was : (s.paid_amount || 0)) - Number(s.refunded_amount || 0);
+      // The larger of the two: a deal paid in one go often has no
+      // paid_amount, and one that has already been discounted has a total
+      // that is smaller than the money that came in for it.
+      const held = Math.max(Number(s.paid_amount || 0), s.payment_status === "paid" ? was : 0)
+        - Number(s.refunded_amount || 0);
       const short = total - held;
 
       $("repriceConfirm").disabled = false;

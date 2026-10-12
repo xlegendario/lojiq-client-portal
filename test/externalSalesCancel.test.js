@@ -190,6 +190,21 @@ test("a refund is written down, never more than came in", async () => {
   await assert.rejects(() => cancel.registerRefund(S1, { amount: 0 }), /amount that went back/);
 });
 
+test("the amount is read the way it is typed", async () => {
+  /*
+    Dario gave 20 off a flawed pair, transferred the 20 back and could not
+    write it down: "Enter the amount that went back" about the 20,00 that
+    was standing in the box. The dialog fills in that comma itself.
+  */
+  const { cancel } = fakes({ sale: { ...SALE, payment_status: "paid", paid_amount: 230, total_selling_price: 210 } });
+
+  const saved = await cancel.registerRefund(S1, { amount: "20,00", date: "2026-10-12", note: "Bank" });
+
+  assert.equal(saved.refunded_amount, 20);
+  assert.equal(saved.paid_amount, 210);
+  assert.equal(saved.payment_status, "paid", "210 came in on a 210 deal: nothing is open");
+});
+
 /* ---------------- a partner's pair ---------------- */
 
 const SHELF = { id: "cccccccc-3333-4333-8333-cccccccccccc", sku: "A01FW702-BLK", size: "42", status: "sold", sold_ref: "EXTD-000081", inventory_unit_id: "PCS-006200" };
@@ -281,7 +296,29 @@ test("a second discount is added to the first, and a paid deal owes the differen
   assert.match(out.log.join(" "), /Refund the buyer 75.00 by bank/);
 
   assert.equal(db.tables.external_sale_pairs.find((p) => p.id === P1).discount, 75);
-  assert.equal(db.tables.external_sales[0].payment_status, "partially_paid");
+
+  /*
+    The deal stays paid. The buyer handed over everything and more; saying
+    "partially paid" claims money is still owed to us, which is the opposite
+    of the truth and sent Dario to Mark as paid with a negative amount. What
+    came in is written down, because the total has just dropped below it and
+    would otherwise be the only record of it, and the 75 shows up under
+    "Refund still to be paid back" until Mark refunded settles it.
+  */
+  assert.equal(db.tables.external_sales[0].payment_status, "paid");
+  assert.equal(db.tables.external_sales[0].paid_amount, 600);
+});
+
+test("a discount on a deal paid in full and never written down still knows what came in", async () => {
+  // Paid in one go, so nothing was ever put in paid_amount: being paid said
+  // it. The deal's own total stands in for it until a discount lowers that.
+  const { db, cancel } = fakes({ sale: { ...SALE, payment_status: "paid", paid_amount: null } });
+
+  const out = await cancel.discountPairs(S1, { pairs: [{ id: P1, amount: 40 }] });
+
+  assert.equal(out.refund, 40);
+  assert.equal(db.tables.external_sales[0].paid_amount, Number(SALE.total_selling_price));
+  assert.equal(db.tables.external_sales[0].payment_status, "paid");
 });
 
 test("on a one-pair deal the deal's own price is the pair's price", () => {

@@ -11,7 +11,37 @@
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
-export const round2 = (value) => Math.round(Number(value || 0) * 100) / 100;
+/*
+ * A number, as it comes from a keyboard as well as from the database.
+ *
+ * Dario types "20,00" and the dialogs fill that in themselves - the amounts
+ * on these screens are written the Dutch way. Number() makes NaN of it, and
+ * NaN fails every check it meets, so "Register refund" answered "Enter the
+ * amount that went back" about an amount that was plainly standing there.
+ * Whole euros went through, which is why it took a flawed pair and a
+ * twenty-euro discount to find.
+ *
+ * A comma is the decimal separator; where a line has both, the last one of
+ * the two is, and the other is grouping. Anything that is not a number at
+ * all comes back as zero, which the callers already refuse.
+ */
+export function amount(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const written = String(value ?? "").replace(/[\s\u00a0\u20ac]/g, "");
+
+  if (!written) return 0;
+
+  const cut = Math.max(written.lastIndexOf(","), written.lastIndexOf("."));
+
+  const number = cut === -1
+    ? Number(written)
+    : Number(`${written.slice(0, cut).replace(/[.,]/g, "")}.${written.slice(cut + 1)}`);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+export const round2 = (value) => Math.round(amount(value) * 100) / 100;
 
 
 

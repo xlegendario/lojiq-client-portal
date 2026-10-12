@@ -12,6 +12,24 @@ test("a manual payment: all of it is paid, less is partly paid, and parts add up
   assert.deepEqual(paymentAfter(sale(), 150), { payment_status: "partially_paid", paid_amount: 150 });
   assert.deepEqual(paymentAfter(sale({ payment_status: "partially_paid", paid_amount: "150.00" }), 250), { payment_status: "paid", paid_amount: 400 });
   assert.throws(() => paymentAfter(sale(), 0), /amount that came in/);
+
+  /*
+    The amount arrives as it was typed, and on these screens it is typed the
+    Dutch way - the dialog even fills in "400,00" itself. Number() makes NaN
+    of that, NaN fails every check it meets, and the answer was "Enter the
+    amount that came in" about an amount that was plainly standing there.
+    Whole euros went through, which is why it took a twenty-euro discount on
+    a flawed pair to find.
+  */
+  assert.deepEqual(paymentAfter(sale(), "400,00"), { payment_status: "paid", paid_amount: 400 });
+  assert.deepEqual(paymentAfter(sale(), "149,50"), { payment_status: "partially_paid", paid_amount: 149.5 });
+  assert.deepEqual(paymentAfter(sale(), "\u20ac 400,00"), { payment_status: "paid", paid_amount: 400 });
+  assert.deepEqual(paymentAfter(sale(), "1.234,56"), { payment_status: "paid", paid_amount: 400 });
+
+  // Money that goes the other way is not a payment, whichever way it is
+  // written: a refund is Mark refunded.
+  assert.throws(() => paymentAfter(sale(), "-20,00"), /amount that came in/);
+  assert.throws(() => paymentAfter(sale(), "nonsense"), /amount that came in/);
 });
 
 test("Rompslomp decides: paid when every invoice is, partly when money came in", () => {
