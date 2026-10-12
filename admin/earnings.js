@@ -37,7 +37,7 @@ const money = (value) => {
 // Airtable hands a lookup back as an array even when it holds one thing.
 const first = (value) => (Array.isArray(value) ? value[0] : value);
 
-export const CHANNELS = ["Store orders", "Member WTBs", "External sales"];
+export const CHANNELS = ["Store orders", "Member WTBs", "External sales", "Forwarding"];
 
 // The day out of a date, a date-time, or a lookup holding either.
 export function day(value) {
@@ -214,6 +214,55 @@ export function externalEarning(sale = {}, pairs = []) {
     gross_after_tax: money(gross / 1.21),
     pairs: live.length,
     shipping: money(shipping)
+  };
+}
+
+/* ---------------- a parcel forwarded for a partner ---------------- */
+
+/*
+ * One forward, as a line on the screen.
+ *
+ * Nothing is bought and nothing is sold: the pairs are the partner's and
+ * they stay his. What we earn is the fee for moving them.
+ *
+ * The sum is not worked out here. Forwarding Payments already shows these
+ * same forwards with these same figures, and two screens doing the same
+ * arithmetic is how they come to disagree - so the caller hands in what
+ * forwardMoney() made of it, and this only shapes it into a line.
+ *
+ * Note what that says: the profit is the whole fee. The shipping is not
+ * taken off it, because the partner pays that on top - payable is fee plus
+ * shipping. Taking it off was my first guess and it was wrong.
+ */
+export function forwardEarning(log = {}, money_ = {}) {
+  const shown = log.forwarding_number
+    ? `FWD-${String(log.forwarding_number).padStart(6, "0")}`
+    : text(log.id);
+
+  const pairs = Number(log.pair_count) || 0;
+
+  return {
+    channel: "Forwarding",
+    status: text(log.payment_status) === "paid" ? "Paid" : text(log.shipping_status) || text(log.payment_status),
+    date: day(log.forwarding_date) || day(log.created_at),
+    at: `${day(log.forwarding_date) || day(log.created_at)}T${text(log.created_at).slice(11) || "00:00:00"}`,
+    reference: shown,
+    order: shown,
+    shop_order: "",
+    item: "",
+    sku: "",
+    size: "",
+    product: `${pairs} pair${pairs === 1 ? "" : "s"} forwarded`,
+    where: text(log.seller_name) || text(log.seller_id),
+    vat_type: "Margin",
+    // Nothing was bought: the pairs belong to the partner throughout.
+    purchase: null,
+    selling: money(money_.fee),
+    commission: 0,
+    gross: money(money_.profit),
+    gross_after_tax: money(money_.profit_ex_vat),
+    pairs,
+    shipping: money(money_.shipping)
   };
 }
 

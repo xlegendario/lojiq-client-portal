@@ -24,8 +24,10 @@ import express from "express";
 import fs from "node:fs";
 
 import {
-  unitEarning, unitChannel, unitWtbId, externalEarning, inPeriod, totals, byMonth, earningsCsv, CHANNELS
+  unitEarning, unitChannel, unitWtbId, externalEarning, forwardEarning,
+  inPeriod, totals, byMonth, earningsCsv, CHANNELS
 } from "./earnings.js";
+import { forwardMoney } from "./adminForwarding.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -249,11 +251,37 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
       .map((sale) => externalEarning(sale, bySale.get(sale.id) || []));
   }
 
+  /*
+   * The forwards, with their pairs, from Supabase.
+   *
+   * The figures come from forwardMoney(), which is what Forwarding
+   * Payments shows - so the two screens cannot drift apart. A cancelled
+   * forward earned nothing: the parcel never went.
+   */
+  async function forwards() {
+    if (!db?.configured) return [];
+
+    const logs = await db.get("forwarding_log?select=*&order=forwarding_date.desc&limit=10000");
+    const pairs = await db.get("partner_stock?select=id,forwarding_log_id,forwarding_fee&forwarding_log_id=not.is.null&limit=50000");
+
+    const byLog = new Map();
+
+    for (const pair of pairs || []) {
+      if (!byLog.has(pair.forwarding_log_id)) byLog.set(pair.forwarding_log_id, []);
+      byLog.get(pair.forwarding_log_id).push(pair);
+    }
+
+    return (logs || [])
+      .filter((log) => text(log.shipping_status) !== "cancelled")
+      .map((log) => forwardEarning(log, forwardMoney(log, byLog.get(log.id) || null)));
+  }
+
   async function build(period) {
-    const [units, wtbs, external] = await Promise.all([
+    const [units, wtbs, external, forwarded] = await Promise.all([
       soldUnits(period),
       confirmedWtbs(),
-      externalSales()
+      externalSales(),
+      forwards()
     ]);
 
     /*
@@ -289,7 +317,7 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
       */
       .filter((row) => row.channel);
 
-    return [...fromAirtable, ...external];
+    return [...fromAirtable, ...external, ...forwarded];
   }
 
   /*

@@ -281,6 +281,7 @@
         <a class="nav-item" href="/admin/earnings?channel=Store+orders">Store Orders</a>
         <a class="nav-item" href="/admin/earnings?channel=Member+WTBs">Member WTBs</a>
         <a class="nav-item" href="/admin/earnings?channel=External+sales">External Sales</a>
+        <a class="nav-item" href="/admin/earnings?channel=Forwarding">Forwarding</a>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
@@ -443,7 +444,7 @@
       the channel in the address and the click is caught here: the figures
       stay, the period stays, and nothing is asked of Airtable again.
     */
-    const CHANNELS = ["Store orders", "Member WTBs", "External sales"];
+    const CHANNELS = ["Store orders", "Member WTBs", "External sales", "Forwarding"];
 
     const state = {
       from: "",
