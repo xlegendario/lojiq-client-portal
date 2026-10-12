@@ -151,9 +151,20 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
       A cancelled deal earned nothing: the pairs came back and the money
       went back with them. It is left out rather than shown at zero, the
       same way a cancelled order is not a sale.
+
+      A broker deal still being negotiated is not a deal yet either - no
+      pairs, no total, nothing to invoice - and the External Sales screen
+      keeps it on its own until the first pair is really bought. Three of
+      them were standing in October at nothing a line.
+
+      Written as "not negotiating" rather than "open", which is what that
+      screen asks Supabase for: a row that somehow has no stage at all is
+      money we took, and on this screen it is worse to lose a sale than to
+      show one deal too many.
     */
     return (sales || [])
       .filter((sale) => sale.payment_status !== "cancelled" && !sale.cancelled_at)
+      .filter((sale) => sale.stage !== "negotiating")
       .map((sale) => externalEarning(sale, bySale.get(sale.id) || []));
   }
 
