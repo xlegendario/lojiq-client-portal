@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Earnings · Lojiq Admin</title>
+  <link rel="icon" href="/favicon.png">
+  <script>
+    try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
+  </script>
+  <style>
+    /* Same palette and components as admin.html, so Forward Service reads as
+       part of the same portal. */
+    :root {
+      --bg: #08080A;
+      --panel: #121215;
+      --panel-2: #17171B;
+      --border: #26262B;
+      --text: #E9E9EE;
+      --muted: #8B8B95;
+      --nav-item: #A8A8AF;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --primary-tint: rgba(102, 179, 255, 0.16);
+      --red: #F04438;
+      --warning: #F59E0B;
+      --strong: #FFFFFF;
+      --faint: #55555D;
+      --nav-title: #5F5F68;
+      --hover-border: #3A3A41;
+      --strip: #1B1C21;
+      --row-hover: rgba(102, 179, 255, 0.06);
+      --pill-bg: rgba(139, 139, 149, 0.16);
+      --pill-text: #CFCFD7;
+      --good-bg: rgba(22, 179, 100, 0.16);
+      --good-text: #4ADE9A;
+      --wait-bg: rgba(245, 158, 11, 0.16);
+      --wait-text: #FBBF4C;
+      --move-bg: rgba(47, 128, 237, 0.18);
+      --bad-bg: rgba(240, 68, 56, 0.16);
+      --bad-text: #FF7A70;
+      --toast-bg: #0F2A1E;
+      --toast-border: rgba(22, 179, 100, 0.5);
+      --toast-text: #D6F5E6;
+      --shadow: rgba(0, 0, 0, 0.5);
+      --backdrop: rgba(0, 0, 0, 0.6);
+      --logo-plate: transparent;
+      color-scheme: dark;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #F3F5F8;
+      --panel: #FFFFFF;
+      --panel-2: #F0F2F6;
+      --border: #DCE0E7;
+      --text: #1A1D23;
+      --muted: #616875;
+      --nav-item: #3E4450;
+      --primary-soft: #1B64C8;
+      --primary-tint: rgba(47, 128, 237, 0.12);
+      --red: #D63B30;
+      --warning: #B86E00;
+      --strong: #0C0E13;
+      --faint: #A2A8B2;
+      --nav-title: #8A909B;
+      --hover-border: #C3C9D3;
+      --strip: #F1F3F7;
+      --row-hover: rgba(47, 128, 237, 0.05);
+      --pill-bg: rgba(97, 104, 117, 0.12);
+      --pill-text: #3E4450;
+      --good-bg: rgba(18, 151, 90, 0.12);
+      --good-text: #0C7446;
+      --wait-bg: rgba(214, 139, 0, 0.14);
+      --wait-text: #8F5500;
+      --move-bg: rgba(47, 128, 237, 0.12);
+      --bad-bg: rgba(214, 59, 48, 0.1);
+      --bad-text: #B42E24;
+      --toast-bg: #E6F5EC;
+      --toast-border: rgba(18, 151, 90, 0.45);
+      --toast-text: #0E4F31;
+      --shadow: rgba(20, 28, 40, 0.14);
+      --backdrop: rgba(20, 28, 40, 0.35);
+      --logo-plate: #121215;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: var(--primary-soft); }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--primary-soft); outline-offset: 2px; }
+
+    .input, .select { height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); min-width: 0; }
+    textarea.input { height: auto; min-height: 70px; padding: 9px 11px; resize: vertical; }
+    .input:focus, .select:focus { border-color: var(--primary); outline: none; }
+    .btn { height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; font-weight: 700; white-space: nowrap; }
+    .btn:hover { border-color: var(--hover-border); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+
+    .app { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
+    .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
+    .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
+    .nav-section { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 10px 0 2px; padding: 6px 8px; border: 0; border-radius: 7px; background: none; cursor: pointer; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nav-title); text-align: left; }
+    .nav-section::after { content: "▸"; font-size: 11px; letter-spacing: 0; transition: transform 0.15s ease; }
+    .nav-section[aria-expanded="true"]::after { transform: rotate(90deg); }
+    .nav-section:hover { color: var(--text); background: var(--primary-tint); }
+    .nav-section.current { color: var(--primary-soft); }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    @media (prefers-reduced-motion: reduce) { .nav-section::after { transition: none; } }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav-item); text-decoration: none; font-size: 12px; border: 0; background: none; cursor: pointer; text-align: left; width: 100%; }
+    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
+    .nav-item.active { font-weight: 700; }
+    .nav-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .content { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .heading { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .heading h1 { margin: 0; font-size: 20px; }
+    .crumb { color: var(--muted); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    .totals { display: flex; flex-wrap: wrap; gap: 8px; }
+    .total { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 130px; }
+    .total span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .total strong { font-size: 16px; color: var(--strong); font-variant-numeric: tabular-nums; }
+
+    .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto; background: var(--panel); max-height: calc(100vh - 260px); }
+    table { border-collapse: collapse; width: max-content; min-width: 100%; }
+    th { position: sticky; top: 0; z-index: 4; background: var(--panel-2); text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+    tbody tr:hover td { background: var(--row-hover); }
+    td.money, th.money { text-align: right; font-variant-numeric: tabular-nums; }
+    td.check, th.check { width: 34px; text-align: center; }
+    td.check input, th.check input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+    .id { font-weight: 700; color: var(--strong); }
+    .dash { color: var(--faint); }
+    .sub { color: var(--muted); font-size: 12px; }
+    tbody tr[data-id] { cursor: pointer; }
+    tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
+
+    /* Side panel, as on the Store Orders and Member WTBs tabs. */
+    .panel { position: fixed; top: 0; right: 0; width: min(480px, 100%); height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -20px 0 50px var(--shadow); z-index: 40; display: flex; flex-direction: column; }
+    .panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .panel-head h2 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+    .panel-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .panel-body { overflow-y: auto; padding: 14px 16px 30px; display: flex; flex-direction: column; gap: 18px; }
+    .group h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .group dl { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 12px; }
+    .group dt { color: var(--muted); }
+    .group dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .pair-list li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .pair-list img, .pair-list .no-img { width: 44px; height: 44px; object-fit: contain; background: #fff; border-radius: 6px; }
+    .pair-list .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
+    .pair-list strong { color: var(--strong); }
+    .link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+    .timeline small { color: var(--muted); }
+    .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--pill-bg); color: var(--pill-text); }
+    .pill.good { background: var(--good-bg); color: var(--good-text); }
+    .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
+    .pill.move { background: var(--move-bg); color: var(--primary-soft); }
+    .pill.bad { background: var(--bad-bg); color: var(--bad-text); }
+    .row-actions { display: inline-flex; gap: 6px; }
+    .act { height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel-2); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .act:hover { border-color: var(--primary); color: var(--strong); }
+    .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+
+    tr.group-row td { background: var(--strip); padding: 10px 12px; }
+    tbody tr.group-row:hover td { background: var(--strip); }
+    .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+    .group-head strong { color: var(--strong); font-variant-numeric: tabular-nums; }
+    .group-head .old { color: var(--warning); font-weight: 700; }
+    .actionbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .actionbar[hidden] { display: none !important; }
+
+    dialog { width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 0; box-shadow: 0 30px 80px var(--shadow); }
+    dialog::backdrop { background: var(--backdrop); }
+    .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .dialog-body h2 { margin: 0; font-size: 17px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .field .hint { color: var(--muted); font-size: 12px; }
+    .label-list { display: flex; flex-direction: column; gap: 6px; }
+    .label-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .label-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+    .label-add input[type=file] { color: var(--muted); min-width: 0; }
+    .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; max-width: min(560px, calc(100vw - 32px)); background: var(--toast-bg); border: 1px solid var(--toast-border); color: var(--toast-text); padding: 12px 16px; border-radius: 10px; box-shadow: 0 16px 40px var(--shadow); }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
+      .label-add { grid-template-columns: 1fr; }
+    }
+
+    /* ---------------- what this screen adds ---------------- */
+
+    /*
+      The figures, before the lines behind them. The first one is the whole
+      period and sits apart; the three after it are the channels, in the
+      same order as the tabs below, so the eye can go from one to the other
+      without reading a label twice.
+    */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+
+    .tile {
+      display: flex; flex-direction: column; gap: 3px;
+      padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--panel);
+    }
+
+    .tile.lead { background: var(--panel-2); border-color: var(--primary); }
+    .tile-label { color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+    .tile-value { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .tile-sub { color: var(--muted); font-size: 11.5px; }
+
+    /* A loss is a different thing from a small profit and should not have
+       to be read twice to be seen. The two colours are the ones the portal
+       already uses for good and bad news, so they hold up in light mode as
+       well as in the dark. */
+    .up { color: var(--good-text); }
+    .down { color: var(--bad-text); }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+
+    .tab {
+      appearance: none; cursor: pointer;
+      padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px;
+      background: var(--panel); color: var(--nav-item);
+      font: inherit; font-size: 12.5px; font-weight: 700;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+    /* The months and the strays are a handful of lines, not a list to
+       scroll through on their own. */
+    .table-wrap.short { max-height: none; }
+  </style>
+<style>
+    .lede { color: var(--muted); margin: 0 0 16px; max-width: 70ch; }
+    /* Not .panel: that is the fixed drawer on the right in the shared
+       stylesheet, and borrowing the name pinned this box to the edge of
+       the screen with no way to close it. */
+    .paste-box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .paste { width: 100%; min-height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+    .sub { font-size: 15px; margin: 22px 0 4px; }
+    .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+    .input.slim { padding: 4px 8px; }
+    .offer-price { width: 76px; }
+    .btn.slim { padding: 4px 9px; }
+    .warn-box { background: var(--wait-bg); color: var(--wait-text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 16px 0; font-size: 14px; }
+    .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
+    .empty-row td { color: var(--muted); }
+    .row-source { color: var(--muted); font-size: 12px; }
+    .field-error { color: var(--red); min-height: 18px; margin: 8px 0 0; font-size: 13px; }
+    .file-btn { cursor: pointer; display: inline-flex; align-items: center; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" aria-label="Admin navigation">
+      <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
+      <button class="nav-section" type="button" data-nav-section="store" aria-controls="navStore" aria-expanded="false">Store Orders</button>
+      <div class="nav-group" id="navStore" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="mwtb" aria-controls="navMwtb" aria-expanded="false">Member WTBs</button>
+      <div class="nav-group" id="navMwtb" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Finance</button>
+      <div class="nav-group" id="navMoney" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
+      <div class="nav-group" id="navForwarding" hidden>
+        <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label <small data-nav-count="forwarding/awaiting_label"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=ready_to_ship">Ready to Ship <small data-nav-count="forwarding/ready_to_ship"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=shipped">Shipped <small data-nav-count="forwarding/shipped"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=all">All forwards</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
+      <div class="nav-group" id="navExternal" hidden>
+        <a class="nav-item" href="/admin/external-sales?tab=draft">Draft <small class="nav-count" data-nav-count="external/draft"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=pending">Pending <small class="nav-count" data-nav-count="external/pending"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=ready">Ready to Ship <small class="nav-count" data-nav-count="external/ready"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=shipped">Shipped</a>
+        <a class="nav-item" href="/admin/external-sales?tab=all">All</a>
+        <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
+        <a class="nav-item" href="/admin/wtb-match">WTB Match</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
+      <div class="nav-group" id="navMarketplaces" hidden>
+        <a class="nav-item" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
+      <div class="nav-group" id="navWarehouse" hidden></div>
+
+      <div class="sidebar-foot">
+        <span>Signed in as <strong id="userName">…</strong></span>
+        <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
+        <button class="btn ghost" id="logoutButton" type="button">Log out</button>
+      </div>
+    </nav>
+    <main class="content">
+      <div class="heading">
+        <span class="crumb">Finance</span>
+        <h1>Earnings</h1>
+      </div>
+
+      <p class="lede">What each of the three channels earned, and when. For a pair sold through the shop or a Member WTB the profit is the one Airtable works out on the unit; for an external sale it is the deal's total, less the shipping, less what the pairs cost.</p>
+
+      <div class="filters">
+        <label class="hint" for="from">From</label>
+        <input class="input slim" id="from" type="date">
+        <label class="hint" for="to">To</label>
+        <input class="input slim" id="to" type="date">
+        <button class="btn ghost" type="button" data-period="month">This month</button>
+        <button class="btn ghost" type="button" data-period="last">Last month</button>
+        <button class="btn ghost" type="button" data-period="year">This year</button>
+        <button class="btn primary" id="go" type="button">Show</button>
+        <button class="btn ghost" id="download" type="button">Download CSV</button>
+        <span class="count" id="status"></span>
+      </div>
+
+      <p class="field-error" id="error"></p>
+
+      <div class="tiles" id="summary" hidden></div>
+
+      <div class="tabs" id="tabs" role="tablist">
+        <button class="tab on" type="button" data-channel="" role="tab">General</button>
+        <button class="tab" type="button" data-channel="Store orders" role="tab">Store Orders</button>
+        <button class="tab" type="button" data-channel="Member WTBs" role="tab">Member WTBs</button>
+        <button class="tab" type="button" data-channel="External sales" role="tab">External Sales</button>
+      </div>
+
+      <p class="hint" id="warning" hidden></p>
+
+      <div id="monthsBox" hidden>
+        <h2 class="sub">By month</h2>
+        <div class="table-wrap short">
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th class="money">Pairs</th>
+                <th class="money">Purchase</th>
+                <th class="money">Selling</th>
+                <th class="money">Commission</th>
+                <th class="money">Gross profit</th>
+                <th class="money">After TAX</th>
+              </tr>
+            </thead>
+            <tbody id="monthsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="rowsBox" hidden>
+        <h2 class="sub">Every deal <span class="hint" id="rowCount"></span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Channel</th>
+                <th>Reference</th>
+                <th>SKU</th>
+                <th>Size</th>
+                <th>Product</th>
+                <th>Where</th>
+                <th class="money">Purchase</th>
+                <th class="money">Selling</th>
+                <th class="money">Commission</th>
+                <th class="money">Gross profit</th>
+                <th class="money">After TAX</th>
+              </tr>
+            </thead>
+            <tbody id="rowsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="undatedBox" hidden>
+        <h2 class="sub">Sold, but in no month</h2>
+        <p class="hint" id="undatedWhy"></p>
+        <div class="table-wrap short">
+          <table>
+            <thead>
+              <tr>
+                <th>Channel</th>
+                <th>Reference</th>
+                <th>SKU</th>
+                <th>Size</th>
+                <th class="money">Selling</th>
+                <th class="money">After TAX</th>
+              </tr>
+            </thead>
+            <tbody id="undatedBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const esc = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const money = (value) =>
+      value === null || value === undefined || value === ""
+        ? "—"
+        : Number(value).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, { credentials: "same-origin", ...options });
+      if (response.status === 401) {
+        location.href = "/admin";
+        throw new Error("Not signed in");
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      return data;
+    }
+
+    /*
+      One period, four tabs.
+
+      The tabs do not each fetch: the period is read once and a tab only
+      says which channel of it to show. Switching between them is free, and
+      the four always add up to General because they are the same answer
+      looked at four ways.
+    */
+    const state = { from: "", to: "", channel: "", data: null };
+
+    const asDay = (date) => date.toISOString().slice(0, 10);
+
+    function setPeriod(which) {
+      const now = new Date();
+      const first = (y, m) => asDay(new Date(Date.UTC(y, m, 1)));
+      const last = (y, m) => asDay(new Date(Date.UTC(y, m + 1, 0)));
+      const year = now.getUTCFullYear();
+      const month = now.getUTCMonth();
+
+      if (which === "month") { $("from").value = first(year, month); $("to").value = last(year, month); }
+      if (which === "last") { $("from").value = first(year, month - 1); $("to").value = last(year, month - 1); }
+      if (which === "year") { $("from").value = first(year, 0); $("to").value = last(year, 11); }
+    }
+
+    const amount = (value) => (value === null || value === undefined ? "—" : money(value));
+
+    // A loss is not a small profit and should not read like one.
+    const profit = (value) => (value === null || value === undefined
+      ? "—"
+      : `<span class="${value < 0 ? "down" : value > 0 ? "up" : ""}">${esc(money(value))}</span>`);
+
+    const pairs = (n) => `${n} pair${n === 1 ? "" : "s"}`;
+
+    function drawSummary(sums) {
+      const tile = (name, sum, lead) => `
+        <div class="tile${lead ? " lead" : ""}">
+          <span class="tile-label">${esc(name)}</span>
+          <span class="tile-value">${profit(sum.gross_after_tax)}</span>
+          <span class="tile-sub">${esc(pairs(sum.pairs))} · ${esc(amount(sum.selling))} sold · ${esc(amount(sum.purchase))} cost</span>
+        </div>`;
+
+      $("summary").hidden = false;
+      $("summary").innerHTML = tile("Gross profit (after TAX)", sums.all, true)
+        + sums.channels.map((channel) => tile(channel.channel, channel)).join("");
+    }
+
+    function drawMonths(months) {
+      $("monthsBox").hidden = months.length < 2;
+      $("monthsBody").innerHTML = months.map((month) => `
+        <tr>
+          <td>${esc(month.month)}</td>
+          <td class="money">${month.pairs}</td>
+          <td class="money">${esc(amount(month.purchase))}</td>
+          <td class="money">${esc(amount(month.selling))}</td>
+          <td class="money">${esc(amount(month.commission))}</td>
+          <td class="money">${profit(month.gross)}</td>
+          <td class="money">${profit(month.gross_after_tax)}</td>
+        </tr>`).join("");
+    }
+
+    function drawRows(rows) {
+      $("rowsBox").hidden = !rows.length;
+      $("rowCount").textContent = rows.length ? `${rows.length} line${rows.length === 1 ? "" : "s"}` : "";
+
+      $("rowsBody").innerHTML = rows.map((row) => `
+        <tr>
+          <td>${esc(row.date)}</td>
+          <td><span class="pill">${esc(row.channel)}</span></td>
+          <td>${esc(row.reference)}</td>
+          <td>${esc(row.sku)}</td>
+          <td>${esc(row.size)}</td>
+          <td>${esc(row.product)}${row.pairs > 1 ? ` <span class="hint">${esc(pairs(row.pairs))}</span>` : ""}</td>
+          <td class="hint">${esc(row.where)}</td>
+          <td class="money">${esc(amount(row.purchase))}</td>
+          <td class="money">${esc(amount(row.selling))}</td>
+          <td class="money">${esc(amount(row.commission))}</td>
+          <td class="money">${profit(row.gross)}</td>
+          <td class="money">${profit(row.gross_after_tax)}</td>
+        </tr>`).join("");
+    }
+
+    /*
+      Pairs that earned money and sit in no month. Shown rather than quietly
+      left out: a figure missing from every month deserves more attention
+      than one that is merely small, and this is where a whole channel was
+      hiding before anyone looked.
+    */
+    function drawUndated(undated, silent) {
+      $("undatedBox").hidden = !undated.length && !silent;
+      $("undatedWhy").textContent = [
+        undated.length
+          ? `${esc(pairs(undated.length))} sold ${undated.length === 1 ? "has" : "have"} no date, so ${undated.length === 1 ? "it is" : "they are"} in none of the months above.`
+          : "",
+        silent ? `${silent} more are marked sold with no order and no price behind them.` : ""
+      ].filter(Boolean).join(" ");
+
+      $("undatedBody").innerHTML = undated.map((row) => `
+        <tr>
+          <td><span class="pill">${esc(row.channel)}</span></td>
+          <td>${esc(row.reference)}</td>
+          <td>${esc(row.sku)}</td>
+          <td>${esc(row.size)}</td>
+          <td class="money">${esc(amount(row.selling))}</td>
+          <td class="money">${profit(row.gross_after_tax)}</td>
+        </tr>`).join("");
+    }
+
+    function draw() {
+      const data = state.data;
+
+      if (!data) return;
+
+      const rows = state.channel ? data.rows.filter((row) => row.channel === state.channel) : data.rows;
+
+      drawSummary(data.totals);
+      drawMonths(state.channel ? [] : data.months);
+      drawRows(rows);
+      drawUndated(data.undated || [], data.undated_without_money || 0);
+
+      /*
+        The figures at the top always cover the whole period, whichever tab
+        is open: the point of a channel tab is to read its lines, not to
+        lose sight of what the other three did.
+      */
+      $("warning").hidden = !state.channel;
+      $("warning").textContent = state.channel
+        ? `Showing ${state.channel} only — the figures above are the whole period.`
+        : "";
+    }
+
+    async function run() {
+      $("error").textContent = "";
+      $("status").textContent = "Reading…";
+      $("go").disabled = true;
+
+      state.from = $("from").value;
+      state.to = $("to").value;
+
+      try {
+        const query = new URLSearchParams({ from: state.from, to: state.to });
+
+        state.data = await api(`/api/admin/earnings?${query}`);
+        $("status").textContent = `${state.data.rows.length} line${state.data.rows.length === 1 ? "" : "s"}`;
+        draw();
+      } catch (err) {
+        $("error").textContent = err.message;
+        $("status").textContent = "";
+      } finally {
+        $("go").disabled = false;
+      }
+    }
+
+    $("tabs").addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-channel]");
+
+      if (!tab) return;
+
+      state.channel = tab.dataset.channel;
+
+      for (const other of $("tabs").children) other.classList.toggle("on", other === tab);
+
+      draw();
+    });
+
+    document.querySelector(".filters").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-period]");
+
+      if (!button) return;
+
+      setPeriod(button.dataset.period);
+      run();
+    });
+
+    $("go").addEventListener("click", run);
+
+    /*
+      The file holds the whole period rather than the open tab: a month's
+      figures are what goes into a spreadsheet, and filtering it there is
+      one click.
+    */
+    $("download").addEventListener("click", async () => {
+      $("error").textContent = "";
+
+      try {
+        const response = await fetch("/api/admin/earnings/export", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from: state.from, to: state.to })
+        });
+
+        if (!response.ok) throw new Error("The file could not be made");
+
+        const blob = await response.blob();
+        const link = document.createElement("a");
+
+        link.href = URL.createObjectURL(blob);
+        link.download = `earnings-${state.from || "all"}-${state.to || "now"}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } catch (err) {
+        $("error").textContent = err.message;
+      }
+    });
+
+    setPeriod("month");
+    run();
+
+    /* ---------------- the sidebar, the same as everywhere ---------------- */
+
+    const NAV_GROUPS = {
+      store: "navStore", mwtb: "navMwtb", money: "navMoney",
+      forwarding: "navForwarding", external: "navExternal",
+      marketplaces: "navMarketplaces", warehouse: "navWarehouse"
+    };
+
+    let openNavSections = new Set(["money"]);
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("lojiq-admin-nav") || "null");
+      if (Array.isArray(saved)) openNavSections = new Set([...saved, "money"]);
+    } catch { /* the sidebar simply opens on Finance */ }
+
+    const saveNavSections = () => {
+      try { localStorage.setItem("lojiq-admin-nav", JSON.stringify([...openNavSections])); } catch {}
+    };
+
+    function drawNavSections() {
+      for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
+        const expanded = openNavSections.has(section);
+        const header = document.querySelector(`[data-nav-section="${section}"]`);
+
+        $(groupId).hidden = !expanded;
+        header.setAttribute("aria-expanded", String(expanded));
+        header.classList.toggle("current", section === "money");
+      }
+    }
+
+    let navCounts = {};
+    let navViews = [];
+
+    const navCount = (key) => {
+      const n = navCounts[key];
+      return `<small>${typeof n === "number" && n > 0 ? n : ""}</small>`;
+    };
+
+    function drawOtherSections(views) {
+      navViews = views || [];
+      const link = (view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)} ${navCount(`${view.section}/${view.key}`)}</a>`;
+
+      $("navStore").innerHTML = navViews.filter((view) => view.section === "store").map(link).join("");
+      $("navMwtb").innerHTML = navViews.filter((view) => view.section === "mwtb").map(link).join("");
+
+      const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
+
+      $("navMoney").innerHTML = finance.map(link).join("") +
+        `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>` +
+        `<a class="nav-item active" href="/admin/earnings">Earnings</a>`;
+
+      $("navWarehouse").innerHTML =
+        `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
+        `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
+        `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
+        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;
+
+      document.querySelectorAll("[data-nav-count]").forEach((el) => {
+        const n = navCounts[el.dataset.navCount];
+        el.textContent = typeof n === "number" && n > 0 ? String(n) : "";
+      });
+    }
+
+    async function loadNavCounts() {
+      try {
+        const data = await api("/api/admin/counts");
+        navCounts = data.tabs || {};
+        drawOtherSections(navViews);
+      } catch { /* the sidebar is still usable without its numbers */ }
+    }
+
+    document.querySelector(".sidebar").addEventListener("click", (event) => {
+      const header = event.target.closest("[data-nav-section]");
+      if (!header) return;
+
+      const section = header.dataset.navSection;
+
+      if (openNavSections.has(section)) openNavSections.delete(section);
+      else openNavSections.add(section);
+
+      saveNavSections();
+      drawNavSections();
+    });
+
+    drawNavSections();
+    drawOtherSections([]);
+    loadNavCounts();
+
+    /* ---------------- who is signed in, theme, log out ---------------- */
+
+    function syncThemeSwitch() {
+      const light = document.documentElement.dataset.theme === "light";
+      $("themeSwitch").textContent = light ? "Dark mode" : "Light mode";
+      $("themeSwitch").setAttribute("aria-pressed", String(light));
+    }
+
+    $("themeSwitch").addEventListener("click", () => {
+      const light = document.documentElement.dataset.theme !== "light";
+
+      if (light) document.documentElement.dataset.theme = "light";
+      else delete document.documentElement.dataset.theme;
+
+      try { localStorage.setItem("lojiq-admin-theme", light ? "light" : "dark"); } catch { /* not remembered, still switched */ }
+      syncThemeSwitch();
+    });
+
+    syncThemeSwitch();
+
+    $("logoutButton").addEventListener("click", async () => {
+      await api("/api/admin/logout", { method: "POST", body: "{}" }).catch(() => {});
+      location.href = "/admin";
+    });
+
+    api("/api/admin/me")
+      .then((me) => {
+        $("userName").textContent = me.user?.name || me.user?.email || "";
+        drawOtherSections(me.views);
+      })
+      .catch(() => { $("userName").textContent = ""; });
+  </script>
+</body>
+</html>

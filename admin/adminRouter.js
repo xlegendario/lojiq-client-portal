@@ -60,6 +60,7 @@ import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
 import { createConsignmentStockStore, mountConsignmentStock } from "./adminConsignmentStock.js";
 import { createWtbMatchStore, mountWtbMatch } from "./adminWtbMatch.js";
+import { createEarningsStore, mountEarnings } from "./adminEarnings.js";
 import { createWtbPhoto } from "./wtbPhoto.js";
 import { mountStockExport } from "./stockExport.js";
 import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
@@ -572,6 +573,22 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       })
     }),
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-wtb-match.html") : ""
+  });
+
+  /*
+   * Earnings: what the three channels earned, and when
+   * (admin/adminEarnings.js, admin/earnings.js, private/admin-earnings.html).
+   *
+   * Reads Airtable for the pairs that went out as a store order or a
+   * Member WTB - the profit is worked out there, per unit - and Supabase
+   * for the external sales, where it is worked out from the deal.
+   */
+  mountEarnings(router, {
+    store: createEarningsStore({
+      airtable,
+      db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl })
+    }),
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-earnings.html") : ""
   });
 
   // Export: the three stock screens as one Excel file or CSV
