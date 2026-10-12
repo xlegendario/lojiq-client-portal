@@ -258,6 +258,14 @@
       <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Finance</button>
       <div class="nav-group" id="navMoney" hidden></div>
 
+      <button class="nav-section" type="button" data-nav-section="earnings" aria-controls="navEarnings" aria-expanded="false">Earnings</button>
+      <div class="nav-group" id="navEarnings" hidden>
+        <a class="nav-item" href="/admin/earnings">General</a>
+        <a class="nav-item" href="/admin/earnings?channel=Store+orders">Store Orders</a>
+        <a class="nav-item" href="/admin/earnings?channel=Member+WTBs">Member WTBs</a>
+        <a class="nav-item" href="/admin/earnings?channel=External+sales">External Sales</a>
+      </div>
+
       <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
       <div class="nav-group" id="navForwarding" hidden>
         <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label <small data-nav-count="forwarding/awaiting_label"></small></a>
@@ -379,7 +387,7 @@
 
     /* ---------------- sidebar ---------------- */
 
-    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", earnings: "navEarnings", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
     const NAV_OPEN_KEY = "lojiq-admin-nav-open";
     const openNavSections = new Set();
 
@@ -423,8 +431,7 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
-        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>` +
-        `<a class="nav-item" href="/admin/earnings">Earnings</a>`;
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       $("navWarehouse").innerHTML =
         `<a class="nav-item active" href="/admin/inbound-scans">Inbound Scans</a>` +

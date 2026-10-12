@@ -230,18 +230,6 @@
     .up { color: var(--good-text); }
     .down { color: var(--bad-text); }
 
-    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
-
-    .tab {
-      appearance: none; cursor: pointer;
-      padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px;
-      background: var(--panel); color: var(--nav-item);
-      font: inherit; font-size: 12.5px; font-weight: 700;
-    }
-
-    .tab:hover { color: var(--text); }
-    .tab.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-
     /* The months and the strays are a handful of lines, not a list to
        scroll through on their own. */
     .table-wrap.short { max-height: none; }
@@ -279,6 +267,14 @@
 
       <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Finance</button>
       <div class="nav-group" id="navMoney" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="earnings" aria-controls="navEarnings" aria-expanded="false">Earnings</button>
+      <div class="nav-group" id="navEarnings" hidden>
+        <a class="nav-item" href="/admin/earnings">General</a>
+        <a class="nav-item" href="/admin/earnings?channel=Store+orders">Store Orders</a>
+        <a class="nav-item" href="/admin/earnings?channel=Member+WTBs">Member WTBs</a>
+        <a class="nav-item" href="/admin/earnings?channel=External+sales">External Sales</a>
+      </div>
 
       <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
       <div class="nav-group" id="navForwarding" hidden>
@@ -337,13 +333,6 @@
       <p class="field-error" id="error"></p>
 
       <div class="tiles" id="summary" hidden></div>
-
-      <div class="tabs" id="tabs" role="tablist">
-        <button class="tab on" type="button" data-channel="" role="tab">General</button>
-        <button class="tab" type="button" data-channel="Store orders" role="tab">Store Orders</button>
-        <button class="tab" type="button" data-channel="Member WTBs" role="tab">Member WTBs</button>
-        <button class="tab" type="button" data-channel="External sales" role="tab">External Sales</button>
-      </div>
 
       <p class="hint" id="warning" hidden></p>
 
@@ -436,14 +425,22 @@
     }
 
     /*
-      One period, four tabs.
+      One period, four views.
 
-      The tabs do not each fetch: the period is read once and a tab only
-      says which channel of it to show. Switching between them is free, and
-      the four always add up to General because they are the same answer
-      looked at four ways.
+      The four live in the sidebar, where every other part of the portal
+      keeps its views - but they are not four screens. They are one answer
+      looked at four ways, over one period, read once. So the links carry
+      the channel in the address and the click is caught here: the figures
+      stay, the period stays, and nothing is asked of Airtable again.
     */
-    const state = { from: "", to: "", channel: "", data: null };
+    const CHANNELS = ["Store orders", "Member WTBs", "External sales"];
+
+    const state = {
+      from: "",
+      to: "",
+      channel: CHANNELS.find((name) => name === new URLSearchParams(location.search).get("channel")) || "",
+      data: null
+    };
 
     const asDay = (date) => date.toISOString().slice(0, 10);
 
@@ -525,9 +522,11 @@
     function drawUndated(undated, silent) {
       $("undatedBox").hidden = !undated.length && !silent;
       $("undatedWhy").textContent = [
-        undated.length
-          ? `${esc(pairs(undated.length))} sold ${undated.length === 1 ? "has" : "have"} no date, so ${undated.length === 1 ? "it is" : "they are"} in none of the months above.`
-          : "",
+        undated.length === 1
+          ? "One sold pair has no date, so it is in none of the months above."
+          : undated.length
+            ? `${undated.length} sold pairs have no date, so they are in none of the months above.`
+            : "",
         silent ? `${silent} more are marked sold with no order and no price behind them.` : ""
       ].filter(Boolean).join(" ");
 
@@ -587,15 +586,43 @@
       }
     }
 
-    $("tabs").addEventListener("click", (event) => {
-      const tab = event.target.closest("[data-channel]");
+    /*
+      Which of the four the sidebar is showing as open. Marked here rather
+      than in the markup, because the address decides it and the address
+      can change without the page being loaded again.
+    */
+    function markSidebar() {
+      for (const link of document.querySelectorAll('#navEarnings .nav-item')) {
+        const channel = new URL(link.href, location.origin).searchParams.get("channel") || "";
 
-      if (!tab) return;
+        link.classList.toggle("active", channel === state.channel);
+      }
+    }
 
-      state.channel = tab.dataset.channel;
+    /*
+      A click on one of the four is not a new screen. The address changes
+      so the link can be copied and the back button works, but the figures
+      on the page are the ones already in hand.
+    */
+    document.getElementById("navEarnings").addEventListener("click", (event) => {
+      const link = event.target.closest("a.nav-item");
 
-      for (const other of $("tabs").children) other.classList.toggle("on", other === tab);
+      if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
 
+      event.preventDefault();
+
+      state.channel = new URL(link.href, location.origin).searchParams.get("channel") || "";
+      history.pushState({ channel: state.channel }, "", link.getAttribute("href"));
+      markSidebar();
+      draw();
+    });
+
+    // The back button goes back through the four, not out of the screen.
+    window.addEventListener("popstate", () => {
+      const asked = new URLSearchParams(location.search).get("channel") || "";
+
+      state.channel = CHANNELS.includes(asked) ? asked : "";
+      markSidebar();
       draw();
     });
 
@@ -640,6 +667,7 @@
       }
     });
 
+    markSidebar();
     setPeriod("month");
     run();
 
@@ -647,16 +675,16 @@
 
     const NAV_GROUPS = {
       store: "navStore", mwtb: "navMwtb", money: "navMoney",
-      forwarding: "navForwarding", external: "navExternal",
+      forwarding: "navForwarding", external: "navExternal", earnings: "navEarnings",
       marketplaces: "navMarketplaces", warehouse: "navWarehouse"
     };
 
-    let openNavSections = new Set(["money"]);
+    let openNavSections = new Set(["earnings"]);
 
     try {
       const saved = JSON.parse(localStorage.getItem("lojiq-admin-nav") || "null");
-      if (Array.isArray(saved)) openNavSections = new Set([...saved, "money"]);
-    } catch { /* the sidebar simply opens on Finance */ }
+      if (Array.isArray(saved)) openNavSections = new Set([...saved, "earnings"]);
+    } catch { /* the sidebar simply opens on Earnings */ }
 
     const saveNavSections = () => {
       try { localStorage.setItem("lojiq-admin-nav", JSON.stringify([...openNavSections])); } catch {}
@@ -669,7 +697,7 @@
 
         $(groupId).hidden = !expanded;
         header.setAttribute("aria-expanded", String(expanded));
-        header.classList.toggle("current", section === "money");
+        header.classList.toggle("current", section === "earnings");
       }
     }
 
@@ -692,8 +720,7 @@
 
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
-        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>` +
-        `<a class="nav-item active" href="/admin/earnings">Earnings</a>`;
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
 
       $("navWarehouse").innerHTML =
         `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
