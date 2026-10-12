@@ -181,6 +181,9 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
     for (let from = 0; from < 60_000; from += 1000) {
       const page = await db.get(
         `consignment_inventory?select=${COLUMNS}&quantity=gt.0&selling_price_suggested=gt.0` +
+        // Turum's stock only ships on their own label to a bol or contract
+        // store buyer, so it is not stock this screen can offer anyone.
+        `&contract_labels_only=eq.false` +
         `&order=created_at.desc&limit=1000&offset=${from}`
       );
 
@@ -377,7 +380,8 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
 
     const rows = await db.get(
       `consignment_inventory?select=${COLUMNS}&sku=eq.${encodeURIComponent(style)}` +
-      `&size=eq.${encodeURIComponent(which)}&quantity=gt.0&selling_price_suggested=gt.0`
+      `&size=eq.${encodeURIComponent(which)}&quantity=gt.0&selling_price_suggested=gt.0` +
+      `&contract_labels_only=eq.false`
     );
 
     const holders = (rows || []).map(stockRow);
