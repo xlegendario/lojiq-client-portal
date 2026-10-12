@@ -36,7 +36,17 @@ test("a sold pair is the figures Airtable already works out", () => {
 
   assert.equal(row.channel, "Store orders");
   assert.equal(row.date, "2026-08-10");
-  assert.equal(row.reference, "16527");
+  /*
+    The number the deal is known by, which for a store order is the one on
+    the order itself. The Shopify number is the shop's own and nothing here
+    is filed under it; the unit number stands in only when there is no
+    order at all - and those are the rows worth looking up, so an empty
+    cell would be the wrong kind of honest.
+  */
+  assert.equal(row.reference, "PCS-006200", "no order yet, so the unit it is");
+  assert.equal(unitEarning(SHOP, { order: "ORD-004554" }).reference, "ORD-004554");
+  assert.equal(unitEarning({ ...SHOP, "Order ID (UOL)": ["ORD-004554"] }).reference, "ORD-004554");
+  assert.equal(row.shop_order, "16527", "the shop's own number is kept, beside it");
   assert.equal(row.where, "Shopify");
 
   // To the cent, and rounded the way money is rather than left at

@@ -233,6 +233,13 @@
     /* The months and the strays are a handful of lines, not a list to
        scroll through on their own. */
     .table-wrap.short { max-height: none; }
+
+    /* While a period is being read, what is on screen is the one before
+       it. Saying so is better than letting it pass for the answer. */
+    .content.reading .tiles,
+    .content.reading #monthsBox,
+    .content.reading #rowsBox,
+    .content.reading #undatedBox { opacity: 0.35; transition: opacity 120ms; }
   </style>
 <style>
     .lede { color: var(--muted); margin: 0 0 16px; max-width: 70ch; }
@@ -364,7 +371,7 @@
               <tr>
                 <th>Date</th>
                 <th>Channel</th>
-                <th>Reference</th>
+                <th>Order</th>
                 <th>SKU</th>
                 <th>Size</th>
                 <th>Product</th>
@@ -389,9 +396,11 @@
             <thead>
               <tr>
                 <th>Channel</th>
-                <th>Reference</th>
+                <th>Order</th>
+                <th>Unit</th>
                 <th>SKU</th>
                 <th>Size</th>
+                <th>Product</th>
                 <th class="money">Selling</th>
                 <th class="money">After TAX</th>
               </tr>
@@ -533,9 +542,11 @@
       $("undatedBody").innerHTML = undated.map((row) => `
         <tr>
           <td><span class="pill">${esc(row.channel)}</span></td>
-          <td>${esc(row.reference)}</td>
+          <td>${esc(row.order) || '<span class="hint">no order</span>'}</td>
+          <td>${esc(row.item)}</td>
           <td>${esc(row.sku)}</td>
           <td>${esc(row.size)}</td>
+          <td>${esc(row.product)}</td>
           <td class="money">${esc(amount(row.selling))}</td>
           <td class="money">${profit(row.gross_after_tax)}</td>
         </tr>`).join("");
@@ -566,11 +577,22 @@
 
     async function run() {
       $("error").textContent = "";
-      $("status").textContent = "Reading…";
       $("go").disabled = true;
 
       state.from = $("from").value;
       state.to = $("to").value;
+
+      /*
+        Dimmed while it reads. The figures standing there belong to the
+        period that was asked for last, and a year takes a few seconds -
+        long enough for Dario to press This Year, see last month's table
+        sitting unchanged, and conclude that nothing happened at all.
+      */
+      document.querySelector(".content").classList.add("reading");
+
+      const days = (new Date(state.to) - new Date(state.from)) / 86400000;
+
+      $("status").textContent = days > 45 ? "Reading… a longer period takes a few seconds" : "Reading…";
 
       try {
         const query = new URLSearchParams({ from: state.from, to: state.to });
@@ -582,6 +604,7 @@
         $("error").textContent = err.message;
         $("status").textContent = "";
       } finally {
+        document.querySelector(".content").classList.remove("reading");
         $("go").disabled = false;
       }
     }

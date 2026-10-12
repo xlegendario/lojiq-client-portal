@@ -55,7 +55,7 @@ export function day(value) {
  * with no date falls out of every period - which is exactly what hid this
  * whole channel until now.
  */
-export function unitEarning(unit = {}, { paidAt = "" } = {}) {
+export function unitEarning(unit = {}, { paidAt = "", order = "" } = {}) {
   const wtb = text(first(unit["Member WTB ID"]));
   const channel = wtb ? "Member WTBs" : "Store orders";
 
@@ -64,7 +64,20 @@ export function unitEarning(unit = {}, { paidAt = "" } = {}) {
     date: channel === "Member WTBs"
       ? day(paidAt) || day(unit["Sales Date"])
       : day(unit["Sales Date"]) || day(unit["Date Fulfilled"]),
-    reference: wtb || text(first(unit["Shopify Order Number"])) || text(unit["Item ID"]),
+    /*
+      The number the deal is known by: MWTB-000415, ORD-004554. Not the
+      Shopify number, which is the shop's own and is not what anything
+      here is filed under, and not the Ticket Number, which holds an ORD
+      on some rows and a raw marketplace id on others.
+
+      A pair that hangs off no order at all keeps its unit number, which
+      is the only thing it has - and those are exactly the rows worth
+      looking up, so leaving the cell empty would be the wrong kind of
+      honest.
+    */
+    reference: wtb || text(order) || text(first(unit["Order ID (UOL)"])) || text(unit["Item ID"]),
+    order: wtb || text(order) || text(first(unit["Order ID (UOL)"])),
+    shop_order: text(first(unit["Shopify Order Number"])),
     item: text(unit["Item ID"]),
     sku: text(unit.SKU),
     size: text(unit.Size),
@@ -114,6 +127,8 @@ export function externalEarning(sale = {}, pairs = []) {
     channel: "External sales",
     date: day(sale.sale_date) || day(sale.created_at),
     reference: sale.deal_number ? `EXTD-${String(sale.deal_number).padStart(6, "0")}` : text(sale.id),
+    order: sale.deal_number ? `EXTD-${String(sale.deal_number).padStart(6, "0")}` : "",
+    shop_order: "",
     item: "",
     sku: live.length === 1 ? text(live[0].sku) : "",
     size: live.length === 1 ? text(live[0].size) : "",

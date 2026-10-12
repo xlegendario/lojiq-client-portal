@@ -26,6 +26,7 @@ import fs from "node:fs";
 import { unitEarning, externalEarning, inPeriod, totals, byMonth, earningsCsv, CHANNELS } from "./earnings.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
+const first = (value) => (Array.isArray(value) ? value[0] : value);
 
 export const UNITS = "Inventory Units";
 export const MEMBER_WTBS = "Member WTBs";
@@ -39,6 +40,48 @@ const UNIT_FIELDS = [
   "Member WTB ID", "Shopify Order Number", "Store Name", "UOL Order Source",
   "Unfulfilled Orders Log", "Member WTBs", "External Sales Log"
 ];
+
+export const ORDERS = "Unfulfilled Orders Log";
+
+/*
+ * The order number a sold pair belongs to.
+ *
+ * A Member WTB carries its own (MWTB-000415) and an external sale is a
+ * deal in its own right (EXTD-000098), but a store order's number lives on
+ * the order and the unit only holds a link to it. The Shopify number is
+ * the shop's own and nothing here is filed under it; the Ticket Number is
+ * an ORD on some rows and a raw marketplace id on others.
+ *
+ * So the orders behind this period are read by id, fifty at a time. That
+ * is three extra calls for a month and some thirty for a year - which is
+ * why a lookup of Order ID on Inventory Units would be worth adding: the
+ * number would then come with the unit and this would fall away. Until
+ * then the unit is asked for it, and a lookup that does appear is
+ * preferred over this, so adding it later is a straight saving.
+ */
+async function orderNumbers(airtable, units, known) {
+  const ids = [...new Set(units
+    .filter((unit) => !text(first(unit["Order ID (UOL)"])))
+    .flatMap((unit) => unit["Unfulfilled Orders Log"] || [])
+    .filter((id) => !known.has(id)))];
+
+  if (!ids.length || typeof airtable?.byIds !== "function") return known;
+
+  const found = await airtable.byIds(ORDERS, ids, ["Order ID"]).catch(() => new Map());
+
+  for (const [id, fields] of found) known.set(id, text(fields["Order ID"]));
+
+  /*
+    Asked for once and then kept. An order's number is not going to change,
+    so an id that has been looked up never has to be looked up again - which
+    is what makes the second year as quick as a month. Nothing is forgotten
+    on purpose: at fifty bytes a row the whole order book would be a couple
+    of megabytes, and the service restarts long before that matters.
+  */
+  for (const id of ids) if (!known.has(id)) known.set(id, "");
+
+  return known;
+}
 
 // A day either side of the period, so nothing is lost to how Airtable
 // reads a date. The exact cut is made here afterwards, in inPeriod.
@@ -90,6 +133,9 @@ return window.length
  */
 export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_000 } = {}) {
   let held = { at: 0, promise: null };
+
+  // id -> ORD-000000, for as long as the service runs. See orderNumbers.
+  const orderBook = new Map();
 
   async function readAll(table, { formula = "", fields = [], pages = 60 } = {}) {
     const rows = [];
@@ -175,11 +221,15 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
       externalSales()
     ]);
 
-    const fromAirtable = units
-      // A unit that is also on an external sale is counted there, as part of
-      // that deal. Counting it here as well would book the pair twice.
-      .filter((unit) => !(unit["External Sales Log"] || []).length)
-      .map((unit) => unitEarning(unit, { paidAt: paidAt.get(text(unit["Member WTB ID"])) || "" }));
+    // A unit that is also on an external sale is counted there, as part of
+    // that deal. Counting it here as well would book the pair twice.
+    const mine = units.filter((unit) => !(unit["External Sales Log"] || []).length);
+    const orders = await orderNumbers(airtable, mine, orderBook);
+
+    const fromAirtable = mine.map((unit) => unitEarning(unit, {
+      paidAt: paidAt.get(text(unit["Member WTB ID"])) || "",
+      order: orders.get((unit["Unfulfilled Orders Log"] || [])[0]) || ""
+    }));
 
     return [...fromAirtable, ...external];
   }
@@ -230,7 +280,8 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
       undated: undated
         .filter((row) => row.selling !== null || row.gross_after_tax !== null)
         .map((row) => ({
-          channel: row.channel, reference: row.reference, sku: row.sku, size: row.size,
+          channel: row.channel, reference: row.reference, order: row.order, item: row.item,
+          product: row.product, sku: row.sku, size: row.size,
           selling: row.selling, gross_after_tax: row.gross_after_tax
         })),
       undated_without_money: undated.filter((row) => row.selling === null && row.gross_after_tax === null).length
