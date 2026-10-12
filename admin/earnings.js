@@ -106,17 +106,25 @@ export const unitWtbId = (unit = {}) => {
 export function unitEarning(unit = {}, { wtb = null, order = "" } = {}) {
   const channel = unitChannel(unit);
 
-  const when = channel === "Member WTBs"
-    ? day(wtb?.created)
+  /*
+    The moment, not only the day. Two orders fulfilled an hour apart are
+    the same date, and sorting on the date alone left today's newest
+    somewhere in the middle of today.
+  */
+  const moment = channel === "Member WTBs"
+    ? text(first(wtb?.created))
     : channel === "External sales"
-      ? day(unit["Date Sold (External)"]) || day(unit["Sales Date"])
-      : day(unit["Date Fulfilled"]) || day(unit["Sales Date"]);
+      ? text(first(unit["Date Sold (External)"])) || text(first(unit["Sales Date"]))
+      : text(first(unit["Date Fulfilled"])) || text(first(unit["Sales Date"]));
+
+  const when = day(moment);
 
   const wtbId = unitWtbId(unit);
 
   return {
     channel,
     date: when,
+    at: when ? moment : "",
     /*
       The number the deal is known by: MWTB-000415, ORD-004554. Not the
       Shopify number, which is the shop's own and is not what anything
@@ -183,6 +191,9 @@ export function externalEarning(sale = {}, pairs = []) {
     channel: "External sales",
     status: text(sale.stage) === "negotiating" ? "Draft" : text(sale.shipping_status) || text(sale.payment_status),
     date: day(sale.sale_date) || day(sale.created_at),
+    // sale_date is a day; created_at is the moment, and that is what tells
+    // two deals of the same day apart.
+    at: `${day(sale.sale_date) || day(sale.created_at)}T${text(sale.created_at).slice(11) || "00:00:00"}`,
     reference: sale.deal_number ? `EXTD-${String(sale.deal_number).padStart(6, "0")}` : text(sale.id),
     order: sale.deal_number ? `EXTD-${String(sale.deal_number).padStart(6, "0")}` : "",
     shop_order: "",
@@ -227,7 +238,10 @@ export function inPeriod(rows = [], { from = "", to = "" } = {}) {
     kept.push(row);
   }
 
-  kept.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  // Newest first, to the minute where there is one.
+  const moment = (row) => row.at || row.date;
+
+  kept.sort((a, b) => (moment(a) < moment(b) ? 1 : moment(a) > moment(b) ? -1 : 0));
 
   return { rows: kept, undated };
 }
