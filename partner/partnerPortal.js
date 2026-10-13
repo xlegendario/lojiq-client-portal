@@ -33,6 +33,7 @@ import { BuyerError, createPartnerBuyers } from "./partnerBuyers.js";
 import { createForwardInvoicing, sellerFromFields } from "./forwardInvoicing.js";
 import { createLabelReader, labelFromDataUrl } from "./labelReader.js";
 import { usedTracking } from "./partnerForward.js";
+import { createPartnerLabels } from "./partnerLabels.js";
 import { createRompslomp } from "../admin/externalSalesInvoicing.js";
 import { createPurchaseExpense } from "../admin/purchaseExpense.js";
 
@@ -266,6 +267,22 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
 
   const buyers = createPartnerBuyers({ db, callKc: kcRaw, now });
 
+  // The WMS as it answers, refusals included: a label that failed halfway
+  // still hands back the ones it made.
+  async function wmsRaw(pathName, body) {
+    if (!base(services.wmsBaseUrl) || !text(services.internalSecret)) throw new Error("WMS not configured");
+
+    const response = await fetchImpl(`${base(services.wmsBaseUrl)}${pathName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-kc-secret": services.internalSecret },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000)
+    });
+    return { status: response.status, data: await response.json().catch(() => ({})) };
+  }
+
+  const labels = createPartnerLabels({ db, callWms: wmsRaw });
+
   const rompslomp = createRompslomp({ token: services.rompslompToken, companyId: services.rompslompCompanyId || undefined, fetchImpl });
 
   const invoicing = createForwardInvoicing({
@@ -447,7 +464,7 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     }
   });
 
-  return { router, enabled, db, invoicing, buyers };
+  return { router, enabled, db, invoicing, buyers, labels };
 }
 
 export function partnerPagePath(dirname) {

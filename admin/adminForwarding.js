@@ -14,6 +14,7 @@
 //
 // Every change goes through the action log, like the other buttons.
 
+import { labelId } from "../partner/partnerLabels.js";
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -413,6 +414,69 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
    *   paid       we paid the partner what the invoice left him
    *   unpaid     that was a mistake
    */
+  /*
+   * Partner labels (partner/partnerLabels.js): labels we make on Sendcloud
+   * for a partner's own parcels. Check shows what Sendcloud would do without
+   * spending anything; Create makes them.
+   */
+  if (forwardInvoices?.labels) {
+    const { labels } = forwardInvoices;
+
+    const labelLog = (req, action, row, details) =>
+      audit.record({ actor: req.admin, action, source: "partner_labels", recordId: row.id, label: labelId(row), details });
+
+    const labelSend = (res, err) => {
+      if (err?.code) return res.status(err.status || 400).json({ error: err.reason || err.code, fields: err.fields || [], row: err.row || null });
+      console.error("[admin partner labels]", err.message);
+      res.status(500).json({ error: "Partner labels failed." });
+    };
+
+    router.get("/api/admin/partner-labels", async (req, res) => {
+      try {
+        res.json({ labels: await labels.list({ sellerRecordId: text(req.query.seller) }), partners: await labels.partners() });
+      } catch (err) {
+        labelSend(res, err);
+      }
+    });
+
+    router.get("/api/admin/partner-labels/addresses", async (req, res) => {
+      try {
+        res.json({ addresses: await labels.addresses(text(req.query.seller)) });
+      } catch (err) {
+        labelSend(res, err);
+      }
+    });
+
+    router.post("/api/admin/partner-labels", express.json({ limit: "50kb" }), async (req, res) => {
+      const action = text(req.body?.action);
+      const id = text(req.body?.id);
+
+      try {
+        let row;
+        let extra = {};
+
+        if (action === "new") {
+          const partner = (await labels.partners()).find((p) => p.seller_record_id === text(req.body?.seller_record_id));
+          if (!partner) throw Object.assign(new Error("Choose the partner."), { code: "Choose the partner.", status: 400 });
+          row = await labels.request({ sellerRecordId: partner.seller_record_id, sellerId: partner.seller_id, requestedBy: req.admin.name || req.admin.email, input: req.body });
+        } else if (action === "check") {
+          extra = { check: await labels.check(id) };
+          row = await labels.load(id);
+        } else if (action === "create") row = await labels.create(id);
+        else if (action === "reject") row = await labels.reject(id, req.body?.reason);
+        else if (action === "price") row = await labels.setPrice(id, req.body?.price);
+        else if (action === "paid" || action === "unpaid") row = await labels.setPaid(id, action === "paid");
+        else throw Object.assign(new Error("Unknown action."), { code: "Unknown action.", status: 400 });
+
+        if (action !== "check") await labelLog(req, `partner_label_${action}`, row, { status: row.status, price: row.price ?? null, tracking: row.tracking_numbers });
+        res.json({ label: row, ...extra });
+      } catch (err) {
+        if (err?.row) await labelLog(req, "partner_label_failed", err.row, { error: err.reason }).catch(() => {});
+        labelSend(res, err);
+      }
+    });
+  }
+
   if (forwardInvoices?.invoicing) {
     const { invoicing, buyers } = forwardInvoices;
 

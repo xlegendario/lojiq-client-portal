@@ -237,7 +237,7 @@ const adminPortal = createAdminPortal({
   supabaseUrl: SUPABASE_URL,
   serviceKey: SUPABASE_SERVICE_ROLE_KEY,
   // The invoices partners make on their forwards, handled in Forward Service.
-  forwardInvoices: { invoicing: partnerPortal.invoicing, buyers: partnerPortal.buyers }
+  forwardInvoices: { invoicing: partnerPortal.invoicing, buyers: partnerPortal.buyers, labels: partnerPortal.labels }
 });
 
 app.use(adminPortal.router);

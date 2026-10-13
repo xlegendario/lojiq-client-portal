@@ -218,6 +218,11 @@
     .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
     .sidebar-foot strong { color: var(--text); }
     .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+    .addr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .addr-grid .wide { grid-column: span 2; }
+    .error-text { color: var(--bad-text); font-size: 13px; }
+    .lbl-links a { display: block; }
+    .price-input { width: 80px; }
     .act.danger { border-color: var(--red); color: var(--bad-text); }
     .hold-box { border: 1px solid var(--warning); border-radius: 10px; padding: 12px; margin: 0 0 14px; background: var(--wait-bg); }
     .hold-box p { margin: 4px 0 8px; }
@@ -258,6 +263,7 @@
         <button class="nav-item" type="button" data-shipping="ready_to_ship">Ready to Ship <small data-count="ready_to_ship"></small></button>
         <button class="nav-item" type="button" data-shipping="shipped">Shipped <small data-count="shipped"></small></button>
         <button class="nav-item" type="button" data-shipping="all">All forwards</button>
+        <button class="nav-item" type="button" data-mode="labels">Partner Labels <small id="labelCount"></small></button>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
@@ -308,6 +314,7 @@
         </select>
         <input class="input" id="searchInput" type="search" placeholder="Search FWD, buyer, SKU, tracking…" style="width:260px">
         <span class="count" id="count"></span>
+        <button class="btn primary" id="newLabelBtn" type="button" hidden>+ New label</button>
       </div>
 
       <div class="actionbar" id="actionbar" hidden>
@@ -335,6 +342,60 @@
     <div class="panel-actions" id="panelActions"></div>
     <div class="panel-body" id="panelBody"></div>
   </aside>
+
+  <dialog id="labelDialog">
+    <form class="dialog-body" id="labelForm" method="dialog" novalidate>
+      <h2>New label</h2>
+
+      <div class="field">
+        <label for="lblPartner">Partner</label>
+        <select class="select" id="lblPartner"></select>
+      </div>
+
+      <div class="field">
+        <label for="lblAddress">Ship to</label>
+        <select class="select" id="lblAddress"></select>
+      </div>
+
+      <div id="lblNewAddress" class="addr-grid" hidden>
+        <input class="input" id="lblName" placeholder="Name">
+        <input class="input" id="lblCompany" placeholder="Company">
+        <input class="input wide" id="lblStreet" placeholder="Street">
+        <input class="input" id="lblHouse" placeholder="House number">
+        <input class="input" id="lblAddress2" placeholder="Address line 2">
+        <input class="input" id="lblPostal" placeholder="Postcode">
+        <input class="input" id="lblCity" placeholder="City">
+        <select class="select" id="lblCountry"></select>
+        <input class="input" id="lblPhone" placeholder="Phone">
+        <input class="input wide" id="lblEmail" placeholder="E-mail (optional)">
+      </div>
+
+      <div class="field">
+        <label for="lblCarrier">Carrier</label>
+        <select class="select" id="lblCarrier">
+          <option value="UPS">UPS</option>
+          <option value="DPD">DPD</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="lblBoxes">Boxes, weight per box in kg (one per line, or "3 x 2.5")</label>
+        <textarea class="input" id="lblBoxes" rows="3" placeholder="2.5"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="lblNote">Note (only for us)</label>
+        <input class="input" id="lblNote">
+      </div>
+
+      <div class="error-text" id="lblError" hidden></div>
+
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="lblCancel">Close</button>
+        <button class="btn primary" type="button" id="lblSave">Save request</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="editDialog">
     <form class="dialog-body" id="editForm" method="dialog">
@@ -409,7 +470,9 @@
     const params = new URLSearchParams(location.search);
 
     const state = {
-      mode: ["payments", "partner-payouts"].includes(params.get("view")) ? params.get("view") : "forwards",
+      mode: ["payments", "partner-payouts", "labels"].includes(params.get("view")) ? params.get("view") : "forwards",
+      labels: [],
+      partners: [],
       payouts: [],
       shipping: "awaiting_label",
       forwards: [],
@@ -447,7 +510,7 @@
     } catch {}
 
     function currentSection() {
-      return state.mode === "forwards" ? "forwarding" : "money";
+      return state.mode === "forwards" || state.mode === "labels" ? "forwarding" : "money";
     }
 
     function saveNavSections() {
@@ -469,6 +532,7 @@
 
       document.querySelector('[data-mode="payments"]').classList.toggle("active", state.mode === "payments");
       document.querySelector('[data-mode="partner-payouts"]').classList.toggle("active", state.mode === "partner-payouts");
+      document.querySelector('[data-mode="labels"]').classList.toggle("active", state.mode === "labels");
     }
 
     // Counts for every tab, from the same cached endpoint the main page uses.
@@ -524,6 +588,7 @@
 
       if (event.target.closest('[data-mode="payments"]')) switchTo("payments");
       if (event.target.closest('[data-mode="partner-payouts"]')) switchTo("partner-payouts");
+      if (event.target.closest('[data-mode="labels"]')) switchTo("labels");
     });
 
     function switchTo(mode, shipping = state.shipping) {
@@ -600,7 +665,10 @@
     /* ---------------- render ---------------- */
 
     function render() {
+      $("newLabelBtn").hidden = state.mode !== "labels";
+      $("sellerFilter").hidden = state.mode === "labels";
       if (state.mode === "partner-payouts") return renderPartnerPayouts();
+      if (state.mode === "labels") return renderLabels();
 
       const rows = visibleForwards();
       const payments = state.mode === "payments";
@@ -968,6 +1036,18 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     /* ---------------- loading ---------------- */
 
     async function load() {
+      if (state.mode === "labels") {
+        try {
+          const data = await api("/api/admin/partner-labels");
+          state.labels = data.labels || [];
+          state.partners = data.partners || [];
+          render();
+        } catch (err) {
+          $("rows").innerHTML = `<tr><td colspan="9" class="empty">${esc(err.message)}</td></tr>`;
+        }
+        return;
+      }
+
       if (state.mode === "partner-payouts") {
         try {
           state.payouts = (await api("/api/admin/forwarding/partner-payouts")).payouts || [];
@@ -1022,6 +1102,9 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         $("unpaidCount").textContent = unpaid || "";
 
         const payouts = await api("/api/admin/forwarding/partner-payouts").catch(() => ({ payouts: [] }));
+        const labelData = await api("/api/admin/partner-labels").catch(() => ({ labels: [] }));
+        $("labelCount").textContent = (labelData.labels || []).filter((l) => l.status === "requested" || l.status === "failed").length || "";
+
         $("payoutCount").textContent = (payouts.payouts || []).filter((inv) => inv.partner_payout_status === "to_pay").length || "";
 
         const current = $("sellerFilter").value;
@@ -1345,6 +1428,203 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     $("rows").addEventListener("click", (event) => {
       const button = event.target.closest("[data-payout-paid]");
       if (button) invoiceAction(button.dataset.payoutPaid, "paid");
+    });
+
+    /* ---------------- partner labels ---------------- */
+
+    const LABEL_STATUS = {
+      requested: ["Requested", "wait"],
+      failed: ["Failed", "bad"],
+      created: ["Created", "good"],
+      rejected: ["Rejected", "off"]
+    };
+    const COUNTRY_LIST = [["AT","Austria"],["BE","Belgium"],["BG","Bulgaria"],["HR","Croatia"],["CY","Cyprus"],["CZ","Czech Republic"],["DK","Denmark"],["EE","Estonia"],["FI","Finland"],["FR","France"],["DE","Germany"],["GR","Greece"],["HU","Hungary"],["IE","Ireland"],["IT","Italy"],["LV","Latvia"],["LT","Lithuania"],["LU","Luxembourg"],["MT","Malta"],["NL","Netherlands"],["PL","Poland"],["PT","Portugal"],["RO","Romania"],["SK","Slovakia"],["SI","Slovenia"],["ES","Spain"],["SE","Sweden"],["NO","Norway"],["CH","Switzerland"],["GB","United Kingdom"],["IS","Iceland"]];
+    const lblNumber = (row) => `LBL-${String(row.label_number ?? "").padStart(6, "0")}`;
+    const shipTo = (a) => [a?.company || a?.name, [a?.street, a?.house_number].filter(Boolean).join(" "), [a?.postal_code, a?.city].filter(Boolean).join(" "), a?.country].filter(Boolean).map(esc).join("<br>");
+
+    function renderLabels() {
+      const query = $("searchInput").value.trim().toLowerCase();
+      const rows = state.labels.filter((l) => !query || [lblNumber(l), l.seller_id, l.carrier, ...(l.tracking_numbers || []), JSON.stringify(l.address)].join(" ").toLowerCase().includes(query));
+      const partnerName = (id) => state.partners.find((p) => p.seller_record_id === id)?.name || "";
+
+      $("crumb").textContent = "Forward Service";
+      $("viewTitle").textContent = "Partner Labels";
+      document.title = "Partner Labels · Forward Service · Lojiq Admin";
+      $("paymentFilter").hidden = true;
+      $("actionbar").hidden = true;
+      const open = rows.filter((l) => l.status === "requested" || l.status === "failed").length;
+      const due = rows.filter((l) => l.status === "created" && l.payment_status !== "paid" && l.price !== null && l.price !== undefined);
+      $("count").textContent = `${open} to make · ${due.length} unpaid · ${euro(due.reduce((sum, l) => sum + Number(l.price), 0))}`;
+      drawNavSections();
+
+      $("tableHead").innerHTML = `
+        <tr>
+          <th>Label</th>
+          <th>Partner</th>
+          <th>Ship to</th>
+          <th>Carrier</th>
+          <th class="money">Boxes</th>
+          <th>Status</th>
+          <th>Labels</th>
+          <th class="money">Price</th>
+          <th>Payment</th>
+        </tr>`;
+
+      $("rows").innerHTML = rows.length
+        ? rows.map((l) => {
+            const [label, cls] = LABEL_STATUS[l.status] || [l.status, ""];
+            const open = l.status === "requested" || l.status === "failed";
+            const actions = open
+              ? `<div class="hold-actions">
+                  <button class="act" type="button" data-lbl="check" data-id="${esc(l.id)}">Check</button>
+                  <button class="act" type="button" data-lbl="create" data-id="${esc(l.id)}">Create labels</button>
+                  ${l.status === "requested" ? `<button class="act danger" type="button" data-lbl="reject" data-id="${esc(l.id)}">Reject</button>` : ""}
+                </div>`
+              : "";
+            const links = (l.labels || []).map((x) => `<a href="${esc(x.label_url)}" target="_blank" rel="noopener">Box ${x.box} · ${esc(x.tracking)}</a>`).join("");
+            return `
+              <tr>
+                <td><span class="id">${esc(lblNumber(l))}</span><br><span class="sub">${esc(dayFmt.format(new Date(l.created_at)))} · ${esc(l.requested_by)}</span>${l.note ? `<br><span class="sub">${esc(l.note)}</span>` : ""}</td>
+                <td>${esc(partnerName(l.seller_record_id) || l.seller_id)}<br><span class="sub">${esc(l.seller_id)}</span></td>
+                <td>${shipTo(l.address)}${l.address?.phone ? `<br><span class="sub">${esc(l.address.phone)}</span>` : ""}</td>
+                <td>${esc(l.carrier)}</td>
+                <td class="money">${(l.boxes || []).length}<br><span class="sub">${(l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", ")}</span></td>
+                <td><span class="pill ${cls}">${esc(label)}</span>${l.error ? `<br><span class="error-text">${esc(l.error)}</span>` : ""}${l.reject_reason ? `<br><span class="sub">${esc(l.reject_reason)}</span>` : ""}${actions}</td>
+                <td class="lbl-links">${links || '<span class="dash">—</span>'}</td>
+                <td class="money">${l.status === "created" ? `<input class="input price-input" type="text" inputmode="decimal" data-lbl-price="${esc(l.id)}" value="${l.price ?? ""}" placeholder="€">` : '<span class="dash">—</span>'}</td>
+                <td>${l.status !== "created" ? "" : l.payment_status === "paid"
+                  ? `<span class="pill good">Paid</span> <button class="act" type="button" data-lbl="unpaid" data-id="${esc(l.id)}">Undo</button>`
+                  : l.price === null || l.price === undefined ? '<span class="sub">Fill in the price</span>' : `<span class="pill wait">To pay</span> <button class="act" type="button" data-lbl="paid" data-id="${esc(l.id)}">Mark paid</button>`}</td>
+              </tr>`;
+          }).join("")
+        : `<tr><td colspan="9" class="empty">No partner labels yet.</td></tr>`;
+    }
+
+    async function labelAction(body, done) {
+      try {
+        const data = await api("/api/admin/partner-labels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (done) toast(done(data));
+        return data;
+      } catch (err) {
+        toast({
+          no_price: "Fill in the price first.",
+          bad_price: "That price does not look right.",
+          not_open: "This label is not waiting any more.",
+          no_reason: "Give a reason.",
+          not_found: "That label is gone."
+        }[err.message] || err.message);
+        return null;
+      } finally {
+        load();
+        loadCounts();
+      }
+    }
+
+    $("rows").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-lbl]");
+      if (!button || state.mode !== "labels") return;
+
+      const id = button.dataset.id;
+      const row = state.labels.find((l) => l.id === id);
+      const action = button.dataset.lbl;
+
+      if (action === "check") {
+        await labelAction({ action, id }, (data) => {
+          const c = data.check || {};
+          return `Sendcloud would use: ${(c.boxes || []).map((b) => `${b.weight_kg} kg → ${b.method}${b.quoted_price ? ` (€${b.quoted_price})` : ""}`).join("; ")}. Sender: ${c.sender}. Nothing was made.`;
+        });
+      } else if (action === "create") {
+        if (!confirm(`Create ${(row.boxes || []).length} ${row.carrier} label(s) in Sendcloud for ${lblNumber(row)}? This is charged to our account.`)) return;
+        button.disabled = true;
+        await labelAction({ action, id }, (data) => `${lblNumber(data.label)}: ${(data.label.labels || []).length} label(s) created.`);
+      } else if (action === "reject") {
+        const reason = prompt(`Why is ${lblNumber(row)} not made? The partner sees this.`);
+        if (!reason) return;
+        await labelAction({ action, id, reason }, () => `${lblNumber(row)} rejected.`);
+      } else if (action === "paid" || action === "unpaid") {
+        await labelAction({ action, id }, () => `${lblNumber(row)} marked ${action === "paid" ? "paid" : "not paid"}.`);
+      }
+    });
+
+    $("rows").addEventListener("change", async (event) => {
+      const input = event.target.closest("[data-lbl-price]");
+      if (!input) return;
+      await labelAction({ action: "price", id: input.dataset.lblPrice, price: input.value.trim() }, (data) => `${lblNumber(data.label)} price saved.`);
+    });
+
+    // "+ New label": we fill it in for the partner.
+    $("newLabelBtn").addEventListener("click", async () => {
+      $("lblError").hidden = true;
+      $("lblPartner").innerHTML = state.partners.map((p) => `<option value="${esc(p.seller_record_id)}">${esc(p.name)} (${esc(p.seller_id)})</option>`).join("");
+      $("lblCountry").innerHTML = `<option value="">Country</option>` + COUNTRY_LIST.map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join("");
+      $("labelForm").reset();
+      $("lblPartner").value = state.partners[0]?.seller_record_id || "";
+      await fillAddresses();
+      $("labelDialog").showModal();
+    });
+
+    async function fillAddresses() {
+      const seller = $("lblPartner").value;
+      const data = seller ? await api(`/api/admin/partner-labels/addresses?seller=${encodeURIComponent(seller)}`).catch(() => ({ addresses: [] })) : { addresses: [] };
+      $("lblAddress").innerHTML = `<option value="">+ New address</option>` + (data.addresses || []).map((a) =>
+        `<option value="${esc(a.id)}">${esc([a.company || a.name, `${a.street} ${a.house_number}`, a.city, a.country].filter(Boolean).join(", "))}</option>`).join("");
+      $("lblAddress").value = (data.addresses || [])[0]?.id || "";
+      $("lblNewAddress").hidden = Boolean($("lblAddress").value);
+    }
+
+    $("lblPartner").addEventListener("change", fillAddresses);
+    $("lblAddress").addEventListener("change", () => { $("lblNewAddress").hidden = Boolean($("lblAddress").value); });
+    $("lblCancel").addEventListener("click", () => $("labelDialog").close());
+
+    // "2.5" per line, or "3 x 2.5" for three boxes of 2.5 kg.
+    function readBoxes(textValue) {
+      const boxes = [];
+      for (const line of textValue.split(/[\n,;]+/).map((l) => l.trim()).filter(Boolean)) {
+        const many = /^(\d+)\s*[x×*]\s*([\d.,]+)$/i.exec(line);
+        if (many) for (let i = 0; i < Number(many[1]); i += 1) boxes.push({ weight_kg: many[2].replace(",", ".") });
+        else boxes.push({ weight_kg: line.replace(/kg$/i, "").trim().replace(",", ".") });
+      }
+      return boxes;
+    }
+
+    $("lblSave").addEventListener("click", async () => {
+      const body = {
+        action: "new",
+        seller_record_id: $("lblPartner").value,
+        carrier: $("lblCarrier").value,
+        boxes: readBoxes($("lblBoxes").value),
+        note: $("lblNote").value
+      };
+      if ($("lblAddress").value) body.address_id = $("lblAddress").value;
+      else body.address = {
+        name: $("lblName").value, company: $("lblCompany").value, street: $("lblStreet").value, house_number: $("lblHouse").value,
+        address2: $("lblAddress2").value, postal_code: $("lblPostal").value, city: $("lblCity").value, country: $("lblCountry").value,
+        phone: $("lblPhone").value, email: $("lblEmail").value
+      };
+
+      $("lblSave").disabled = true;
+      try {
+        const data = await api("/api/admin/partner-labels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        $("labelDialog").close();
+        toast(`${lblNumber(data.label)} saved. Check it, then Create labels.`);
+        load();
+        loadCounts();
+      } catch (err) {
+        $("lblError").textContent = {
+          address_missing: "Fill in the address: name or company, street, house number, postcode, city, country and phone.",
+          no_boxes: "Give the weight of at least one box.",
+          bad_weight: "Every box needs a weight between 0 and 70 kg.",
+          too_many_boxes: "That is more than 20 boxes.",
+          no_carrier: "Choose UPS or DPD."
+        }[err.message] || err.message;
+        $("lblError").hidden = false;
+      } finally {
+        $("lblSave").disabled = false;
+      }
     });
 
     /* ---------------- payments ---------------- */
