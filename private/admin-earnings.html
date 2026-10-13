@@ -332,10 +332,11 @@
         <label class="hint" for="to">To</label>
         <input class="input slim" id="to" type="date">
         <button class="btn primary" id="go" type="button">Show</button>
+        <button class="btn ghost" type="button" data-period="today">Today</button>
         <button class="btn ghost" type="button" data-period="month">This month</button>
         <button class="btn ghost" type="button" data-period="last">Last month</button>
         <button class="btn ghost" type="button" data-period="year">This year</button>
-        <button class="btn ghost" id="download" type="button">Download CSV</button>
+        <button class="btn ghost" id="download" type="button">Export</button>
         <span class="count" id="status"></span>
       </div>
 
@@ -464,6 +465,18 @@
       const last = (y, m) => asDay(new Date(Date.UTC(y, m + 1, 0)));
       const year = now.getUTCFullYear();
       const month = now.getUTCMonth();
+
+      /*
+        Today is read off the clock in the browser, not in UTC: at eleven
+        in the evening here it is already tomorrow there, and the day the
+        screen means is the day Dario is having.
+      */
+      if (which === "today") {
+        const here = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+
+        $("from").value = here;
+        $("to").value = here;
+      }
 
       if (which === "month") { $("from").value = first(year, month); $("to").value = last(year, month); }
       if (which === "last") { $("from").value = first(year, month - 1); $("to").value = last(year, month - 1); }
