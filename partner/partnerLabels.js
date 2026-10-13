@@ -18,6 +18,7 @@ const round2 = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 export const CARRIERS = ["UPS", "DPD"];
 export const MAX_BOXES = 20;
+export const MAX_PAIRS = 500;
 
 /*
  * The countries we invoice and ship to, the same 31 the Kickz Caviar portal
@@ -89,6 +90,23 @@ export function cleanBoxes(input) {
   return boxes;
 }
 
+/*
+ * What the partner asks for: how many labels and how many pairs in total
+ * (Dario, 13-10-2026). He does not weigh boxes; we fill in the weight per
+ * box when we approve it, and may change the number of labels then.
+ */
+export function cleanPartnerAsk(input = {}) {
+  const count = Number(input.labels_count);
+  const pairs = Number(input.pairs);
+  if (!Number.isInteger(count) || count < 1) throw new LabelError("no_boxes");
+  if (count > MAX_BOXES) throw new LabelError("too_many_boxes");
+  if (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS) throw new LabelError("bad_pairs");
+  return { boxes: Array.from({ length: count }, () => ({ weight_kg: null })), pairs };
+}
+
+// A box still without a weight cannot go to Sendcloud.
+export const boxesReady = (boxes) => (boxes || []).length > 0 && boxes.every((b) => Number(b?.weight_kg) > 0);
+
 // A label as the partner may see it: no internal notes, no errors.
 export function partnerView(row) {
   return {
@@ -98,6 +116,7 @@ export function partnerView(row) {
     status: row.status === "failed" ? "requested" : row.status,
     carrier: row.carrier,
     boxes: (row.boxes || []).length,
+    pairs: row.pairs ?? null,
     ship_to: [text(row.address?.company) || text(row.address?.name), text(row.address?.city), text(row.address?.country)].filter(Boolean).join(", "),
     labels: (row.labels || []).map((l) => ({ box: l.box, tracking: l.tracking })),
     reject_reason: row.reject_reason || "",
@@ -147,7 +166,16 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
    */
   async function request({ sellerRecordId, sellerId, requestedBy, input }) {
     if (!CARRIERS.includes(text(input?.carrier).toUpperCase())) throw new LabelError("no_carrier");
-    const boxes = cleanBoxes(input?.boxes);
+
+    // The partner gives a count of labels and pairs; we give weights.
+    let boxes;
+    let pairs = null;
+    if (input?.labels_count !== undefined) ({ boxes, pairs } = cleanPartnerAsk(input));
+    else {
+      boxes = cleanBoxes(input?.boxes);
+      const given = Number(input?.pairs);
+      if (Number.isInteger(given) && given > 0 && given <= MAX_PAIRS) pairs = given;
+    }
 
     let address;
     if (text(input?.address_id)) {
@@ -169,6 +197,7 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
       address: snapshot,
       carrier: text(input.carrier).toUpperCase(),
       boxes,
+      pairs,
       status: "requested",
       requested_by: requestedBy,
       note: text(input?.note) || null,
@@ -198,6 +227,7 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
   async function create(id) {
     const row = await load(id);
     if (!["requested", "failed"].includes(row.status)) throw new LabelError("not_open");
+    if (!boxesReady(row.boxes)) throw new LabelError("no_weights");
 
     const done = row.labels || [];
     const left = (row.boxes || []).map((box, i) => ({ ...box, box: i + 1 })).filter((box) => !done.some((l) => l.box === box.box));
@@ -223,6 +253,21 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
       error: null,
       created_label_at: now().toISOString()
     });
+  }
+
+  /*
+   * The boxes as we approve them: how many labels, and the weight of each.
+   * Boxes that already have a label (a run that failed halfway) keep theirs.
+   */
+  async function setBoxes(id, input) {
+    const row = await load(id);
+    if (!["requested", "failed"].includes(row.status)) throw new LabelError("not_open");
+
+    const boxes = cleanBoxes(input);
+    const made = (row.labels || []).length;
+    if (boxes.length < made) throw new LabelError("fewer_than_made");
+
+    return save(id, { boxes });
   }
 
   async function reject(id, reason) {
@@ -258,5 +303,5 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
     return [...seen.values()];
   }
 
-  return { load, list, addresses, addAddress, request, check, create, reject, setPrice, setPaid, partners };
+  return { load, list, addresses, addAddress, request, check, create, setBoxes, reject, setPrice, setPaid, partners };
 }

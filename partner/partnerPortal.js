@@ -440,7 +440,7 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
         sellerRecordId: req.partner.sellerRecordId,
         sellerId: req.partner.sellerId,
         requestedBy: "partner",
-        input: { carrier: req.body?.carrier, boxes: req.body?.boxes, address_id: req.body?.address_id, address: req.body?.address }
+        input: { carrier: req.body?.carrier, labels_count: req.body?.labels_count, pairs: req.body?.pairs, address_id: req.body?.address_id, address: req.body?.address }
       });
       res.json({ label: partnerView(row), addresses: (await labels.addresses(req.partner.sellerRecordId)).map(addressView) });
     } catch (err) {

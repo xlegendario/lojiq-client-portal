@@ -89,3 +89,32 @@ test("paid only with a price; the partner sees no errors or notes", async () => 
   assert.equal(view.paid, true);
   assert.equal(JSON.stringify(view).includes("only for us"), false);
 });
+
+test("the partner asks a number of labels and pairs; we fill in the weights before Create", async () => {
+  const { calls, labels } = setup();
+  const row = await labels.request({
+    sellerRecordId: SELLER, sellerId: "SE-00781", requestedBy: "partner",
+    input: { carrier: "UPS", labels_count: 2, pairs: 7, address }
+  });
+
+  assert.equal(row.pairs, 7);
+  assert.deepEqual(row.boxes, [{ weight_kg: null }, { weight_kg: null }]);
+  await assert.rejects(labels.create(row.id), (e) => e.code === "no_weights");
+  assert.equal(calls.length, 0, "nothing goes to Sendcloud without weights");
+
+  const set = await labels.setBoxes(row.id, [{ weight_kg: 4.5 }, { weight_kg: 4.5 }, { weight_kg: 1 }]);
+  assert.equal(set.boxes.length, 3, "we may add a label when approving");
+
+  const made = await labels.create(row.id);
+  assert.equal(made.tracking_numbers.length, 3);
+  assert.equal(partnerView(made).pairs, 7);
+});
+
+test("a partner's ask needs at least one label and a real number of pairs", async () => {
+  const { labels } = setup();
+  const ask2 = (input) => labels.request({ sellerRecordId: SELLER, sellerId: "SE-00781", requestedBy: "partner", input: { carrier: "UPS", address, ...input } });
+
+  await assert.rejects(ask2({ labels_count: 0, pairs: 3 }), (e) => e.code === "no_boxes");
+  await assert.rejects(ask2({ labels_count: 2, pairs: 0 }), (e) => e.code === "bad_pairs");
+  await assert.rejects(ask2({ labels_count: 21, pairs: 3 }), (e) => e.code === "too_many_boxes");
+});

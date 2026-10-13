@@ -463,6 +463,7 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
           extra = { check: await labels.check(id) };
           row = await labels.load(id);
         } else if (action === "create") row = await labels.create(id);
+        else if (action === "boxes") row = await labels.setBoxes(id, req.body?.boxes);
         else if (action === "reject") row = await labels.reject(id, req.body?.reason);
         else if (action === "price") row = await labels.setPrice(id, req.body?.price);
         else if (action === "paid" || action === "unpaid") row = await labels.setPaid(id, action === "paid");
