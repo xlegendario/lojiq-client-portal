@@ -473,7 +473,15 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
 
   router.get("/api/partner/forwards", async (req, res) => {
     try {
-      res.json({ forwards: await loadForwards(db, req.partner.sellerRecordId), invoicing: invoicing.configured });
+      // Labels we made for him count with his fees once they have a price.
+      const own = await labels.list({ sellerRecordId: req.partner.sellerRecordId }).catch(() => []);
+      const due = own.filter((l) => l.status === "created" && l.price !== null && l.price !== undefined && l.payment_status !== "paid");
+
+      res.json({
+        forwards: await loadForwards(db, req.partner.sellerRecordId),
+        invoicing: invoicing.configured,
+        labels_due: { count: due.length, total: Math.round(due.reduce((sum, l) => sum + Number(l.price), 0) * 100) / 100 }
+      });
     } catch (err) {
       console.error(`[partner] forwards for ${req.partner.sellerId} failed:`, err.message);
       res.status(502).json({ error: "try_again" });

@@ -577,6 +577,8 @@
         sec_cancelled: "Cancelled",
         tab_labels: "Labels",
         box_one: "box",
+        label_one: "label",
+        label_many: "labels",
         box_many: "boxes",
         request_label: "Request label",
         ship_to: "Ship to",
@@ -755,6 +757,8 @@
         sec_cancelled: "已取消",
         tab_labels: "面单",
         box_one: "箱",
+        label_one: "张面单",
+        label_many: "张面单",
         box_many: "箱",
         request_label: "申请面单",
         ship_to: "寄往",
@@ -929,7 +933,7 @@
       window.scrollTo(0, 0);
       if (name === "stock") loadStock();
       if (name === "new") loadSend();
-      if (name === "sent") loadSent();
+      if (name === "sent") loadSent(true);
       if (name === "labels") loadLabels();
       if (typeof send !== "undefined") renderSendBar();
     }
@@ -1874,7 +1878,9 @@
       if (!sent.data) $("sentList").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
 
       try {
-        sent.data = (await api("/api/partner/forwards")).forwards;
+        const answer = await api("/api/partner/forwards");
+        sent.data = answer.forwards;
+        sent.labelsDue = answer.labels_due || { count: 0, total: 0 };
         sent.at = Date.now();
         renderSent();
       } catch (err) {
@@ -1904,15 +1910,17 @@
       const done = sent.data.filter((f) => !pending.includes(f) && !feeToPay.includes(f) && !cancelled.includes(f));
 
       const owed = live.filter((f) => !f.fee_paid);
-      const owedTotal = owed.reduce((sum, f) => sum + Number(f.fee || 0), 0);
+      // Labels we made for him are paid together with his forwarding fees.
+      const labelsDue = sent.labelsDue || { count: 0, total: 0 };
+      const owedTotal = owed.reduce((sum, f) => sum + Number(f.fee || 0), 0) + Number(labelsDue.total || 0);
       const ours = live.filter((f) => f.invoice?.stage === "to_pay");
       const oursTotal = ours.reduce((sum, f) => sum + Number(f.invoice.you_receive || 0), 0);
       const count = (n) => `${n} ${esc(t(n === 1 ? "forward_one" : "forward_many"))}`;
 
       const summary = `
         <div class="money-box">
-          ${owed.length
-            ? `<div class="money-row"><span>${esc(t("fee_to_pay_total"))} <small>· ${count(owed.length)}</small></span><b>${esc(money(owedTotal))}</b></div>`
+          ${owed.length || labelsDue.count
+            ? `<div class="money-row"><span>${esc(t("fee_to_pay_total"))} <small>· ${[owed.length ? count(owed.length) : "", labelsDue.count ? `${labelsDue.count} ${esc(t(labelsDue.count === 1 ? "label_one" : "label_many"))}` : ""].filter(Boolean).join(" · ")}</small></span><b>${esc(money(owedTotal))}</b></div>`
             : `<div class="money-row"><span class="ok-text">${esc(t("all_fees_paid"))} ✓</span></div>`}
           ${ours.length ? `<div class="money-row"><span>${esc(t("we_pay_you"))} <small>· ${count(ours.length)}</small></span><b class="ok-text">${esc(money(oursTotal))}</b></div>` : ""}
         </div>`;

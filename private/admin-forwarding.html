@@ -737,26 +737,44 @@
           <th>Payment</th>
         </tr>`;
 
-      if (!rows.length) {
-        $("rows").innerHTML = `<tr><td colspan="9" class="empty">${$("paymentFilter").value === "pending" ? "Nothing open. Every forward is paid." : "No forwards here."}</td></tr>`;
+      // Labels count once they have a price; the filter applies to them too.
+      const filter = $("paymentFilter").value;
+      const seller = $("sellerFilter").value;
+      const owedLabels = state.labels.filter((l) =>
+        l.status === "created" && l.price !== null && l.price !== undefined &&
+        (!seller || l.seller_record_id === seller) &&
+        (filter === "all" || (filter === "paid" ? l.payment_status === "paid" : l.payment_status !== "paid")));
+
+      if (!rows.length && !owedLabels.length) {
+        $("rows").innerHTML = `<tr><td colspan="9" class="empty">${filter === "pending" ? "Nothing open. Every forward and label is paid." : "No forwards here."}</td></tr>`;
         return;
       }
 
       const groups = new Map();
+      const labelGroups = new Map();
 
       for (const row of rows) {
         if (!groups.has(row.seller_record_id)) groups.set(row.seller_record_id, []);
         groups.get(row.seller_record_id).push(row);
       }
 
+      for (const l of owedLabels) {
+        if (!groups.has(l.seller_record_id)) groups.set(l.seller_record_id, []);
+        if (!labelGroups.has(l.seller_record_id)) labelGroups.set(l.seller_record_id, []);
+        labelGroups.get(l.seller_record_id).push(l);
+      }
+
       const today = Date.now();
 
-      $("rows").innerHTML = [...groups.values()].map((list) => {
-        const first = list[0];
+      $("rows").innerHTML = [...groups.entries()].map(([sellerId, list]) => {
+        const labelsHere = labelGroups.get(sellerId) || [];
+        const partner = state.partners.find((p) => p.seller_record_id === sellerId);
+        const first = list[0] || { seller_name: partner?.name, seller_id: labelsHere[0]?.seller_id };
         const ids = list.map((row) => row.id);
-        const allPicked = ids.every((id) => state.picked.has(id));
-        const total = list.reduce((sum, row) => sum + row.money.payable, 0);
+        const allPicked = ids.length > 0 && ids.every((id) => state.picked.has(id));
+        const total = list.reduce((sum, row) => sum + row.money.payable, 0) + labelsHere.reduce((sum, l) => sum + Number(l.price), 0);
         const unpaid = list.filter((row) => row.payment_status !== "paid");
+        const unpaidLabels = labelsHere.filter((l) => l.payment_status !== "paid");
         const oldest = unpaid.length
           ? Math.floor((today - Math.min(...unpaid.map((row) => new Date(row.created_at).getTime()))) / 86_400_000)
           : null;
@@ -768,10 +786,10 @@
               <div class="group-head">
                 <strong>${esc(first.seller_name || first.seller_id)}</strong>
                 <span class="sub">${esc(first.seller_id)}</span>
-                <span class="sub">${list.length} forward${list.length === 1 ? "" : "s"}</span>
+                <span class="sub">${list.length} forward${list.length === 1 ? "" : "s"}${labelsHere.length ? ` · ${labelsHere.length} label${labelsHere.length === 1 ? "" : "s"}` : ""}</span>
                 <strong>${euro(total)}</strong>
                 ${oldest !== null ? `<span class="sub${oldest > 30 ? " old" : ""}">oldest ${oldest} day${oldest === 1 ? "" : "s"}</span>` : ""}
-                ${unpaid.length ? `<button class="act" type="button" data-pay-group="${esc(unpaid.map((row) => row.id).join(","))}">Mark paid</button>` : ""}
+                ${unpaid.length || unpaidLabels.length ? `<button class="act" type="button" data-pay-group="${esc(unpaid.map((row) => row.id).join(","))}" data-pay-labels="${esc(unpaidLabels.map((l) => l.id).join(","))}">Mark paid</button>` : ""}
               </div>
             </td>
           </tr>`;
@@ -789,7 +807,20 @@
             <td>${paymentPill(row)}</td>
           </tr>`).join("");
 
-        return head + lines;
+        const labelLines = labelsHere.map((l) => `
+          <tr>
+            <td class="check"></td>
+            <td><span class="id">${esc(lblNumber(l))}</span><br><span class="sub">Label · ${esc(l.carrier)}</span></td>
+            <td>${esc(dayFmt.format(new Date(l.created_label_at || l.created_at)))}</td>
+            <td class="money">${(l.boxes || []).length} box${(l.boxes || []).length === 1 ? "" : "es"}</td>
+            <td class="money"><span class="dash">—</span></td>
+            <td class="money">${euro(l.price)}</td>
+            <td class="money"><strong>${euro(l.price)}</strong></td>
+            <td><span class="pill move">Label</span></td>
+            <td>${l.payment_status === "paid" ? '<span class="pill good">Paid</span>' : `<span class="pill wait">Not paid</span> <button class="act" type="button" data-lbl="paid" data-id="${esc(l.id)}">Mark paid</button>`}</td>
+          </tr>`).join("");
+
+        return head + lines + labelLines;
       }).join("");
     }
 
@@ -1067,6 +1098,12 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
       try {
         const data = await api(`/api/admin/forwarding?${query}`);
+        // A label we made for a partner is paid with his forwarding fees.
+        if (payments) {
+          const labelData = await api("/api/admin/partner-labels").catch(() => ({ labels: [], partners: [] }));
+          state.labels = labelData.labels || [];
+          state.partners = labelData.partners || [];
+        }
         state.forwards = data.forwards;
         state.picked = new Set([...state.picked].filter((id) => data.forwards.some((row) => row.id === id)));
         render();
@@ -1099,7 +1136,8 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           el.textContent = counts[el.dataset.count] || "";
         });
 
-        $("unpaidCount").textContent = unpaid || "";
+        const labelsOwed = await api("/api/admin/partner-labels").then((d) => (d.labels || []).filter((l) => l.status === "created" && l.price !== null && l.price !== undefined && l.payment_status !== "paid").length).catch(() => 0);
+        $("unpaidCount").textContent = unpaid + labelsOwed || "";
 
         const payouts = await api("/api/admin/forwarding/partner-payouts").catch(() => ({ payouts: [] }));
         const labelData = await api("/api/admin/partner-labels").catch(() => ({ labels: [] }));
@@ -1658,11 +1696,25 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     $("markPaidBtn").addEventListener("click", () => setPaid(pickedVisible(), true));
     $("markUnpaidBtn").addEventListener("click", () => setPaid(pickedVisible(), false));
 
-    $("rows").addEventListener("click", (event) => {
+    $("rows").addEventListener("click", async (event) => {
       const payGroup = event.target.closest("[data-pay-group]");
 
       if (payGroup) {
-        setPaid(payGroup.dataset.payGroup.split(","), true);
+        const forwardIds = payGroup.dataset.payGroup.split(",").filter(Boolean);
+        const labelIds = (payGroup.dataset.payLabels || "").split(",").filter(Boolean);
+        if (labelIds.length) {
+          const labelTotal = state.labels.filter((l) => labelIds.includes(l.id)).reduce((sum, l) => sum + Number(l.price), 0);
+          if (!confirm(`Also mark ${labelIds.length} label(s) paid (${euro(labelTotal)})?`)) return;
+          for (const id of labelIds) await labelAction({ action: "paid", id });
+        }
+        if (forwardIds.length) setPaid(forwardIds, true);
+        return;
+      }
+
+      // A single label in Forwarding Payments.
+      const labelPaid = event.target.closest("[data-lbl]");
+      if (labelPaid && state.mode === "payments") {
+        await labelAction({ action: labelPaid.dataset.lbl, id: labelPaid.dataset.id }, () => "Label marked paid.");
         return;
       }
 
