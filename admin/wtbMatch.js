@@ -344,6 +344,17 @@ export function parseRequest(input) {
 
   // An article still waiting for its sizes, and the name that went with it.
   let pending = null;
+  /*
+    The rows the line before this one made, so an article standing on its
+    own underneath them can still turn out to be theirs:
+
+      Jordan 1 Retro High Virgil Abloh Archive Alaska - 43
+      AA3834-100
+
+    Read line by line that is a name with a size and then an article with
+    nothing to size, and both fell over. It is one request.
+  */
+  let above = [];
   // A line of words waiting to turn out to be the name of an article.
   let spare = "";
 
@@ -389,11 +400,42 @@ export function parseRequest(input) {
     if (skus.length && sizes.length) {
       pending = null;
       spare = "";
+
+      const from = rows.length;
+
       add(skus, sizes, line);
+      above = rows.slice(from);
       continue;
     }
 
     if (skus.length) {
+      /*
+        An article with nothing to size. It belongs to the line above when
+        that line left sizes behind with no article of their own - the shop
+        that writes the name and size first and the number underneath - and
+        otherwise its own sizes are still to come, on the next line or two.
+      */
+      const orphans = above.filter((row) => !row.sku);
+
+      if (orphans.length) {
+        for (const row of orphans) {
+          row.sku = skuKey(skus[0]);
+          row.name = "";
+          row.line = `${row.line} ${line}`.trim();
+        }
+
+        // A pair sold under two numbers: the rest are the same request again.
+        for (const extra of skus.slice(1)) {
+          for (const row of orphans) {
+            rows.push({ ...row, sku: skuKey(extra) });
+          }
+        }
+
+        above = [];
+        spare = "";
+        continue;
+      }
+
       // Its sizes are on the next line or two; the name is on the one above.
       pending = { skus, line: [spare, line].filter(Boolean).join(" ").trim() };
       spare = "";
@@ -402,7 +444,10 @@ export function parseRequest(input) {
 
     if (sizes.length) {
       if (pending?.skus?.length) {
+        const from = rows.length;
+
         add(pending.skus, sizes, pending.line);
+        above = rows.slice(from);
         // Answered, so it is not also reported as an article nobody sized.
         pending = null;
         continue;
@@ -419,10 +464,13 @@ export function parseRequest(input) {
       const name = productFromLine(named);
 
       if (name) {
+        const from = rows.length;
+
         for (const size of sizes) {
           rows.push({ sku: "", name, size: sizeKey(size), line: named });
         }
 
+        above = rows.slice(from);
         spare = "";
         pending = null;
         continue;

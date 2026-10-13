@@ -1014,3 +1014,45 @@ test("the same shoe in two makes is two articles, not one asked for twice", () =
     ["S70739-16 40", "S60739-16 40"]
   );
 });
+
+test("an article under the sizes belongs to the line above it", () => {
+  /*
+    A shop that writes the name and the size first and the number
+    underneath:
+
+      Jordan 1 Retro High Virgil Abloh Archive Alaska - 43
+      AA3834-100
+
+    Read a line at a time that is a name with a size, and then an article
+    with nothing to size, and both fell over. It is one request.
+  */
+  assert.deepEqual(
+    reading("Jordan 1 Retro High Virgil Abloh Archive Alaska \u2013 43\nAA3834-100"),
+    ["AA3834-100 43"]
+  );
+
+  // Block after block, each with its own number under it.
+  assert.deepEqual(
+    reading("Jordan 1 Archive Alaska \u2013 43\nAA3834-100\nSamba OG Black \u2013 42 + 43\nB75807"),
+    ["AA3834-100 43", "B75807 42", "B75807 43"]
+  );
+
+  // Two numbers for one pair, under the sizes, are still both real.
+  assert.deepEqual(
+    reading("Samba OG \u2013 42\nFQ7928-001 / HM8965-001"),
+    ["FQ7928-001 42", "HM8965-001 42"]
+  );
+});
+
+test("an article over the sizes still belongs to the line below it", () => {
+  // The other way round, which is how Discord writes it, and must not
+  // have been broken by the above.
+  assert.deepEqual(reading("DM7866-202\n42 43 44"), ["DM7866-202 42", "DM7866-202 43", "DM7866-202 44"]);
+  assert.deepEqual(reading("DM7866-202 - Travis Scott 42 43"), ["DM7866-202 42", "DM7866-202 43"]);
+
+  // And an article nobody ever sized is still a request nobody can answer.
+  const { wanted, unreadable } = parseRequest("DM7866-202 - Travis Scott Velvet Brown");
+
+  assert.deepEqual(wanted, []);
+  assert.equal(unreadable.length, 1);
+});
