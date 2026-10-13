@@ -1535,7 +1535,9 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       if (action === "check") {
         await labelAction({ action, id }, (data) => {
           const c = data.check || {};
-          return `Sendcloud would use: ${(c.boxes || []).map((b) => `${b.weight_kg} kg → ${b.method}${b.quoted_price ? ` (€${b.quoted_price})` : ""}`).join("; ")}. Sender: ${c.sender}. Nothing was made.`;
+          // Sendcloud's quoted price means nothing on our own contracts (it said
+          // 1001.25 for UPS and 0 for DPD), so it is not shown.
+          return `Sendcloud would use: ${(c.boxes || []).map((b) => `${b.weight_kg} kg → ${b.method}`).join("; ")}. Sender: ${c.sender}. Nothing was made.`;
         });
       } else if (action === "create") {
         if (!confirm(`Create ${(row.boxes || []).length} ${row.carrier} label(s) in Sendcloud for ${lblNumber(row)}? This is charged to our account.`)) return;
