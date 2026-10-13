@@ -6422,6 +6422,31 @@ app.post("/api/mollie/webhook", async (req, res) => {
       return res.status(200).send("ok");
     }
 
+    /*
+      NEW - a batch that is paid stays paid.
+
+      Mollie does not promise its calls arrive in order, and it calls again
+      when an answer is slow. A "pending" for a payment that had already been
+      settled came in after the "paid" and put PAYB-000140 and PAYB-000149
+      back on Pending Payment - Paid At still filled in, the money in a
+      payout, the Snrkickz orders reading unpaid. A late "failed" from an
+      earlier attempt on the same link would have done worse: cancelled the
+      batch and archived the link.
+
+      Only "paid" can still do anything here, and settlePaidBatch already
+      ignores a batch it settled before.
+    */
+    if (
+      payment.status !== "paid" &&
+      asText(batchRecord?.fields?.["Payment Status"]) === "Paid"
+    ) {
+      console.log(
+        `Mollie ${payment.id} came back ${payment.status} for ${asText(batchRecord?.fields?.["Batch ID"]) || batchRecordId}, ` +
+          "which is already paid; ignoring it"
+      );
+      return res.status(200).send("ok");
+    }
+
     if (payment.status === "pending") {
       await airtable(AIRTABLE_PAYMENT_BATCHES_TABLE).update(batchRecordId, {
         "Payment Status": "Pending Payment",
