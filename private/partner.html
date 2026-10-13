@@ -2059,7 +2059,7 @@
 
     function labelList() {
       const notice = lbl.notice ? `<div class="money-box"><div class="money-row"><span class="ok-text">✓ ${esc(lbl.notice)}</span></div></div>` : "";
-      const cards = lbl.data.map((l) => {
+      const card = (l) => {
         const [word, tone] = LABEL_STATUS[l.status] || LABEL_STATUS.requested;
         const downloads = l.status === "created" ? l.labels.map((x) => `
           <a class="lbl-download" href="/api/partner/labels/${encodeURIComponent(l.id)}/box/${x.box}" target="_blank" rel="noopener">
@@ -2081,12 +2081,20 @@
             </div>
             ${downloads || l.reject_reason || price ? `<div class="card-body">${downloads}${l.reject_reason ? `<p class="hint">${esc(l.reject_reason)}</p>` : ""}${price}</div>` : ""}
           </div>`;
-      }).join("");
+      };
+
+      // Pending until we make them, Done once they can be downloaded,
+      // Rejected apart at the bottom.
+      const pending = lbl.data.filter((l) => l.status === "requested");
+      const done = lbl.data.filter((l) => l.status === "created");
+      const rejected = lbl.data.filter((l) => l.status === "rejected");
+      const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(card).join("")}</div>` : "");
+      const sections = section(t("sec_open"), pending) + section(t("sec_done"), done) + section(t("lbl_rejected"), rejected);
 
       return `
         ${notice}
         <button class="btn primary wide-btn" type="button" data-lblf="open">${esc(t("request_label"))}</button>
-        <div class="list" style="margin-top:14px">${cards || `<div class="note">${esc(t("no_labels"))}</div>`}</div>`;
+        <div style="margin-top:18px">${sections || `<div class="note">${esc(t("no_labels"))}</div>`}</div>`;
     }
 
     function labelForm() {
