@@ -33,7 +33,7 @@ import { BuyerError, createPartnerBuyers } from "./partnerBuyers.js";
 import { createForwardInvoicing, sellerFromFields } from "./forwardInvoicing.js";
 import { createLabelReader, labelFromDataUrl } from "./labelReader.js";
 import { usedTracking } from "./partnerForward.js";
-import { createPartnerLabels } from "./partnerLabels.js";
+import { COUNTRIES, LabelError, createPartnerLabels, partnerView } from "./partnerLabels.js";
 import { createRompslomp } from "../admin/externalSalesInvoicing.js";
 import { createPurchaseExpense } from "../admin/purchaseExpense.js";
 
@@ -404,6 +404,68 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     } catch (err) {
       console.error(`[partner] label read for ${req.partner.sellerId} failed:`, err.message);
       res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  /* ----- labels he ships himself ----- */
+
+  const addressView = (a) => ({
+    id: a.id,
+    label: [text(a.company) || text(a.name), `${text(a.street)} ${text(a.house_number)}`.trim(), `${text(a.postal_code)} ${text(a.city)}`.trim(), text(a.country)].filter(Boolean).join(", ")
+  });
+
+  const labelSend = (res, err, who) => {
+    if (err instanceof LabelError) return res.status(err.status).json({ error: err.code, fields: err.fields || [] });
+    console.error(`[partner] labels for ${who} failed:`, err.message);
+    res.status(502).json({ error: "try_again" });
+  };
+
+  router.get("/api/partner/labels", async (req, res) => {
+    try {
+      const [rows, addresses] = await Promise.all([
+        labels.list({ sellerRecordId: req.partner.sellerRecordId }),
+        labels.addresses(req.partner.sellerRecordId)
+      ]);
+      res.json({ labels: rows.map(partnerView), addresses: addresses.map(addressView), countries: COUNTRIES });
+    } catch (err) {
+      labelSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  router.post("/api/partner/labels", express.json({ limit: "20kb" }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      const row = await labels.request({
+        sellerRecordId: req.partner.sellerRecordId,
+        sellerId: req.partner.sellerId,
+        requestedBy: "partner",
+        input: { carrier: req.body?.carrier, boxes: req.body?.boxes, address_id: req.body?.address_id, address: req.body?.address }
+      });
+      res.json({ label: partnerView(row), addresses: (await labels.addresses(req.partner.sellerRecordId)).map(addressView) });
+    } catch (err) {
+      labelSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  // One box's label, through here: the stored file carries the receiver's
+  // address, so its address is never handed out.
+  router.get("/api/partner/labels/:id/box/:box", async (req, res) => {
+    try {
+      const row = await labels.load(text(req.params.id));
+      if (row.seller_record_id !== req.partner.sellerRecordId || row.status !== "created") return res.status(404).json({ error: "not_found" });
+
+      const label = (row.labels || []).find((l) => String(l.box) === text(req.params.box));
+      if (!label?.label_url) return res.status(404).json({ error: "not_found" });
+
+      const file = await fetchImpl(label.label_url, { signal: AbortSignal.timeout(30_000) });
+      if (!file.ok) throw new Error(`label file answered ${file.status}`);
+
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `inline; filename="Label ${text(label.tracking) || `box ${label.box}`}.pdf"`);
+      res.send(Buffer.from(await file.arrayBuffer()));
+    } catch (err) {
+      labelSend(res, err, req.partner.sellerId);
     }
   });
 

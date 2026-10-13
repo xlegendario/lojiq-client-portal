@@ -309,6 +309,18 @@
     .pill.off { background: rgba(139, 139, 149, 0.16); color: var(--muted); }
     .pill.bad { background: var(--red-bg); color: var(--red); }
     .fee-line { display: inline-flex; align-items: center; gap: 8px; }
+    .wide-btn { width: 100%; }
+    .carrier-pick { display: flex; gap: 10px; }
+    .carrier-pick button { flex: 1; min-height: 52px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); font-size: 17px; font-weight: 700; cursor: pointer; }
+    .carrier-pick button[aria-pressed="true"] { border-color: var(--primary-soft); background: var(--primary-tint); color: var(--primary-soft); }
+    .box-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .box-row span { min-width: 64px; color: var(--muted); }
+    .box-row input { flex: 1; min-height: 48px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; }
+    .box-row.bad input { border-color: var(--red); }
+    .addr-form .field { margin-bottom: 10px; }
+    .addr-form select { min-height: 52px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; color: var(--text); width: 100%; }
+    .lbl-download { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 8px; border-radius: 10px; background: var(--primary-tint); color: var(--primary-soft); text-decoration: none; font-weight: 600; }
+    .lbl-download small { color: var(--muted); font-weight: 400; word-break: break-all; }
     .money-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 2px 14px; margin-bottom: 18px; }
     .money-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 0; }
     .money-row + .money-row { border-top: 1px solid var(--border); }
@@ -442,6 +454,10 @@
         <h2 data-t="tab_sent">Forwards</h2>
         <div id="sentList"><div class="note" data-t="loading">Loading…</div></div>
       </section>
+      <section id="view-labels" data-view hidden>
+        <h2 data-t="tab_labels">Labels</h2>
+        <div id="labelsBody"><div class="note" data-t="loading">Loading…</div></div>
+      </section>
     </main>
 
     <button class="sendbar" id="sendBar" type="button" hidden>
@@ -462,6 +478,10 @@
         <button class="tab" role="tab" type="button" data-tab="sent" aria-selected="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h13"/><path d="M12 6l6 6-6 6"/><path d="M21 5v14"/></svg>
           <span data-t="tab_sent">Forwards</span>
+        </button>
+        <button class="tab" role="tab" type="button" data-tab="labels" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+          <span data-t="tab_labels">Labels</span>
         </button>
       </div>
     </nav>
@@ -555,6 +575,38 @@
         sec_done: "Done",
         sec_fee: "Fee to pay",
         sec_cancelled: "Cancelled",
+        tab_labels: "Labels",
+        box_one: "box",
+        box_many: "boxes",
+        request_label: "Request label",
+        ship_to: "Ship to",
+        choose_address: "Choose an address…",
+        no_addresses_yet: "No addresses yet",
+        new_address: "+ New address",
+        carrier: "Carrier",
+        boxes_title: "Boxes",
+        boxes_hint: "The weight of every box, in kg.",
+        box_n: "Box {n}",
+        add_box: "+ Add box",
+        send_request: "Send request",
+        request_sent: "Request sent. You can download the label here when it is ready.",
+        lbl_requested: "Waiting for Lojiq",
+        lbl_created: "Ready",
+        lbl_rejected: "Rejected",
+        download_box: "Download label",
+        no_labels: "You have no labels yet.",
+        f_street: "Street",
+        f_house: "House number",
+        f_phone: "Phone",
+        f_email_opt: "E-mail (optional)",
+        f_contact: "Name",
+        address_missing: "Fill in the fields in red.",
+        no_boxes: "Add at least one box.",
+        bad_weight: "Every box needs a weight between 0 and 70 kg.",
+        too_many_boxes: "That is more than 20 boxes.",
+        no_carrier: "Choose UPS or DPD.",
+        need_address: "Choose where it goes.",
+        label_price: "Price",
         fee_to_pay_total: "Fee to pay",
         all_fees_paid: "All forwarding fees paid",
         we_pay_you: "We still pay you",
@@ -701,6 +753,38 @@
         sec_done: "已完成",
         sec_fee: "待付服务费",
         sec_cancelled: "已取消",
+        tab_labels: "面单",
+        box_one: "箱",
+        box_many: "箱",
+        request_label: "申请面单",
+        ship_to: "寄往",
+        choose_address: "选择地址…",
+        no_addresses_yet: "还没有地址",
+        new_address: "+ 新地址",
+        carrier: "快递公司",
+        boxes_title: "箱子",
+        boxes_hint: "每个箱子的重量（公斤）。",
+        box_n: "第 {n} 箱",
+        add_box: "+ 添加箱子",
+        send_request: "提交申请",
+        request_sent: "申请已提交。面单准备好后可以在这里下载。",
+        lbl_requested: "等待 Lojiq 处理",
+        lbl_created: "已完成",
+        lbl_rejected: "已拒绝",
+        download_box: "下载面单",
+        no_labels: "您还没有面单。",
+        f_street: "街道",
+        f_house: "门牌号",
+        f_phone: "电话",
+        f_email_opt: "邮箱（可选）",
+        f_contact: "姓名",
+        address_missing: "请填写红色的栏位。",
+        no_boxes: "请至少添加一个箱子。",
+        bad_weight: "每个箱子的重量必须在 0 到 70 公斤之间。",
+        too_many_boxes: "超过 20 个箱子了。",
+        no_carrier: "请选择 UPS 或 DPD。",
+        need_address: "请选择寄往的地址。",
+        label_price: "价格",
         fee_to_pay_total: "待付服务费",
         all_fees_paid: "所有转运服务费已付",
         we_pay_you: "我们待付给您",
@@ -788,6 +872,7 @@
       if (typeof stock !== "undefined" && stock.data) renderStock();
       if (typeof send !== "undefined") renderSend();
       if (typeof sent !== "undefined") renderSent();
+      if (typeof lbl !== "undefined") renderLabels();
       // The button names the other language, in that language.
       document.querySelectorAll("[data-lang-toggle]").forEach((el) => { el.textContent = lang === "zh" ? "English" : "中文"; });
     }
@@ -836,7 +921,7 @@
     }
 
     function openTab(name) {
-      if (!["stock", "new", "sent"].includes(name)) name = "stock";
+      if (!["stock", "new", "sent", "labels"].includes(name)) name = "stock";
 
       document.querySelectorAll("[data-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
       document.querySelectorAll("[data-view]").forEach((view) => { view.hidden = view.id !== `view-${name}`; });
@@ -845,6 +930,7 @@
       if (name === "stock") loadStock();
       if (name === "new") loadSend();
       if (name === "sent") loadSent();
+      if (name === "labels") loadLabels();
       if (typeof send !== "undefined") renderSendBar();
     }
 
@@ -1906,6 +1992,224 @@
       if (sent.open.has(id)) sent.open.delete(id);
       else sent.open.add(id);
       renderSent();
+    });
+
+    /* ---------- labels he ships himself ---------- */
+
+    // A label we make for a parcel he sends himself: he asks, we make it,
+    // he downloads it here. The price comes later, from us.
+    const lbl = { data: null, addresses: [], countries: [], view: "list", form: null, bad: [], error: "", notice: "", saving: false, loading: false };
+
+    const ADDRESS_FIELDS = [
+      ["name", "f_contact", false, "name"],
+      ["company", "f_company", false, "organization"],
+      ["street", "f_street", true, "address-line1"],
+      ["house_number", "f_house", true, "off"],
+      ["address2", "f_address2", false, "address-line2"],
+      ["postal_code", "f_zip", true, "postal-code"],
+      ["city", "f_city", true, "address-level2"],
+      ["phone", "f_phone", true, "tel"],
+      ["email", "f_email_opt", false, "email"]
+    ];
+    const LABEL_STATUS = { requested: ["lbl_requested", "wait"], created: ["lbl_created", "good"], rejected: ["lbl_rejected", "off"] };
+
+    const newForm = () => ({ address_id: lbl.addresses[0]?.id || "", newAddress: lbl.addresses.length ? null : {}, carrier: "", boxes: [""] });
+
+    async function loadLabels(force = false) {
+      if (lbl.loading || (!force && lbl.data)) return renderLabels();
+      lbl.loading = true;
+      if (!lbl.data) $("labelsBody").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
+      try {
+        const data = await api("/api/partner/labels");
+        lbl.data = data.labels || [];
+        lbl.addresses = data.addresses || [];
+        lbl.countries = data.countries || [];
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        $("labelsBody").innerHTML = `<div class="note">${esc(t("try_again"))}</div>`;
+        return;
+      } finally {
+        lbl.loading = false;
+      }
+      renderLabels();
+    }
+
+    function renderLabels() {
+      if (!lbl.data) return;
+      $("labelsBody").innerHTML = lbl.view === "form" ? labelForm() : labelList();
+    }
+
+    function labelList() {
+      const notice = lbl.notice ? `<div class="money-box"><div class="money-row"><span class="ok-text">✓ ${esc(lbl.notice)}</span></div></div>` : "";
+      const cards = lbl.data.map((l) => {
+        const [word, tone] = LABEL_STATUS[l.status] || LABEL_STATUS.requested;
+        const downloads = l.status === "created" ? l.labels.map((x) => `
+          <a class="lbl-download" href="/api/partner/labels/${encodeURIComponent(l.id)}/box/${x.box}" target="_blank" rel="noopener">
+            <span>${esc(t("download_box"))} · ${esc(t("box_n").replace("{n}", x.box))}</span><small>${esc(x.tracking)}</small>
+          </a>`).join("") : "";
+        const price = l.price !== null ? `
+          <div class="detail"><div class="detail-row"><span class="muted">${esc(t("label_price"))}</span>
+            <span class="fee-line">${esc(money(l.price))} <span class="pill ${l.paid ? "good" : "bad"}">${esc(t(l.paid ? "fee_paid" : "fee_open"))}</span></span></div></div>` : "";
+
+        return `
+          <div class="card">
+            <div class="card-head static">
+              <div class="card-text">
+                <div class="card-title">${esc(l.number)} · ${esc(l.carrier)}</div>
+                <div class="card-sub">${esc(l.ship_to)}</div>
+                <div class="stats"><span>${esc(niceDate(dayOfStamp(l.created_at)))}</span><span>${l.boxes} ${esc(t(l.boxes === 1 ? "box_one" : "box_many"))}</span></div>
+              </div>
+              <span class="pill ${tone}">${esc(t(word))}</span>
+            </div>
+            ${downloads || l.reject_reason || price ? `<div class="card-body">${downloads}${l.reject_reason ? `<p class="hint">${esc(l.reject_reason)}</p>` : ""}${price}</div>` : ""}
+          </div>`;
+      }).join("");
+
+      return `
+        ${notice}
+        <button class="btn primary wide-btn" type="button" data-lblf="open">${esc(t("request_label"))}</button>
+        <div class="list" style="margin-top:14px">${cards || `<div class="note">${esc(t("no_labels"))}</div>`}</div>`;
+    }
+
+    function labelForm() {
+      const f = lbl.form;
+      const addressPart = f.newAddress
+        ? `<div class="addr-form">
+            ${ADDRESS_FIELDS.map(([name, word, required, auto]) => `
+              <div class="field${lbl.bad.includes(name) ? " bad" : ""}">
+                <label for="la_${name}">${esc(t(word))}${required ? " *" : ""}</label>
+                <input id="la_${name}" data-la="${name}" autocomplete="${auto}" value="${esc(f.newAddress[name] || "")}"${name === "phone" ? ' type="tel" inputmode="tel"' : name === "email" ? ' type="email" inputmode="email" autocapitalize="off"' : ""}>
+              </div>`).join("")}
+            <div class="field${lbl.bad.includes("country") ? " bad" : ""}">
+              <label for="la_country">${esc(t("f_country"))} *</label>
+              <select id="la_country" data-la="country">
+                <option value="">${esc(t("choose_country"))}</option>
+                ${lbl.countries.map((c) => `<option value="${esc(c.code)}"${f.newAddress.country === c.code ? " selected" : ""}>${esc(c.name)}</option>`).join("")}
+              </select>
+            </div>
+            ${lbl.addresses.length ? `<button class="link" type="button" data-lblf="pick-address">${esc(t("cancel"))}</button>` : ""}
+          </div>`
+        : `<select class="buyer-select" id="lblAddress">
+            ${lbl.addresses.length
+              ? `<option value="">${esc(t("choose_address"))}</option>` + lbl.addresses.map((a) => `<option value="${esc(a.id)}"${a.id === f.address_id ? " selected" : ""}>${esc(a.label)}</option>`).join("")
+              : `<option value="">${esc(t("no_addresses_yet"))}</option>`}
+          </select>
+          <button type="button" class="btn file-btn" data-lblf="new-address">${esc(t("new_address"))}</button>`;
+
+      return `
+        <div class="card invoice">
+          <div class="card-body">
+            <div class="inv-step"><span class="step-n">1</span>${esc(t("ship_to"))}</div>
+            ${addressPart}
+
+            <div class="inv-step"><span class="step-n">2</span>${esc(t("carrier"))}</div>
+            <div class="carrier-pick">
+              ${["UPS", "DPD"].map((c) => `<button type="button" data-carrier="${c}" aria-pressed="${f.carrier === c}">${c}</button>`).join("")}
+            </div>
+
+            <div class="inv-step"><span class="step-n">3</span>${esc(t("boxes_title"))}</div>
+            <p class="hint">${esc(t("boxes_hint"))}</p>
+            ${f.boxes.map((w, i) => `
+              <div class="box-row${lbl.bad.includes(`box${i}`) ? " bad" : ""}">
+                <span>${esc(t("box_n").replace("{n}", i + 1))}</span>
+                <input inputmode="decimal" data-box="${i}" value="${esc(w)}" placeholder="kg">
+                ${f.boxes.length > 1 ? `<button class="link" type="button" data-box-drop="${i}" aria-label="${esc(t("remove"))}">✕</button>` : ""}
+              </div>`).join("")}
+            ${f.boxes.length < 20 ? `<button class="btn file-btn" type="button" data-lblf="add-box">${esc(t("add_box"))}</button>` : ""}
+
+            ${lbl.error ? `<div class="error" style="margin-top:12px">${esc(lbl.error)}</div>` : ""}
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" data-lblf="close">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-lblf="send"${lbl.saving ? " disabled" : ""}>${esc(lbl.saving ? t("sending") : t("send_request"))}</button>
+        </div>`;
+    }
+
+    // What has to be filled in, in his words, before anything is sent.
+    function labelFormProblem() {
+      const f = lbl.form;
+      lbl.bad = [];
+      if (f.newAddress) {
+        const a = f.newAddress;
+        if (!String(a.name || "").trim() && !String(a.company || "").trim()) lbl.bad.push("name", "company");
+        for (const k of ["street", "house_number", "postal_code", "city", "phone", "country"]) if (!String(a[k] || "").trim()) lbl.bad.push(k);
+        if (String(a.email || "").trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(a.email).trim())) lbl.bad.push("email");
+      } else if (!f.address_id) return t("need_address");
+      f.boxes.forEach((w, i) => {
+        const n = Number(String(w).replace(",", "."));
+        if (!(n > 0) || n > 70) lbl.bad.push(`box${i}`);
+      });
+      if (lbl.bad.length) return lbl.bad.some((b) => b.startsWith("box")) && !lbl.bad.some((b) => !b.startsWith("box")) ? t("bad_weight") : t("address_missing");
+      if (!f.carrier) return t("no_carrier");
+      return "";
+    }
+
+    async function sendLabelRequest() {
+      const problem = labelFormProblem();
+      if (problem) {
+        lbl.error = problem;
+        return renderLabels();
+      }
+
+      const f = lbl.form;
+      lbl.saving = true;
+      lbl.error = "";
+      renderLabels();
+
+      try {
+        const data = await api("/api/partner/labels", {
+          method: "POST",
+          body: {
+            carrier: f.carrier,
+            boxes: f.boxes.map((w) => ({ weight_kg: String(w).replace(",", ".") })),
+            ...(f.newAddress ? { address: f.newAddress } : { address_id: f.address_id })
+          }
+        });
+        lbl.data = [data.label, ...lbl.data];
+        lbl.addresses = data.addresses || lbl.addresses;
+        lbl.view = "list";
+        lbl.notice = t("request_sent");
+        window.scrollTo(0, 0);
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        lbl.error = t(err.message in WORDS.en ? err.message : "try_again");
+        if (err.data?.fields) lbl.bad = err.data.fields;
+      } finally {
+        lbl.saving = false;
+        renderLabels();
+      }
+    }
+
+    $("view-labels").addEventListener("click", (event) => {
+      const action = event.target.closest("[data-lblf]")?.dataset.lblf;
+      const carrier = event.target.closest("[data-carrier]")?.dataset.carrier;
+      const drop = event.target.closest("[data-box-drop]")?.dataset.boxDrop;
+
+      if (carrier) lbl.form.carrier = carrier;
+      else if (drop !== undefined) lbl.form.boxes.splice(Number(drop), 1);
+      else if (action === "open") { lbl.form = newForm(); lbl.view = "form"; lbl.error = ""; lbl.bad = []; lbl.notice = ""; window.scrollTo(0, 0); }
+      else if (action === "close") lbl.view = "list";
+      else if (action === "new-address") lbl.form.newAddress = {};
+      else if (action === "pick-address") { lbl.form.newAddress = null; lbl.bad = []; }
+      else if (action === "add-box") lbl.form.boxes.push(lbl.form.boxes[lbl.form.boxes.length - 1] || "");
+      else if (action === "send") return sendLabelRequest();
+      else return;
+
+      renderLabels();
+    });
+
+    // Typing is kept without redrawing, so the phone keyboard stays open.
+    $("view-labels").addEventListener("input", (event) => {
+      if (!lbl.form) return;
+      if (event.target.dataset.la) lbl.form.newAddress[event.target.dataset.la] = event.target.value;
+      if (event.target.dataset.box !== undefined) lbl.form.boxes[Number(event.target.dataset.box)] = event.target.value;
+    });
+
+    $("view-labels").addEventListener("change", (event) => {
+      if (!lbl.form) return;
+      if (event.target.id === "lblAddress") lbl.form.address_id = event.target.value;
+      if (event.target.dataset.la) lbl.form.newAddress[event.target.dataset.la] = event.target.value;
     });
 
     applyLang();
