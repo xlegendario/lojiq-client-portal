@@ -351,9 +351,11 @@
             <thead>
               <tr>
                 <th>Month</th>
-                <th class="money">Pairs</th>
+                <th class="money">Pairs sold</th>
+                <th class="money">Forwarded</th>
                 <th class="money">Purchase</th>
                 <th class="money">Selling</th>
+                <th class="money">Fee</th>
                 <th class="money">Commission</th>
                 <th class="money">Gross profit</th>
                 <th class="money">After TAX</th>
@@ -481,7 +483,13 @@
         <div class="tile${lead ? " lead" : ""}">
           <span class="tile-label">${esc(name)}</span>
           <span class="tile-value">${profit(sum.gross_after_tax)}</span>
-          <span class="tile-sub">${esc(pairs(sum.pairs))} · ${esc(amount(sum.selling))} sold · ${esc(amount(sum.purchase))} cost</span>
+          <span class="tile-sub">${[
+            sum.pairs ? `${esc(pairs(sum.pairs))} sold` : "",
+            sum.forwarded ? `${sum.forwarded} forwarded` : "",
+            sum.selling === null ? "" : `${esc(amount(sum.selling))} turnover`,
+            sum.fee === null ? "" : `${esc(amount(sum.fee))} in fees`,
+            sum.purchase === null ? "" : `${esc(amount(sum.purchase))} cost`
+          ].filter(Boolean).join(" · ")}</span>
         </div>`;
 
       $("summary").hidden = false;
@@ -495,8 +503,10 @@
         <tr>
           <td>${esc(month.month)}</td>
           <td class="money">${month.pairs}</td>
+          <td class="money">${month.forwarded || ""}</td>
           <td class="money">${esc(amount(month.purchase))}</td>
           <td class="money">${esc(amount(month.selling))}</td>
+          <td class="money">${month.fee === null ? "" : esc(amount(month.fee))}</td>
           <td class="money">${esc(amount(month.commission))}</td>
           <td class="money">${profit(month.gross)}</td>
           <td class="money">${profit(month.gross_after_tax)}</td>

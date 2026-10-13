@@ -305,20 +305,47 @@ const add = (a, b) => (a === null && b === null ? null : Math.round(((a || 0) + 
  */
 export function totals(rows = []) {
   const empty = () => ({
-    deals: 0, pairs: 0, purchase: null, selling: null, commission: null, gross: null, gross_after_tax: null
+    deals: 0,
+    pairs: 0,
+    forwarded: 0,
+    purchase: null,
+    selling: null,
+    fee: null,
+    commission: null,
+    gross: null,
+    gross_after_tax: null
   });
 
   const all = empty();
   const byChannel = new Map(CHANNELS.map((name) => [name, empty()]));
 
   for (const row of rows) {
+    /*
+      A forwarded pair is not a pair we sold and its fee is not turnover:
+      the pairs are the partner's and we are paid for moving them. Added
+      into the same two columns they made July read as 407 pairs against
+      20.579 euro, when 115 were sold and 292 were carried - two different
+      things stacked on top of each other.
+
+      So they are counted beside the sales rather than inside them. The
+      profit below is still the two together, because earning is earning.
+    */
+    const carried = row.channel === "Forwarding";
+
     for (const into of [all, byChannel.get(row.channel)]) {
       if (!into) continue;
 
       into.deals += 1;
-      into.pairs += row.pairs || 1;
+
+      if (carried) {
+        into.forwarded += row.pairs || 0;
+        into.fee = add(into.fee, row.selling);
+      } else {
+        into.pairs += row.pairs || 1;
+        into.selling = add(into.selling, row.selling);
+      }
+
       into.purchase = add(into.purchase, row.purchase);
-      into.selling = add(into.selling, row.selling);
       into.commission = add(into.commission, row.commission);
       into.gross = add(into.gross, row.gross);
       into.gross_after_tax = add(into.gross_after_tax, row.gross_after_tax);
