@@ -1698,13 +1698,13 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         ]),
         editForm,
         files ? `<section class="group"><h3>Labels in Sendcloud</h3>${files}</section>` : "",
-        l.status === "created"
+        l.status !== "rejected"
           ? `<section class="group"><h3>Price</h3>
               <div class="panel-form">
                 <input class="input" id="lpPrice" inputmode="decimal" value="${l.price ?? ""}" placeholder="€">
                 <button class="act" type="button" data-lblp="save-price">Save</button>
               </div>
-              <p class="sub">What the partner pays us for these labels. ${labelPayPill(l)}</p>
+              <p class="sub">What the partner pays us for these labels; you can fill it in before or after Create. ${l.status === "created" ? labelPayPill(l) : ""}</p>
             </section>`
           : "",
         l.status === "requested"
