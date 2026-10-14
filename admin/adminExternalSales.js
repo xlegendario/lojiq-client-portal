@@ -597,7 +597,11 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     selfBilling: selfBilling || null
   });
 
-  const outbounds = createOutboundMaker({ db, airtable, invoicing, payments, purchases });
+  const outbounds = createOutboundMaker({
+    db, airtable, invoicing, payments, purchases,
+    // The partner's Deal Updates and Labels channels, as an order would.
+    announcePartnerSale: tellKickz ? (body) => tellKickz("/api/internal/external-sale/partner-sold", body) : null
+  });
 
   // Taking a pair off a deal: credit, new invoice, the unit back where the
   // pair now is, and the refund that may follow.

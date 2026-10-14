@@ -220,8 +220,10 @@ export function planOutbound({ buyer, unitIds, units, partnerPairs = [], total, 
  *   airtable   byIds, update, create (main base)
  *   invoicing  createExternalSalesInvoicing
  *   purchases  createPurchaseExpense - booking a partner pair we buy
+ *   announcePartnerSale  posts a sold partner pair to the partner's Deal
+ *              Updates channel on the KC portal, the way an order would
  */
-export function createOutboundMaker({ db, airtable, invoicing, payments = null, purchases = null }) {
+export function createOutboundMaker({ db, airtable, invoicing, payments = null, purchases = null, announcePartnerSale = null }) {
   // The seller as Rompslomp has him: his company, else his own name.
   async function sellerNames(recordId, sellerId) {
     const found = recordId
@@ -473,6 +475,39 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
     } catch (err) {
       invoiceError = err.message;
       console.error(`[external sales] ${deal}: invoice failed:`, err.message);
+    }
+
+    /*
+     * A partner pair is told to its Deal Updates channel, as an order would.
+     *
+     * The partner is handled as a consignor so that channel shows everything
+     * of his that sells; a direct sale passed it by (EXTD-000128). Last, and
+     * never thrown: the deal is made whether or not the message lands.
+     */
+    const soldPartnerPairs = p.pairs.filter((x) => x.partner_stock_id);
+    if (soldPartnerPairs.length && announcePartnerSale) {
+      try {
+        await announcePartnerSale({
+          deal_id: deal,
+          label_url: p.parcels.length === 1 ? p.parcels[0].label_url || null : null,
+          tracking: p.parcels.length === 1 ? p.parcels[0].tracking_number || null : null,
+          pairs: soldPartnerPairs.map((pair) => {
+            const row = p.partnerById.get(pair.partner_stock_id) || {};
+            return {
+              seller_record_id: text(row.seller_record_id),
+              seller_id: text(row.seller_id),
+              sku: pair.sku,
+              size: pair.size,
+              product_name: pair.product_name,
+              vat_type: pair.purchase_vat_type,
+              ask_price: round2(Number(row.partner_price || 0) + Number(row.markup || 0)),
+              inventory_unit_record_id: pair.inventory_unit_record_id
+            };
+          })
+        });
+      } catch (err) {
+        console.error(`[external sales] ${deal}: the partner's Deal Updates channel was not told:`, err.message);
+      }
     }
 
     return {

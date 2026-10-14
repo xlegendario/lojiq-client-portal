@@ -217,6 +217,50 @@ test("a partner pair becomes ours the moment it is sold", async () => {
   assert.equal(shelf.inventory_unit_id, partnerPairRow.item_id);
 });
 
+test("a sold partner pair is told to the partner's channels, label and all (EXTD-000128)", async () => {
+  const db = fakeDb({ buyers: [buyer()], external_sales: [], external_sale_pairs: [], shipments: [], partner_stock: [{ ...PARTNER_PAIR, markup: 25 }] });
+  const insert = db.insert.bind(db);
+  db.insert = async (table, rows) => insert(table, table === "external_sales" ? rows.map((r) => ({ deal_number: 128, ...r })) : rows);
+
+  const announced = [];
+  const maker = createOutboundMaker({
+    db,
+    airtable: fakeAirtable({}),
+    invoicing: { invoice: async () => ({ log: [] }) },
+    announcePartnerSale: async (body) => { announced.push(body); }
+  });
+
+  await maker.create({
+    buyer_id: BUYER,
+    partner_pair_ids: [PARTNER_PAIR.id],
+    total_selling_price: 85,
+    parcels: [{ tracking_number: "05252081136664", label_url: "https://r2.example/label.pdf" }]
+  });
+
+  assert.equal(announced.length, 1);
+  assert.equal(announced[0].deal_id, "EXTD-000128");
+  assert.equal(announced[0].label_url, "https://r2.example/label.pdf");
+  assert.equal(announced[0].tracking, "05252081136664");
+  assert.equal(announced[0].pairs[0].seller_record_id, "recPARTNER000001");
+  assert.equal(announced[0].pairs[0].ask_price, 125);
+  assert.ok(announced[0].pairs[0].inventory_unit_record_id);
+});
+
+test("a deal stands when the partner's channel cannot be told", async () => {
+  const db = fakeDb({ buyers: [buyer()], external_sales: [], external_sale_pairs: [], shipments: [], partner_stock: [{ ...PARTNER_PAIR }] });
+  const maker = createOutboundMaker({
+    db,
+    airtable: fakeAirtable({}),
+    invoicing: { invoice: async () => ({ log: [] }) },
+    announcePartnerSale: async () => { throw new Error("Kickz Caviar is down"); }
+  });
+
+  const out = await maker.create({ buyer_id: BUYER, partner_pair_ids: [PARTNER_PAIR.id], total_selling_price: 125 });
+
+  assert.equal(out.pairs, 1);
+  assert.equal(db.tables.external_sales.length, 1);
+});
+
 test("a partner pair another sale just took stops the outbound", async () => {
   const db = fakeDb({ buyers: [buyer()], external_sales: [], external_sale_pairs: [], shipments: [], partner_stock: [{ ...PARTNER_PAIR, status: "sold" }] });
   const airtable = fakeAirtable({});
