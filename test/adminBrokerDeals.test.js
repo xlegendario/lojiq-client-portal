@@ -1208,3 +1208,47 @@ test("every route writes its audit line the way the audit expects", async () => 
   assert.equal(failed, null, failed && failed.error);
   assert.deepEqual(written.map((w) => w.action), ["broker_deal_deleted"]);
 });
+
+test("naming the margin works the offer back from what the buyer pays", async () => {
+  const { store, tables } = shop({ lines: [line({ status: "draft", buyer_price: 200, payout: null })] });
+
+  await store.priceLine({ lineId: tables.deal_lines[0].id, margin: 25 });
+
+  // No consignor on it yet, so the ordinary case: 200 - 25.
+  assert.equal(tables.deal_lines[0].payout, 175);
+});
+
+test("on margin goods the VAT over the gap is put back on the way to the offer", async () => {
+  // No consignor on a draft, so what the line was added under is what tells
+  // us: restricted to margin goods, it will be margin goods.
+  const { store, tables } = shop({
+    lines: [line({ status: "draft", buyer_price: 200, payout: null, vat_filter: "margin" })]
+  });
+
+  await store.priceLine({ lineId: tables.deal_lines[0].id, margin: 25 });
+
+  // Keeping 25 means a gap of 25 x 1.21, so 200 - 30.25.
+  assert.equal(tables.deal_lines[0].payout, 169.75);
+
+  // And read back the other way, it is the 25 that was asked for.
+  const row = lineRow(
+    line({ buyer_price: 200, offer_id: offer().id }),
+    offer({ vat_type: "Margin", offer_price: 169.75 })
+  );
+
+  assert.equal(row.margin, 25);
+});
+
+test("a margin needs a buyer price to be worked back from, and is not a second payout", async () => {
+  const { store, tables } = shop({ lines: [line({ status: "draft", buyer_price: null, payout: null })] });
+
+  await assert.rejects(
+    () => store.priceLine({ lineId: tables.deal_lines[0].id, margin: 25 }),
+    /Set what the buyer pays first/
+  );
+
+  await assert.rejects(
+    () => store.priceLine({ lineId: tables.deal_lines[0].id, buyerPrice: 200, payout: 170, margin: 25 }),
+    /not both/
+  );
+});

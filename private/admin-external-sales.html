@@ -1244,7 +1244,9 @@
                       ? `<span class="sub" title="What he wanted before we countered">${esc(euro(o.fallback))}</span>`
                       : "—"}</td>
                   <td class="money"><button class="linky" type="button" data-draft="price" data-id="${esc(o.id)}">${o.buyer_price > 0 ? esc(euro(o.buyer_price)) : "set"}</button></td>
-                  <td class="money">${o.margin === null ? "—" : esc(euro(o.margin))}</td>
+                  <td class="money">${o.status === "draft"
+                    ? `<button class="linky" type="button" data-draft="margin" data-id="${esc(o.id)}">${o.margin === null ? "set" : esc(euro(o.margin))}</button>`
+                    : o.margin === null ? "—" : esc(euro(o.margin))}</td>
                   <td>
                     <span class="pill ${LINE_PILL[o.status] ?? ""}">${esc(o.state)}</span>
                     ${o.due_at ? ` <span class="sub" title="Runs out ${esc(when(o.due_at))}">${esc(clockText(o.due_at))}</span>` : ""}
@@ -1389,6 +1391,36 @@
        * window in front of a window - and the confirm underneath already
        * says the number and the margin it leaves.
        */
+      /*
+       * The margin as a way in, rather than only as a read-out.
+       *
+       * Working back from it needs the buyer price, so it says so instead of
+       * asking a question whose answer cannot be used. What is typed is what
+       * is kept: on margin goods the VAT over the gap is added back on the
+       * way to the offer, which is the thing nobody should have to do in
+       * their head.
+       */
+      let margin;
+
+      if (what === "margin") {
+        if (!(line.buyer_price > 0)) {
+          toast("Set what the buyer pays first - the offer is worked back from it.");
+          return;
+        }
+
+        const typed = window.prompt(
+          `What do you want to keep on ${line.sku} ${line.size}?\n\n` +
+            `The buyer pays ${euro(line.buyer_price)}, so this sets what ${who} is offered.`,
+          String(line.margin || "")
+        );
+
+        if (typed === null) return;
+
+        margin = Number(String(typed).replace(",", "."));
+
+        if (!(margin > 0)) { toast("What margin do you want on it?"); return; }
+      }
+
       if (what === "price" || (what === "finalize" && !(line.buyer_price > 0))) {
         const typed = window.prompt(
           what === "finalize"
@@ -1443,7 +1475,12 @@
         const out = await api(`/api/admin/broker-deals/lines/${encodeURIComponent(id)}/answer`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: what, price, buyer_price: buyerPrice })
+          body: JSON.stringify({
+            action: what === "margin" ? "price" : what,
+            price,
+            buyer_price: buyerPrice,
+            margin
+          })
         });
 
         toast(

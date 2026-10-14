@@ -106,6 +106,25 @@ function netMargin(gross, purchaseVatType) {
   return purchaseVatType === "Margin" ? round2((gross * 100) / 121) : round2(gross);
 }
 
+/*
+ * The same sum read backwards: what we can offer for a margin we want.
+ *
+ * A broker works from whichever side he knows. He has agreed a price with
+ * the buyer and wants a number to put to the consignor, and doing that in
+ * his head means knowing whether this pair is margin goods - which is
+ * exactly what nobody should have to remember.
+ *
+ * The exact inverse of netMargin above, and written beside it so the two
+ * cannot drift: feed one the other's answer and the first number comes back.
+ */
+function payoutForMargin(margin, buyerPrice, purchaseVatType) {
+  if (!Number.isFinite(margin) || !Number.isFinite(buyerPrice)) return null;
+
+  const gap = purchaseVatType === "Margin" ? margin * 1.21 : margin;
+
+  return round2(buyerPrice - gap);
+}
+
 export function lineRow(line, offer = null, previous = null) {
   // The round decides while there is one. A line whose round ended goes
   // back to draft with its offer cleared, so there is nothing to prefer.
@@ -936,7 +955,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * the broker has to be able to follow it without the consignor's side
    * moving at all.
    */
-  async function priceLine({ lineId, buyerPrice, payout } = {}) {
+  async function priceLine({ lineId, buyerPrice, payout, margin } = {}) {
     const { line, row } = await loadLine(lineId);
 
     const fields = { updated_at: new Date().toISOString() };
@@ -967,6 +986,57 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       if (!(owed > 0)) throw new BrokerDealsError("What are we paying for it?");
 
       fields.payout = round2(owed);
+    }
+
+    /*
+     * Or the other way round: name the margin and the offer follows.
+     *
+     * Read after the buyer price above, so naming both in one go works and
+     * the margin is taken off the new number rather than the old one. Both a
+     * payout and a margin is two answers to one question, and the one that
+     * would lose is silent - so it is refused instead.
+     */
+    if (margin !== undefined && margin !== null && margin !== "") {
+      if (fields.payout !== undefined) {
+        throw new BrokerDealsError("Name the offer or the margin, not both.");
+      }
+
+      if (row.status !== "draft") {
+        throw new BrokerDealsError("A pair that is already out can only be countered, not re-priced.", 409);
+      }
+
+      const wanted = Number(margin);
+
+      if (!(wanted > 0)) throw new BrokerDealsError("What margin do you want on it?");
+
+      const buyer = Number(fields.buyer_price ?? row.buyer_price);
+
+      if (!(buyer > 0)) {
+        throw new BrokerDealsError("Set what the buyer pays first - the offer is worked back from it.");
+      }
+
+      /*
+       * Which kind of pair this will be, as far as it is knowable.
+       *
+       * A draft has no consignor yet - he is picked when the offer goes out
+       * - so the round cannot say. What the line itself says is the filter
+       * it was added under: restricted to margin goods, it will be margin
+       * goods. Left on "all" it can still turn out either way, and then the
+       * ordinary sum is the one to use; the column shows the truth again as
+       * soon as a consignor is on it.
+       */
+      const kind = text(row.vat_type)
+        || (text(row.vat_filter) === "margin" ? "Margin" : "");
+
+      const owed = payoutForMargin(wanted, buyer, kind);
+
+      if (!(owed > 0)) {
+        throw new BrokerDealsError(
+          `A margin of ${round2(wanted)} leaves nothing for the consignor out of ${round2(buyer)}.`
+        );
+      }
+
+      fields.payout = owed;
     }
 
     await db.patch(`deal_lines?id=eq.${line.id}`, fields);
@@ -1019,11 +1089,15 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * him, and moves the line on. Doing any of it from this side would be a
    * second set of rules that drifts from the first.
    */
-  async function answer({ lineId, action, price, buyerPrice } = {}) {
+  async function answer({ lineId, action, price, buyerPrice, margin } = {}) {
     const { line, offer, row } = await loadLine(lineId);
 
     if (action === "price") {
-      return { ...(await priceLine({ lineId, buyerPrice })), did: "priced", seller_id: row.seller_id };
+      return {
+        ...(await priceLine({ lineId, buyerPrice, margin })),
+        did: "priced",
+        seller_id: row.seller_id
+      };
     }
 
     if (action === "offer") {
@@ -2204,7 +2278,8 @@ export function mountBrokerDeals(router, { store, audit = null }) {
         lineId: req.params.lineId,
         action: text(req.body?.action),
         price: req.body?.price,
-        buyerPrice: req.body?.buyer_price
+        buyerPrice: req.body?.buyer_price,
+        margin: req.body?.margin
       });
 
       audit?.record({
