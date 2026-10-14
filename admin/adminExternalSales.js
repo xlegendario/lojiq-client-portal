@@ -436,7 +436,9 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     if (file && !kind) throw new ExternalSalesError("The label must be a PDF, JPEG or PNG file.");
     if (!kind && !number) throw new ExternalSalesError("Add a label, a tracking number, or both.");
 
-    return edits.edit(sale, async (fresh, parcels) => {
+    let madeParcelId = null;
+
+    const result = await edits.edit(sale, async (fresh, parcels) => {
       if (number && parcels.some((p) => p.tracking_number === number)) throw new ExternalSalesError(`${number} is already on this deal.`);
 
       const stored = kind ? await storeLabel({ dealId: dealId(fresh), filename: `${number || "label"}.${kind.ext}`, mime: kind.mime, bytes: file }) : null;
@@ -451,6 +453,8 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
 
       if (!parcel?.id) return;
 
+      madeParcelId = parcel.id;
+
       const all = await db.get(`external_sale_pairs?select=id,shipment_id,consignor_fulfillment_status&sale_id=eq.${fresh.id}&cancelled_at=is.null`);
 
       const wanted = Array.isArray(pairIds) && pairIds.length
@@ -463,6 +467,10 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
         await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { shipment_id: parcel.id });
       }
     });
+
+    if (kind) await tellPartnerOfLabel(madeParcelId);
+
+    return result;
   }
 
   // A label added to a parcel that had only its tracking number, or replaced.
@@ -472,10 +480,63 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     if (!kind) throw new ExternalSalesError("The label must be a PDF, JPEG or PNG file.");
     const sale = await saleById(parcel.external_sale_id);
 
-    return edits.edit(sale, async (fresh) => {
+    const result = await edits.edit(sale, async (fresh) => {
       const stored = await storeLabel({ dealId: dealId(fresh), filename: `${parcel.tracking_number || "label"}.${kind.ext}`, mime: kind.mime, bytes: file });
       await db.patch(`shipments?id=eq.${parcel.id}`, { label_url: stored.url, label_filename: stored.filename, airtable_attachment_id: null });
     });
+
+    await tellPartnerOfLabel(parcel.id);
+
+    return result;
+  }
+
+  /*
+   * A label that reaches a box with a partner pair in it goes to the partner.
+   *
+   * He is handled as a consignor, and the label in his Labels channel is the
+   * notification that his pair goes out - so it has to arrive when the label
+   * comes later too, not only when the deal is made with one.
+   *
+   * Never thrown: the label is on the deal either way.
+   */
+  async function tellPartnerOfLabel(parcelId) {
+    if (!tellKickz || !text(parcelId)) return;
+
+    try {
+      const [parcel] = await db.get(`shipments?select=*&id=eq.${text(parcelId)}`);
+      if (!text(parcel?.label_url)) return;
+
+      const inBox = await db.get(`external_sale_pairs?select=*&shipment_id=eq.${parcel.id}&cancelled_at=is.null`);
+      const partnerPairs = inBox.filter((pair) => text(pair.partner_stock_id));
+      if (!partnerPairs.length) return;
+
+      const ids = partnerPairs.map((pair) => `"${text(pair.partner_stock_id)}"`).join(",");
+      const rows = await db.get(`partner_stock?select=id,seller_record_id,seller_id,partner_price,markup&id=in.(${ids})`);
+      const byId = new Map(rows.map((row) => [text(row.id), row]));
+      const [sale] = await db.get(`external_sales?select=*&id=eq.${parcel.external_sale_id}`);
+
+      await tellKickz("/api/internal/external-sale/partner-sold", {
+        deal_id: dealId(sale),
+        label_only: true,
+        label_url: parcel.label_url,
+        tracking: parcel.tracking_number || null,
+        pairs: partnerPairs.map((pair) => {
+          const row = byId.get(text(pair.partner_stock_id)) || {};
+          return {
+            seller_record_id: text(row.seller_record_id),
+            seller_id: text(row.seller_id),
+            sku: pair.sku,
+            size: pair.size,
+            product_name: pair.product_name,
+            vat_type: pair.purchase_vat_type,
+            ask_price: Number(row.partner_price || 0) + Number(row.markup || 0),
+            inventory_unit_record_id: pair.inventory_unit_record_id
+          };
+        })
+      });
+    } catch (err) {
+      console.error(`[external sales] parcel ${parcelId}: the partner was not sent his label:`, err.message);
+    }
   }
 
   async function setParcelTracking(parcelId, tracking) {
