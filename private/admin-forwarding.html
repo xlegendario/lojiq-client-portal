@@ -702,8 +702,10 @@
       else renderForwards(rows);
 
       const picked = rows.filter((row) => state.picked.has(row.id));
-      $("actionbar").hidden = !payments || !picked.length;
-      $("pickedText").textContent = `${picked.length} selected · ${euro(picked.reduce((sum, row) => sum + row.money.payable, 0))}`;
+      const pickedLabels = state.labels.filter((l) => state.picked.has(`lbl:${l.id}`));
+      const pickedTotal = picked.reduce((sum, row) => sum + row.money.payable, 0) + pickedLabels.reduce((sum, l) => sum + Number(l.price || 0), 0);
+      $("actionbar").hidden = !payments || !(picked.length + pickedLabels.length);
+      $("pickedText").textContent = `${picked.length + pickedLabels.length} selected · ${euro(pickedTotal)}`;
     }
 
     function renderForwards(rows) {
@@ -785,7 +787,7 @@
         const labelsHere = labelGroups.get(sellerId) || [];
         const partner = state.partners.find((p) => p.seller_record_id === sellerId);
         const first = list[0] || { seller_name: partner?.name, seller_id: labelsHere[0]?.seller_id };
-        const ids = list.map((row) => row.id);
+        const ids = [...list.map((row) => row.id), ...labelsHere.map((l) => `lbl:${l.id}`)];
         const allPicked = ids.length > 0 && ids.every((id) => state.picked.has(id));
         const total = list.reduce((sum, row) => sum + row.money.payable, 0) + labelsHere.reduce((sum, l) => sum + Number(l.price), 0);
         const unpaid = list.filter((row) => row.payment_status !== "paid");
@@ -823,8 +825,8 @@
           </tr>`).join("");
 
         const labelLines = labelsHere.map((l) => `
-          <tr>
-            <td class="check"></td>
+          <tr data-label-id="${esc(l.id)}"${state.selectedLabel === l.id ? ' class="selected"' : ""}>
+            <td class="check"><input type="checkbox" data-pick="lbl:${esc(l.id)}"${state.picked.has(`lbl:${l.id}`) ? " checked" : ""} aria-label="Select ${esc(lblNumber(l))}"></td>
             <td><span class="id">${esc(lblNumber(l))}</span><br><span class="sub">Label · ${esc(l.carrier)}</span></td>
             <td>${esc(dayFmt.format(new Date(l.created_label_at || l.created_at)))}</td>
             <td class="money">${(l.boxes || []).length} box${(l.boxes || []).length === 1 ? "" : "es"}</td>
@@ -832,7 +834,7 @@
             <td class="money">${euro(l.price)}</td>
             <td class="money"><strong>${euro(l.price)}</strong></td>
             <td><span class="pill move">Label</span></td>
-            <td>${l.payment_status === "paid" ? '<span class="pill good">Paid</span>' : `<span class="pill wait">Not paid</span> <button class="act" type="button" data-lbl="paid" data-id="${esc(l.id)}">Mark paid</button>`}</td>
+            <td>${paymentPill(l)}</td>
           </tr>`).join("");
 
         return head + lines + labelLines;
@@ -1125,8 +1127,13 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           state.partners = labelData.partners || [];
         }
         state.forwards = data.forwards;
-        state.picked = new Set([...state.picked].filter((id) => data.forwards.some((row) => row.id === id)));
+        state.picked = new Set([...state.picked].filter((id) => id.startsWith("lbl:")
+          ? state.labels.some((l) => `lbl:${l.id}` === id)
+          : data.forwards.some((row) => row.id === id)));
         render();
+
+        const openLabel = state.selectedLabel && state.labels.find((l) => l.id === state.selectedLabel);
+        if (openLabel && !$("panel").hidden && !state.labelDirty) drawLabelPanel(openLabel);
 
         if (state.selected) {
           const open = data.forwards.find((row) => row.id === state.selected);
@@ -1944,21 +1951,35 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
     /* ---------------- payments ---------------- */
 
-    async function setPaid(ids, paid) {
-      if (!ids.length) { toast("Tick the forwards first."); return; }
+    async function setPaid(picked, paid) {
+      if (!picked.length) { toast("Tick the forwards first."); return; }
 
-      const total = state.forwards.filter((row) => ids.includes(row.id)).reduce((sum, row) => sum + row.money.payable, 0);
-      if (!confirm(`${paid ? "Mark" : "Unmark"} ${ids.length} forward(s) ${paid ? "as paid" : "as unpaid"} (${euro(total)})?`)) return;
+      // "lbl:<id>" is a partner label, paid together with his forwards.
+      const ids = picked.filter((id) => !id.startsWith("lbl:"));
+      const labelIds = picked.filter((id) => id.startsWith("lbl:")).map((id) => id.slice(4));
+      const total = state.forwards.filter((row) => ids.includes(row.id)).reduce((sum, row) => sum + row.money.payable, 0)
+        + state.labels.filter((l) => labelIds.includes(l.id)).reduce((sum, l) => sum + Number(l.price || 0), 0);
+      const what = [ids.length ? `${ids.length} forward(s)` : "", labelIds.length ? `${labelIds.length} label(s)` : ""].filter(Boolean).join(" and ");
+      if (!confirm(`${paid ? "Mark" : "Unmark"} ${what} ${paid ? "as paid" : "as unpaid"} (${euro(total)})?`)) return;
 
       try {
-        await api("/api/admin/forwarding/payment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids, paid })
-        });
+        if (ids.length) {
+          await api("/api/admin/forwarding/payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids, paid })
+          });
+        }
+        for (const id of labelIds) {
+          await api("/api/admin/partner-labels", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: paid ? "paid" : "unpaid", id })
+          });
+        }
 
-        ids.forEach((id) => state.picked.delete(id));
-        toast(`${ids.length} forward(s) marked ${paid ? "paid" : "unpaid"}.`);
+        picked.forEach((id) => state.picked.delete(id));
+        toast(`${what} marked ${paid ? "paid" : "unpaid"}.`);
         load();
         loadCounts();
       } catch (err) {
@@ -1966,7 +1987,10 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       }
     }
 
-    const pickedVisible = () => visibleForwards().filter((row) => state.picked.has(row.id)).map((row) => row.id);
+    const pickedVisible = () => [
+      ...visibleForwards().filter((row) => state.picked.has(row.id)).map((row) => row.id),
+      ...state.labels.filter((l) => state.picked.has(`lbl:${l.id}`)).map((l) => `lbl:${l.id}`)
+    ];
 
     $("markPaidBtn").addEventListener("click", () => setPaid(pickedVisible(), true));
     $("markUnpaidBtn").addEventListener("click", () => setPaid(pickedVisible(), false));
@@ -1976,24 +2000,19 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
       if (payGroup) {
         const forwardIds = payGroup.dataset.payGroup.split(",").filter(Boolean);
-        const labelIds = (payGroup.dataset.payLabels || "").split(",").filter(Boolean);
-        if (labelIds.length) {
-          const labelTotal = state.labels.filter((l) => labelIds.includes(l.id)).reduce((sum, l) => sum + Number(l.price), 0);
-          if (!confirm(`Also mark ${labelIds.length} label(s) paid (${euro(labelTotal)})?`)) return;
-          for (const id of labelIds) await labelAction({ action: "paid", id });
-        }
-        if (forwardIds.length) setPaid(forwardIds, true);
-        return;
-      }
-
-      // A single label in Forwarding Payments.
-      const labelPaid = event.target.closest("[data-lbl]");
-      if (labelPaid && state.mode === "payments") {
-        await labelAction({ action: labelPaid.dataset.lbl, id: labelPaid.dataset.id }, () => "Label marked paid.");
+        const labelIds = (payGroup.dataset.payLabels || "").split(",").filter(Boolean).map((id) => `lbl:${id}`);
+        setPaid([...forwardIds, ...labelIds], true);
         return;
       }
 
       if (event.target.closest("input, a, button")) return;
+
+      // A label opens its own panel, with Mark paid there.
+      const labelRow = event.target.closest("tr[data-label-id]");
+      if (labelRow && state.mode === "payments") {
+        openLabelPanel(labelRow.dataset.labelId);
+        return;
+      }
 
       const row = event.target.closest("tr[data-id]");
       if (row) openPanel(row.dataset.id);
