@@ -85,6 +85,27 @@ export const UNIT_FIELDS = [
  * consignor left it, and only a line without a live round falls back on
  * its own status.
  */
+/*
+ * What a pair leaves, rather than the gap between two prices.
+ *
+ * On a VAT21 or a reverse-charged sale both prices are already net of VAT
+ * and the gap IS the margin. Margin goods are the exception: there the tax
+ * is owed over the gap itself, so a quarter of it was never ours - EUR 25
+ * showing on the screen is EUR 20.66 in the bank.
+ *
+ * Which of the two a pair is depends only on how it was bought, and that is
+ * on the round: a margin purchase is sold under the margin scheme whoever
+ * the buyer is. So no buyer is needed here to tell them apart.
+ *
+ * An unknown purchase type reads as the ordinary case, which is what every
+ * line without a consignor on it is.
+ */
+function netMargin(gross, purchaseVatType) {
+  if (!Number.isFinite(gross)) return null;
+
+  return purchaseVatType === "Margin" ? round2((gross * 100) / 121) : round2(gross);
+}
+
 export function lineRow(line, offer = null, previous = null) {
   // The round decides while there is one. A line whose round ended goes
   // back to draft with its offer cleared, so there is nothing to prefer.
@@ -139,7 +160,9 @@ export function lineRow(line, offer = null, previous = null) {
     countered: offer?.consignor_counter_price ? round2(offer.consignor_counter_price) : null,
     payout,
     buyer_price: buyerPrice,
-    margin: buyerPrice > 0 && payout > 0 ? round2(buyerPrice - payout) : null,
+    margin: buyerPrice > 0 && payout > 0
+      ? netMargin(buyerPrice - payout, text(offer?.vat_type))
+      : null,
 
     status: key,
     state: state.say,

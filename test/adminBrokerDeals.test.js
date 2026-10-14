@@ -245,7 +245,17 @@ test("once a round is out, the round says where the line stands", () => {
   assert.equal(countered.state, "He countered");
   assert.equal(countered.yours, true);
   assert.equal(countered.payout, 160, "his counter is what the pair would cost now");
-  assert.equal(countered.margin, 20, "180 - 160");
+  // Margin goods: the 20 between the two prices is taxed over the gap, so
+  // 20 x 100/121 is what is kept. See netMargin.
+  assert.equal(countered.margin, 16.53, "180 - 160, less the VAT on the gap");
+
+  // And where the prices are already net of VAT, the gap IS the margin.
+  const vatPair = lineRow(
+    line({ status: "countered", offer_id: offer().id }),
+    offer({ vat_type: "VAT0", status: "store_pending", consignor_counter_price: 160, consignor_counter_at: "2026-10-02T12:00:00.000Z" })
+  );
+
+  assert.equal(vatPair.margin, 20, "180 - 160");
 });
 
 test("agreed is the broker's move and nothing is booked", () => {
