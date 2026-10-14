@@ -135,3 +135,34 @@ test("splitStreet takes the number from the street when the whole street was typ
   assert.deepEqual(splitStreet("Keizersgracht 12-3", "12-3"), { street: "Keizersgracht", house_number: "12-3" });
   assert.deepEqual(splitStreet("Torstraße", "5"), { street: "Torstraße", house_number: "5" });
 });
+
+test("edit changes labels, weights, pairs, carrier and address of an open request, and his saved address too", async () => {
+  const { db, labels } = setup();
+  const row = await ask(labels);
+  const edited = await labels.edit(row.id, {
+    carrier: "ups",
+    pairs: "12",
+    boxes: [{ weight_kg: 5 }, { weight_kg: 5 }, { weight_kg: 4.5 }],
+    address: { ...address, street: "Teubnerstrasse 14", house_number: "Teubnerstrasse 14", city: "Pottenstein" },
+    note: "fixed"
+  });
+  assert.equal(edited.carrier, "UPS");
+  assert.equal(edited.pairs, 12);
+  assert.equal(edited.boxes.length, 3);
+  assert.equal(edited.address.street, "Teubnerstrasse");
+  assert.equal(edited.address.house_number, "14");
+  assert.equal(edited.note, "fixed");
+  assert.equal(db.tables.partner_addresses[0].city, "Pottenstein");
+
+  await assert.rejects(labels.edit(row.id, { address: { ...address, phone: "" } }), (e) => e.code === "address_missing");
+  await assert.rejects(labels.edit(row.id, { pairs: "0" }), (e) => e.code === "bad_pairs");
+});
+
+test("once a box has its label, the carrier and address stay", async () => {
+  const { labels } = setup([{ status: 207, data: { ok: false, error: "Sendcloud said no", labels: [{ box: 1, tracking: "T1", label_url: "u1" }] } }]);
+  const row = await ask(labels);
+  await assert.rejects(labels.create(row.id));
+  await assert.rejects(labels.edit(row.id, { carrier: "UPS" }), (e) => e.code === "labels_made");
+  await assert.rejects(labels.edit(row.id, { address: { ...address, city: "Hamburg" } }), (e) => e.code === "labels_made");
+  assert.equal((await labels.edit(row.id, { pairs: 3 })).pairs, 3);
+});

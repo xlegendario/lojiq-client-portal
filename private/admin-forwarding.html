@@ -226,6 +226,9 @@
     .boxes-input { width: 120px; margin-top: 6px; }
     .panel-form { display: flex; gap: 8px; align-items: center; }
     .panel-form .input { flex: 1; min-width: 0; }
+    label.mini { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+    label.mini.wide { grid-column: span 2; }
+    #lpDirty { color: var(--amber, #E0A030); }
     .act.primary-act { background: var(--primary); border-color: var(--primary); color: #fff; }
     tr[data-label-id] { cursor: pointer; }
     .act.danger { border-color: var(--red); color: var(--bad-text); }
@@ -1552,52 +1555,95 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
     /* ----- the label's side panel: everything about it, and every action ----- */
 
+    // About 1.2 kg per boxed pair, spread over n labels.
+    function guessWeights(n, pairs) {
+      n = Math.max(1, Number(n) || 1);
+      if (!(Number(pairs) > 0)) return `${n} x 2.5`;
+      const each = Math.max(1, Math.round((Number(pairs) * 1.2) / n * 2) / 2);
+      return n === 1 ? String(each) : `${n} x ${each}`;
+    }
+
+    const ADDRESS_FIELDS = [
+      ["name", "Name", ""], ["company", "Company", ""], ["street", "Street", "wide"], ["house_number", "House number", ""],
+      ["address2", "Address line 2", ""], ["postal_code", "Postcode", ""], ["city", "City", ""], ["country", "Country", ""],
+      ["phone", "Phone", ""], ["email", "E-mail (optional)", "wide"]
+    ];
+
     function drawLabelPanel(l) {
       const open = l.status === "requested" || l.status === "failed";
-      const ready = (l.boxes || []).length > 0 && (l.boxes || []).every((b) => Number(b.weight_kg) > 0);
+      const made = (l.labels || []).length;
       const a = l.address || {};
+      state.labelDirty = false;
 
       $("panelTitle").textContent = `${lblNumber(l)} · ${partnerName(l.seller_record_id) || l.seller_id}`;
 
       $("panelActions").innerHTML = [
-        open ? `<button class="act" type="button" data-lblp="check">Check</button>` : "",
-        open ? `<button class="act primary-act" type="button" data-lblp="create">Create labels</button>` : "",
+        open ? `<button class="act" type="button" data-lblp="check" title="Asks Sendcloud what it would use. Nothing is made or charged.">Check</button>` : "",
+        open ? `<button class="act primary-act" type="button" data-lblp="create" title="Makes the labels in Sendcloud. This is charged.">Create labels</button>` : "",
         l.status === "created" && l.payment_status !== "paid" && l.price !== null && l.price !== undefined ? `<button class="act" type="button" data-lblp="paid">Mark paid</button>` : "",
         l.status === "created" && l.payment_status === "paid" ? `<button class="act" type="button" data-lblp="unpaid">Mark not paid</button>` : ""
       ].join("");
 
-      const weights = open
-        ? `<div class="panel-form">
-            <input class="input" id="lpBoxes" value="${esc(boxesText(l) || suggestBoxes(l))}">
-            <button class="act" type="button" data-lblp="save-boxes">Save</button>
-          </div>
-          <p class="sub">Weight per box in kg: "2.5, 3", or "3 x 2.5" for three boxes. ${ready ? "" : "This is our guess (1.2 kg per pair); change it if needed. Create labels saves it first."}</p>`
-        : esc((l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", "));
-
-      const files = (l.labels || []).length
+      const files = made
         ? `<ul class="link-list">${l.labels.map((x) => `<li><a href="${esc(x.label_url)}" target="_blank" rel="noopener">Box ${x.box} · ${esc(x.tracking)}</a></li>`).join("")}</ul>`
         : "";
 
+      const lock = made > 0 ? " disabled" : "";
+      const editForm = open ? `
+        <section class="group"><h3>Labels</h3>
+          <div class="addr-grid">
+            <label class="mini">Carrier
+              <select class="select" id="lpCarrier"${lock}>${["UPS", "DPD"].map((c) => `<option${c === l.carrier ? " selected" : ""}>${c}</option>`).join("")}</select>
+            </label>
+            <span></span>
+            <label class="mini">Number of labels
+              <input class="input" id="lpCount" type="number" min="${Math.max(1, made)}" max="20" value="${(l.boxes || []).length || 1}">
+            </label>
+            <label class="mini">Total pairs
+              <input class="input" id="lpPairs" type="number" min="1" value="${l.pairs ?? ""}">
+            </label>
+            <label class="mini wide">Weight per label (kg)
+              <input class="input" id="lpBoxes" value="${esc(boxesText(l) || guessWeights((l.boxes || []).length, l.pairs))}">
+            </label>
+          </div>
+          <p class="sub">"2 x 24" is two labels of 24 kg; "20; 18" is two labels of different weights. Changing the number of labels or pairs fills in a guess (1.2 kg per pair).</p>
+        </section>
+        <section class="group"><h3>Ship to</h3>
+          ${made ? `<p class="sub">Labels were already made for this address; it cannot change any more.</p>` : ""}
+          <div class="addr-grid">
+            ${ADDRESS_FIELDS.map(([key, label, cls]) => key === "country"
+              ? `<label class="mini">${label}<select class="select" data-addr="country"${lock}>${COUNTRY_LIST.map(([code, name]) => `<option value="${code}"${code === a.country ? " selected" : ""}>${esc(name)}</option>`).join("")}</select></label>`
+              : `<label class="mini ${cls}">${label}<input class="input" data-addr="${key}" value="${esc(a[key] || "")}"${lock}></label>`).join("")}
+          </div>
+        </section>
+        <section class="group"><h3>Note (only for us)</h3>
+          <input class="input" id="lpNote" value="${esc(l.note || "")}">
+        </section>
+        <div class="panel-form"><button class="act" type="button" data-lblp="save-edit">Save changes</button><span class="sub" id="lpDirty"></span></div>`
+      : [
+          panelGroup("Ship to", [
+            ["Name", esc(a.name || "")],
+            ["Company", esc(a.company || "")],
+            ["Address", esc([`${a.street || ""} ${a.house_number || ""}`.trim(), a.address2].filter(Boolean).join(", "))],
+            ["Place", esc([a.postal_code, a.city, a.country].filter(Boolean).join(" "))],
+            ["Phone", esc(a.phone || "")],
+            ["E-mail", esc(a.email || "")]
+          ]),
+          panelGroup("Labels", [["Weights", esc((l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", "))]])
+        ].join("");
+
       $("panelBody").innerHTML = [
-        panelGroup("Label", [
+        panelGroup("Request", [
           ["Status", labelPill(l)],
           ["Problem", l.error ? `<span class="bad-text">${esc(l.error)}</span>` : ""],
           ["Asked", `${esc(dateFmt.format(new Date(l.created_at)))} · ${esc(l.requested_by)}`],
-          ["Carrier", esc(l.carrier)],
-          ["Labels", String((l.boxes || []).length)],
-          ["Pairs", l.pairs ? String(l.pairs) : ""],
-          ["Note", esc(l.note || "")],
+          ["Carrier", open ? "" : esc(l.carrier)],
+          ["Labels", open ? "" : String((l.boxes || []).length)],
+          ["Pairs", !open && l.pairs ? String(l.pairs) : ""],
+          ["Note", open ? "" : esc(l.note || "")],
           ["Rejected", esc(l.reject_reason || "")]
         ]),
-        panelGroup("Ship to", [
-          ["Name", esc(a.name || "")],
-          ["Company", esc(a.company || "")],
-          ["Address", esc([`${a.street || ""} ${a.house_number || ""}`.trim(), a.address2].filter(Boolean).join(", "))],
-          ["Place", esc([a.postal_code, a.city, a.country].filter(Boolean).join(" "))],
-          ["Phone", esc(a.phone || "")],
-          ["E-mail", esc(a.email || "")]
-        ]),
-        `<section class="group"><h3>Weights</h3>${weights}</section>`,
+        editForm,
         files ? `<section class="group"><h3>Labels in Sendcloud</h3>${files}</section>` : "",
         l.status === "created"
           ? `<section class="group"><h3>Price</h3>
@@ -1619,6 +1665,39 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       ].join("");
     }
 
+    // What the form says now, as the edit action wants it.
+    function labelForm() {
+      const address = {};
+      document.querySelectorAll("#panelBody [data-addr]").forEach((input) => { address[input.dataset.addr] = input.value.trim(); });
+      return {
+        carrier: $("lpCarrier").value,
+        pairs: $("lpPairs").value.trim(),
+        boxes: readBoxes($("lpBoxes").value),
+        address,
+        note: $("lpNote").value
+      };
+    }
+
+    function markLabelDirty() {
+      state.labelDirty = true;
+      if ($("lpDirty")) $("lpDirty").textContent = "Not saved yet";
+    }
+
+    // Number of labels and pairs fill in a guess; typed weights set the number.
+    $("panelBody").addEventListener("input", (event) => {
+      if (!state.selectedLabel || !$("lpBoxes") || event.target.id === "lpReason" || event.target.id === "lpPrice") return;
+      markLabelDirty();
+      if (event.target.id === "lpCount" || event.target.id === "lpPairs") $("lpBoxes").value = guessWeights($("lpCount").value, $("lpPairs").value);
+      if (event.target.id === "lpBoxes") {
+        const n = readBoxes($("lpBoxes").value).length;
+        if (n) $("lpCount").value = n;
+      }
+    });
+
+    $("panelBody").addEventListener("change", (event) => {
+      if (state.selectedLabel && $("lpBoxes") && event.target.matches("select")) markLabelDirty();
+    });
+
     function openLabelPanel(id) {
       const l = state.labels.find((row) => row.id === id);
       if (!l) return;
@@ -1638,19 +1717,18 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       const body = { action, id };
       let done = () => "Saved.";
 
-      // Check and Create use the weights in the field, saved first when changed.
-      if ((action === "check" || action === "create") && $("lpBoxes")) {
-        const boxes = readBoxes($("lpBoxes").value);
-        const saved = (l.boxes || []).map((b) => Number(b.weight_kg));
-        if (boxes.length !== saved.length || boxes.some((b, i) => Number(b.weight_kg) !== saved[i])) {
-          if (!boxes.length) { toast("Fill in the weights first."); return; }
-          const data = await labelAction({ action: "boxes", id, boxes });
-          if (!data) return;
-          Object.assign(l, data.label);
-        }
+      // Check and Create use what the form says, saved first when changed.
+      if ((action === "check" || action === "create") && $("lpBoxes") && state.labelDirty) {
+        const data = await labelAction({ action: "edit", id, ...labelForm() });
+        if (!data) return;
+        Object.assign(l, data.label);
+        state.labelDirty = false;
       }
 
-      if (action === "save-boxes") {
+      if (action === "save-edit") {
+        Object.assign(body, { action: "edit" }, labelForm());
+        done = (d) => `${lblNumber(d.label)} saved: ${(d.label.boxes || []).length} label(s), ${d.label.carrier}.`;
+      } else if (action === "save-boxes") {
         body.action = "boxes";
         body.boxes = readBoxes($("lpBoxes").value);
         done = (d) => `${(d.label.boxes || []).length} label(s), weights saved.`;
@@ -1713,6 +1791,10 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       } catch (err) {
         toast({
           no_price: "Fill in the price first.",
+          labels_made: "Labels were already made; carrier and address cannot change.",
+          bad_pairs: "That number of pairs does not look right.",
+          address_missing: "The address needs a name or company, street, house number, postcode, city, country and phone.",
+          no_carrier: "Choose UPS or DPD.",
           no_weights: "Fill in the weight of every box first.",
           fewer_than_made: "Some boxes already have a label; you cannot go below that many.",
           bad_weight: "Every box needs a weight between 0 and 70 kg.",

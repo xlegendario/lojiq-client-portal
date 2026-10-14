@@ -294,6 +294,50 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
     return save(id, { boxes });
   }
 
+  /*
+   * Everything of an open request at once, from the admin panel: carrier,
+   * pairs, the boxes with their weights, the address and the note. Once a
+   * box has its label, the carrier and address stay as they are.
+   */
+  async function edit(id, input = {}) {
+    const row = await load(id);
+    if (!["requested", "failed"].includes(row.status)) throw new LabelError("not_open");
+    const made = (row.labels || []).length;
+    const fields = {};
+
+    if (input.carrier !== undefined) {
+      const carrier = text(input.carrier).toUpperCase();
+      if (!CARRIERS.includes(carrier)) throw new LabelError("no_carrier");
+      if (made && carrier !== row.carrier) throw new LabelError("labels_made");
+      fields.carrier = carrier;
+    }
+
+    if (input.pairs !== undefined) {
+      const pairs = input.pairs === "" || input.pairs === null ? null : Number(input.pairs);
+      if (pairs !== null && (!Number.isInteger(pairs) || pairs < 1 || pairs > MAX_PAIRS)) throw new LabelError("bad_pairs");
+      fields.pairs = pairs;
+    }
+
+    if (input.boxes !== undefined) {
+      const boxes = cleanBoxes(input.boxes);
+      if (boxes.length < made) throw new LabelError("fewer_than_made");
+      fields.boxes = boxes;
+    }
+
+    if (input.address !== undefined) {
+      const { row: address, missing } = cleanAddress(input.address);
+      if (missing.length) throw new LabelError("address_missing", 400, { fields: missing });
+      if (made && JSON.stringify(address) !== JSON.stringify(cleanAddress(row.address || {}).row)) throw new LabelError("labels_made");
+      fields.address = address;
+      // His saved address gets the correction too, so the next request is right.
+      if (row.address_id) await db.patch(`partner_addresses?id=eq.${encodeURIComponent(row.address_id)}`, address);
+    }
+
+    if (input.note !== undefined) fields.note = text(input.note) || null;
+
+    return save(id, fields);
+  }
+
   async function reject(id, reason) {
     const row = await load(id);
     if (row.status !== "requested") throw new LabelError("not_open");
@@ -327,5 +371,5 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
     return [...seen.values()];
   }
 
-  return { load, list, addresses, addAddress, request, check, create, setBoxes, reject, setPrice, setPaid, partners };
+  return { load, list, addresses, addAddress, request, check, create, setBoxes, edit, reject, setPrice, setPaid, partners };
 }
