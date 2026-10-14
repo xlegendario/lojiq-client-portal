@@ -155,7 +155,13 @@ test("a seller without a name cannot become a supplier", async () => {
 });
 
 test("every VAT type we buy under has a Rompslomp type, and an unknown one is refused", async () => {
-  assert.deepEqual(PURCHASE_VAT, { Margin: "vat_none", VAT0: "vat_reverse_charged", VAT21: "vat_high" });
+  /*
+    A 0% purchase belongs under vat_reverse_charged and goes in as a margin
+    expense instead: their API refuses the reverse-charged line because it
+    wants an amount there that cannot be sent. It carries the note so it can
+    be corrected by hand - see the test below.
+  */
+  assert.deepEqual(PURCHASE_VAT, { Margin: "vat_none", VAT0: "vat_none", VAT21: "vat_high" });
 
   const { calls, purchases } = fakes();
   await purchases.book({ deal: "EXTD-1", unit: { vat_type: "VAT21", price: 121 }, seller: { company_name: "Zhuoyi" } });
@@ -258,4 +264,34 @@ test("a supplier that already carries a Seller ID is not touched", async () => {
 
   assert.deepEqual(calls, []);
   assert.equal(out.already[0].seller_id, "SE-00781");
+});
+
+test("a reverse-charged purchase says so on the booking, so it can be found and fixed", async () => {
+  const { calls, purchases } = fakes();
+
+  await purchases.book({
+    deal: "EXTD-000127",
+    unit: { vat_type: "VAT0", product_name: "New Balance 9060 Off White Black", size: "37.5", price: 129 },
+    seller: { company_name: "WIZSNKRS" }
+  });
+
+  const line = calls.find((call) => call[0] === "create")[1].expense.invoice_lines[0];
+
+  assert.equal(line.vat_type_id, 688, "booked as a margin expense, which their API accepts");
+  assert.match(line.extended_description, /BTW Verlegd/);
+  assert.match(line.extended_description, /New Balance 9060 Off White Black - 37\.5/);
+});
+
+test("a margin purchase carries no such note", async () => {
+  const { calls, purchases } = fakes();
+
+  await purchases.book({
+    deal: "EXTD-000078",
+    unit: { vat_type: "Margin", product_name: "Jordan 4", size: "42", price: 100 },
+    seller: { company_name: "Zhuoyi" }
+  });
+
+  const line = calls.find((call) => call[0] === "create")[1].expense.invoice_lines[0];
+
+  assert.equal(line.extended_description, "Jordan 4 - 42");
 });

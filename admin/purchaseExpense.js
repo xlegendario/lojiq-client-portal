@@ -45,12 +45,44 @@ export const STOCK_ACCOUNT_RULES = [
 // Scout" and "Voorraad Scout" are the same thing.
 const key = (value) => text(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 
-// Which of Rompslomp's VAT types a purchase is booked under.
+/*
+ * What a reverse-charged purchase is marked with, so it can be found again.
+ *
+ * It is booked under the margin type rather than the reverse-charged one -
+ * see PURCHASE_VAT - which means the VAT on it is wrong until somebody
+ * corrects it by hand. A booking that looks right and is not is the worst
+ * kind, so it says so on its own line: searching Rompslomp for these two
+ * words brings up every one of them.
+ *
+ * The same words Dario already writes on a StockX purchase by hand, so both
+ * come up in one search.
+ */
+export const REVERSE_CHARGE_NOTE = "BTW Verlegd";
+
+/*
+ * Which of Rompslomp's VAT types a purchase is booked under.
+ *
+ * A 0% purchase is an intra-community one and belongs under
+ * "vat_reverse_charged". Their API will not take it: such a line wants the
+ * reverse-charged amount with it and there is no field to put it in, so the
+ * expense is simply refused and the pair stays unbooked - and then the
+ * sale's stock correction takes out stock that was never put in. Of the four
+ * reverse-charged pairs there have been, not one was ever booked, while
+ * thirteen margin ones went through.
+ *
+ * So it goes in as a margin expense carrying REVERSE_CHARGE_NOTE, which is
+ * what Dario does by hand for the same thing on a StockX purchase. Wrong on
+ * the VAT until he fixes it, and findable precisely so he can.
+ */
 export const PURCHASE_VAT = {
   Margin: "vat_none",
-  VAT0: "vat_reverse_charged",
+  VAT0: "vat_none",
   VAT21: "vat_high"
 };
+
+// Which purchases carry the note. Kept beside the table above so the two
+// cannot drift apart.
+export const REVERSE_CHARGED = new Set(["VAT0"]);
 
 const like = (value) => text(value).toLowerCase();
 
@@ -240,6 +272,8 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     const vat = vatTypeFor(vatTypes, unit.vat_type);
     const contact = await supplier(client, seller);
 
+    const describes = [text(unit.product_name), text(unit.size)].filter(Boolean).join(" - ");
+
     const body = expenseBody({
       date: text(date) || new Date().toISOString().slice(0, 10),
       contactId: contact.id,
@@ -247,7 +281,9 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       vatTypeId: vat.id,
       vatRate: vat.value,
       deal,
-      description: [text(unit.product_name), text(unit.size)].filter(Boolean).join(" - "),
+      description: REVERSE_CHARGED.has(text(unit.vat_type))
+        ? [describes, REVERSE_CHARGE_NOTE].filter(Boolean).join("\n")
+        : describes,
       amount: unit.price
     });
 
