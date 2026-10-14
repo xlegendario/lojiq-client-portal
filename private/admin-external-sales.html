@@ -2653,9 +2653,19 @@
       const actions = [
         s.bookkeeping_status === "invoiced" && ["resend", "Resend invoice"],
         !shipped && ["shipped", "Mark as shipped"],
-        // Only when a purchase is missing: it is booked at Create Outbound,
-        // so this is the second chance after Rompslomp was down.
-        pairs.some((p) => p.partner_stock_id && !p.purchase_expense_id) && ["bookpurchase", "Book purchase"],
+        /*
+          Only when a purchase is missing: it is booked at Create Outbound,
+          so this is the second chance after Rompslomp was down.
+
+          A pair off a CONSIGNOR'''s shelf counts too. It used to ask only
+          about partner stock, so on a broker deal the Checks page said "open
+          the deal and click Book purchase" about a button that was not
+          there - EXTD-000127 on 14-10-2026. The action behind it and the
+          check both read partner stock or a consignor, so this is the odd
+          one out rather than a new rule.
+        */
+        pairs.some((p) => (p.partner_stock_id || p.consignor_fulfillment_status) && !p.purchase_expense_id)
+          && ["bookpurchase", "Book purchase"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["cancelpairs", "Initiate cancel"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["discount", "Give discount"],
         s.payment_status !== "cancelled" && pairs.length > 0 && ["reprice", "Change invoice"],
