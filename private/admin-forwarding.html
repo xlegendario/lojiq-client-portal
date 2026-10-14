@@ -224,6 +224,10 @@
     .lbl-links a { display: block; }
     .price-input { width: 80px; }
     .boxes-input { width: 120px; margin-top: 6px; }
+    .panel-form { display: flex; gap: 8px; align-items: center; }
+    .panel-form .input { flex: 1; min-width: 0; }
+    .act.primary-act { background: var(--primary); border-color: var(--primary); color: #fff; }
+    tr[data-label-id] { cursor: pointer; }
     .act.danger { border-color: var(--red); color: var(--bad-text); }
     .hold-box { border: 1px solid var(--warning); border-radius: 10px; padding: 12px; margin: 0 0 14px; background: var(--wait-bg); }
     .hold-box p { margin: 4px 0 8px; }
@@ -954,6 +958,7 @@
       if (!row) return;
 
       state.selected = id;
+      state.selectedLabel = "";
       $("panel").hidden = false;
       drawPanel(row);
       render();
@@ -969,6 +974,7 @@
     function closePanel(redraw = true) {
       $("panel").hidden = true;
       state.selected = "";
+      state.selectedLabel = "";
       if (redraw) render();
     }
 
@@ -1079,6 +1085,8 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           state.labels = data.labels || [];
           state.partners = data.partners || [];
           render();
+          const open = state.selectedLabel && state.labels.find((l) => l.id === state.selectedLabel);
+          if (open && !$("panel").hidden) drawLabelPanel(open);
         } catch (err) {
           $("rows").innerHTML = `<tr><td colspan="9" class="empty">${esc(err.message)}</td></tr>`;
         }
@@ -1486,10 +1494,20 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     const lblNumber = (row) => `LBL-${String(row.label_number ?? "").padStart(6, "0")}`;
     const shipTo = (a) => [a?.company || a?.name, [a?.street, a?.house_number].filter(Boolean).join(" "), [a?.postal_code, a?.city].filter(Boolean).join(" "), a?.country].filter(Boolean).map(esc).join("<br>");
 
+    const partnerName = (id) => state.partners.find((p) => p.seller_record_id === id)?.name || "";
+    const labelPill = (l) => {
+      const [label, cls] = LABEL_STATUS[l.status] || [l.status, ""];
+      return `<span class="pill ${cls}">${esc(label)}</span>`;
+    };
+    const labelPayPill = (l) => l.status !== "created"
+      ? '<span class="dash">—</span>'
+      : l.payment_status === "paid" ? '<span class="pill good">Paid</span>'
+      : l.price === null || l.price === undefined ? '<span class="sub">No price</span>'
+      : '<span class="pill wait">To pay</span>';
+
     function renderLabels() {
       const query = $("searchInput").value.trim().toLowerCase();
-      const rows = state.labels.filter((l) => !query || [lblNumber(l), l.seller_id, l.carrier, ...(l.tracking_numbers || []), JSON.stringify(l.address)].join(" ").toLowerCase().includes(query));
-      const partnerName = (id) => state.partners.find((p) => p.seller_record_id === id)?.name || "";
+      const rows = state.labels.filter((l) => !query || [lblNumber(l), l.seller_id, partnerName(l.seller_record_id), l.carrier, ...(l.tracking_numbers || []), JSON.stringify(l.address)].join(" ").toLowerCase().includes(query));
 
       $("crumb").textContent = "Forward Service";
       $("viewTitle").textContent = "Partner Labels";
@@ -1504,51 +1522,157 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       $("tableHead").innerHTML = `
         <tr>
           <th>Label</th>
+          <th>Date</th>
           <th>Partner</th>
           <th>Ship to</th>
           <th>Carrier</th>
-          <th class="money">Boxes</th>
+          <th class="money">Labels</th>
+          <th class="money">Pairs</th>
           <th>Status</th>
-          <th>Labels</th>
           <th class="money">Price</th>
           <th>Payment</th>
         </tr>`;
 
       $("rows").innerHTML = rows.length
-        ? rows.map((l) => {
-            const [label, cls] = LABEL_STATUS[l.status] || [l.status, ""];
-            const open = l.status === "requested" || l.status === "failed";
-            const ready = (l.boxes || []).length > 0 && (l.boxes || []).every((b) => Number(b.weight_kg) > 0);
-            const actions = open
-              ? `<div class="hold-actions">
-                  ${ready
-                    ? `<button class="act" type="button" data-lbl="check" data-id="${esc(l.id)}">Check</button>
-                  <button class="act" type="button" data-lbl="create" data-id="${esc(l.id)}">Create labels</button>`
-                    : `<span class="sub">Fill in the weights, then Create</span>`}
-                  ${l.status === "requested" ? `<button class="act danger" type="button" data-lbl="reject" data-id="${esc(l.id)}">Reject</button>` : ""}
-                </div>`
-              : "";
-            const links = (l.labels || []).map((x) => `<a href="${esc(x.label_url)}" target="_blank" rel="noopener">Box ${x.box} · ${esc(x.tracking)}</a>`).join("");
-            return `
-              <tr>
-                <td><span class="id">${esc(lblNumber(l))}</span><br><span class="sub">${esc(dayFmt.format(new Date(l.created_at)))} · ${esc(l.requested_by)}</span>${l.note ? `<br><span class="sub">${esc(l.note)}</span>` : ""}</td>
-                <td>${esc(partnerName(l.seller_record_id) || l.seller_id)}<br><span class="sub">${esc(l.seller_id)}</span></td>
-                <td>${shipTo(l.address)}${l.address?.phone ? `<br><span class="sub">${esc(l.address.phone)}</span>` : ""}</td>
-                <td>${esc(l.carrier)}</td>
-                <td class="money">${(l.boxes || []).length} label${(l.boxes || []).length === 1 ? "" : "s"}${l.pairs ? `<br><span class="sub">${l.pairs} pairs</span>` : ""}
-                  ${open
-                    ? `<br><input class="input boxes-input" type="text" data-lbl-boxes="${esc(l.id)}" value="${esc(boxesText(l) || suggestBoxes(l))}" title="Weight per box: 2.5, 3 or 2 x 2.5"> <button class="act" type="button" data-lbl="save-boxes" data-id="${esc(l.id)}">Save</button>`
-                    : `<br><span class="sub">${(l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", ")}</span>`}</td>
-                <td><span class="pill ${cls}">${esc(label)}</span>${l.error ? `<br><span class="error-text">${esc(l.error)}</span>` : ""}${l.reject_reason ? `<br><span class="sub">${esc(l.reject_reason)}</span>` : ""}${actions}</td>
-                <td class="lbl-links">${links || '<span class="dash">—</span>'}</td>
-                <td class="money">${l.status === "created" ? `<input class="input price-input" type="text" inputmode="decimal" data-lbl-price="${esc(l.id)}" value="${l.price ?? ""}" placeholder="€">` : '<span class="dash">—</span>'}</td>
-                <td>${l.status !== "created" ? "" : l.payment_status === "paid"
-                  ? `<span class="pill good">Paid</span> <button class="act" type="button" data-lbl="unpaid" data-id="${esc(l.id)}">Undo</button>`
-                  : l.price === null || l.price === undefined ? '<span class="sub">Fill in the price</span>' : `<span class="pill wait">To pay</span> <button class="act" type="button" data-lbl="paid" data-id="${esc(l.id)}">Mark paid</button>`}</td>
-              </tr>`;
-          }).join("")
-        : `<tr><td colspan="9" class="empty">No partner labels yet.</td></tr>`;
+        ? rows.map((l) => `
+            <tr data-label-id="${esc(l.id)}"${state.selectedLabel === l.id ? ' class="selected"' : ""}>
+              <td><span class="id">${esc(lblNumber(l))}</span></td>
+              <td>${esc(dayFmt.format(new Date(l.created_at)))}</td>
+              <td>${esc(partnerName(l.seller_record_id) || l.seller_id)}</td>
+              <td>${esc([l.address?.company || l.address?.name, l.address?.city, l.address?.country].filter(Boolean).join(", "))}</td>
+              <td>${esc(l.carrier)}</td>
+              <td class="money">${(l.boxes || []).length}</td>
+              <td class="money">${l.pairs ?? '<span class="dash">—</span>'}</td>
+              <td>${labelPill(l)}</td>
+              <td class="money">${l.price === null || l.price === undefined ? '<span class="dash">—</span>' : euro(l.price)}</td>
+              <td>${labelPayPill(l)}</td>
+            </tr>`).join("")
+        : `<tr><td colspan="10" class="empty">No partner labels yet.</td></tr>`;
     }
+
+    /* ----- the label's side panel: everything about it, and every action ----- */
+
+    function drawLabelPanel(l) {
+      const open = l.status === "requested" || l.status === "failed";
+      const ready = (l.boxes || []).length > 0 && (l.boxes || []).every((b) => Number(b.weight_kg) > 0);
+      const a = l.address || {};
+
+      $("panelTitle").textContent = `${lblNumber(l)} · ${partnerName(l.seller_record_id) || l.seller_id}`;
+
+      $("panelActions").innerHTML = [
+        open && ready ? `<button class="act" type="button" data-lblp="check">Check</button>` : "",
+        open && ready ? `<button class="act primary-act" type="button" data-lblp="create">Create labels</button>` : "",
+        l.status === "created" && l.payment_status !== "paid" && l.price !== null && l.price !== undefined ? `<button class="act" type="button" data-lblp="paid">Mark paid</button>` : "",
+        l.status === "created" && l.payment_status === "paid" ? `<button class="act" type="button" data-lblp="unpaid">Mark not paid</button>` : ""
+      ].join("");
+
+      const weights = open
+        ? `<div class="panel-form">
+            <input class="input" id="lpBoxes" value="${esc(boxesText(l) || suggestBoxes(l))}">
+            <button class="act" type="button" data-lblp="save-boxes">Save</button>
+          </div>
+          <p class="sub">Weight per box in kg: "2.5, 3", or "3 x 2.5" for three boxes. ${ready ? "" : "Save the weights to make the labels."}</p>`
+        : esc((l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", "));
+
+      const files = (l.labels || []).length
+        ? `<ul class="link-list">${l.labels.map((x) => `<li><a href="${esc(x.label_url)}" target="_blank" rel="noopener">Box ${x.box} · ${esc(x.tracking)}</a></li>`).join("")}</ul>`
+        : "";
+
+      $("panelBody").innerHTML = [
+        panelGroup("Label", [
+          ["Status", labelPill(l)],
+          ["Problem", l.error ? `<span class="bad-text">${esc(l.error)}</span>` : ""],
+          ["Asked", `${esc(dateFmt.format(new Date(l.created_at)))} · ${esc(l.requested_by)}`],
+          ["Carrier", esc(l.carrier)],
+          ["Labels", String((l.boxes || []).length)],
+          ["Pairs", l.pairs ? String(l.pairs) : ""],
+          ["Note", esc(l.note || "")],
+          ["Rejected", esc(l.reject_reason || "")]
+        ]),
+        panelGroup("Ship to", [
+          ["Name", esc(a.name || "")],
+          ["Company", esc(a.company || "")],
+          ["Address", esc([`${a.street || ""} ${a.house_number || ""}`.trim(), a.address2].filter(Boolean).join(", "))],
+          ["Place", esc([a.postal_code, a.city, a.country].filter(Boolean).join(" "))],
+          ["Phone", esc(a.phone || "")],
+          ["E-mail", esc(a.email || "")]
+        ]),
+        `<section class="group"><h3>Weights</h3>${weights}</section>`,
+        files ? `<section class="group"><h3>Labels in Sendcloud</h3>${files}</section>` : "",
+        l.status === "created"
+          ? `<section class="group"><h3>Price</h3>
+              <div class="panel-form">
+                <input class="input" id="lpPrice" inputmode="decimal" value="${l.price ?? ""}" placeholder="€">
+                <button class="act" type="button" data-lblp="save-price">Save</button>
+              </div>
+              <p class="sub">What the partner pays us for these labels. ${labelPayPill(l)}</p>
+            </section>`
+          : "",
+        l.status === "requested"
+          ? `<section class="group"><h3>Reject</h3>
+              <div class="panel-form">
+                <input class="input" id="lpReason" placeholder="Why not - the partner sees this">
+                <button class="act danger" type="button" data-lblp="reject">Reject</button>
+              </div>
+            </section>`
+          : ""
+      ].join("");
+    }
+
+    function openLabelPanel(id) {
+      const l = state.labels.find((row) => row.id === id);
+      if (!l) return;
+      state.selectedLabel = id;
+      state.selected = "";
+      $("panel").hidden = false;
+      drawLabelPanel(l);
+      render();
+    }
+
+    // One action from the panel; the panel is drawn again from what came back.
+    async function labelPanelAction(action) {
+      const id = state.selectedLabel;
+      const l = state.labels.find((row) => row.id === id);
+      if (!l) return;
+
+      const body = { action, id };
+      let done = () => "Saved.";
+
+      if (action === "save-boxes") {
+        body.action = "boxes";
+        body.boxes = readBoxes($("lpBoxes").value);
+        done = (d) => `${(d.label.boxes || []).length} label(s), weights saved.`;
+      } else if (action === "save-price") {
+        body.action = "price";
+        body.price = $("lpPrice").value.trim();
+        done = () => "Price saved.";
+      } else if (action === "reject") {
+        body.reason = $("lpReason").value.trim();
+        if (!body.reason) { toast("Give a reason."); return; }
+        if (!confirm(`Reject ${lblNumber(l)}? The partner sees: "${body.reason}"`)) return;
+        done = () => `${lblNumber(l)} rejected.`;
+      } else if (action === "create") {
+        if (!confirm(`Create ${(l.boxes || []).length} ${l.carrier} label(s) in Sendcloud for ${lblNumber(l)}? This is charged to our account.`)) return;
+        done = (d) => `${(d.label.labels || []).length} label(s) created.`;
+      } else if (action === "check") {
+        done = (d) => `Sendcloud would use: ${((d.check || {}).boxes || []).map((b) => `${b.weight_kg} kg → ${b.method}`).join("; ")}. Sender: ${(d.check || {}).sender}. Nothing was made.`;
+      } else if (action === "paid" || action === "unpaid") {
+        done = () => `${lblNumber(l)} marked ${action === "paid" ? "paid" : "not paid"}.`;
+      }
+
+      document.querySelectorAll("[data-lblp]").forEach((b) => { b.disabled = true; });
+      await labelAction(body, done);
+    }
+
+    $("panelActions").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-lblp]");
+      if (button && state.selectedLabel) labelPanelAction(button.dataset.lblp);
+    });
+
+    $("panelBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-lblp]");
+      if (button && state.selectedLabel) labelPanelAction(button.dataset.lblp);
+    });
 
     // The weights as one line: "2.5, 3" or, when all the same, "3 x 2.5".
     function boxesText(l) {
@@ -1594,51 +1718,11 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       }
     }
 
-    $("rows").addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-lbl]");
-      if (!button || state.mode !== "labels") return;
-
-      const id = button.dataset.id;
-      const row = state.labels.find((l) => l.id === id);
-      const action = button.dataset.lbl;
-
-      if (action === "save-boxes") {
-        const field = document.querySelector(`[data-lbl-boxes="${CSS.escape(id)}"]`);
-        await labelAction({ action: "boxes", id, boxes: readBoxes(field.value) }, (data) => `${lblNumber(data.label)}: ${(data.label.boxes || []).length} label(s), weights saved.`);
-        return;
-      }
-
-      if (action === "check") {
-        await labelAction({ action, id }, (data) => {
-          const c = data.check || {};
-          // Sendcloud's quoted price means nothing on our own contracts (it said
-          // 1001.25 for UPS and 0 for DPD), so it is not shown.
-          return `Sendcloud would use: ${(c.boxes || []).map((b) => `${b.weight_kg} kg → ${b.method}`).join("; ")}. Sender: ${c.sender}. Nothing was made.`;
-        });
-      } else if (action === "create") {
-        if (!confirm(`Create ${(row.boxes || []).length} ${row.carrier} label(s) in Sendcloud for ${lblNumber(row)}? This is charged to our account.`)) return;
-        button.disabled = true;
-        await labelAction({ action, id }, (data) => `${lblNumber(data.label)}: ${(data.label.labels || []).length} label(s) created.`);
-      } else if (action === "reject") {
-        const reason = prompt(`Why is ${lblNumber(row)} not made? The partner sees this.`);
-        if (!reason) return;
-        await labelAction({ action, id, reason }, () => `${lblNumber(row)} rejected.`);
-      } else if (action === "paid" || action === "unpaid") {
-        await labelAction({ action, id }, () => `${lblNumber(row)} marked ${action === "paid" ? "paid" : "not paid"}.`);
-      }
-    });
-
-    $("rows").addEventListener("change", async (event) => {
-      const boxesInput = event.target.closest("[data-lbl-boxes]");
-      if (boxesInput) {
-        const boxes = readBoxes(boxesInput.value);
-        await labelAction({ action: "boxes", id: boxesInput.dataset.lblBoxes, boxes }, (data) => `${lblNumber(data.label)}: ${(data.label.boxes || []).length} label(s), weights saved.`);
-        return;
-      }
-
-      const input = event.target.closest("[data-lbl-price]");
-      if (!input) return;
-      await labelAction({ action: "price", id: input.dataset.lblPrice, price: input.value.trim() }, (data) => `${lblNumber(data.label)} price saved.`);
+    // A click on a label opens its panel.
+    $("rows").addEventListener("click", (event) => {
+      if (state.mode !== "labels") return;
+      const row = event.target.closest("tr[data-label-id]");
+      if (row) openLabelPanel(row.dataset.labelId);
     });
 
     // "+ New label": we fill it in for the partner.
