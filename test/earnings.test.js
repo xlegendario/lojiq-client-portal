@@ -239,3 +239,46 @@ test("the file opens in columns, with a dot in the amounts", () => {
   assert.match(lines[1], /1234\.50$/);
   assert.match(lines[1], /"Jordan 4 ""Black Cat"""/);
 });
+
+test("a 21% sale is worth what is left after the VAT, on both columns", () => {
+  /*
+    EXTD-000127 on 14-10-2026, the first external sale that was not margin
+    goods. Three pairs bought for 81, 129 and 91 and sold for 110.11, 168.19
+    and 122.21 - ten euro a pair, and the screen said 99.51.
+  */
+  const row = externalEarning(
+    { deal_number: 127, sale_date: "2026-10-14", total_selling_price: "400.51", shipping_costs: "0" },
+    [
+      { purchase_price_ex_vat: "81.00", selling_price: "110.11", selling_vat_type: "VAT21", sku: "U740WM2", size: "39.5" },
+      { purchase_price_ex_vat: "129.00", selling_price: "168.19", selling_vat_type: "VAT21", sku: "U9060ZBS", size: "37.5" },
+      { purchase_price_ex_vat: "91.00", selling_price: "122.21", selling_vat_type: "VAT21", sku: "1201A789-020", size: "37.5" }
+    ]
+  );
+
+  assert.equal(row.purchase, 301);
+  assert.equal(row.selling, 400.51);
+  assert.equal(row.gross, 30);
+  // No tax on the margin of a 21% sale: it came off the price already.
+  assert.equal(row.gross_after_tax, 30);
+});
+
+test("a reverse-charged sale is net on both columns", () => {
+  const row = externalEarning(
+    { deal_number: 128, sale_date: "2026-10-14", total_selling_price: "200.00", shipping_costs: "0", buyer_vat_id: "DE123" },
+    [{ purchase_price_ex_vat: "180.00", selling_price: "200.00", selling_vat_type: "VAT0", sku: "A", size: "42" }]
+  );
+
+  assert.equal(row.gross, 20);
+  assert.equal(row.gross_after_tax, 20);
+});
+
+test("margin goods keep the tax on the margin", () => {
+  const row = externalEarning(
+    { deal_number: 129, sale_date: "2026-10-14", total_selling_price: "121.00", shipping_costs: "0" },
+    [{ purchase_price_ex_vat: "100.00", selling_price: "121.00", selling_vat_type: "Margin", sku: "A", size: "42" }]
+  );
+
+  assert.equal(row.gross, 21);
+  // 21 over the margin, so 21 / 1.21 is left.
+  assert.equal(row.gross_after_tax, 17.36);
+});

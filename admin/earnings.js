@@ -183,7 +183,30 @@ export function externalEarning(sale = {}, pairs = []) {
   const purchase = live.reduce((sum, pair) => sum + (num(pair.purchase_price_ex_vat) || 0), 0);
   const selling = num(sale.total_selling_price) || 0;
   const shipping = num(sale.shipping_costs) || 0;
-  const gross = money(selling - shipping - purchase);
+
+  /*
+   * FIXED - an excl. VAT cost taken off an incl. VAT price.
+   *
+   * The pairs are bought excl. VAT, and the deal total is what the buyer
+   * pays. On a 21% sale those sit 21% apart, and the difference was counted
+   * as profit: EXTD-000127 on 14-10-2026 read EUR 99.51 on three pairs that
+   * made EUR 10 each.
+   *
+   * It could not show before. Every one of the thirty-three external pairs
+   * until that deal was margin goods, where the price IS the gross one and
+   * nothing has to come off it. Reverse-charged pairs are net already, so
+   * only a 21% sale needs the step.
+   *
+   * A deal with no route recorded at all is one of the old Airtable ones,
+   * and those were margin goods - so it keeps the margin treatment rather
+   * than being read as untaxed.
+   */
+  const route = text(sale.legacy_selling_vat_type)
+    || text(first(live.map((pair) => pair.selling_vat_type)));
+
+  const sellingExVat = route === "VAT21" ? selling / 1.21 : selling;
+
+  const gross = money(sellingExVat - shipping - purchase);
 
   const names = [...new Set(live.map((pair) => text(pair.product_name)).filter(Boolean))];
 
@@ -204,14 +227,19 @@ export function externalEarning(sale = {}, pairs = []) {
       ? (names[0] || "")
       : `${names[0]} and ${names.length - 1} other${names.length > 2 ? "s" : ""}`,
     where: text(sale.buyer_company) || text(sale.buyer_name),
-    vat_type: text(sale.legacy_selling_vat_type) || text(first(live.map((p) => p.selling_vat_type))),
+    vat_type: route,
     purchase: money(purchase),
     selling: money(selling),
     // A marketplace takes a cut; a buyer we sell to ourselves does not.
     commission: 0,
     gross,
-    // The same flat step Airtable took: the margin is what is taxed.
-    gross_after_tax: money(gross / 1.21),
+    /*
+     * The same flat step Airtable took, and only where it belongs: under the
+     * margin scheme the margin itself is taxed. On a 21% sale that tax came
+     * off the price above, and on a reverse-charged one there is none - so
+     * taking it again would be taking it twice.
+     */
+    gross_after_tax: route === "VAT21" || route === "VAT0" ? gross : money(gross / 1.21),
     pairs: live.length,
     shipping: money(shipping)
   };
