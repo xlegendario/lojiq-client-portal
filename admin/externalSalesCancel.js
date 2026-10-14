@@ -550,7 +550,9 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     const outcomes = new Map();
     for (const row of asked) {
       if (!CANCEL_OUTCOMES[row.outcome]) {
-        throw new ExternalSalesError(`"${row.outcome || "nothing"}" is not one of Return, Store Consign, Lost or Written Off.`);
+        throw new ExternalSalesError(
+          `"${row.outcome || "nothing"}" is not one of Return, Store Consign, Lost, Written Off or Back to the consignor.`
+        );
       }
       outcomes.set(row.id, row.outcome);
     }
