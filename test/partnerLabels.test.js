@@ -118,3 +118,20 @@ test("a partner's ask needs at least one label and a real number of pairs", asyn
   await assert.rejects(ask2({ labels_count: 2, pairs: 0 }), (e) => e.code === "bad_pairs");
   await assert.rejects(ask2({ labels_count: 21, pairs: 3 }), (e) => e.code === "too_many_boxes");
 });
+
+test("streetOnly drops a house number typed into the street as well", async () => {
+  const { streetOnly } = await import("../partner/partnerLabels.js");
+  assert.equal(streetOnly("Teubnerstrasse 14", "14"), "Teubnerstrasse");
+  assert.equal(streetOnly("Teubnerstrasse, 14", "14"), "Teubnerstrasse");
+  assert.equal(streetOnly("Hauptstr. 114", "14"), "Hauptstr. 114");
+  assert.equal(streetOnly("Teubnerstrasse", "14"), "Teubnerstrasse");
+  assert.equal(streetOnly("14", "14"), "14");
+});
+
+test("splitStreet takes the number from the street when the whole street was typed as the number", async () => {
+  const { splitStreet } = await import("../partner/partnerLabels.js");
+  assert.deepEqual(splitStreet("Teubnerstrasse 14", "Teubnerstrasse 14"), { street: "Teubnerstrasse", house_number: "14" });
+  assert.deepEqual(splitStreet("Rue de Rivoli 10b", ""), { street: "Rue de Rivoli", house_number: "10b" });
+  assert.deepEqual(splitStreet("Keizersgracht 12-3", "12-3"), { street: "Keizersgracht", house_number: "12-3" });
+  assert.deepEqual(splitStreet("Torstraße", "5"), { street: "Torstraße", house_number: "5" });
+});

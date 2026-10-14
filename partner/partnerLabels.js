@@ -47,13 +47,37 @@ export class LabelError extends Error {
 
 export const labelId = (row) => `LBL-${String(row?.label_number ?? "").padStart(6, "0")}`;
 
+// Street and number as a carrier wants them. "Teubnerstrasse 14" with number
+// 14 would print the number twice, and a whole street typed as the number
+// ("Teubnerstrasse 14" twice) is no number at all: the number is taken from
+// the end of the street then.
+const NUMBER = /^\d+\s*[a-z]?(?:\s*[-/]\s*\d+\s*[a-z]?)?$/i;
+
+export function splitStreet(street, number) {
+  let s = text(street);
+  let n = text(number);
+
+  if (!NUMBER.test(n)) {
+    const tail = s.match(/^(.*?)[\s,]+(\d+\s*[a-z]?(?:\s*[-/]\s*\d+\s*[a-z]?)?)$/i);
+    if (tail && (!n || n.toLowerCase() === s.toLowerCase())) return { street: tail[1], house_number: tail[2] };
+    return { street: s, house_number: n };
+  }
+
+  if (s.toLowerCase().endsWith(n.toLowerCase())) {
+    const before = s.slice(0, s.length - n.length);
+    if (before && /[\s,]$/.test(before)) s = before.replace(/[\s,]+$/, "");
+  }
+  return { street: s, house_number: n };
+}
+
+export const streetOnly = (street, number) => splitStreet(street, number).street;
+
 // An address as typed, checked for what a label needs.
 export function cleanAddress(input = {}) {
   const row = {
     name: text(input.name),
     company: text(input.company),
-    street: text(input.street),
-    house_number: text(input.house_number),
+    ...splitStreet(input.street, input.house_number),
     address2: text(input.address2),
     postal_code: text(input.postal_code),
     city: text(input.city),
@@ -208,7 +232,7 @@ export function createPartnerLabels({ db, callWms, now = () => new Date() }) {
     return row;
   }
 
-  const wmsBody = (row, dry) => ({ reference: labelId(row), carrier: row.carrier, address: row.address, boxes: row.boxes, dry });
+  const wmsBody = (row, dry) => ({ reference: labelId(row), carrier: row.carrier, address: { ...row.address, ...splitStreet(row.address?.street, row.address?.house_number) }, boxes: row.boxes, dry });
 
   // What Sendcloud would do with it - method per box and its quoted price -
   // without making anything.

@@ -1560,8 +1560,8 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       $("panelTitle").textContent = `${lblNumber(l)} · ${partnerName(l.seller_record_id) || l.seller_id}`;
 
       $("panelActions").innerHTML = [
-        open && ready ? `<button class="act" type="button" data-lblp="check">Check</button>` : "",
-        open && ready ? `<button class="act primary-act" type="button" data-lblp="create">Create labels</button>` : "",
+        open ? `<button class="act" type="button" data-lblp="check">Check</button>` : "",
+        open ? `<button class="act primary-act" type="button" data-lblp="create">Create labels</button>` : "",
         l.status === "created" && l.payment_status !== "paid" && l.price !== null && l.price !== undefined ? `<button class="act" type="button" data-lblp="paid">Mark paid</button>` : "",
         l.status === "created" && l.payment_status === "paid" ? `<button class="act" type="button" data-lblp="unpaid">Mark not paid</button>` : ""
       ].join("");
@@ -1571,7 +1571,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
             <input class="input" id="lpBoxes" value="${esc(boxesText(l) || suggestBoxes(l))}">
             <button class="act" type="button" data-lblp="save-boxes">Save</button>
           </div>
-          <p class="sub">Weight per box in kg: "2.5, 3", or "3 x 2.5" for three boxes. ${ready ? "" : "Save the weights to make the labels."}</p>`
+          <p class="sub">Weight per box in kg: "2.5, 3", or "3 x 2.5" for three boxes. ${ready ? "" : "This is our guess (1.2 kg per pair); change it if needed. Create labels saves it first."}</p>`
         : esc((l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", "));
 
       const files = (l.labels || []).length
@@ -1637,6 +1637,18 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
       const body = { action, id };
       let done = () => "Saved.";
+
+      // Check and Create use the weights in the field, saved first when changed.
+      if ((action === "check" || action === "create") && $("lpBoxes")) {
+        const boxes = readBoxes($("lpBoxes").value);
+        const saved = (l.boxes || []).map((b) => Number(b.weight_kg));
+        if (boxes.length !== saved.length || boxes.some((b, i) => Number(b.weight_kg) !== saved[i])) {
+          if (!boxes.length) { toast("Fill in the weights first."); return; }
+          const data = await labelAction({ action: "boxes", id, boxes });
+          if (!data) return;
+          Object.assign(l, data.label);
+        }
+      }
 
       if (action === "save-boxes") {
         body.action = "boxes";
