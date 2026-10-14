@@ -228,6 +228,8 @@
     .panel-form .input { flex: 1; min-width: 0; }
     label.mini { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
     label.mini.wide { grid-column: span 2; }
+    .box-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+    .box-row { display: grid; grid-template-columns: 56px 80px 1fr; gap: 8px; align-items: center; }
     #lpDirty { color: var(--amber, #E0A030); }
     .act.primary-act { background: var(--primary); border-color: var(--primary); color: #fff; }
     tr[data-label-id] { cursor: pointer; }
@@ -1089,7 +1091,8 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           state.partners = data.partners || [];
           render();
           const open = state.selectedLabel && state.labels.find((l) => l.id === state.selectedLabel);
-          if (open && !$("panel").hidden) drawLabelPanel(open);
+          // Unsaved edits stay on screen; a failed save must not wipe them.
+          if (open && !$("panel").hidden && !state.labelDirty) drawLabelPanel(open);
         } catch (err) {
           $("rows").innerHTML = `<tr><td colspan="9" class="empty">${esc(err.message)}</td></tr>`;
         }
@@ -1563,6 +1566,58 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       return n === 1 ? String(each) : `${n} x ${each}`;
     }
 
+    // One row per label: weight and size. Labels already made are fixed.
+    function boxRow(i, box = {}, fixed = false) {
+      const size = box.length_cm ? `${box.length_cm}x${box.width_cm}x${box.height_cm}` : "";
+      return `<div class="box-row" data-box="${i}">
+        <span class="sub">Label ${i + 1}</span>
+        <input class="input" data-box-weight inputmode="decimal" placeholder="kg" value="${esc(box.weight_kg ?? "")}"${fixed ? " disabled" : ""}>
+        <input class="input" data-box-size placeholder="L x W x H cm" value="${esc(size)}"${fixed ? " disabled" : ""}>
+      </div>`;
+    }
+
+    function boxRows(l) {
+      const made = (l.labels || []).length;
+      const boxes = (l.boxes || []).length ? l.boxes : [{}];
+      const guess = Number(String(guessWeights(boxes.length, l.pairs)).split("x").pop());
+      return boxes.map((b, i) => boxRow(i, { ...b, weight_kg: Number(b.weight_kg) > 0 ? b.weight_kg : guess }, i < made)).join("");
+    }
+
+    // "60x40x40", "60 x 40 x 40" or "60*40*40" -> the three numbers.
+    function readSize(value) {
+      const parts = String(value || "").split(/\s*[x×*]\s*/i).map((v) => v.trim()).filter(Boolean);
+      if (!parts.length) return {};
+      return { length_cm: parts[0] || "", width_cm: parts[1] || "", height_cm: parts[2] || "" };
+    }
+
+    function readBoxRows() {
+      return [...document.querySelectorAll("#lpBoxes .box-row")].map((row) => ({
+        weight_kg: row.querySelector("[data-box-weight]").value.trim().replace(",", "."),
+        ...readSize(row.querySelector("[data-box-size]").value)
+      }));
+    }
+
+    // The number of rows follows the count; new rows copy the size above.
+    function syncBoxRows(count, pairs, refillWeights) {
+      const rows = $("lpBoxes");
+      const current = [...rows.querySelectorAll(".box-row")];
+      const made = current.filter((row) => row.querySelector("[data-box-weight]").disabled).length;
+      count = Math.min(20, Math.max(made, 1, Number(count) || 1));
+      for (let i = current.length; i < count; i += 1) {
+        const last = rows.lastElementChild;
+        rows.insertAdjacentHTML("beforeend", boxRow(i, { }));
+        if (last) rows.lastElementChild.querySelector("[data-box-size]").value = last.querySelector("[data-box-size]").value;
+      }
+      for (let i = current.length - 1; i >= count; i -= 1) current[i].remove();
+      if (refillWeights) {
+        const each = String(guessWeights(count, pairs)).split("x").pop().trim();
+        rows.querySelectorAll(".box-row").forEach((row) => {
+          const w = row.querySelector("[data-box-weight]");
+          if (!w.disabled) w.value = each;
+        });
+      }
+    }
+
     const ADDRESS_FIELDS = [
       ["name", "Name", ""], ["company", "Company", ""], ["street", "Street", "wide"], ["house_number", "House number", ""],
       ["address2", "Address line 2", ""], ["postal_code", "Postcode", ""], ["city", "City", ""], ["country", "Country", ""],
@@ -1602,11 +1657,9 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
             <label class="mini">Total pairs
               <input class="input" id="lpPairs" type="number" min="1" value="${l.pairs ?? ""}">
             </label>
-            <label class="mini wide">Weight per label (kg)
-              <input class="input" id="lpBoxes" value="${esc(boxesText(l) || guessWeights((l.boxes || []).length, l.pairs))}">
-            </label>
           </div>
-          <p class="sub">"2 x 24" is two labels of 24 kg; "20; 18" is two labels of different weights. Changing the number of labels or pairs fills in a guess (1.2 kg per pair).</p>
+          <div class="box-rows" id="lpBoxes">${boxRows(l)}</div>
+          <p class="sub">Size is length x width x height in cm, e.g. 60x40x40. The carrier charges the volume of a big, light box, so fill it in. Changing the number of labels or pairs fills in a weight guess (1.2 kg per pair); a new label copies the size above it.</p>
         </section>
         <section class="group"><h3>Ship to</h3>
           ${made ? `<p class="sub">Labels were already made for this address; it cannot change any more.</p>` : ""}
@@ -1629,7 +1682,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
             ["Phone", esc(a.phone || "")],
             ["E-mail", esc(a.email || "")]
           ]),
-          panelGroup("Labels", [["Weights", esc((l.boxes || []).map((b) => `${b.weight_kg} kg`).join(", "))]])
+          panelGroup("Labels", [["Boxes", esc((l.boxes || []).map((b) => `${b.weight_kg} kg${b.length_cm ? ` (${b.length_cm}x${b.width_cm}x${b.height_cm})` : ""}`).join(", "))]])
         ].join("");
 
       $("panelBody").innerHTML = [
@@ -1672,7 +1725,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       return {
         carrier: $("lpCarrier").value,
         pairs: $("lpPairs").value.trim(),
-        boxes: readBoxes($("lpBoxes").value),
+        boxes: readBoxRows(),
         address,
         note: $("lpNote").value
       };
@@ -1687,11 +1740,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     $("panelBody").addEventListener("input", (event) => {
       if (!state.selectedLabel || !$("lpBoxes") || event.target.id === "lpReason" || event.target.id === "lpPrice") return;
       markLabelDirty();
-      if (event.target.id === "lpCount" || event.target.id === "lpPairs") $("lpBoxes").value = guessWeights($("lpCount").value, $("lpPairs").value);
-      if (event.target.id === "lpBoxes") {
-        const n = readBoxes($("lpBoxes").value).length;
-        if (n) $("lpCount").value = n;
-      }
+      if (event.target.id === "lpCount" || event.target.id === "lpPairs") syncBoxRows($("lpCount").value, $("lpPairs").value, true);
     });
 
     $("panelBody").addEventListener("change", (event) => {
@@ -1745,7 +1794,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         if (!confirm(`Create ${(l.boxes || []).length} ${l.carrier} label(s) in Sendcloud for ${lblNumber(l)}? This is charged to our account.`)) return;
         done = (d) => `${(d.label.labels || []).length} label(s) created.`;
       } else if (action === "check") {
-        done = (d) => `Sendcloud would use: ${((d.check || {}).boxes || []).map((b) => `${b.weight_kg} kg → ${b.method}`).join("; ")}. Sender: ${(d.check || {}).sender}. Nothing was made.`;
+        done = (d) => `Sendcloud would use: ${((d.check || {}).boxes || []).map((b) => `${b.weight_kg} kg${b.size_cm ? ` ${b.size_cm.length}x${b.size_cm.width}x${b.size_cm.height}` : ""} → ${b.method}`).join("; ")}. Sender: ${(d.check || {}).sender}. Nothing was made.`;
       } else if (action === "paid" || action === "unpaid") {
         done = () => `${lblNumber(l)} marked ${action === "paid" ? "paid" : "not paid"}.`;
       }
@@ -1786,6 +1835,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
+        if (body.action === "edit") state.labelDirty = false;
         if (done) toast(done(data));
         return data;
       } catch (err) {
@@ -1793,6 +1843,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           no_price: "Fill in the price first.",
           labels_made: "Labels were already made; carrier and address cannot change.",
           bad_pairs: "That number of pairs does not look right.",
+          bad_size: "A size needs length, width and height, each 1-300 cm, like 60x40x40.",
           address_missing: "The address needs a name or company, street, house number, postcode, city, country and phone.",
           no_carrier: "Choose UPS or DPD.",
           no_weights: "Fill in the weight of every box first.",

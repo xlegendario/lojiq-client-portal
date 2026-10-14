@@ -103,9 +103,21 @@ export function cleanAddress(input = {}) {
 const plain = (value) => text(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 export const addressKey = (a) => [a.street, a.house_number, a.postal_code, a.country].map(plain).join("|");
 
+const num = (value) => Math.round(Number(String(value ?? "").replace(",", ".")) * 100) / 100;
+const blank = (value) => value === undefined || value === null || String(value).trim() === "";
+
+// A box: its weight, and its size in cm when known (all three or none) -
+// the carrier charges the volumetric weight of a big, light box.
 export function cleanBoxes(input) {
-  const boxes = (Array.isArray(input) ? input : [])
-    .map((box) => ({ weight_kg: Math.round(Number(String(box?.weight_kg ?? "").replace(",", ".")) * 100) / 100 }));
+  const boxes = (Array.isArray(input) ? input : []).map((box) => {
+    const row = { weight_kg: num(box?.weight_kg) };
+    const size = [box?.length_cm, box?.width_cm, box?.height_cm];
+    if (size.every(blank)) return row;
+    if (size.some(blank)) throw new LabelError("bad_size");
+    const [length_cm, width_cm, height_cm] = size.map(num);
+    if (![length_cm, width_cm, height_cm].every((v) => v >= 1 && v <= 300)) throw new LabelError("bad_size");
+    return { ...row, length_cm, width_cm, height_cm };
+  });
 
   if (!boxes.length) throw new LabelError("no_boxes");
   if (boxes.length > MAX_BOXES) throw new LabelError("too_many_boxes");

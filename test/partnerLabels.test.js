@@ -166,3 +166,10 @@ test("once a box has its label, the carrier and address stay", async () => {
   await assert.rejects(labels.edit(row.id, { address: { ...address, city: "Hamburg" } }), (e) => e.code === "labels_made");
   assert.equal((await labels.edit(row.id, { pairs: 3 })).pairs, 3);
 });
+
+test("a box keeps its size in cm when all three are given", () => {
+  assert.deepEqual(cleanBoxes([{ weight_kg: "24", length_cm: "60", width_cm: "40", height_cm: "40,5" }]), [{ weight_kg: 24, length_cm: 60, width_cm: 40, height_cm: 40.5 }]);
+  assert.deepEqual(cleanBoxes([{ weight_kg: 2, length_cm: "", width_cm: "", height_cm: "" }]), [{ weight_kg: 2 }]);
+  assert.throws(() => cleanBoxes([{ weight_kg: 2, length_cm: 60, width_cm: 40 }]), (e) => e.code === "bad_size");
+  assert.throws(() => cleanBoxes([{ weight_kg: 2, length_cm: 600, width_cm: 40, height_cm: 40 }]), (e) => e.code === "bad_size");
+});
