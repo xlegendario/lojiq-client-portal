@@ -5,7 +5,7 @@ import { fakeDb } from "./fakeSupabase.js";
 import { addressKey, cleanAddress, cleanBoxes, createPartnerLabels, partnerView } from "../partner/partnerLabels.js";
 
 const SELLER = "recJIMMY";
-const address = { name: "Lena", company: "Kicks Berlin GmbH", street: "Torstraße", house_number: "5", postal_code: "10119", city: "Berlin", country: "de", phone: "+4930123456" };
+const address = { name: "Lena", company: "Kicks Berlin GmbH", street: "Torstraße", house_number: "5", postal_code: "10119", city: "Berlin", country: "de", phone: "+4930123456", email: "lena@kicks.de" };
 
 test("an address needs what a label needs, and the country as two letters", () => {
   assert.deepEqual(cleanAddress(address).missing, []);
@@ -172,4 +172,9 @@ test("a box keeps its size in cm when all three are given", () => {
   assert.deepEqual(cleanBoxes([{ weight_kg: 2, length_cm: "", width_cm: "", height_cm: "" }]), [{ weight_kg: 2 }]);
   assert.throws(() => cleanBoxes([{ weight_kg: 2, length_cm: 60, width_cm: 40 }]), (e) => e.code === "bad_size");
   assert.throws(() => cleanBoxes([{ weight_kg: 2, length_cm: 600, width_cm: 40, height_cm: 40 }]), (e) => e.code === "bad_size");
+});
+
+test("an address needs the receiver's e-mail: UPS refuses a parcel without one", () => {
+  assert.deepEqual(cleanAddress({ ...address, email: "" }).missing, ["email"]);
+  assert.deepEqual(cleanAddress({ ...address, email: "not-an-email" }).missing, ["email"]);
 });

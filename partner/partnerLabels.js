@@ -94,7 +94,8 @@ export function cleanAddress(input = {}) {
   if (!row.city) missing.push("city");
   if (!CODES.has(row.country)) missing.push("country");
   if (!row.phone) missing.push("phone");
-  if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) missing.push("email");
+  // UPS refuses a parcel without one (Dario, 14-10-2026: always ask for it).
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) missing.push("email");
 
   return { row, missing };
 }

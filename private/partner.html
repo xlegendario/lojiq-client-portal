@@ -605,6 +605,7 @@
         f_house: "House number",
         f_phone: "Phone",
         f_email_opt: "E-mail (optional)",
+        f_email_ship: "E-mail of the receiver",
         f_contact: "Name",
         address_missing: "Fill in the fields in red.",
         no_boxes: "Add at least one box.",
@@ -789,6 +790,7 @@
         f_house: "门牌号",
         f_phone: "电话",
         f_email_opt: "邮箱（可选）",
+        f_email_ship: "收件人邮箱",
         f_contact: "姓名",
         address_missing: "请填写红色的栏位。",
         no_boxes: "请至少添加一个箱子。",
@@ -2025,7 +2027,7 @@
       ["postal_code", "f_zip", true, "postal-code"],
       ["city", "f_city", true, "address-level2"],
       ["phone", "f_phone", true, "tel"],
-      ["email", "f_email_opt", false, "email"]
+      ["email", "f_email_ship", true, "email"]
     ];
     const LABEL_STATUS = { requested: ["lbl_requested", "wait"], created: ["lbl_created", "good"], rejected: ["lbl_rejected", "off"] };
 
@@ -2166,7 +2168,7 @@
         const a = f.newAddress;
         if (!String(a.name || "").trim() && !String(a.company || "").trim()) lbl.bad.push("name", "company");
         for (const k of ["street", "house_number", "postal_code", "city", "phone", "country"]) if (!String(a[k] || "").trim()) lbl.bad.push(k);
-        if (String(a.email || "").trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(a.email).trim())) lbl.bad.push("email");
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(a.email || "").trim())) lbl.bad.push("email");
       } else if (!f.address_id) return t("need_address");
       const pairs = Number(f.pairs);
       if (!Number.isInteger(pairs) || pairs < 1 || pairs > 500) lbl.bad.push("pairs");

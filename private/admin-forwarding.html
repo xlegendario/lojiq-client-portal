@@ -377,7 +377,7 @@
         <input class="input" id="lblCity" placeholder="City">
         <select class="select" id="lblCountry"></select>
         <input class="input" id="lblPhone" placeholder="Phone">
-        <input class="input wide" id="lblEmail" placeholder="E-mail (optional)">
+        <input class="input wide" id="lblEmail" placeholder="E-mail">
       </div>
 
       <div class="field">
@@ -1621,7 +1621,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     const ADDRESS_FIELDS = [
       ["name", "Name", ""], ["company", "Company", ""], ["street", "Street", "wide"], ["house_number", "House number", ""],
       ["address2", "Address line 2", ""], ["postal_code", "Postcode", ""], ["city", "City", ""], ["country", "Country", ""],
-      ["phone", "Phone", ""], ["email", "E-mail (optional)", "wide"]
+      ["phone", "Phone", ""], ["email", "E-mail", "wide"]
     ];
 
     function drawLabelPanel(l) {
@@ -1844,7 +1844,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           labels_made: "Labels were already made; carrier and address cannot change.",
           bad_pairs: "That number of pairs does not look right.",
           bad_size: "A size needs length, width and height, each 1-300 cm, like 60x40x40.",
-          address_missing: "The address needs a name or company, street, house number, postcode, city, country and phone.",
+          address_missing: "The address needs a name or company, street, house number, postcode, city, country, phone and e-mail.",
           no_carrier: "Choose UPS or DPD.",
           no_weights: "Fill in the weight of every box first.",
           fewer_than_made: "Some boxes already have a label; you cannot go below that many.",
