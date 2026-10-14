@@ -558,7 +558,7 @@
       const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
       $("navMoney").innerHTML = finance.map(link).join("") +
         `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
-        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>`;
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a><a class="nav-item" href="/admin/collective-invoices">Collective Invoices</a>`;
 
       $("navPartner").innerHTML =
         `<a class="nav-item active" href="/admin/partner-deals">Deals ${navCount("partner/deals_yours")}</a>`;

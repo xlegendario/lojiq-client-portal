@@ -55,6 +55,7 @@ import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
+import { createCollectiveInvoicesStore, mountCollectiveInvoices } from "./adminCollectiveInvoices.js";
 import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.js";
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
@@ -67,6 +68,7 @@ import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.
 import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
+import { createRompslomp } from "./externalSalesInvoicing.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -464,6 +466,18 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }),
     audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-mollie-payouts.html") : ""
+  });
+
+  // Collective invoices for self-billing stores: a month of pairs on one
+  // Rompslomp invoice per VAT route (admin/adminCollectiveInvoices.js,
+  // private/admin-collective-invoices.html).
+  mountCollectiveInvoices(router, {
+    store: createCollectiveInvoicesStore({
+      airtable,
+      rompslomp: createRompslomp({ token: services.rompslompToken, companyId: services.rompslompCompanyId || undefined, fetchImpl })
+    }),
+    audit,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-collective-invoices.html") : ""
   });
 
   // Inbound Scans: what came out of every scanned parcel, by tracking number
