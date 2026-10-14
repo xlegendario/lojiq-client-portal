@@ -1794,7 +1794,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         if (!confirm(`Create ${(l.boxes || []).length} ${l.carrier} label(s) in Sendcloud for ${lblNumber(l)}? This is charged to our account.`)) return;
         done = (d) => `${(d.label.labels || []).length} label(s) created.`;
       } else if (action === "check") {
-        done = (d) => `Sendcloud would use: ${((d.check || {}).boxes || []).map((b) => `${b.weight_kg} kg${b.size_cm ? ` ${b.size_cm.length}x${b.size_cm.width}x${b.size_cm.height}` : ""} → ${b.method}`).join("; ")}. Sender: ${(d.check || {}).sender}. Nothing was made.`;
+        done = (d) => `Sendcloud would use: ${((d.check || {}).boxes || []).map((b) => `${b.weight_kg} kg${b.size_cm ? ` ${b.size_cm.length}x${b.size_cm.width}x${b.size_cm.height}` : ""} → ${b.method}`).join("; ")}. Sender: ${(d.check || {}).sender}${(d.check || {}).contract ? `, contract ${d.check.contract}` : ""}. Nothing was made.`;
       } else if (action === "paid" || action === "unpaid") {
         done = () => `${lblNumber(l)} marked ${action === "paid" ? "paid" : "not paid"}.`;
       }
