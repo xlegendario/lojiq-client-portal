@@ -463,8 +463,16 @@ export function createConsignmentStockStore({ db, airtable, deals = null, cacheM
     };
   }
 
-  // everything: the whole shelf, for the WTB matcher (admin/wtbMatch.js).
-  return { list, count, bringOutOffer, everything };
+  /*
+   * everything: the whole shelf, for the WTB matcher (admin/wtbMatch.js).
+   *
+   * The cached one, the same rows the screen itself reads. It used to hand
+   * out the uncached everything(), so a round of matching went to Supabase
+   * five times over for rows the screen already had in hand - and the
+   * matcher is the one place where a shelf that will not load is reported
+   * as a gap rather than as an error.
+   */
+  return { list, count, bringOutOffer, everything: loaded };
 }
 
 export function mountConsignmentStock(router, { store, audit = null, pageFile }) {

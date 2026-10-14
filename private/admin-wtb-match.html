@@ -423,9 +423,14 @@
       const rank = (row) => (row.options.length ? (whose(row) ? 1 : 0) : 2);
 
       state.rows.sort((a, b) => rank(a) - rank(b) || whose(a).localeCompare(whose(b)));
-      // Kept, so opening a row does not make a shelf that was out
-      // of reach look as though it answered.
-      if (out.missing) state.missing = out.missing;
+      /*
+        Kept, so opening a row does not make a shelf that was out of reach
+        look as though it answered. With the reason, where the engine knows
+        one: "Consignment could not be read" on its own left nobody - here
+        or in the logs - any way to find out why.
+      */
+      if (out.sources) state.missing = out.sources.filter((source) => source.error);
+      else if (out.missing) state.missing = out.missing.map((name) => ({ name, error: "" }));
       $("results").hidden = !state.rows.length;
 
       /*
@@ -480,7 +485,11 @@
 
       $("missing").hidden = !state.missing.length;
       $("missing").innerHTML = state.missing.length
-        ? `<strong>${state.missing.join(" and ")} could not be read just now.</strong> What is below is only what the other shelves hold, so treat a gap as unknown rather than as nothing.`
+        ? `<strong>${esc(state.missing.map((source) => source.name).join(" and "))} could not be read just now.</strong> `
+          + `What is below is only what the other shelves hold, so treat a gap as unknown rather than as nothing.`
+          + state.missing.filter((source) => source.error)
+            .map((source) => ` <span class="muted">${esc(source.name)}: ${esc(source.error)}</span>`)
+            .join("")
         : "";
 
       $("resultsBody").innerHTML = state.rows.filter((row) => row.options.length).map((row) => {

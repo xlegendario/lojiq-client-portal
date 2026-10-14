@@ -143,6 +143,14 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
     try {
       return { name, rows: (await load()) || [], error: "" };
     } catch (err) {
+      /*
+       * Logged as well as returned. A shelf that will not load shows on
+       * screen as a gap, which is the one failure here that looks like an
+       * answer - and without this line the reason was nowhere at all, so
+       * "Consignment could not be read" could not be looked into after the
+       * fact.
+       */
+      console.error(`[wtb match] the ${name} shelf did not load:`, err?.message || err);
       return { name, rows: [], error: text(err?.message) || "could not be read" };
     }
   }
