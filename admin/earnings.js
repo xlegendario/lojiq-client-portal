@@ -229,7 +229,15 @@ export function externalEarning(sale = {}, pairs = []) {
     where: text(sale.buyer_company) || text(sale.buyer_name),
     vat_type: route,
     purchase: money(purchase),
-    selling: money(selling),
+    /*
+     * On the same scale as every other line, and as the totals under them.
+     *
+     * A unit reports its Final Selling Price, which is excl. VAT - margin
+     * goods excepted, where the price IS the gross one. A deal total is what
+     * the buyer pays, so a 21% sale stood 21% above every row around it and
+     * was added to the month that way.
+     */
+    selling: money(sellingExVat),
     // A marketplace takes a cut; a buyer we sell to ourselves does not.
     commission: 0,
     gross,

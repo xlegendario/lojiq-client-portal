@@ -256,7 +256,8 @@ test("a 21% sale is worth what is left after the VAT, on both columns", () => {
   );
 
   assert.equal(row.purchase, 301);
-  assert.equal(row.selling, 400.51);
+  // Excl. VAT, like every unit row and like the totals they add into.
+  assert.equal(row.selling, 331);
   assert.equal(row.gross, 30);
   // No tax on the margin of a 21% sale: it came off the price already.
   assert.equal(row.gross_after_tax, 30);
