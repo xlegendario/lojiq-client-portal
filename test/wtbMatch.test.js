@@ -180,7 +180,12 @@ test("the whole way through: a pasted line against all three shelves", () => {
   }));
 
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0].options.map((o) => [o.source, o.cost]), [["Consignment", 280], ["Warehouse", 300], ["Partner", 350]]);
+  /*
+    Our own shelf first even at 300 against a consignor's 280: a pair we
+    already own is money standing still, and selling it beats saving
+    twenty euro on someone else's. The rest follow cheapest first.
+  */
+  assert.deepEqual(rows[0].options.map((o) => [o.source, o.cost]), [["Warehouse", 300], ["Consignment", 280], ["Partner", 350]]);
   assert.deepEqual(rows[1].options, [], "we have no 43");
 });
 
@@ -204,7 +209,7 @@ test("the three shelves are asked at once and answered side by side", async () =
   const out = await store.search("DM7866-202,42");
 
   assert.equal(out.rows.length, 1);
-  assert.deepEqual(out.rows[0].options.map((o) => o.source), ["Consignment", "Warehouse", "Partner"]);
+  assert.deepEqual(out.rows[0].options.map((o) => o.source), ["Warehouse", "Consignment", "Partner"]);
   assert.deepEqual(out.missing, []);
 });
 
@@ -588,8 +593,8 @@ test("the wait reaches the screen on the option itself", async () => {
 
   assert.deepEqual(
     out.rows[0].options.map((option) => [option.source, option.ready_in]),
-    [["Consignment", "2-5 business days"], ["Consignment", "within 48 hours"], ["Warehouse", "within 48 hours"]],
-    "cheapest first, and the cheapest is the one that takes longest"
+    [["Warehouse", "within 48 hours"], ["Consignment", "2-5 business days"], ["Consignment", "within 48 hours"]],
+    "our own shelf first, then cheapest - and the cheapest is the one that takes longest"
   );
 });
 

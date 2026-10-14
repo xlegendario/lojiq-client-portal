@@ -517,6 +517,29 @@ export function parseRequest(input) {
 }
 
 /*
+ * The one word of a name worth asking a catalogue about.
+ *
+ * Reading all twelve thousand rows of the SKU Master to answer one paste
+ * is a hundred and twenty calls; asking for the rows that hold one telling
+ * word is one. "Ruffle", "Leopard", "SpongeBob", "Consortium" each pick out
+ * a handful, where "adidas" or "White" would pick out thousands.
+ *
+ * The longest word is the rarest often enough, once the words every second
+ * shoe carries are out of the way.
+ */
+const EVERYDAY = new Set([
+  "adida", "nike", "jordan", "asic", "puma", "crocs", "vans", "ugg", "yeezy", "new", "balance",
+  "retro", "low", "high", "mid", "og", "white", "black", "grey", "gray", "cream", "sail", "women",
+  "men", "kid", "shoe", "sneaker", "classic", "clog", "slide", "boot", "pack", "edition", "color"
+]);
+
+export function tellingWord(name) {
+  const words = nameKey(name).split(" ").filter((word) => word.length > 3 && !EVERYDAY.has(word));
+
+  return words.sort((a, b) => b.length - a.length)[0] || "";
+}
+
+/*
  * Every unit we hold for what was asked.
  *
  * One asked-for pair can come back several times over - the same shoe from the
@@ -607,7 +630,24 @@ export function groupOptions(options = []) {
     }
   }
 
+  /*
+   * Our own shelf first, then the cheapest.
+   *
+   * Cheapest-first was the obvious order and the wrong one: a pair we
+   * already own is money standing still, and selling it beats saving
+   * fifteen euro on a consignor's. Dario's partner put it plainly - our
+   * warehouse is the first pick if we have stock, also if the price is
+   * higher.
+   *
+   * It decides more than the order of the rows. The offer starts at what
+   * the first line costs plus the markup, so this is also what the buyer
+   * is quoted - which is the point.
+   */
+  const ours = (option) => (text(option.source) === "Warehouse" ? 0 : 1);
+
   return [...groups.values()].sort((a, b) => {
+    if (ours(a) !== ours(b)) return ours(a) - ours(b);
+
     const left = Number(a.cost);
     const right = Number(b.cost);
 

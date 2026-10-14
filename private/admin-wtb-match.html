@@ -393,7 +393,7 @@
 
       $("readBody").innerHTML = state.wanted.map((row, index) => `
         <tr>
-          <td><input class="input slim" value="${esc(row.sku)}" placeholder="article?" data-index="${index}" data-field="sku" aria-label="SKU"></td>
+          <td><input class="input slim" value="${esc(row.sku)}" placeholder="${row.unknown ? "not in our catalogue" : "article?"}" data-index="${index}" data-field="sku" aria-label="SKU"></td>
           <td><input class="input slim" value="${esc(row.size)}" placeholder="size?" data-index="${index}" data-field="size" aria-label="Size"></td>
           <td class="muted">${esc(row.line || "")}</td>
           <td><button class="btn ghost slim" type="button" data-drop="${index}" aria-label="Remove this line">✕</button></td>
@@ -469,10 +469,13 @@
         a paste that had seven lines in it.
       */
       const waiting = state.wanted.filter((row) => !row.sku).length;
+      // Of those, the ones we looked up and have never heard of.
+      const unknown = state.wanted.filter((row) => !row.sku && row.unknown).length;
 
       $("count").textContent = [
         `${found} of ${state.rows.length} asked for are on a shelf`,
-        waiting ? `${waiting} still need an article number, above` : ""
+        unknown ? `${unknown} are not in our catalogue` : "",
+        waiting - unknown ? `${waiting - unknown} still need an article number, above` : ""
       ].filter(Boolean).join(" · ");
 
       $("missing").hidden = !state.missing.length;

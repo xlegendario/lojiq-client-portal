@@ -14,7 +14,9 @@
 import express from "express";
 import fs from "fs";
 
-import { matchStock, offerText, parseRequest, readyIn, shelf } from "./wtbMatch.js";
+import {
+  matchStock, offerText, parseRequest, readyIn, shelf, nameKey, theArticleCalled, tellingWord
+} from "./wtbMatch.js";
 import { csv } from "./xlsxWriter.js";
 import { createWtbPhoto } from "./wtbPhoto.js";
 
@@ -23,6 +25,69 @@ const text = (value) => (value === null || value === undefined ? "" : String(val
 /*
  * deps: the three stock stores, as adminRouter already builds them.
  */
+export const SKU_MASTER = "SKU Master";
+
+/*
+ * The article number a name has in our own catalogue.
+ *
+ * The shelf only knows what we hold, and most of a want-to-buy is things
+ * we do not. Those rows came back with an empty box that read like a
+ * failure, when the honest answer is either "that is HR9479 and we have
+ * none" or "I do not know this shoe at all" - two different things, and
+ * the buyer gets a different answer to each.
+ *
+ * The SKU Master is twelve thousand rows, so it is not read whole. Each
+ * name that is still unplaced contributes one telling word, and the rows
+ * holding any of those words come back in a single call - a few hundred
+ * instead of twelve thousand.
+ */
+export async function fromCatalogue(airtable, names) {
+  const wanted = [...new Set(names.map((name) => text(name)).filter(Boolean))];
+  const words = [...new Set(wanted.map(tellingWord).filter(Boolean))];
+
+  if (!words.length || !airtable) return new Map();
+
+  const quote = (value) => value.replace(/'/g, "\\'");
+  const formula = `OR(${words.map((word) => `FIND('${quote(word)}', LOWER({Product Name} & '')) > 0`).join(", ")})`;
+
+  const rows = [];
+  let offset = "";
+
+  for (let page = 0; page < 20; page += 1) {
+    const result = await airtable
+      .select(SKU_MASTER, { formula, fields: ["SKU", "Product Name"], pageSize: 100, offset })
+      .catch(() => null);
+
+    if (!result) break;
+
+    rows.push(...(result.records || []));
+    offset = result.offset || "";
+
+    if (!offset) break;
+  }
+
+  const articles = new Map();
+
+  for (const record of rows) {
+    const name = nameKey(record.fields?.["Product Name"]);
+
+    if (!name) continue;
+
+    if (!articles.has(name)) articles.set(name, new Set());
+    articles.get(name).add(text(record.fields?.SKU).toUpperCase());
+  }
+
+  const found = new Map();
+
+  for (const name of wanted) {
+    const sku = theArticleCalled(name, articles);
+
+    if (sku) found.set(name, sku);
+  }
+
+  return found;
+}
+
 export function createWtbMatchStore({ inventory, consignmentStock, partnerStock, airtable = null, cacheMs = 300_000, photo = null }) {
   /*
    * What kind of seller a pair is coming from.
@@ -118,6 +183,34 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
     const matched = matchStock(wanted, all);
 
     /*
+      A name the shelf could not place is asked of our own catalogue, which
+      knows twelve thousand shoes against the three thousand we happen to
+      hold. It cannot make us a sale - the answer is still that we have
+      none - but it turns "I do not know this shoe" into "that is KH6230
+      and we have none", and those are two different things to tell a
+      buyer.
+
+      Only the rows that came back empty are asked, so a paste the shelf
+      answered in full costs nothing extra.
+    */
+    const unplaced = matched.filter((row) => !row.sku && text(row.name));
+
+    if (unplaced.length) {
+      const known = await fromCatalogue(airtable, unplaced.map((row) => row.name)).catch(() => new Map());
+
+      for (const row of unplaced) {
+        const sku = known.get(row.name);
+
+        if (!sku) continue;
+
+        row.sku = sku;
+        row.by_name = true;
+        // Known, but not here: that is what the empty options say.
+        row.in_catalogue = true;
+      }
+    }
+
+    /*
       A name the shelf could not place is not an answer either way.
       "Looking for anything in 42 please" parses exactly like a card off a
       screenshot - some words and a size, with no article number anywhere -
@@ -139,7 +232,16 @@ export function createWtbMatchStore({ inventory, consignmentStock, partnerStock,
       // came in with: the correction table shows what it decided, and a
       // second search - which goes out as "article,size" - still carries
       // the row instead of dropping it.
-      asked.push({ ...wanted[at], sku: row.sku });
+      asked.push({
+        ...wanted[at],
+        sku: row.sku,
+        /*
+          Looked for and not there, as against never looked for. An empty
+          box reads like something went wrong; it has not - we simply do
+          not know this shoe, and that is worth saying in those words.
+        */
+        unknown: Boolean(!row.sku && text(row.name))
+      });
 
       if (row.sku) rows.push(row);
     });
