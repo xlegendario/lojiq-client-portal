@@ -320,6 +320,58 @@ test("a pair cannot be added below what we would pay for it", async () => {
   );
 });
 
+test("the refusal says it is a loss, so the screen can ask instead of stop", async () => {
+  const { store } = shop();
+
+  await assert.rejects(
+    store.addLine({ saleId: SALE.id, sku: "dv1748-601", size: "44", buyerPrice: 140, payout: 150 }),
+    (err) => err.code === "sells_at_a_loss" && err.status === 409
+  );
+});
+
+/*
+  Selling under cost is a real thing to want - a flawed pair, dead stock -
+  and the block on it was absolute. It is refused once and goes through when
+  it is meant, so a mistyped price still stops and a deliberate loss does
+  not.
+*/
+test("a pair goes on below cost once the loss is meant", async () => {
+  const { store, tables } = shop();
+
+  const row = await store.addLine({
+    saleId: SALE.id, sku: "dv1748-601", size: "44", buyerPrice: 140, payout: 150, allowLoss: true
+  });
+
+  assert.equal(row.buyer_price, 140);
+  assert.equal(row.offered, 150);
+  assert.equal(tables.deal_lines.length, 1);
+});
+
+// Breaking even is not a loss, and nobody meant to refuse it.
+test("selling for exactly what it costs needs no confirming", async () => {
+  const { store } = shop();
+
+  const row = await store.addLine({ saleId: SALE.id, sku: "dv1748-601", size: "44", buyerPrice: 150, payout: 150 });
+
+  assert.equal(row.buyer_price, 150);
+});
+
+test("a buyer price below the payout is refused, then taken when it is meant", async () => {
+  const { store } = shop({
+    lines: [line({ status: "offered", offer_id: offer().id })],
+    offers: [offer()]
+  });
+
+  await assert.rejects(
+    store.answer({ lineId: line().id, action: "price", buyerPrice: 140 }),
+    (err) => err.code === "sells_at_a_loss"
+  );
+
+  const out = await store.answer({ lineId: line().id, action: "price", buyerPrice: 140, allowLoss: true });
+
+  assert.equal(out.did, "priced");
+});
+
 test("a pair is added with both prices and nothing computed between them", async () => {
   const { store, tables } = shop();
 

@@ -30,10 +30,37 @@ const first = (value) => (Array.isArray(value) ? value[0] : value);
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 
 export class BrokerDealsError extends Error {
-  constructor(message, status = 400) {
+  // code: for the one refusal the screen is meant to answer rather than
+  // only show - selling under cost, which goes through once it is meant.
+  constructor(message, status = 400, code = "") {
     super(message);
     this.status = status;
+    this.code = code;
   }
+}
+
+/*
+ * Selling for less than the pair costs us.
+ *
+ * Allowed: a pair that will not move at a profit is still better sold than
+ * kept, and a flawed or dead-stock pair is sometimes worth taking a loss
+ * on. But never by accident - a buyer price typed one digit short looks
+ * exactly like a deliberate loss, and this is money.
+ *
+ * So it is refused once, with the loss named, and goes through when the
+ * screen sends it back having asked. Breaking even is not a loss and was
+ * refused too, which nobody meant.
+ */
+export const SELLS_AT_A_LOSS = "sells_at_a_loss";
+
+export function refuseSilentLoss({ buyer, cost, who, allowed = false }) {
+  if (round2(buyer) >= round2(cost) || allowed) return;
+
+  throw new BrokerDealsError(
+    `${round2(buyer)} does not cover the ${round2(cost)} ${who}.`,
+    409,
+    SELLS_AT_A_LOSS
+  );
 }
 
 /*
@@ -678,7 +705,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * checked against the holder's asking price when the offer goes out, not
    * here - the stock moves, and a line may sit for an hour.
    */
-  async function addLine({ saleId, sku, size, buyerPrice, payout, vatFilter = "all", productName = "", brand = "", imageUrl = "" } = {}) {
+  async function addLine({ saleId, sku, size, buyerPrice, payout, vatFilter = "all", productName = "", brand = "", imageUrl = "", allowLoss = false } = {}) {
     const sale = await loadSale(saleId);
 
     if (text(sale.stage) !== "negotiating" && text(sale.payment_status) === "paid") {
@@ -695,11 +722,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     if (!(owed > 0)) throw new BrokerDealsError("What are we paying for it?");
 
-    if (buyer > 0 && !(buyer > owed)) {
-      throw new BrokerDealsError(
-        `${round2(buyer)} does not cover the ${round2(owed)} we would pay for it.`
-      );
-    }
+    if (buyer > 0) refuseSilentLoss({ buyer, cost: owed, who: "we would pay for it", allowed: allowLoss });
 
     if (!["all", "margin", "b2b"].includes(text(vatFilter))) {
       throw new BrokerDealsError("Margin only, B2B only, or all stock.");
@@ -744,7 +767,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * What we paid is what it cost us, read off the unit rather than typed -
    * the margin on this line has to be the real one.
    */
-  async function addOwnLine({ saleId, unitRecordId, buyerPrice } = {}) {
+  async function addOwnLine({ saleId, unitRecordId, buyerPrice, allowLoss = false } = {}) {
     const sale = await loadSale(saleId);
 
     if (!/^rec[A-Za-z0-9]{14}$/.test(text(unitRecordId))) throw new BrokerDealsError("Which pair?");
@@ -769,9 +792,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     const buyer = Number(buyerPrice);
 
-    if (buyer > 0 && !(buyer > cost)) {
-      throw new BrokerDealsError(`${round2(buyer)} does not cover the ${round2(cost)} it cost us.`);
-    }
+    if (buyer > 0) refuseSilentLoss({ buyer, cost, who: "it cost us", allowed: allowLoss });
 
     const [line] = await db.insert("deal_lines", [{
       sale_id: sale.id,
@@ -807,7 +828,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * finding out at the end. It sits on "reserved" until the deal is
    * confirmed - sold is what it becomes when there is a sale.
    */
-  async function addPartnerLine({ saleId, partnerStockId, buyerPrice } = {}) {
+  async function addPartnerLine({ saleId, partnerStockId, buyerPrice, allowLoss = false } = {}) {
     const sale = await loadSale(saleId);
 
     if (!/^[0-9a-f-]{36}$/i.test(text(partnerStockId))) throw new BrokerDealsError("Which pair?");
@@ -822,8 +843,8 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
     const buyer = Number(buyerPrice);
 
-    if (buyer > 0 && !(buyer > cost)) {
-      throw new BrokerDealsError(`${round2(buyer)} does not cover the ${cost} going to ${text(row.seller_id)}.`);
+    if (buyer > 0) {
+      refuseSilentLoss({ buyer, cost, who: `going to ${text(row.seller_id)}`, allowed: allowLoss });
     }
 
     const [claimed] = await db.patch(`partner_stock?id=eq.${text(partnerStockId)}&status=eq.in_stock`, {
@@ -955,7 +976,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * the broker has to be able to follow it without the consignor's side
    * moving at all.
    */
-  async function priceLine({ lineId, buyerPrice, payout, margin } = {}) {
+  async function priceLine({ lineId, buyerPrice, payout, margin, allowLoss = false } = {}) {
     const { line, row } = await loadLine(lineId);
 
     const fields = { updated_at: new Date().toISOString() };
@@ -967,11 +988,12 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
       // Against what this pair will really cost: his counter if he made
       // one, otherwise what he was offered.
-      if (!(buyer > row.payout)) {
-        throw new BrokerDealsError(
-          `${round2(buyer)} does not cover the ${round2(row.payout)} going to ${row.party || row.seller_id || "the consignor"}.`
-        );
-      }
+      refuseSilentLoss({
+        buyer,
+        cost: row.payout,
+        who: `going to ${row.party || row.seller_id || "the consignor"}`,
+        allowed: allowLoss
+      });
 
       fields.buyer_price = round2(buyer);
     }
@@ -1089,12 +1111,12 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
    * him, and moves the line on. Doing any of it from this side would be a
    * second set of rules that drifts from the first.
    */
-  async function answer({ lineId, action, price, buyerPrice, margin } = {}) {
+  async function answer({ lineId, action, price, buyerPrice, margin, allowLoss = false } = {}) {
     const { line, offer, row } = await loadLine(lineId);
 
     if (action === "price") {
       return {
-        ...(await priceLine({ lineId, buyerPrice, margin })),
+        ...(await priceLine({ lineId, buyerPrice, margin, allowLoss })),
         did: "priced",
         seller_id: row.seller_id
       };
@@ -1175,11 +1197,12 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
 
       if (!(buyer > 0)) throw new BrokerDealsError("What does the buyer pay?");
 
-      if (!(buyer > row.payout)) {
-        throw new BrokerDealsError(
-          `${round2(buyer)} does not cover the ${round2(row.payout)} going to ${row.party || row.seller_id}.`
-        );
-      }
+      refuseSilentLoss({
+        buyer,
+        cost: row.payout,
+        who: `going to ${row.party || row.seller_id}`,
+        allowed: allowLoss
+      });
 
       await kickz("/api/internal/broker/lock", {
         deal_line_id: line.id,
@@ -1965,7 +1988,11 @@ export function mountBrokerDeals(router, { store, audit = null }) {
   const send = (res, err) => {
     const status = err instanceof BrokerDealsError ? err.status : 500;
     if (status >= 500) console.error("[admin broker deals]", err.message);
-    res.status(status).json({ error: err instanceof BrokerDealsError ? err.message : `Broker Deals failed: ${err.message}` });
+    res.status(status).json({
+      error: err instanceof BrokerDealsError ? err.message : `Broker Deals failed: ${err.message}`,
+      // The screen asks about this one instead of only showing it.
+      ...(err instanceof BrokerDealsError && err.code ? { code: err.code } : {})
+    });
   };
 
   const json = express.json({ limit: "40kb" });
@@ -2056,7 +2083,8 @@ export function mountBrokerDeals(router, { store, audit = null }) {
       const out = await store.addPartnerLine({
         saleId: req.params.id,
         partnerStockId: req.body?.partner_stock_id,
-        buyerPrice: req.body?.buyer_price
+        buyerPrice: req.body?.buyer_price,
+        allowLoss: req.body?.allow_loss === true
       });
 
       audit?.record({
@@ -2078,7 +2106,8 @@ export function mountBrokerDeals(router, { store, audit = null }) {
       const out = await store.addOwnLine({
         saleId: req.params.id,
         unitRecordId: req.body?.inventory_unit_record_id,
-        buyerPrice: req.body?.buyer_price
+        buyerPrice: req.body?.buyer_price,
+        allowLoss: req.body?.allow_loss === true
       });
 
       audit?.record({
@@ -2106,7 +2135,8 @@ export function mountBrokerDeals(router, { store, audit = null }) {
         vatFilter: req.body?.vat_filter,
         productName: req.body?.product_name,
         brand: req.body?.brand,
-        imageUrl: req.body?.image_url
+        imageUrl: req.body?.image_url,
+        allowLoss: req.body?.allow_loss === true
       }));
     } catch (err) {
       send(res, err);
@@ -2279,7 +2309,8 @@ export function mountBrokerDeals(router, { store, audit = null }) {
         action: text(req.body?.action),
         price: req.body?.price,
         buyerPrice: req.body?.buyer_price,
-        margin: req.body?.margin
+        margin: req.body?.margin,
+        allowLoss: req.body?.allow_loss === true
       });
 
       audit?.record({

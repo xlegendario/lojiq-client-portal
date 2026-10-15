@@ -843,11 +843,38 @@
       }
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `The server answered ${response.status}.`);
+
+      if (!response.ok) {
+        const err = new Error(data.error || `The server answered ${response.status}.`);
+        // Carried through, for the refusals the screen answers rather than
+        // only shows.
+        if (data.code) err.code = data.code;
+        throw err;
+      }
+
       return data;
     }
 
     const postJson = (url, body) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+    /*
+      A price under what the pair costs us.
+
+      Selling at a loss is allowed - a pair that will not move at a profit
+      is still better sold than kept - but a buyer price typed one digit
+      short looks exactly the same. So the server refuses it once and says
+      by how much, and the answer here is to ask rather than to stop.
+    */
+    async function postMaybeAtALoss(url, body) {
+      try {
+        return await postJson(url, body);
+      } catch (err) {
+        if (err.code !== "sells_at_a_loss") throw err;
+        if (!window.confirm(`${err.message}\n\nSell it at a loss anyway?`)) throw err;
+
+        return postJson(url, { ...body, allow_loss: true });
+      }
+    }
 
     let toastTimer = null;
     function toast(message) {
@@ -1472,15 +1499,11 @@
       )) return;
 
       try {
-        const out = await api(`/api/admin/broker-deals/lines/${encodeURIComponent(id)}/answer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: what === "margin" ? "price" : what,
-            price,
-            buyer_price: buyerPrice,
-            margin
-          })
+        const out = await postMaybeAtALoss(`/api/admin/broker-deals/lines/${encodeURIComponent(id)}/answer`, {
+          action: what === "margin" ? "price" : what,
+          price,
+          buyer_price: buyerPrice,
+          margin
         });
 
         toast(
@@ -1881,11 +1904,10 @@
         for (const row of rows) {
           const door = doors[row.source] || doors.consignment;
 
-          await api(`/api/admin/broker-deals/${encodeURIComponent(out.id)}/${door}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify((bodies[row.source] || bodies.consignment)(row))
-          }).catch((err) => failed.push(`${row.sku} ${row.size}: ${err.message}`));
+          await postMaybeAtALoss(
+            `/api/admin/broker-deals/${encodeURIComponent(out.id)}/${door}`,
+            (bodies[row.source] || bodies.consignment)(row)
+          ).catch((err) => failed.push(`${row.sku} ${row.size}: ${err.message}`));
         }
 
         $("dealDialog").close();
