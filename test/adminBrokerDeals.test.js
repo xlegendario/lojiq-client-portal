@@ -475,6 +475,29 @@ test("locking needs a buyer price, and takes the pair out of the market", async 
  * into a sale by itself would put it in Pending, where it can be invoiced
  * and paid, while four pairs are still being haggled over.
  */
+/*
+  Closing the deal is its own guard, and the one the broker actually hits:
+  the pair is on the draft already, so this is where a loss shows up.
+*/
+test("closing below the payout is refused as a loss, then taken when it is meant", async () => {
+  const { store, sent } = shop({
+    lines: [line({ status: "agreed", offer_id: offer().id, buyer_price: null })],
+    offers: [offer({ status: "partner_agreed", accepted_at: "2026-10-02T13:00:00.000Z" })]
+  });
+
+  await assert.rejects(
+    store.answer({ lineId: line().id, action: "finalize", buyerPrice: 57.5 }),
+    (err) => err.code === "sells_at_a_loss"
+  );
+
+  assert.deepEqual(sent, [], "nothing is locked while it is still a question");
+
+  const out = await store.answer({ lineId: line().id, action: "finalize", buyerPrice: 57.5, allowLoss: true });
+
+  assert.equal(out.did, "locked");
+  assert.equal(sent[0].body.buyer_price, 57.5);
+});
+
 test("locking a pair books nothing at all", async () => {
   const { store, tables } = shop({
     lines: [line({ status: "agreed", offer_id: offer().id })],

@@ -290,6 +290,34 @@ test("the margin is kept in step, net, because Airtable reads it that way", asyn
   assert.equal(Math.round((170 + 4.13 * 1.21) * 100) / 100, 175);
 });
 
+/*
+  Selling under cost is a real thing to want - a flawed pair, dead stock -
+  and the block on it was absolute. It is refused once, saying it is a
+  loss, and taken when it comes back meant: a mistyped price still stops
+  and a deliberate loss does not.
+*/
+test("a price under the payout is refused as a loss, then taken when it is meant", async () => {
+  const { store } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  await assert.rejects(
+    store.answer({ id: offer().id, action: "price", buyerPrice: 165 }),
+    (err) => err.code === "sells_at_a_loss"
+  );
+
+  const out = await store.answer({ id: offer().id, action: "price", buyerPrice: 165, allowLoss: true });
+
+  assert.equal(out.buyer_price, 165);
+});
+
+// Breaking even is not a loss, and nobody meant to refuse it.
+test("selling for exactly the payout needs no confirming", async () => {
+  const { store } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
+
+  const out = await store.answer({ id: offer().id, action: "price", buyerPrice: 170 });
+
+  assert.equal(out.buyer_price, 170);
+});
+
 test("a price that does not cover the payout is refused", async () => {
   const { store, writes } = pricingShop([offer({ status: "store_pending", consignor_counter_price: 170 })]);
 

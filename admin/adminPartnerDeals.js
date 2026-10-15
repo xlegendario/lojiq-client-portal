@@ -96,9 +96,12 @@ export function dealDeadline(offer, hours = CLOCK_HOURS) {
 }
 
 export class PartnerDealsError extends Error {
-  constructor(message, status = 400) {
+  // code: for the one refusal the screen answers rather than only shows -
+  // selling under cost, which goes through once it is meant.
+  constructor(message, status = 400, code = "") {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -315,14 +318,22 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
    * settles on, and Offer Margin is kept in step with it because Airtable's
    * own "Offer To Buyer" reads it as `payout + margin * 1.21`.
    */
-  async function setBuyerPrice(offer, buyerPrice) {
+  async function setBuyerPrice(offer, buyerPrice, allowLoss = false) {
     const buyer = Number(buyerPrice);
 
     if (!(buyer > 0)) throw new PartnerDealsError("What does the buyer pay?");
 
-    if (!(buyer > offer.payout)) {
+    /*
+     * Under what the pair costs us: allowed, but never by accident. A
+     * buyer price typed one digit short looks exactly like a deliberate
+     * loss, so it is refused once and taken when it comes back meant.
+     * Breaking even is not a loss and was refused too, which nobody meant.
+     */
+    if (round2(buyer) < round2(offer.payout) && !allowLoss) {
       throw new PartnerDealsError(
-        `${round2(buyer)} does not cover the ${round2(offer.payout)} going to ${offer.seller_id}.`
+        `${round2(buyer)} does not cover the ${round2(offer.payout)} going to ${offer.seller_id}.`,
+        400,
+        "sells_at_a_loss"
       );
     }
 
@@ -346,7 +357,7 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
     return round2(buyer);
   }
 
-  async function answer({ id, action, price, buyerPrice } = {}) {
+  async function answer({ id, action, price, buyerPrice, allowLoss = false } = {}) {
     if (!tellKickz) throw new PartnerDealsError("Kickz Caviar is not reachable from this service.", 503);
 
     const offerId = text(id);
@@ -363,7 +374,7 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
      * booked the partner can still be haggling on the other side.
      */
     if (action === "price") {
-      const buyer = await setBuyerPrice(offer, buyerPrice);
+      const buyer = await setBuyerPrice(offer, buyerPrice, allowLoss);
       return { ok: true, did: "priced", buyer_price: buyer, seller_id: offer.seller_id };
     }
 
@@ -426,7 +437,7 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
         throw new PartnerDealsError(`Nothing to close: ${offer.state.toLowerCase()}.`, 409);
       }
 
-      const buyer = await setBuyerPrice(offer, buyerPrice);
+      const buyer = await setBuyerPrice(offer, buyerPrice, allowLoss);
 
       await tellKickz("/api/internal/partner-deal/finalize", { offer_id: offerId });
       forget();
@@ -444,7 +455,7 @@ export function createPartnerDealsStore({ db, airtable, tellKickz = null, cacheM
        */
       const buyer = buyerPrice === undefined || buyerPrice === null || buyerPrice === ""
         ? offer.buyer_price
-        : await setBuyerPrice(offer, buyerPrice);
+        : await setBuyerPrice(offer, buyerPrice, allowLoss);
 
       await tellKickz(`/api/consignment/offers/${encodeURIComponent(offerId)}/store-accept`, {});
       forget();
@@ -483,7 +494,11 @@ export function mountPartnerDeals(router, { store, audit = null, pageFile }) {
   const send = (res, err) => {
     const status = err instanceof PartnerDealsError ? err.status : 500;
     if (status >= 500) console.error("[admin partner deals]", err.message);
-    res.status(status).json({ error: err instanceof PartnerDealsError ? err.message : `Partner Deals failed: ${err.message}` });
+    res.status(status).json({
+      error: err instanceof PartnerDealsError ? err.message : `Partner Deals failed: ${err.message}`,
+      // The screen asks about this one instead of only showing it.
+      ...(err instanceof PartnerDealsError && err.code ? { code: err.code } : {})
+    });
   };
 
   router.get(["/admin/partner-deals", "/admin/partner-deals/"], (req, res) => {
@@ -510,7 +525,8 @@ export function mountPartnerDeals(router, { store, audit = null, pageFile }) {
         id: req.body?.id,
         action: text(req.body?.action),
         price: req.body?.price,
-        buyerPrice: req.body?.buyer_price
+        buyerPrice: req.body?.buyer_price,
+        allowLoss: req.body?.allow_loss === true
       });
 
       audit?.record({

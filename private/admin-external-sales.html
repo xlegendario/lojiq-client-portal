@@ -1428,6 +1428,8 @@
        * their head.
        */
       let margin;
+      // Whether this price is under cost, so the server is told it is meant.
+      let atALoss = false;
 
       if (what === "margin") {
         if (!(line.buyer_price > 0)) {
@@ -1467,10 +1469,21 @@
       if (buyerPrice !== undefined) {
         if (!(buyerPrice > 0)) { toast("What does the buyer pay?"); return; }
 
-        if (line.payout > 0 && buyerPrice <= line.payout) {
-          toast(`${euro(buyerPrice)} does not cover the ${euro(line.payout)} going to ${who}.`);
-          return;
-        }
+        /*
+          Under what the pair costs us.
+
+          Allowed - a pair that will not move at a profit is still better
+          sold than kept - but never by accident, so it is asked rather
+          than refused. Finalize asks already: the buy dialog below spells
+          out the payout, the selling price and the profit, which is the
+          loss in so many words, so a second question there would only be
+          in the way. Breaking even is not a loss.
+        */
+        atALoss = line.payout > 0 && buyerPrice < line.payout;
+
+        if (atALoss && what !== "finalize" && !window.confirm(
+          `${euro(buyerPrice)} does not cover the ${euro(line.payout)} going to ${who}.\n\nSell it at a loss anyway?`
+        )) return;
       }
 
       // Buying is the irreversible one: it makes the unit, takes the pair
@@ -1503,7 +1516,8 @@
           action: what === "margin" ? "price" : what,
           price,
           buyer_price: buyerPrice,
-          margin
+          margin,
+          ...(atALoss ? { allow_loss: true } : {})
         });
 
         toast(

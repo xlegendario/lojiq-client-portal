@@ -721,6 +721,8 @@
        * is what books the deal, so this is the last moment it can be said.
        */
       let buyerPrice;
+      // Whether this price is under cost, so the server is told it is meant.
+      let atALoss = false;
 
       if (what === "price" || what === "finalize") {
         const payout = offer.countered ?? offer.offered;
@@ -741,10 +743,21 @@
           return;
         }
 
-        if (buyerPrice <= payout) {
-          toast(`${money(buyerPrice)} does not cover the ${money(payout)} going to ${offer.seller_id}.`);
-          return;
-        }
+        /*
+          Under what the pair costs us.
+
+          Allowed - a pair that will not move at a profit is still better
+          sold than kept - but never by accident, so it is asked rather
+          than refused. Closing asks already: the confirmation below
+          spells out what you keep, which at a loss is the loss itself, so
+          a second question there would only be in the way. Breaking even
+          is not a loss.
+        */
+        atALoss = buyerPrice < payout;
+
+        if (atALoss && what !== "finalize" && !window.confirm(
+          `${money(buyerPrice)} does not cover the ${money(payout)} going to ${offer.seller_id}.\n\nSell it at a loss anyway?`
+        )) return;
 
         /*
          * Closing is the irreversible one: it makes the unit, takes the pair
@@ -803,7 +816,7 @@ The want-to-buy is cancelled. Nothing was booked, so there is nothing to undo.`
         const out = await api("/api/admin/partner-deals/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, action: what, price, buyer_price: buyerPrice })
+          body: JSON.stringify({ id, action: what, price, buyer_price: buyerPrice, ...(atALoss ? { allow_loss: true } : {}) })
         });
 
         toast(out.did === "countered"
