@@ -1204,9 +1204,14 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
         allowed: allowLoss
       });
 
+      /*
+       * The portal holds the same rule and has to be told too, or it
+       * refuses the lock after this side has already agreed to it.
+       */
       await kickz("/api/internal/broker/lock", {
         deal_line_id: line.id,
-        buyer_price: round2(buyer)
+        buyer_price: round2(buyer),
+        ...(round2(buyer) < round2(row.payout) ? { allow_loss: true } : {})
       });
 
       return {
@@ -1790,7 +1795,13 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
             ? await unitForPartner({ sale, line })
             : text((await kickz("/api/internal/broker/finalize", {
                 deal_line_id: line.id,
-                buyer_price: round2(line.buyer_price)
+                buyer_price: round2(line.buyer_price),
+                /*
+                 * Settled at the lock, not here: confirming buys what was
+                 * already agreed, there is nobody to ask, and the portal
+                 * would otherwise refuse the pair at the last step.
+                 */
+                ...(round2(line.buyer_price) < round2(line.payout) ? { allow_loss: true } : {})
               }))?.inventory_unit_record_id);
 
         await attachPair({ line, unitRecordId, buyerPrice: round2(line.buyer_price) });

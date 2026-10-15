@@ -496,6 +496,10 @@ test("closing below the payout is refused as a loss, then taken when it is meant
 
   assert.equal(out.did, "locked");
   assert.equal(sent[0].body.buyer_price, 57.5);
+
+  // The portal holds the same rule, so it is told as well - without this it
+  // refuses the lock after this side has already agreed to the loss.
+  assert.equal(sent[0].body.allow_loss, true);
 });
 
 test("locking a pair books nothing at all", async () => {
