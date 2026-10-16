@@ -190,6 +190,8 @@ export function externalView(row, buyer) {
     settled_items: (row.settled_items || []).map((item) => ({ name: text(item.name), amount: Number(item.amount) || 0 })),
     you_receive: Number(row.purchase_total),
     stage: invoiceStage(row),
+    // An invoice we take back later (never paid) stays visible, apart.
+    cancelled: row.status === "cancelled",
     number: text(row.invoice_number),
     has_pdf: Boolean(row.invoice_id),
     paid_at: row.partner_paid_at || null

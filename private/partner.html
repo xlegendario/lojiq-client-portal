@@ -1998,7 +1998,7 @@
       // whether or not the buyer paid us already (Dario, 16-10-2026).
       const ours = [
         ...live.filter((f) => f.invoice && f.invoice.stage !== "paid").map((f) => Number(f.invoice.you_receive || 0)),
-        ...sent.invoices.filter((inv) => inv.stage !== "paid").map((inv) => Number(inv.you_receive || 0))
+        ...sent.invoices.filter((inv) => !inv.cancelled && inv.stage !== "paid").map((inv) => Number(inv.you_receive || 0))
       ];
       const oursTotal = ours.reduce((sum, n) => sum + n, 0);
       const count = (n) => `${n} ${esc(t(n === 1 ? "forward_one" : "forward_many"))}`;
@@ -2027,8 +2027,13 @@
           <button type="button" data-sent-view="invoices" aria-pressed="${sent.view === "invoices"}">${esc(t("seg_invoices"))} (${sent.invoices.length})</button>
         </div>` : "";
 
+      // His invoices by the same sections: not paid to him yet, done, cancelled.
+      const invoiceSection = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(invoiceCard).join("")}</div>` : "");
+      const liveInvoices = sent.invoices.filter((inv) => !inv.cancelled);
       const body = sent.view === "invoices"
-        ? `<div class="list">${sent.invoices.map(invoiceCard).join("")}</div>`
+        ? invoiceSection(t("sec_fee"), liveInvoices.filter((inv) => inv.stage !== "paid")) +
+          invoiceSection(t("sec_done"), liveInvoices.filter((inv) => inv.stage === "paid")) +
+          invoiceSection(t("sec_cancelled"), sent.invoices.filter((inv) => inv.cancelled))
         : sent.data.length
           ? section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done) + section(t("sec_cancelled"), cancelled)
           : `<div class="note">${esc(t("no_sent"))}</div>`;
