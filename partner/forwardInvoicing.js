@@ -604,16 +604,27 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       ? await db.get(`forwarding_log?select=id,forwarding_number,seller_name,seller_id&id=in.(${forwardIds.map((id) => `"${id}"`).join(",")})`)
       : [];
     const byId = new Map(forwards.map((f) => [f.id, f]));
-    const names = new Map(((await db.get("partner_users?select=seller_record_id,name").catch(() => [])) || []).map((u) => [u.seller_record_id, text(u.name)]));
-    const order = { to_pay: 0, waiting: 1, paid: 2 };
 
+    // One name per partner, the Sellers Database one his forwards carry, for
+    // his JXT invoices too (they have no forward of their own).
+    const sellers = [...new Set(rows.map((r) => r.seller_record_id).filter(Boolean))];
+    const named = sellers.length
+      ? (await db.get(`forwarding_log?select=seller_record_id,seller_name&seller_record_id=in.(${sellers.map((id) => `"${id}"`).join(",")})&seller_name=not.is.null&limit=1000`).catch(() => [])) || []
+      : [];
+    const names = new Map(named.map((f) => [f.seller_record_id, text(f.seller_name)]));
+
+    // Forwards first, then his own sales (JXT), each newest number first.
     return (await withNames(rows))
-      .map((row) => ({
-        ...row,
-        display_id: invoiceName(row, byId.get(row.forwarding_log_id)),
-        seller_name: text(byId.get(row.forwarding_log_id)?.seller_name) || names.get(row.seller_record_id) || ""
-      }))
-      .sort((a, b) => (order[a.partner_payout_status] ?? 3) - (order[b.partner_payout_status] ?? 3));
+      .map((row) => {
+        const forward = byId.get(row.forwarding_log_id);
+        return {
+          ...row,
+          display_id: invoiceName(row, forward),
+          number: row.kind === "external" ? Number(row.jxt_number) || 0 : Number(forward?.forwarding_number) || 0,
+          seller_name: text(forward?.seller_name) || names.get(row.seller_record_id) || ""
+        };
+      })
+      .sort((a, b) => (a.kind === "external") - (b.kind === "external") || b.number - a.number);
   }
 
   /*

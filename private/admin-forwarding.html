@@ -1532,6 +1532,16 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       if (button) invoiceAction(button.dataset.invId, button.dataset.invAction);
     });
 
+    // Forwards and the partner's own sales (JXT) as two blocks, each newest first.
+    function invoiceBlocks(rows, line, columns) {
+      const block = (title, list) => list.length
+        ? `<tr class="group-row"><td colspan="${columns}"><div class="group-head"><strong>${esc(title)}</strong><span class="sub">${list.length}</span></div></td></tr>${list.map(line).join("")}`
+        : "";
+      const byNumber = (a, b) => (Number(b.number) || 0) - (Number(a.number) || 0);
+      return block("Forwards", rows.filter((inv) => inv.kind !== "external").sort(byNumber)) +
+        block("Own sales (JXT)", rows.filter((inv) => inv.kind === "external").sort(byNumber));
+    }
+
     function renderPartnerPayouts() {
       const query = $("searchInput").value.trim().toLowerCase();
       const rows = state.payouts.filter((inv) => !query || [inv.display_id, inv.invoice_number, inv.seller_name, inv.seller_id, inv.buyer?.name, inv.sku].join(" ").toLowerCase().includes(query));
@@ -1558,7 +1568,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         </tr>`;
 
       $("rows").innerHTML = rows.length
-        ? rows.map((inv) => `
+        ? invoiceBlocks(rows, (inv) => `
             <tr>
               <td><span class="id">${esc(inv.display_id)}</span><br><span class="sub">${esc(inv.sku)} · ${inv.pair_count} pair(s)</span></td>
               <td>${esc(inv.seller_name || inv.seller_id)}</td>
@@ -1568,7 +1578,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
               <td class="money"><strong>${euro(inv.purchase_total)}</strong></td>
               <td>${inv.status === "invoiced" ? payoutPill(inv) : invoicePill(inv)}</td>
               <td>${inv.partner_payout_status === "to_pay" ? `<button class="act" type="button" data-payout-paid="${esc(inv.id)}">Mark paid</button>` : ""}</td>
-            </tr>`).join("")
+            </tr>`, 8)
         : `<tr><td colspan="8" class="empty">No invoiced forwards yet.</td></tr>`;
     }
 
@@ -1587,7 +1597,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       const query = $("searchInput").value.trim().toLowerCase();
       const rows = state.invoices
         .filter((inv) => !query || [inv.display_id, inv.invoice_number, inv.seller_name, inv.seller_id, inv.buyer?.name, inv.sku].join(" ").toLowerCase().includes(query))
-        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+
 
       $("crumb").textContent = "Forward Service";
       $("viewTitle").textContent = "Partner Invoices";
@@ -1612,7 +1622,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         </tr>`;
 
       $("rows").innerHTML = rows.length
-        ? rows.map((inv) => `
+        ? invoiceBlocks(rows, (inv) => `
             <tr data-invoice-id="${esc(inv.id)}"${state.selectedInvoice === inv.id ? ' class="selected"' : ""}>
               <td><span class="id">${esc(inv.display_id)}</span><br><span class="sub">${inv.kind === "external" ? "Own sale" : "Forward"}</span></td>
               <td>${esc(dayFmt.format(new Date(inv.created_at)))}</td>
@@ -1623,7 +1633,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
               <td class="money">${Number(inv.fee_total) ? `− ${euro(inv.fee_total)}` : '<span class="dash">—</span>'}</td>
               <td class="money"><strong>${euro(inv.purchase_total)}</strong></td>
               <td>${invStatusPill(inv)}</td>
-            </tr>`).join("")
+            </tr>`, 9)
         : `<tr><td colspan="9" class="empty">No partner invoices yet.</td></tr>`;
     }
 
