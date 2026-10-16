@@ -680,9 +680,11 @@
         no_invoices: "No invoices yet.",
         buyer_paid: "Buyer paid",
         buyer_unpaid: "Buyer not paid",
-        buyer_paid_you: "Paid to you",
-        mark_buyer_paid: "Buyer paid me",
-        mark_buyer_unpaid: "Not paid yet",
+        buyer_paid_you: "Payment status",
+        pay_not_paid: "Not paid",
+        pay_paid: "Paid",
+        mark_buyer_paid: "Buyer paid",
+        mark_buyer_unpaid: "Undo: not paid",
         buyer_paid_us: "Pays us (invoice)",
         invoice_price_below_fee: "The price per pair must be higher than the forwarding fee.",
         invoice_price_too_high: "This price looks too high. Please check it.",
@@ -693,10 +695,10 @@
         invoice: "Invoice",
         download: "Download",
         buyer: "Buyer",
-        st_inv_preparing: "Invoice being made",
-        st_inv_waiting: "Waiting for buyer payment",
-        st_inv_to_pay: "Buyer paid · we pay you",
-        st_inv_paid: "Paid to you"
+        st_inv_preparing: "Not paid",
+        st_inv_waiting: "Not paid",
+        st_inv_to_pay: "Buyer paid",
+        st_inv_paid: "Paid"
       },
       zh: {
         login_title: "您在 Lojiq 的库存",
@@ -876,9 +878,11 @@
         no_invoices: "还没有发票。",
         buyer_paid: "买家已付款",
         buyer_unpaid: "买家未付款",
-        buyer_paid_you: "已付给您",
-        mark_buyer_paid: "买家已付我款",
-        mark_buyer_unpaid: "还没付款",
+        buyer_paid_you: "付款状态",
+        pay_not_paid: "未付款",
+        pay_paid: "已付款",
+        mark_buyer_paid: "买家已付款",
+        mark_buyer_unpaid: "撤销：未付款",
         buyer_paid_us: "付款给我们（发票）",
         invoice_price_below_fee: "每双价格必须高于转运服务费。",
         invoice_price_too_high: "价格好像太高了，请检查。",
@@ -889,10 +893,10 @@
         invoice: "发票",
         download: "下载",
         buyer: "买家",
-        st_inv_preparing: "发票准备中",
-        st_inv_waiting: "等待买家付款",
-        st_inv_to_pay: "买家已付款 · 我们将付款给您",
-        st_inv_paid: "已付给您"
+        st_inv_preparing: "未付款",
+        st_inv_waiting: "未付款",
+        st_inv_to_pay: "买家已付款",
+        st_inv_paid: "已付款"
       }
     };
 
@@ -2049,9 +2053,7 @@
             </div>
             <div class="pills">
               <span class="pill ${status.tone}">${esc(t(status.word))}</span>
-              ${f.invoice
-                ? `<span class="pill inv${f.invoice.stage === "paid" ? " good" : f.invoice.stage === "to_pay" ? " wait" : ""}">${esc(t(`st_inv_${f.invoice.stage}`))}</span>`
-                : f.status !== "cancelled" && f.buyer?.name ? `<span class="pill ${f.buyer.paid ? "good" : "bad"}">${esc(t(f.buyer.paid ? "buyer_paid" : "buyer_unpaid"))}</span>` : ""}
+              ${f.invoice ? stagePill(f.invoice.stage) : f.status !== "cancelled" && (f.buyer?.name || f.buyer?.paid) ? paidPill(Boolean(f.buyer?.paid)) : ""}
             </div>
             ${CHEV}
           </button>${body}
@@ -2061,7 +2063,6 @@
     // One of his own invoices (JXT): what was sold, his fees settled in it, what he gets.
     function invoiceCard(inv) {
       const isOpen = sent.open.has(inv.id);
-      const stageCls = inv.stage === "paid" ? " good" : inv.stage === "to_pay" ? " wait" : "";
 
       const body = isOpen ? `
         <div class="card-body">
@@ -2093,11 +2094,16 @@
               <div class="card-title">${esc(inv.reference)}</div>
               <div class="stats"><span>${esc(niceDate(dayOfStamp(inv.created_at)))}</span><span>${esc(money(inv.total))}</span>${inv.buyer ? `<span class="buyer">${esc(inv.buyer)}</span>` : ""}</div>
             </div>
-            <div class="pills"><span class="pill inv${stageCls}">${esc(t(`st_inv_${inv.stage}`))}</span></div>
+            <div class="pills">${stagePill(inv.stage)}</div>
             ${CHEV}
           </button>${body}
         </div>`;
     }
+
+    // Payment status as one pill: Not paid -> (with an invoice) Buyer paid -> Paid.
+    const stageTone = { preparing: "bad", waiting: "bad", to_pay: "wait", paid: "good" };
+    const stagePill = (stage) => `<span class="pill ${stageTone[stage] || "bad"}">${esc(t(`st_inv_${stage}`))}</span>`;
+    const paidPill = (paid) => `<span class="pill ${paid ? "good" : "bad"}">${esc(t(paid ? "pay_paid" : "pay_not_paid"))}</span>`;
 
     // Without an invoice he ticks off himself that the buyer paid him.
     function buyerPaidBlock(f) {
@@ -2106,7 +2112,7 @@
         <div class="detail">
           <div class="detail-row"><span class="muted">${esc(t("buyer"))}</span><span>${esc(f.buyer.name || "—")}</span></div>
           <div class="detail-row"><span class="muted">${esc(t("buyer_paid_you"))}</span>
-            <span class="fee-line"><span class="pill ${f.buyer.paid ? "good" : "bad"}">${esc(t(f.buyer.paid ? "buyer_paid" : "buyer_unpaid"))}</span></span></div>
+            <span class="fee-line">${paidPill(f.buyer.paid)}</span></div>
         </div>
         ${f.buyer.editable ? `<button class="btn file-btn${f.buyer.paid ? "" : " primary"}" type="button" data-buyer-paid="${esc(f.id)}" data-paid="${f.buyer.paid ? "0" : "1"}">${esc(t(f.buyer.paid ? "mark_buyer_unpaid" : "mark_buyer_paid"))}</button>` : ""}`;
     }
