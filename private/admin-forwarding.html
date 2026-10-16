@@ -189,6 +189,16 @@
 
     dialog { width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 0; box-shadow: 0 30px 80px var(--shadow); }
     dialog::backdrop { background: var(--backdrop); }
+    dialog.wide { width: min(760px, calc(100vw - 32px)); }
+    .inv-lines { display: flex; flex-direction: column; gap: 6px; }
+    .inv-line { display: grid; grid-template-columns: 1.1fr 1.6fr 1.2fr 70px 90px 28px; gap: 6px; align-items: center; }
+    .inv-line .x { background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; }
+    .fee-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+    .fee-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .fee-row span.amount { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .inv-sum { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 14px; }
+    .inv-sum strong { font-variant-numeric: tabular-nums; text-align: right; }
+    tr[data-invoice-id] { cursor: pointer; }
     .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
     .dialog-body h2 { margin: 0; font-size: 17px; }
     .field { display: flex; flex-direction: column; gap: 6px; }
@@ -274,6 +284,7 @@
         <button class="nav-item" type="button" data-shipping="shipped">Shipped <small data-count="shipped"></small></button>
         <button class="nav-item" type="button" data-shipping="all">All forwards</button>
         <button class="nav-item" type="button" data-mode="labels">Partner Labels <small id="labelCount"></small></button>
+        <button class="nav-item" type="button" data-mode="invoices">Partner Invoices</button>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
@@ -325,6 +336,7 @@
         <input class="input" id="searchInput" type="search" placeholder="Search FWD, buyer, SKU, tracking…" style="width:260px">
         <span class="count" id="count"></span>
         <button class="btn primary" id="newLabelBtn" type="button" hidden>+ New label</button>
+        <button class="btn primary" id="newInvoiceBtn" type="button" hidden>+ New invoice</button>
       </div>
 
       <div class="actionbar" id="actionbar" hidden>
@@ -412,6 +424,53 @@
     </form>
   </dialog>
 
+  <dialog id="invoiceDialog" class="wide">
+    <form class="dialog-body" id="invoiceForm" method="dialog" novalidate>
+      <h2>New partner invoice <span class="sub" id="invRef"></span></h2>
+      <p class="sub">For a sale the partner made outside our forwards. Booking makes the invoice in Rompslomp, the purchase and Voorraadcorrectie for what the partner gets, settles the fees you tick, and mails the buyer.</p>
+
+      <div class="field">
+        <label for="invPartner">Partner</label>
+        <select class="select" id="invPartner"></select>
+      </div>
+
+      <div class="field">
+        <label for="invBuyer">Buyer</label>
+        <select class="select" id="invBuyer"></select>
+        <div id="invNewBuyer" class="addr-grid" hidden>
+          <input class="input" data-nb="company_name" placeholder="Company">
+          <input class="input" data-nb="full_name" placeholder="Name">
+          <input class="input" data-nb="email" placeholder="E-mail">
+          <input class="input" data-nb="vat_id" placeholder="VAT number (needed for a company)">
+          <input class="input wide" data-nb="address" placeholder="Street and number">
+          <input class="input" data-nb="zipcode" placeholder="Postcode">
+          <input class="input" data-nb="city" placeholder="City">
+          <select class="select wide" data-nb="country" id="invCountry"></select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>What was sold</label>
+        <div class="inv-lines" id="invLines"></div>
+        <div><button class="act" type="button" id="invAddLine">+ Line</button></div>
+      </div>
+
+      <div class="field">
+        <label>Fees to settle in this invoice</label>
+        <div class="fee-list" id="invFees"><span class="sub">Choose the partner first.</span></div>
+      </div>
+
+      <div class="inv-sum" id="invSum"></div>
+
+      <div class="error-text" id="invError" hidden></div>
+
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="invCancel">Close</button>
+        <button class="btn primary" type="button" id="invBook">Book invoice</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="editDialog">
     <form class="dialog-body" id="editForm" method="dialog">
       <h2 id="editTitle">Forward</h2>
@@ -485,7 +544,9 @@
     const params = new URLSearchParams(location.search);
 
     const state = {
-      mode: ["payments", "partner-payouts", "labels"].includes(params.get("view")) ? params.get("view") : "forwards",
+      mode: ["payments", "partner-payouts", "labels", "invoices"].includes(params.get("view")) ? params.get("view") : "forwards",
+      invoices: [],
+      selectedInvoice: "",
       labels: [],
       partners: [],
       payouts: [],
@@ -525,7 +586,7 @@
     } catch {}
 
     function currentSection() {
-      return state.mode === "forwards" || state.mode === "labels" ? "forwarding" : "money";
+      return ["forwards", "labels", "invoices"].includes(state.mode) ? "forwarding" : "money";
     }
 
     function saveNavSections() {
@@ -548,6 +609,7 @@
       document.querySelector('[data-mode="payments"]').classList.toggle("active", state.mode === "payments");
       document.querySelector('[data-mode="partner-payouts"]').classList.toggle("active", state.mode === "partner-payouts");
       document.querySelector('[data-mode="labels"]').classList.toggle("active", state.mode === "labels");
+      document.querySelector('[data-mode="invoices"]').classList.toggle("active", state.mode === "invoices");
     }
 
     // Counts for every tab, from the same cached endpoint the main page uses.
@@ -604,6 +666,7 @@
       if (event.target.closest('[data-mode="payments"]')) switchTo("payments");
       if (event.target.closest('[data-mode="partner-payouts"]')) switchTo("partner-payouts");
       if (event.target.closest('[data-mode="labels"]')) switchTo("labels");
+      if (event.target.closest('[data-mode="invoices"]')) switchTo("invoices");
     });
 
     function switchTo(mode, shipping = state.shipping) {
@@ -681,9 +744,11 @@
 
     function render() {
       $("newLabelBtn").hidden = state.mode !== "labels";
-      $("sellerFilter").hidden = state.mode === "labels";
+      $("newInvoiceBtn").hidden = state.mode !== "invoices";
+      $("sellerFilter").hidden = state.mode === "labels" || state.mode === "invoices";
       if (state.mode === "partner-payouts") return renderPartnerPayouts();
       if (state.mode === "labels") return renderLabels();
+      if (state.mode === "invoices") return renderInvoices();
 
       const rows = visibleForwards();
       const payments = state.mode === "payments";
@@ -982,6 +1047,7 @@
       $("panel").hidden = true;
       state.selected = "";
       state.selectedLabel = "";
+      state.selectedInvoice = "";
       if (redraw) render();
     }
 
@@ -1095,6 +1161,20 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           const open = state.selectedLabel && state.labels.find((l) => l.id === state.selectedLabel);
           // Unsaved edits stay on screen; a failed save must not wipe them.
           if (open && !$("panel").hidden && !state.labelDirty) drawLabelPanel(open);
+        } catch (err) {
+          $("rows").innerHTML = `<tr><td colspan="9" class="empty">${esc(err.message)}</td></tr>`;
+        }
+        return;
+      }
+
+      if (state.mode === "invoices") {
+        try {
+          const data = await api("/api/admin/partner-invoices");
+          state.invoices = data.invoices || [];
+          state.partners = data.partners || [];
+          render();
+          const open = state.selectedInvoice && state.invoices.find((inv) => inv.id === state.selectedInvoice);
+          if (open && !$("panel").hidden) drawInvoicePanel(open);
         } catch (err) {
           $("rows").innerHTML = `<tr><td colspan="9" class="empty">${esc(err.message)}</td></tr>`;
         }
@@ -1493,6 +1573,241 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     $("rows").addEventListener("click", (event) => {
       const button = event.target.closest("[data-payout-paid]");
       if (button) invoiceAction(button.dataset.payoutPaid, "paid");
+    });
+
+    /* ---------------- partner invoices ---------------- */
+
+    // Every invoice we made for a partner: from his forwards (FWD) and on its own (JXT).
+    const invStatusPill = (inv) => (inv.status === "invoiced" ? payoutPill(inv) : invoicePill(inv));
+    const nextJxt = () => `JXT-${String(Math.max(4, ...state.invoices.map((inv) => Number(inv.jxt_number || 0) + 1))).padStart(5, "0")}`;
+
+    function renderInvoices() {
+      const query = $("searchInput").value.trim().toLowerCase();
+      const rows = state.invoices
+        .filter((inv) => !query || [inv.display_id, inv.invoice_number, inv.seller_name, inv.seller_id, inv.buyer?.name, inv.sku].join(" ").toLowerCase().includes(query))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+
+      $("crumb").textContent = "Forward Service";
+      $("viewTitle").textContent = "Partner Invoices";
+      document.title = "Partner Invoices · Forward Service · Lojiq Admin";
+      $("paymentFilter").hidden = true;
+      $("actionbar").hidden = true;
+      const due = rows.filter((inv) => inv.partner_payout_status === "to_pay");
+      $("count").textContent = `${rows.length} invoice${rows.length === 1 ? "" : "s"} · ${due.length} to pay partner · ${euro(due.reduce((sum, inv) => sum + Number(inv.purchase_total), 0))}`;
+      drawNavSections();
+
+      $("tableHead").innerHTML = `
+        <tr>
+          <th>Invoice</th>
+          <th>Date</th>
+          <th>Partner</th>
+          <th>Buyer</th>
+          <th>Number</th>
+          <th class="money">Total</th>
+          <th class="money">Fees settled</th>
+          <th class="money">Partner gets</th>
+          <th>Status</th>
+        </tr>`;
+
+      $("rows").innerHTML = rows.length
+        ? rows.map((inv) => `
+            <tr data-invoice-id="${esc(inv.id)}"${state.selectedInvoice === inv.id ? ' class="selected"' : ""}>
+              <td><span class="id">${esc(inv.display_id)}</span><br><span class="sub">${inv.kind === "external" ? "Own sale" : "Forward"}</span></td>
+              <td>${esc(dayFmt.format(new Date(inv.created_at)))}</td>
+              <td>${esc(inv.seller_name || inv.seller_id)}</td>
+              <td>${esc(inv.buyer?.name || "")}</td>
+              <td>${esc(inv.invoice_number || "")}</td>
+              <td class="money">${euro(inv.total)}</td>
+              <td class="money">${Number(inv.fee_total) ? `− ${euro(inv.fee_total)}` : '<span class="dash">—</span>'}</td>
+              <td class="money"><strong>${euro(inv.purchase_total)}</strong></td>
+              <td>${invStatusPill(inv)}</td>
+            </tr>`).join("")
+        : `<tr><td colspan="9" class="empty">No partner invoices yet.</td></tr>`;
+    }
+
+    function drawInvoicePanel(inv) {
+      $("panelTitle").textContent = `${inv.display_id} · ${inv.seller_name || inv.seller_id}`;
+      $("panelActions").innerHTML = "";
+
+      const lines = inv.kind === "external" && (inv.lines || []).length
+        ? `<section class="group"><h3>Sold</h3><dl>${inv.lines.map((line) => `<dt>${esc([line.sku, line.name].filter(Boolean).join(" "))}${line.sizes ? `<br><span class="sub">${esc(line.sizes)}</span>` : ""}</dt><dd>${line.qty} × ${euro(line.price_per_pair)} = ${euro(line.total)}</dd>`).join("")}</dl></section>`
+        : "";
+      const settled = inv.kind === "external" && (inv.settled_items || []).length
+        ? `<section class="group"><h3>Fees settled</h3><dl>${inv.settled_items.map((item) => `<dt>${esc(item.name)}</dt><dd>${euro(item.amount)}</dd>`).join("")}</dl></section>`
+        : "";
+
+      // The invoice block of the forward panel, with its Retry and payout buttons.
+      const block = invoiceGroup({ invoice: inv })
+        .replace(`<dt>Price</dt><dd>${inv.pair_count} × ${euro(inv.price_per_pair)} = <strong>${euro(inv.total)}</strong></dd>`, `<dt>Total</dt><dd><strong>${euro(inv.total)}</strong></dd>`)
+        .replace(`<dt>Forwarding fee</dt><dd>− ${euro(inv.fee_total)} (our margin)</dd>`, `<dt>${inv.kind === "external" ? "Fees settled" : "Forwarding fee"}</dt><dd>− ${euro(inv.fee_total)} (our margin)</dd>`);
+
+      $("panelBody").innerHTML = lines + settled + block;
+    }
+
+    function openInvoicePanel(id) {
+      const inv = state.invoices.find((row) => row.id === id);
+      if (!inv) return;
+      state.selectedInvoice = id;
+      state.selected = "";
+      state.selectedLabel = "";
+      $("panel").hidden = false;
+      drawInvoicePanel(inv);
+      render();
+    }
+
+    $("rows").addEventListener("click", (event) => {
+      if (state.mode !== "invoices") return;
+      const row = event.target.closest("tr[data-invoice-id]");
+      if (row) openInvoicePanel(row.dataset.invoiceId);
+    });
+
+    /* ----- "+ New invoice": a sale the partner made outside our forwards (JXT) ----- */
+
+    const inv = { buyers: [], countries: [], fees: { forwards: [], labels: [] } };
+
+    function lineRow(line = {}) {
+      return `
+        <div class="inv-line">
+          <input class="input" data-line="sku" placeholder="SKU" value="${esc(line.sku || "")}">
+          <input class="input" data-line="name" placeholder="Product" value="${esc(line.name || "")}">
+          <input class="input" data-line="sizes" placeholder="Sizes, e.g. 40, 41 ×2" value="${esc(line.sizes || "")}">
+          <input class="input" data-line="qty" inputmode="numeric" placeholder="Pairs" value="${esc(line.qty || "")}">
+          <input class="input" data-line="price_per_pair" inputmode="decimal" placeholder="€ / pair" value="${esc(line.price_per_pair || "")}">
+          <button class="x" type="button" data-line-remove title="Remove">×</button>
+        </div>`;
+    }
+
+    const readLines = () => [...document.querySelectorAll("#invLines .inv-line")].map((row) => {
+      const line = {};
+      row.querySelectorAll("[data-line]").forEach((input) => { line[input.dataset.line] = input.value.trim(); });
+      return line;
+    });
+
+    const num = (value) => {
+      const n = Number(String(value || "").replace(",", "."));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    function drawInvoiceSum() {
+      const total = readLines().reduce((sum, line) => sum + num(line.qty) * num(line.price_per_pair), 0);
+      const settled = [...document.querySelectorAll("#invFees input:checked")].reduce((sum, box) => sum + num(box.dataset.amount), 0);
+      $("invSum").innerHTML = `
+        <span>Invoice total (buyer pays)</span><strong>${euro(total)}</strong>
+        <span>Fees settled (our margin)</span><strong>− ${euro(settled)}</strong>
+        <span>Partner gets, once the buyer paid</span><strong>${euro(total - settled)}</strong>`;
+    }
+
+    async function fillInvoiceSetup() {
+      const seller = $("invPartner").value;
+      $("invFees").innerHTML = `<span class="sub">Loading…</span>`;
+      try {
+        const data = await api(`/api/admin/partner-invoices/setup?seller=${encodeURIComponent(seller)}`);
+        Object.assign(inv, { buyers: data.buyers || [], countries: data.countries || [], fees: data.fees || { forwards: [], labels: [] } });
+      } catch (err) {
+        Object.assign(inv, { buyers: [], countries: [], fees: { forwards: [], labels: [] } });
+        $("invError").textContent = err.message;
+        $("invError").hidden = false;
+      }
+
+      $("invBuyer").innerHTML = `<option value="">Choose a buyer…</option>` +
+        inv.buyers.map((b) => `<option value="${esc(b.id)}">${esc(b.label)}${b.city ? ` · ${esc(b.city)}` : ""}</option>`).join("") +
+        `<option value="__new">+ New buyer</option>`;
+      $("invNewBuyer").hidden = true;
+      $("invCountry").innerHTML = `<option value="">Country</option>` + inv.countries.map((c) => `<option>${esc(c)}</option>`).join("");
+
+      const feeRow = (kind, item, sub) => `
+        <label class="fee-row"><input type="checkbox" data-fee-kind="${kind}" value="${esc(item.id)}" data-amount="${item.amount}">
+          <span><strong>${esc(item.name)}</strong> <span class="sub">${esc(sub)}</span></span><span class="amount">${euro(item.amount)}</span></label>`;
+      const rows = [
+        ...inv.fees.forwards.map((f) => feeRow("forward", f, `${f.date ? dayFmt.format(new Date(f.date)) : ""} · ${f.pairs} pair(s) · ${STATUS[f.shipping_status]?.[0] || f.shipping_status}`)),
+        ...inv.fees.labels.map((l) => feeRow("label", l, `Label · ${l.carrier}`))
+      ];
+      $("invFees").innerHTML = rows.length ? rows.join("") : `<span class="sub">Nothing open: every fee of this partner is paid.</span>`;
+      drawInvoiceSum();
+    }
+
+    $("newInvoiceBtn").addEventListener("click", async () => {
+      $("invError").hidden = true;
+      $("invoiceForm").reset();
+      $("invRef").textContent = nextJxt();
+      $("invPartner").innerHTML = state.partners.map((p) => `<option value="${esc(p.seller_record_id)}">${esc(p.name)} (${esc(p.seller_id)})</option>`).join("");
+      $("invPartner").value = state.partners[0]?.seller_record_id || "";
+      $("invLines").innerHTML = lineRow();
+      $("invoiceDialog").showModal();
+      await fillInvoiceSetup();
+    });
+
+    $("invPartner").addEventListener("change", fillInvoiceSetup);
+    $("invBuyer").addEventListener("change", () => { $("invNewBuyer").hidden = $("invBuyer").value !== "__new"; });
+    $("invAddLine").addEventListener("click", () => { $("invLines").insertAdjacentHTML("beforeend", lineRow()); });
+    $("invLines").addEventListener("click", (event) => {
+      if (!event.target.closest("[data-line-remove]")) return;
+      if (document.querySelectorAll("#invLines .inv-line").length > 1) event.target.closest(".inv-line").remove();
+      drawInvoiceSum();
+    });
+    $("invoiceDialog").addEventListener("input", drawInvoiceSum);
+    $("invoiceDialog").addEventListener("change", drawInvoiceSum);
+    $("invCancel").addEventListener("click", () => $("invoiceDialog").close());
+
+    // A new buyer is made first (and lands in the partner's own list), then the invoice.
+    async function invoiceBuyer(seller) {
+      if ($("invBuyer").value !== "__new") return $("invBuyer").value;
+
+      const body = { seller_record_id: seller };
+      document.querySelectorAll("#invNewBuyer [data-nb]").forEach((input) => { body[input.dataset.nb] = input.value.trim(); });
+
+      let data = await api("/api/admin/partner-invoices/buyer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (data.same) {
+        if (confirm(`This looks like ${data.same.label} (${[data.same.email, data.same.city].filter(Boolean).join(", ")}), already one of his buyers. Use that one?`)) return data.same.id;
+        data = await api("/api/admin/partner-invoices/buyer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, confirm_new: true }) });
+      }
+      return data.buyer.id;
+    }
+
+    $("invBook").addEventListener("click", async () => {
+      $("invError").hidden = true;
+      const seller = $("invPartner").value;
+      const lines = readLines().filter((line) => line.sku || line.name || line.qty || line.price_per_pair);
+      const settle = (kind) => [...document.querySelectorAll(`#invFees input[data-fee-kind="${kind}"]:checked`)].map((box) => box.value);
+      const total = lines.reduce((sum, line) => sum + num(line.qty) * num(line.price_per_pair), 0);
+
+      const problem = !seller ? "Choose the partner."
+        : !$("invBuyer").value ? "Choose the buyer."
+        : !lines.length ? "Fill in what was sold."
+        : "";
+      if (problem) {
+        $("invError").textContent = problem;
+        $("invError").hidden = false;
+        return;
+      }
+      if (!confirm(`Book ${$("invRef").textContent} for ${euro(total)}? This makes the invoice in Rompslomp, books the purchase and Voorraadcorrectie, settles the ticked fees and mails the buyer.`)) return;
+
+      $("invBook").disabled = true;
+      try {
+        const buyerId = await invoiceBuyer(seller);
+        const data = await api("/api/admin/partner-invoices/external", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seller_record_id: seller, buyer_id: buyerId, lines, settle_forward_ids: settle("forward"), settle_label_ids: settle("label") })
+        });
+        $("invoiceDialog").close();
+        const made = data.invoice;
+        toast(made.failed
+          ? `${made.display_id} saved, but stopped: ${made.failed}. Open it and press Retry.`
+          : `${made.display_id} booked: invoice ${made.invoice_number}, mailed to the buyer.`);
+        state.selectedInvoice = made.id;
+        $("panel").hidden = false;
+        load();
+        loadCounts();
+      } catch (err) {
+        $("invError").textContent = {
+          buyer_missing: "The new buyer needs a name, e-mail, address, postcode, city and country - and a VAT number for a company.",
+          buyer_refused: "Kickz Caviar refused this buyer. Check the e-mail and country."
+        }[err.message] || err.message;
+        $("invError").hidden = false;
+      } finally {
+        $("invBook").disabled = false;
+      }
     });
 
     /* ---------------- partner labels ---------------- */

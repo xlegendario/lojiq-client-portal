@@ -21,6 +21,12 @@
 // Built from the External Sales invoicing's parts (the same routes, accounts,
 // contact rules and journal), but nothing goes into External Sales.
 //
+// An invoice can also stand on its own (kind "external", JXT-00004 and on):
+// a sale the partner made outside our forwards, invoiced by us for him
+// (Dario, 16-10-2026). It has typed lines instead of pairs, and settles the
+// open fees Dario ticks - forwards and labels - instead of one forward's fee.
+// Same invoice, stock correction, purchase, mail and payout as a forward's.
+//
 // Every Rompslomp id is written to forward_invoices as soon as it exists, and
 // the invoice carries an api_reference, so a run that stops halfway is simply
 // run again.
@@ -45,6 +51,76 @@ export class InvoiceError extends Error {
 
 // What Rompslomp knows this invoice by, so it is found again, never made twice.
 export const invoiceReference = (forward) => `${displayId(forward)}-${ROUTE}`;
+
+// Jimmy External: the numbers Dario already used by hand end at JXT-00003.
+export const EXTERNAL_PREFIX = "JXT";
+export const EXTERNAL_FIRST = 4;
+export const externalReference = (n) => `${EXTERNAL_PREFIX}-${String(n ?? "").padStart(5, "0")}`;
+
+// The name an invoice goes by: its forward, or its own JXT number.
+export const invoiceName = (row, forward = null) => (row?.kind === "external" ? externalReference(row.jxt_number) : displayId(forward || {}));
+
+const MAX_LINES = 30;
+
+/*
+ * The lines Dario types for an external invoice: product, sizes (free text),
+ * number of pairs and price per pair.
+ */
+export function cleanExternalLines(input) {
+  const lines = (Array.isArray(input) ? input : [])
+    .map((line) => ({
+      sku: text(line?.sku).toUpperCase(),
+      name: text(line?.name),
+      sizes: text(line?.sizes),
+      qty: Number(line?.qty),
+      price_per_pair: round2(String(line?.price_per_pair ?? "").replace(",", "."))
+    }))
+    .filter((line) => line.sku || line.name || line.qty || line.price_per_pair);
+
+  if (!lines.length) throw new InvoiceError("Give at least one line.");
+  if (lines.length > MAX_LINES) throw new InvoiceError(`At most ${MAX_LINES} lines.`);
+  for (const line of lines) {
+    if (!line.sku && !line.name) throw new InvoiceError("Every line needs a product.");
+    if (!Number.isInteger(line.qty) || line.qty < 1 || line.qty > 1000) throw new InvoiceError("Every line needs a number of pairs.");
+    if (!(line.price_per_pair > 0) || line.price_per_pair > 100000) throw new InvoiceError("Every line needs a price per pair.");
+  }
+
+  return lines.map((line) => ({ ...line, total: round2(line.qty * line.price_per_pair) }));
+}
+
+export function externalLineText(line) {
+  const name = [line.sku, line.name].filter(Boolean).join(" ");
+  const sizes = line.sizes ? ` — ${/[,;]/.test(line.sizes) ? "Sizes" : "Size"} ${line.sizes}` : "";
+  return `${name}${sizes} — ${line.qty} ${line.qty === 1 ? "pair" : "pairs"} × ${euro(line.price_per_pair)} = ${euro(line.total)}`;
+}
+
+export function externalInvoiceBody({ reference, lines, contactId, buyerVatId = "", now = new Date() }) {
+  const route = ROUTES[ROUTE];
+
+  return {
+    sales_invoice: {
+      ...invoiceDates(now),
+      payment_method: "pay_transfer",
+      description: "",
+      contact_id: Number(contactId),
+      currency: "eur",
+      currency_exchange_rate: "1.0",
+      template_id: route.templateId,
+      vat_number: text(buyerVatId) || null,
+      api_reference: `${reference}-${ROUTE}`,
+      sale_type: "supply",
+      distance_sale: false,
+      invoice_lines: lines.map((line) => ({
+        description: reference,
+        extended_description: externalLineText(line),
+        price_per_unit: round2(line.total).toFixed(2),
+        quantity: "1.0",
+        vat_rate: "",
+        vat_type_id: route.vatTypeId
+      }))
+    }
+  };
+}
 
 /*
  * The money of one invoiced forward. The fee is the forward's fee as Finance
@@ -102,17 +178,18 @@ export function forwardInvoiceBody({ forward, pairs, pricePerPair, contactId, bu
   };
 }
 
-export function forwardInvoiceMail({ forward, invoiceNumber, buyer, total, to, from, replyTo, pdf }) {
+export function forwardInvoiceMail({ forward, label = "", invoiceNumber, buyer, total, to, from, replyTo, pdf }) {
   const name = text(buyer?.company_name) || text(buyer?.full_name) || "customer";
+  const what = label || displayId(forward);
 
   return {
     to,
     from: { email: from, name: "Kickz Caviar" },
     replyTo,
-    subject: `Your invoice ${invoiceNumber} for ${displayId(forward)}`,
+    subject: `Your invoice ${invoiceNumber} for ${what}`,
     text:
       `Dear ${name},\n\n` +
-      `Please find attached the invoice for ${displayId(forward)} (${euro(total)}).\n` +
+      `Please find attached the invoice for ${what} (${euro(total)}).\n` +
       "Payment is due within 7 days of the invoice date; please mention the invoice number with your payment.\n\n" +
       `If you have any questions, email us at ${replyTo || "info@kickzcaviar.nl"} - replies to this address are not read.\n\n` +
       "Thank you for your business.\n\nKind regards,\nKickz Caviar",
@@ -153,8 +230,10 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     const [row] = await db.get(`forward_invoices?select=*&id=eq.${id}`);
     if (!row) throw new InvoiceError("That invoice does not exist.", 404);
 
-    const [forward] = await db.get(`forwarding_log?select=*&id=eq.${row.forwarding_log_id}`);
-    const pairs = await db.get(`partner_stock?select=id,sku,size,product_name,forwarding_fee&forwarding_log_id=eq.${row.forwarding_log_id}&order=size.asc`);
+    const [forward] = row.forwarding_log_id ? await db.get(`forwarding_log?select=*&id=eq.${row.forwarding_log_id}`) : [];
+    const pairs = row.forwarding_log_id
+      ? await db.get(`partner_stock?select=id,sku,size,product_name,forwarding_fee&forwarding_log_id=eq.${row.forwarding_log_id}&order=size.asc`)
+      : [];
     const [buyer] = row.buyer_id ? await db.get(`buyers?select=*&id=eq.${row.buyer_id}`) : [];
 
     return { row, forward, pairs: pairs || [], buyer: buyer || null };
@@ -190,6 +269,113 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     }]);
 
     return row;
+  }
+
+  /*
+   * What a partner still owes us and an external invoice can settle: his
+   * unpaid forwards (not cancelled, not invoiced) at what Forwarding Payments
+   * asks for them, and his priced labels. Ones another external invoice is
+   * already settling are left out.
+   */
+  async function openFees(sellerRecordId) {
+    const seller = encodeURIComponent(sellerRecordId);
+    const forwards = (await db.get(`forwarding_log?select=*&seller_record_id=eq.${seller}&payment_status=neq.paid&shipping_status=neq.cancelled&order=created_at.asc&limit=500`)) || [];
+
+    const ids = forwards.map((f) => f.id);
+    const pairs = [];
+    const invoiced = new Set();
+    for (let i = 0; i < ids.length; i += 50) {
+      const list = ids.slice(i, i + 50).map((id) => `"${id}"`).join(",");
+      pairs.push(...((await db.get(`partner_stock?select=forwarding_log_id,forwarding_fee&forwarding_log_id=in.(${list})&limit=5000`)) || []));
+      for (const row of (await db.get(`forward_invoices?select=forwarding_log_id&forwarding_log_id=in.(${list})`)) || []) invoiced.add(row.forwarding_log_id);
+    }
+
+    const pending = (await db.get(`forward_invoices?select=settled_forward_ids,settled_label_ids&kind=eq.external&status=neq.invoiced&seller_record_id=eq.${seller}`).catch(() => [])) || [];
+    const takenForwards = new Set(pending.flatMap((row) => row.settled_forward_ids || []));
+    const takenLabels = new Set(pending.flatMap((row) => row.settled_label_ids || []));
+
+    const labels = (await db.get(`partner_labels?select=id,label_number,carrier,price,payment_status,status,created_at&seller_record_id=eq.${seller}&status=eq.created&payment_status=neq.paid`).catch(() => [])) || [];
+
+    return {
+      forwards: forwards
+        .filter((f) => !invoiced.has(f.id) && !takenForwards.has(f.id))
+        .map((f) => ({
+          id: f.id,
+          name: displayId(f),
+          date: f.forwarding_date || text(f.created_at).slice(0, 10),
+          pairs: Number(f.pair_count) || 0,
+          shipping_status: f.shipping_status,
+          amount: forwardMoney(f, pairs.filter((p) => p.forwarding_log_id === f.id)).payable
+        })),
+      labels: labels
+        .filter((l) => l.price !== null && l.price !== undefined && !takenLabels.has(l.id))
+        .map((l) => ({ id: l.id, name: `LBL-${String(l.label_number ?? "").padStart(6, "0")}`, date: text(l.created_at).slice(0, 10), carrier: l.carrier, amount: round2(l.price) }))
+    };
+  }
+
+  /*
+   * An invoice of its own (JXT-00004 and on) for a sale the partner made
+   * outside our forwards. The amounts settled are worked out here again from
+   * what is still open, never taken from the page.
+   */
+  async function openExternal({ partner, buyerId, lines: input, settleForwardIds = [], settleLabelIds = [] }) {
+    const lines = cleanExternalLines(input);
+    const total = round2(lines.reduce((sum, line) => sum + line.total, 0));
+    const pairs = lines.reduce((sum, line) => sum + line.qty, 0);
+
+    const open = await openFees(partner.sellerRecordId);
+    const pick = (list, wanted) => {
+      const ids = [...new Set((wanted || []).map(text).filter(Boolean))];
+      const found = ids.map((id) => list.find((item) => item.id === id));
+      if (found.some((item) => !item)) throw new InvoiceError("A fee you ticked is not open any more. Reload and tick again.");
+      return found;
+    };
+    const forwards = pick(open.forwards, settleForwardIds);
+    const labels = pick(open.labels, settleLabelIds);
+    const settled = round2([...forwards, ...labels].reduce((sum, item) => sum + item.amount, 0));
+    if (settled >= total) throw new InvoiceError(`The fees you ticked (${euro(settled)}) are not less than the invoice (${euro(total)}).`);
+
+    const [last] = await db.get("forward_invoices?select=jxt_number&kind=eq.external&jxt_number=not.is.null&order=jxt_number.desc&limit=1");
+    let number = Math.max(EXTERNAL_FIRST, Number(last?.jxt_number || 0) + 1);
+
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const [row] = await db.insert("forward_invoices", [{
+          kind: "external",
+          jxt_number: number,
+          forwarding_log_id: null,
+          seller_record_id: partner.sellerRecordId,
+          seller_id: partner.sellerId,
+          buyer_id: buyerId,
+          sku: lines[0].sku || "",
+          product_name: lines[0].name || null,
+          pair_count: pairs,
+          price_per_pair: round2(total / pairs),
+          total,
+          fee_total: settled,
+          purchase_total: round2(total - settled),
+          lines,
+          settled_forward_ids: forwards.map((f) => f.id),
+          settled_label_ids: labels.map((l) => l.id),
+          // What was settled, by name and amount, as it stood when booked.
+          settled_items: [
+            ...forwards.map((f) => ({ kind: "forward", id: f.id, name: f.name, amount: f.amount })),
+            ...labels.map((l) => ({ kind: "label", id: l.id, name: l.name, amount: l.amount }))
+          ],
+          status: "to_invoice",
+          buyer_payment_status: "open",
+          partner_payout_status: "waiting"
+        }]);
+        return row;
+      } catch (err) {
+        // Two made at the same moment: the second takes the next number.
+        if (attempt < 3 && /duplicate|unique|23505/i.test(err.message)) {
+          number += 1;
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   /*
@@ -241,21 +427,23 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     try {
       let { row, forward, pairs, buyer } = await load(id);
       if (!["to_invoice", "failed"].includes(row.status)) return row;
-      if (!forward) throw new InvoiceError("The forward is gone.");
+      const external = row.kind === "external";
+      const name = invoiceName(row, forward);
+      if (!external && !forward) throw new InvoiceError("The forward is gone.");
       if (!buyer) throw new InvoiceError("The invoice has no buyer.");
-      if (pairs.length !== row.pair_count) throw new InvoiceError(`The forward has ${pairs.length} pairs, the invoice ${row.pair_count}.`);
+      if (!external && pairs.length !== row.pair_count) throw new InvoiceError(`The forward has ${pairs.length} pairs, the invoice ${row.pair_count}.`);
 
       step = "contact";
       if (!row.rompslomp_contact_id) row = await save(id, { rompslomp_contact_id: await contactFor(buyer) });
 
       step = "invoice";
       if (!row.invoice_id) {
-        const reference = invoiceReference(forward);
+        const reference = external ? `${name}-${ROUTE}` : invoiceReference(forward);
         let invoice = await rompslomp.findInvoice(reference);
         if (!invoice) {
-          invoice = await rompslomp.createInvoice(forwardInvoiceBody({
-            forward, pairs, pricePerPair: row.price_per_pair, contactId: row.rompslomp_contact_id, buyerVatId: buyer.vat_id, now: now()
-          }));
+          invoice = await rompslomp.createInvoice(external
+            ? externalInvoiceBody({ reference: name, lines: row.lines || [], contactId: row.rompslomp_contact_id, buyerVatId: buyer.vat_id, now: now() })
+            : forwardInvoiceBody({ forward, pairs, pricePerPair: row.price_per_pair, contactId: row.rompslomp_contact_id, buyerVatId: buyer.vat_id, now: now() }));
         }
         if (invoice.status !== "published" || !invoice.invoice_number) invoice = await rompslomp.publishInvoice(invoice.id);
 
@@ -277,11 +465,16 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       step = "purchase";
       if (!row.expense_id) {
         const seller = await sellerOf(row.seller_record_id, row.seller_id);
-        const sizes = [...new Set(pairs.map((p) => text(p.size)))].join(", ");
+        const sizes = external
+          ? (row.lines || []).map((line) => line.sizes).filter(Boolean).join(", ")
+          : [...new Set(pairs.map((p) => text(p.size)))].join(", ");
+        const product = external
+          ? (row.lines || []).map((line) => [line.sku, line.name].filter(Boolean).join(" ")).join(" + ")
+          : `${row.sku} ${text(row.product_name)}`.trim();
         const booked = await purchases.book({
-          unit: { product_name: `${row.sku} ${text(row.product_name)}`.trim(), size: `${row.pair_count} pairs (${sizes})`, vat_type: ROUTE, price: row.purchase_total },
+          unit: { product_name: product, size: `${row.pair_count} pairs${sizes ? ` (${sizes})` : ""}`, vat_type: ROUTE, price: row.purchase_total },
           seller,
-          deal: displayId(forward),
+          deal: name,
           date: row.invoice_date
         });
         row = await save(id, { expense_id: booked.expense_id, expense_number: booked.expense_number || null, expense_company_id: booked.company_id });
@@ -289,11 +482,18 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
 
       step = "forwarding fee";
       if (!row.fee_settled_at) {
-        await db.patch(`forwarding_log?id=eq.${forward.id}`, {
-          payment_status: "paid",
-          paid_at: now().toISOString(),
-          payment_note: `Settled in invoice ${row.invoice_number}`
-        });
+        // A forward's own fee, or every fee Dario ticked on an external one.
+        const forwardIds = external ? row.settled_forward_ids || [] : [forward.id];
+        for (const forwardId of forwardIds) {
+          await db.patch(`forwarding_log?id=eq.${forwardId}`, {
+            payment_status: "paid",
+            paid_at: now().toISOString(),
+            payment_note: external ? `Settled in ${name} (invoice ${row.invoice_number})` : `Settled in invoice ${row.invoice_number}`
+          });
+        }
+        for (const labelId of external ? row.settled_label_ids || [] : []) {
+          await db.patch(`partner_labels?id=eq.${labelId}`, { payment_status: "paid", paid_at: now().toISOString(), updated_at: now().toISOString() });
+        }
         row = await save(id, { fee_settled_at: now().toISOString() });
       }
 
@@ -301,12 +501,12 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       if (!row.mailed_at) {
         if (!text(buyer.email)) throw new InvoiceError("The buyer has no email address.");
         const pdf = (await rompslomp.pdf(row.invoice_id)).toString("base64");
-        await sendMail(forwardInvoiceMail({ forward, invoiceNumber: row.invoice_number, buyer, total: row.total, to: text(buyer.email), from: mailFrom, replyTo, pdf }));
+        await sendMail(forwardInvoiceMail({ forward, label: name, invoiceNumber: row.invoice_number, buyer, total: row.total, to: text(buyer.email), from: mailFrom, replyTo, pdf }));
         row = await save(id, { mailed_at: now().toISOString() });
       }
 
       row = await save(id, { status: "invoiced", error: null });
-      console.log(`[forward-invoice] ${displayId(forward)}: ${row.invoice_number} ${euro(row.total)}, partner gets ${euro(row.purchase_total)}`);
+      console.log(`[forward-invoice] ${name}: ${row.invoice_number} ${euro(row.total)}, partner gets ${euro(row.purchase_total)}`);
       return row;
     } catch (err) {
       const message = `${step}: ${err.message}`;
@@ -381,14 +581,20 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
   // Every invoiced forward with what the partner is owed, payable first.
   async function payouts() {
     const rows = await db.get("forward_invoices?select=*&order=created_at.desc&limit=1000");
-    const forwards = rows.length
-      ? await db.get(`forwarding_log?select=id,forwarding_number,seller_name,seller_id&id=in.(${rows.map((r) => `"${r.forwarding_log_id}"`).join(",")})`)
+    const forwardIds = rows.map((r) => r.forwarding_log_id).filter(Boolean);
+    const forwards = forwardIds.length
+      ? await db.get(`forwarding_log?select=id,forwarding_number,seller_name,seller_id&id=in.(${forwardIds.map((id) => `"${id}"`).join(",")})`)
       : [];
     const byId = new Map(forwards.map((f) => [f.id, f]));
+    const names = new Map(((await db.get("partner_users?select=seller_record_id,name").catch(() => [])) || []).map((u) => [u.seller_record_id, text(u.name)]));
     const order = { to_pay: 0, waiting: 1, paid: 2 };
 
     return (await withNames(rows))
-      .map((row) => ({ ...row, display_id: displayId(byId.get(row.forwarding_log_id) || {}), seller_name: text(byId.get(row.forwarding_log_id)?.seller_name) }))
+      .map((row) => ({
+        ...row,
+        display_id: invoiceName(row, byId.get(row.forwarding_log_id)),
+        seller_name: text(byId.get(row.forwarding_log_id)?.seller_name) || names.get(row.seller_record_id) || ""
+      }))
       .sort((a, b) => (order[a.partner_payout_status] ?? 3) - (order[b.partner_payout_status] ?? 3));
   }
 
@@ -412,7 +618,7 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
 
       // The forward names its buyer too; it names the right one from now on.
       const [kept] = await db.get(`buyers?select=*&id=eq.${row.possible_duplicate_of}`);
-      if (kept) {
+      if (kept && row.forwarding_log_id) {
         await db.patch(`forwarding_log?id=eq.${row.forwarding_log_id}`, {
           buyer_record_id: text(kept.airtable_record_id) || null,
           buyer_id: kept.buyer_number ? `BU-${String(kept.buyer_number).padStart(5, "0")}` : null,
@@ -444,5 +650,5 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       : { partner_payout_status: row.buyer_payment_status === "paid" ? "to_pay" : "waiting", partner_paid_at: null, partner_paid_note: null });
   }
 
-  return { configured, open, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
+  return { configured, open, openFees, openExternal, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
 }

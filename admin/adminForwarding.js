@@ -15,6 +15,7 @@
 // Every change goes through the action log, like the other buttons.
 
 import { labelId } from "../partner/partnerLabels.js";
+import { invoiceName } from "../partner/forwardInvoicing.js";
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -490,6 +491,83 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
       }
     });
 
+    /*
+     * Partner Invoices (Forward Service): every invoice we made for a partner,
+     * from his forwards (FWD) and on their own (JXT), and "+ New invoice" for
+     * a sale he made outside our forwards, settling the fees Dario ticks.
+     */
+    const partnerList = async () => (forwardInvoices.labels ? forwardInvoices.labels.partners() : []);
+
+    router.get("/api/admin/partner-invoices", async (req, res) => {
+      try {
+        res.json({ invoices: await invoicing.payouts(), partners: await partnerList() });
+      } catch (err) {
+        send(res, err);
+      }
+    });
+
+    // What the new-invoice dialog needs for one partner: his buyers and what he owes.
+    router.get("/api/admin/partner-invoices/setup", async (req, res) => {
+      try {
+        const seller = text(req.query.seller);
+        const partner = (await partnerList()).find((p) => p.seller_record_id === seller);
+        if (!partner) return res.status(400).json({ error: "Choose the partner." });
+        const [list, fees] = await Promise.all([buyers.list(seller), invoicing.openFees(seller)]);
+        res.json({ buyers: list.buyers, countries: list.countries, fees });
+      } catch (err) {
+        send(res, err);
+      }
+    });
+
+    // A buyer added for the partner lands in his own list too.
+    router.post("/api/admin/partner-invoices/buyer", express.json({ limit: "20kb" }), async (req, res) => {
+      try {
+        const seller = text(req.body?.seller_record_id);
+        const partner = (await partnerList()).find((p) => p.seller_record_id === seller);
+        if (!partner) return res.status(400).json({ error: "Choose the partner." });
+        res.json(await buyers.create(seller, req.body || {}));
+      } catch (err) {
+        if (err?.code) return res.status(err.status || 400).json({ error: err.code, fields: err.fields || [], reasons: err.reasons || [] });
+        send(res, err);
+      }
+    });
+
+    router.post("/api/admin/partner-invoices/external", express.json({ limit: "50kb" }), async (req, res) => {
+      try {
+        const seller = text(req.body?.seller_record_id);
+        const partner = (await partnerList()).find((p) => p.seller_record_id === seller);
+        if (!partner) return res.status(400).json({ error: "Choose the partner." });
+
+        const buyerId = text(req.body?.buyer_id);
+        if (!(await buyers.owns(seller, buyerId))) return res.status(400).json({ error: "Choose the buyer." });
+
+        const opened = await invoicing.openExternal({
+          partner: { sellerRecordId: partner.seller_record_id, sellerId: partner.seller_id },
+          buyerId,
+          lines: req.body?.lines,
+          settleForwardIds: req.body?.settle_forward_ids,
+          settleLabelIds: req.body?.settle_label_ids
+        });
+
+        const name = invoiceName(opened);
+        await audit.record({
+          actor: req.admin,
+          action: "partner_invoice_new",
+          source: "partner_invoices",
+          recordId: opened.id,
+          label: name,
+          details: { total: opened.total, settled: opened.fee_total, partner_gets: opened.purchase_total, forwards: opened.settled_forward_ids, labels: opened.settled_label_ids }
+        });
+
+        // The invoice, booking and mail run now; a failure stays on the row for Retry.
+        const after = await invoicing.run(opened.id).catch(async (err) => ({ ...(await invoicing.load(opened.id)).row, failed: err.message }));
+        res.json({ invoice: { ...after, display_id: name } });
+      } catch (err) {
+        if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
+        send(res, err);
+      }
+    });
+
     router.get("/api/admin/forwarding/invoice-pdf", async (req, res) => {
       try {
         const { row } = await invoicing.load(text(req.query.id));
@@ -517,13 +595,15 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
         } else if (action === "paid" || action === "unpaid") after = await invoicing.setPartnerPaid(id, action === "paid", req.body?.note);
         else throw new ForwardingError("Unknown action.");
 
-        const forward = await store.get(before.forwarding_log_id);
-        await log(req, `forward_invoice_${action}`, forward, {
+        const details = {
           invoice: after?.invoice_number || before.invoice_number || null,
           status: { from: before.status, to: after?.status },
           payout: { from: before.partner_payout_status, to: after?.partner_payout_status },
           error: after?.failed || null
-        });
+        };
+        // An external invoice (JXT) has no forward to hang the log on.
+        if (before.forwarding_log_id) await log(req, `forward_invoice_${action}`, await store.get(before.forwarding_log_id), details);
+        else await audit.record({ actor: req.admin, action: `partner_invoice_${action}`, source: "partner_invoices", recordId: before.id, label: invoiceName(before), details });
 
         if (after?.failed) return res.status(502).json({ error: after.failed });
         res.json({ invoice: after });

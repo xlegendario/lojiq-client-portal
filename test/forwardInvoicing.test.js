@@ -32,7 +32,7 @@ test("the invoice is a margin invoice with the forward number and the sizes coun
   assert.equal(invoiceReference(forward), "FWD-000040-Margin");
 });
 
-function setup({ failAt = null } = {}) {
+function setup({ failAt = null, priceWithVat = "240.0" } = {}) {
   const db = fakeDb({
     forwarding_log: [{ ...forward, payment_status: "pending" }],
     partner_stock: [pair("40"), pair("40")],
@@ -40,6 +40,7 @@ function setup({ failAt = null } = {}) {
     forward_invoices: []
   });
   const calls = [];
+  const bodies = [];
   const fail = (step) => {
     if (failAt === step) {
       failAt = null;
@@ -53,8 +54,8 @@ function setup({ failAt = null } = {}) {
     async searchContacts() { return []; },
     async createContact(body) { calls.push(["contact", body.contact.contact_number]); return { id: 61 }; },
     async findInvoice() { return null; },
-    async createInvoice(body) { fail("invoice"); calls.push(["invoice", body.sales_invoice.invoice_lines[0].price_per_unit]); return { id: 70, status: "concept" }; },
-    async publishInvoice(id) { return { id, status: "published", invoice_number: "KC202610-2301", date: "2026-10-11", price_with_vat: "240.0" }; },
+    async createInvoice(body) { fail("invoice"); calls.push(["invoice", body.sales_invoice.invoice_lines[0].price_per_unit]); bodies.push(body); return { id: 70, status: "concept" }; },
+    async publishInvoice(id) { return { id, status: "published", invoice_number: "KC202610-2301", date: "2026-10-11", price_with_vat: priceWithVat }; },
     async recentJournals() { return []; },
     async createJournal(body) { calls.push(["journal", body.journal_entry.lines[0].debit_amount]); return { id: 80 }; },
     async getInvoice() { return { payment_status: "paid" }; },
@@ -73,7 +74,7 @@ function setup({ failAt = null } = {}) {
     sendMail: async (message) => mails.push(message)
   });
 
-  return { db, calls, mails, invoicing };
+  return { db, calls, bodies, mails, invoicing };
 }
 
 const partner = { sellerRecordId: "recJIMMY", sellerId: "SE-00781" };
@@ -190,4 +191,85 @@ test("the partner can only be marked paid once the buyer paid", async () => {
 
   const back = await invoicing.setPartnerPaid(row.id, false);
   assert.equal(back.partner_payout_status, "to_pay");
+});
+
+
+/* ---------------- external invoices (JXT) ---------------- */
+
+function externalSetup(options = {}) {
+  const made = setup({ priceWithVat: "300.0", ...options });
+  const { db } = made;
+  Object.assign(db.tables.forwarding_log[0], { seller_record_id: "recJIMMY", shipping_status: "shipped", forwarding_date: "2026-10-01" });
+  db.tables.partner_labels = [
+    { id: "l1", label_number: 2, carrier: "DPD", price: "7.50", payment_status: "pending", status: "created", seller_record_id: "recJIMMY", created_at: "2026-10-15T10:00:00Z" },
+    { id: "l2", label_number: 3, carrier: "UPS", price: null, payment_status: "pending", status: "created", seller_record_id: "recJIMMY", created_at: "2026-10-15T10:00:00Z" }
+  ];
+  return made;
+}
+
+const jxtLines = [{ sku: "dd1391-100", name: "Nike Dunk Low Panda", sizes: "40, 41", qty: 2, price_per_pair: "150" }];
+
+test("open fees: his unpaid forwards at what Finance asks, and his priced labels", async () => {
+  const { invoicing } = externalSetup();
+  const fees = await invoicing.openFees("recJIMMY");
+
+  assert.deepEqual(fees.forwards.map((f) => [f.name, f.amount]), [["FWD-000040", 4]]);
+  assert.deepEqual(fees.labels.map((l) => [l.name, l.amount]), [["LBL-000002", 7.5]], "a label without a price is not owed yet");
+});
+
+test("a JXT invoice: own lines, the ticked fees settled, the partner gets the rest", async () => {
+  const { db, calls, bodies, mails, invoicing } = externalSetup();
+
+  const row = await invoicing.openExternal({ partner, buyerId: "b1", lines: jxtLines, settleForwardIds: ["fw1"], settleLabelIds: ["l1"] });
+  assert.equal(row.kind, "external");
+  assert.equal(row.jxt_number, 4, "the numbers made by hand end at JXT-00003");
+  assert.equal(row.forwarding_log_id, null);
+  assert.equal(Number(row.total), 300);
+  assert.equal(Number(row.fee_total), 11.5);
+  assert.equal(Number(row.purchase_total), 288.5);
+  assert.deepEqual(row.settled_items.map((item) => [item.name, item.amount]), [["FWD-000040", 4], ["LBL-000002", 7.5]]);
+
+  const done = await invoicing.run(row.id);
+  assert.equal(done.status, "invoiced");
+
+  const invoice = bodies[0].sales_invoice;
+  assert.equal(invoice.api_reference, "JXT-00004-Margin");
+  assert.equal(invoice.invoice_lines[0].description, "JXT-00004");
+  assert.equal(invoice.invoice_lines[0].extended_description, "DD1391-100 Nike Dunk Low Panda — Sizes 40, 41 — 2 pairs × €150.00 = €300.00");
+  assert.deepEqual(calls.filter(([what]) => what === "journal" || what === "expense"), [["journal", "288.50"], ["expense", 288.5, "JXT-00004"]]);
+
+  assert.equal(db.tables.forwarding_log[0].payment_status, "paid");
+  assert.match(db.tables.forwarding_log[0].payment_note, /Settled in JXT-00004/);
+  assert.equal(db.tables.partner_labels.find((l) => l.id === "l1").payment_status, "paid");
+  assert.equal(db.tables.partner_labels.find((l) => l.id === "l2").payment_status, "pending");
+  assert.match(mails[0].subject, /for JXT-00004$/);
+});
+
+test("JXT numbers go on from the last one", async () => {
+  const { db, invoicing } = externalSetup();
+  db.tables.forward_invoices.push({ id: "old", kind: "external", jxt_number: 7, status: "invoiced", seller_record_id: "recJIMMY", settled_forward_ids: [], settled_label_ids: [] });
+
+  const row = await invoicing.openExternal({ partner, buyerId: "b1", lines: jxtLines });
+  assert.equal(row.jxt_number, 8);
+  assert.equal(Number(row.fee_total), 0);
+});
+
+test("a JXT invoice refuses fees that are not open, or that eat the whole invoice", async () => {
+  const { invoicing } = externalSetup();
+
+  await assert.rejects(invoicing.openExternal({ partner, buyerId: "b1", lines: jxtLines, settleLabelIds: ["l2"] }), /not open any more/);
+  await assert.rejects(
+    invoicing.openExternal({ partner, buyerId: "b1", lines: [{ sku: "X", qty: 1, price_per_pair: 10 }], settleForwardIds: ["fw1"], settleLabelIds: ["l1"] }),
+    /not less than the invoice/
+  );
+  await assert.rejects(invoicing.openExternal({ partner, buyerId: "b1", lines: [{ sku: "X", qty: 0, price_per_pair: 10 }] }), /number of pairs/);
+});
+
+test("a fee ticked on a JXT invoice still being made is not offered twice", async () => {
+  const { invoicing } = externalSetup({ failAt: "invoice" });
+  const row = await invoicing.openExternal({ partner, buyerId: "b1", lines: jxtLines, settleForwardIds: ["fw1"] });
+  await assert.rejects(invoicing.run(row.id));
+
+  const fees = await invoicing.openFees("recJIMMY");
+  assert.deepEqual(fees.forwards, [], "FWD-000040 waits for the failed JXT invoice to be retried");
 });

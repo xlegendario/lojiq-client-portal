@@ -28,7 +28,7 @@ import {
 import { createSupabaseRest } from "../admin/externalSalesSync.js";
 import { loadPartnerPairs, summarizeStock } from "./partnerStock.js";
 import { ForwardError, createPartnerForward, loadForwardable, summarizeForwardable } from "./partnerForward.js";
-import { loadForwards, setBuyerPaid } from "./partnerSent.js";
+import { loadForwards, loadPartnerInvoices, setBuyerPaid } from "./partnerSent.js";
 import { BuyerError, createPartnerBuyers } from "./partnerBuyers.js";
 import { createForwardInvoicing, sellerFromFields } from "./forwardInvoicing.js";
 import { createLabelReader, labelFromDataUrl } from "./labelReader.js";
@@ -479,6 +479,8 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
 
       res.json({
         forwards: await loadForwards(db, req.partner.sellerRecordId),
+        // Invoices we made for him outside his forwards (JXT); none until the table has them.
+        invoices: await loadPartnerInvoices(db, req.partner.sellerRecordId).catch(() => []),
         invoicing: invoicing.configured,
         labels_due: { count: due.length, total: Math.round(due.reduce((sum, l) => sum + Number(l.price), 0) * 100) / 100 }
       });
@@ -499,6 +501,25 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
       res.json(answer);
     } catch (err) {
       console.error(`[partner] buyer paid for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  // One of his JXT invoices as a PDF, by the invoice's own id.
+  router.get("/api/partner/invoices/:id/pdf", async (req, res) => {
+    try {
+      const id = text(req.params.id);
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(404).json({ error: "not_found" });
+
+      const [row] = await db.get(`forward_invoices?select=*&id=eq.${id}&seller_record_id=eq.${encodeURIComponent(req.partner.sellerRecordId)}`);
+      if (!row?.invoice_id) return res.status(404).json({ error: "not_found" });
+
+      const pdf = await invoicing.pdf(row);
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `inline; filename="Invoice ${text(row.invoice_number) || "draft"}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      console.error(`[partner] invoice pdf for ${req.partner.sellerId} failed:`, err.message);
       res.status(502).json({ error: "try_again" });
     }
   });

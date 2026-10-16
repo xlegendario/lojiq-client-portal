@@ -665,6 +665,10 @@
         invoice_no_price: "Fill in the price per pair.",
         invoice_no_buyer: "Choose the buyer.",
         need_buyer: "Choose the buyer.",
+        seg_forwards: "Forwards",
+        seg_invoices: "Invoices",
+        fees_settled: "Your fees settled",
+        no_invoices: "No invoices yet.",
         buyer_paid: "Buyer paid",
         buyer_unpaid: "Buyer not paid",
         buyer_paid_you: "Paid to you",
@@ -857,6 +861,10 @@
         invoice_no_price: "请填写每双价格。",
         invoice_no_buyer: "请选择买家。",
         need_buyer: "请选择买家。",
+        seg_forwards: "转运",
+        seg_invoices: "发票",
+        fees_settled: "已抵扣的费用",
+        no_invoices: "还没有发票。",
         buyer_paid: "买家已付款",
         buyer_unpaid: "买家未付款",
         buyer_paid_you: "已付给您",
@@ -1886,7 +1894,7 @@
 
     /* ---------- sent ---------- */
 
-    const sent = { data: null, at: 0, open: new Set(), loading: false };
+    const sent = { data: null, invoices: [], view: "forwards", at: 0, open: new Set(), loading: false };
 
     const STATUS = {
       awaiting_label: { word: "st_waiting", tone: "wait" },
@@ -1911,6 +1919,8 @@
       try {
         const answer = await api("/api/partner/forwards");
         sent.data = answer.forwards;
+        sent.invoices = answer.invoices || [];
+        if (!sent.invoices.length) sent.view = "forwards";
         sent.labelsDue = answer.labels_due || { count: 0, total: 0 };
         sent.at = Date.now();
         renderSent();
@@ -1924,7 +1934,7 @@
 
     function renderSent() {
       if (!sent.data) return;
-      if (!sent.data.length) {
+      if (!sent.data.length && !sent.invoices.length) {
         $("sentList").innerHTML = `<div class="note">${esc(t("no_sent"))}</div>`;
         return;
       }
@@ -1944,8 +1954,10 @@
       // Labels we made for him are paid together with his forwarding fees.
       const labelsDue = sent.labelsDue || { count: 0, total: 0 };
       const owedTotal = owed.reduce((sum, f) => sum + Number(f.fee || 0), 0) + Number(labelsDue.total || 0);
-      const ours = live.filter((f) => f.invoice?.stage === "to_pay");
-      const oursTotal = ours.reduce((sum, f) => sum + Number(f.invoice.you_receive || 0), 0);
+      // What we owe him: invoiced forwards and his own invoices (JXT) the buyer paid.
+      const oursExternal = sent.invoices.filter((inv) => inv.stage === "to_pay");
+      const ours = [...live.filter((f) => f.invoice?.stage === "to_pay"), ...oursExternal];
+      const oursTotal = ours.reduce((sum, f) => sum + Number(f.invoice ? f.invoice.you_receive : f.you_receive || 0), 0);
       const count = (n) => `${n} ${esc(t(n === 1 ? "forward_one" : "forward_many"))}`;
 
       const summary = `
@@ -1958,7 +1970,20 @@
 
       const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
 
-      $("sentList").innerHTML = summary + section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done) + section(t("sec_cancelled"), cancelled);
+      // Forwards | Invoices, only once he has an invoice of his own (JXT).
+      const switcher = sent.invoices.length ? `
+        <div class="seg" role="group">
+          <button type="button" data-sent-view="forwards" aria-pressed="${sent.view === "forwards"}">${esc(t("seg_forwards"))}</button>
+          <button type="button" data-sent-view="invoices" aria-pressed="${sent.view === "invoices"}">${esc(t("seg_invoices"))} (${sent.invoices.length})</button>
+        </div>` : "";
+
+      const body = sent.view === "invoices"
+        ? `<div class="list">${sent.invoices.map(invoiceCard).join("")}</div>`
+        : sent.data.length
+          ? section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done) + section(t("sec_cancelled"), cancelled)
+          : `<div class="note">${esc(t("no_sent"))}</div>`;
+
+      $("sentList").innerHTML = summary + switcher + body;
     }
 
     const trackLink = (n) => `<a class="track" href="https://t.17track.net/en#nums=${encodeURIComponent(n)}" target="_blank" rel="noopener">${esc(n)}</a>`;
@@ -2024,6 +2049,40 @@
         </div>`;
     }
 
+    // One of his own invoices (JXT): what was sold, his fees settled in it, what he gets.
+    function invoiceCard(inv) {
+      const isOpen = sent.open.has(inv.id);
+      const stageCls = inv.stage === "paid" ? " good" : inv.stage === "to_pay" ? " wait" : "";
+
+      const body = isOpen ? `
+        <div class="card-body">
+          <div class="detail">
+            ${inv.lines.map((line) => `
+              <div class="detail-row"><span>${esc([line.sku, line.name].filter(Boolean).join(" "))}${line.sizes ? `<br><small class="muted">${esc(line.sizes)}</small>` : ""}</span>
+                <span>${line.qty} × ${esc(money(line.price_per_pair))}</span></div>`).join("")}
+          </div>
+          <div class="detail">
+            <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><span>${esc(money(inv.total))}</span></div>
+            ${inv.settled ? `<div class="detail-row"><span class="muted">${esc(t("fees_settled"))}${inv.settled_items.length ? `<br><small>${inv.settled_items.map((item) => `${esc(item.name)} ${esc(money(item.amount))}`).join(" · ")}</small>` : ""}</span><span>− ${esc(money(inv.settled))}</span></div>` : ""}
+            <div class="detail-row"><span class="muted">${esc(t("you_receive"))}</span><b>${esc(money(inv.you_receive))}</b></div>
+            <div class="detail-row"><span class="muted">${esc(t("invoice"))}</span><span>${esc(inv.number || t("st_inv_preparing"))}</span></div>
+          </div>
+          ${inv.has_pdf ? `<a class="btn file-btn" href="/api/partner/invoices/${encodeURIComponent(inv.id)}/pdf" target="_blank" rel="noopener">${esc(t("download"))} ${esc(inv.number)}</a>` : ""}
+        </div>` : "";
+
+      return `
+        <div class="card${isOpen ? " open" : ""}">
+          <button class="card-head" type="button" data-sent-open="${esc(inv.id)}" aria-expanded="${isOpen}">
+            <div class="card-text">
+              <div class="card-title">${esc(inv.reference)}</div>
+              <div class="stats"><span>${esc(niceDate(dayOfStamp(inv.created_at)))}</span><span>${esc(money(inv.total))}</span>${inv.buyer ? `<span class="buyer">${esc(inv.buyer)}</span>` : ""}</div>
+            </div>
+            <div class="pills"><span class="pill inv${stageCls}">${esc(t(`st_inv_${inv.stage}`))}</span></div>
+            ${CHEV}
+          </button>${body}
+        </div>`;
+    }
+
     // Without an invoice he ticks off himself that the buyer paid him.
     function buyerPaidBlock(f) {
       if (!f.buyer || f.status === "cancelled") return "";
@@ -2057,6 +2116,12 @@
 
       const paidButton = event.target.closest("[data-buyer-paid]");
       if (paidButton) return setBuyerPaid(paidButton);
+
+      const viewButton = event.target.closest("[data-sent-view]");
+      if (viewButton) {
+        sent.view = viewButton.dataset.sentView;
+        return renderSent();
+      }
 
       const head = event.target.closest("[data-sent-open]");
       if (!head) return;

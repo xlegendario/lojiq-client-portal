@@ -10,6 +10,7 @@ export function fakeDb(tables) {
       const [key, value = ""] = part.split("=");
       if (["select", "order", "limit"].includes(key) || !key) continue;
       if (value.startsWith("eq.")) filters.push((r) => String(r[key]) === value.slice(3));
+      else if (value.startsWith("neq.")) filters.push((r) => String(r[key]) !== value.slice(4));
       else if (value.startsWith("in.(")) {
         const list = value.slice(4, -1).split(",").map((v) => v.replace(/^"|"$/g, ""));
         filters.push((r) => list.includes(String(r[key])));

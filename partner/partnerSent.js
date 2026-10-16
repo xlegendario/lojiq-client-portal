@@ -10,6 +10,7 @@
 
 import { compareSizes } from "../admin/stockRefine.js";
 import { displayId, forwardMoney } from "../admin/adminForwarding.js";
+import { externalReference } from "./forwardInvoicing.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -153,7 +154,7 @@ export async function loadForwards(db, sellerRecordId) {
   }
 
   const invoices = await db.get(
-    `forward_invoices?select=forwarding_log_id,buyer_id,status,invoice_id,invoice_number,price_per_pair,total,fee_total,purchase_total,buyer_payment_status,partner_payout_status,partner_paid_at&seller_record_id=eq.${seller}`
+    `forward_invoices?select=kind,forwarding_log_id,buyer_id,status,invoice_id,invoice_number,price_per_pair,total,fee_total,purchase_total,buyer_payment_status,partner_payout_status,partner_paid_at&seller_record_id=eq.${seller}`
   ).catch(() => []);
   // Missing until its table exists; the tab works without it.
   const sales = await db.get(`partner_forward_sales?select=forwarding_log_id,buyer_id,buyer_paid_at&seller_record_id=eq.${seller}`).catch(() => []);
@@ -164,6 +165,45 @@ export async function loadForwards(db, sellerRecordId) {
     : [];
 
   return summarizeForwards(forwards, pairs, invoices, buyers, sales);
+}
+
+/*
+ * The invoices we made for him outside his forwards (JXT): what was sold,
+ * which of his fees it settled, what he gets and where the money is.
+ */
+export function externalView(row, buyer) {
+  return {
+    id: text(row.id),
+    reference: externalReference(row.jxt_number),
+    created_at: row.created_at,
+    buyer: buyer ? text(buyer.company_name) || text(buyer.full_name) : "",
+    lines: (row.lines || []).map((line) => ({
+      sku: text(line.sku),
+      name: text(line.name),
+      sizes: text(line.sizes),
+      qty: Number(line.qty) || 0,
+      price_per_pair: Number(line.price_per_pair) || 0,
+      total: Number(line.total) || 0
+    })),
+    total: Number(row.total),
+    settled: Number(row.fee_total),
+    settled_items: (row.settled_items || []).map((item) => ({ name: text(item.name), amount: Number(item.amount) || 0 })),
+    you_receive: Number(row.purchase_total),
+    stage: invoiceStage(row),
+    number: text(row.invoice_number),
+    has_pdf: Boolean(row.invoice_id),
+    paid_at: row.partner_paid_at || null
+  };
+}
+
+export async function loadPartnerInvoices(db, sellerRecordId) {
+  const rows = (await db.get(
+    `forward_invoices?select=id,kind,jxt_number,buyer_id,status,invoice_id,invoice_number,lines,settled_items,total,fee_total,purchase_total,buyer_payment_status,partner_payout_status,partner_paid_at,created_at&kind=eq.external&seller_record_id=eq.${encodeURIComponent(sellerRecordId)}&order=created_at.desc&limit=300`
+  )) || [];
+  const ids = [...new Set(rows.map((row) => row.buyer_id).filter(Boolean))];
+  const buyers = ids.length ? await db.get(`buyers?select=id,company_name,full_name&id=in.(${ids.map((id) => `"${id}"`).join(",")})`) : [];
+  const byId = new Map(buyers.map((b) => [text(b.id), b]));
+  return rows.map((row) => externalView(row, byId.get(text(row.buyer_id))));
 }
 
 /*
