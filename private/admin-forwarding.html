@@ -1539,7 +1539,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         : "";
       const byNumber = (a, b) => (Number(b.number) || 0) - (Number(a.number) || 0);
       return block("Forwards", rows.filter((inv) => inv.kind !== "external").sort(byNumber)) +
-        block("Own sales (JXT)", rows.filter((inv) => inv.kind === "external").sort(byNumber));
+        block("Externals (JXT)", rows.filter((inv) => inv.kind === "external").sort(byNumber));
     }
 
     function renderPartnerPayouts() {
@@ -1624,7 +1624,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       $("rows").innerHTML = rows.length
         ? invoiceBlocks(rows, (inv) => `
             <tr data-invoice-id="${esc(inv.id)}"${state.selectedInvoice === inv.id ? ' class="selected"' : ""}>
-              <td><span class="id">${esc(inv.display_id)}</span><br><span class="sub">${inv.kind === "external" ? "Own sale" : "Forward"}</span></td>
+              <td><span class="id">${esc(inv.display_id)}</span><br><span class="sub">${inv.kind === "external" ? "External" : "Forward"}</span></td>
               <td>${esc(dayFmt.format(new Date(inv.created_at)))}</td>
               <td>${esc(inv.seller_name || inv.seller_id)}</td>
               <td>${esc(inv.buyer?.name || "")}</td>
