@@ -321,6 +321,14 @@
     .addr-form select { min-height: 52px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; color: var(--text); width: 100%; }
     .lbl-download { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 8px; border-radius: 10px; background: var(--primary-tint); color: var(--primary-soft); text-decoration: none; font-weight: 600; }
     .lbl-download small { color: var(--muted); font-weight: 400; word-break: break-all; }
+    .bal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+    .bal-tile { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .bal-title { color: var(--muted); font-size: 13px; }
+    .bal-tile b { font-size: 20px; color: var(--strong); white-space: nowrap; }
+    .bal-tile b.ok-text { color: #4ADE9A; }
+    .bal-tile b.due { color: #FBBF4C; }
+    .bal-tile b.in { color: var(--primary-soft); }
+    .bal-tile small { color: var(--muted); font-size: 12px; }
     .money-box { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 2px 14px; margin-bottom: 18px; }
     .money-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 10px 0; }
     .money-row + .money-row { border-top: 1px solid var(--border); }
@@ -624,6 +632,15 @@
         need_address: "Choose where it goes.",
         label_price: "Price",
         fee_to_pay_total: "Fee to pay",
+        bal_title: "Balance",
+        bal_fees: "Forward fees",
+        bal_fees_sub: "to pay",
+        bal_all_paid: "all paid",
+        bal_invoices: "Invoices",
+        bal_invoices_sub: "to receive",
+        bal_all_received: "all received",
+        invoice_one: "invoice",
+        invoice_many: "invoices",
         all_fees_paid: "All forwarding fees paid",
         we_pay_you: "We still pay you",
         forward_one: "forward",
@@ -822,6 +839,15 @@
         need_address: "请选择寄往的地址。",
         label_price: "价格",
         fee_to_pay_total: "待付服务费",
+        bal_title: "余额",
+        bal_fees: "转运费",
+        bal_fees_sub: "待付",
+        bal_all_paid: "已全部付清",
+        bal_invoices: "发票",
+        bal_invoices_sub: "待收",
+        bal_all_received: "已全部收到",
+        invoice_one: "张发票",
+        invoice_many: "张发票",
         all_fees_paid: "所有转运服务费已付",
         we_pay_you: "我们待付给您",
         forward_one: "笔",
@@ -1967,18 +1993,28 @@
       // Labels we made for him are paid together with his forwarding fees.
       const labelsDue = sent.labelsDue || { count: 0, total: 0 };
       const owedTotal = owed.reduce((sum, f) => sum + Number(f.fee || 0), 0) + Number(labelsDue.total || 0);
-      // What we owe him: invoiced forwards and his own invoices (JXT) the buyer paid.
-      const oursExternal = sent.invoices.filter((inv) => inv.stage === "to_pay");
-      const ours = [...live.filter((f) => f.invoice?.stage === "to_pay"), ...oursExternal];
-      const oursTotal = ours.reduce((sum, f) => sum + Number(f.invoice ? f.invoice.you_receive : f.you_receive || 0), 0);
+      // Still to receive: every invoice (forward or JXT) not paid to him yet,
+      // whether or not the buyer paid us already (Dario, 16-10-2026).
+      const ours = [
+        ...live.filter((f) => f.invoice && f.invoice.stage !== "paid").map((f) => Number(f.invoice.you_receive || 0)),
+        ...sent.invoices.filter((inv) => inv.stage !== "paid").map((inv) => Number(inv.you_receive || 0))
+      ];
+      const oursTotal = ours.reduce((sum, n) => sum + n, 0);
       const count = (n) => `${n} ${esc(t(n === 1 ? "forward_one" : "forward_many"))}`;
 
+      // Balance: two tiles that are always there, a zero shown as done.
+      const feeParts = [owed.length ? count(owed.length) : "", labelsDue.count ? `${labelsDue.count} ${esc(t(labelsDue.count === 1 ? "label_one" : "label_many"))}` : ""].filter(Boolean).join(" · ");
+      const tile = (title, amount, sub, tone) => `
+        <div class="bal-tile">
+          <span class="bal-title">${esc(title)}</span>
+          <b class="${amount ? tone : "ok-text"}">${esc(money(amount))}${amount ? "" : " ✓"}</b>
+          <small>${sub}</small>
+        </div>`;
       const summary = `
-        <div class="money-box">
-          ${owed.length || labelsDue.count
-            ? `<div class="money-row"><span>${esc(t("fee_to_pay_total"))} <small>· ${[owed.length ? count(owed.length) : "", labelsDue.count ? `${labelsDue.count} ${esc(t(labelsDue.count === 1 ? "label_one" : "label_many"))}` : ""].filter(Boolean).join(" · ")}</small></span><b>${esc(money(owedTotal))}</b></div>`
-            : `<div class="money-row"><span class="ok-text">${esc(t("all_fees_paid"))} ✓</span></div>`}
-          ${ours.length ? `<div class="money-row"><span>${esc(t("we_pay_you"))} <small>· ${count(ours.length)}</small></span><b class="ok-text">${esc(money(oursTotal))}</b></div>` : ""}
+        <h3 class="section">${esc(t("bal_title"))}</h3>
+        <div class="bal-grid">
+          ${tile(t("bal_fees"), owedTotal, owedTotal ? `${esc(t("bal_fees_sub"))}${feeParts ? ` · ${feeParts}` : ""}` : esc(t("bal_all_paid")), "due")}
+          ${tile(t("bal_invoices"), oursTotal, oursTotal ? `${esc(t("bal_invoices_sub"))} · ${ours.length} ${esc(t(ours.length === 1 ? "invoice_one" : "invoice_many"))}` : esc(t("bal_all_received")), "in")}
         </div>`;
 
       const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
@@ -2053,7 +2089,7 @@
             </div>
             <div class="pills">
               <span class="pill ${status.tone}">${esc(t(status.word))}</span>
-              ${f.invoice ? stagePill(f.invoice.stage) : f.status !== "cancelled" && (f.buyer?.name || f.buyer?.paid) ? paidPill(Boolean(f.buyer?.paid)) : ""}
+              ${f.invoice ? stagePill(f.invoice.stage) : f.status !== "cancelled" ? paidPill(Boolean(f.buyer?.paid)) : ""}
             </div>
             ${CHEV}
           </button>${body}
