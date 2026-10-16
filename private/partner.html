@@ -329,6 +329,15 @@
     .money-row small { color: var(--muted); font-size: 13px; }
     .tracking-list summary { list-style: none; cursor: pointer; }
     .tracking-list summary::-webkit-details-marker { display: none; }
+    .nowrap { white-space: nowrap; flex-shrink: 0; }
+    .detail > details, .detail > details + .detail-row { border-top: 1px solid var(--border); }
+    .inv-line { padding: 9px 0; font-size: 15px; }
+    .inv-line + .inv-line { border-top: 1px solid var(--border); }
+    .inv-line-top { display: flex; justify-content: space-between; gap: 12px; }
+    .inv-line-top > span:first-child { min-width: 0; }
+    .inv-sizes { color: var(--muted); font-size: 13px; white-space: pre-line; margin-top: 3px; }
+    .fee-items { display: flex; flex-direction: column; gap: 4px; padding: 0 0 10px; font-size: 14px; color: var(--muted); }
+    .fee-items div { display: flex; justify-content: space-between; gap: 12px; }
     .tracking-all { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 0 0 10px; }
     .track { color: var(--primary-soft); text-decoration: none; word-break: break-all; text-align: right; }
 
@@ -2058,12 +2067,19 @@
         <div class="card-body">
           <div class="detail">
             ${inv.lines.map((line) => `
-              <div class="detail-row"><span>${esc([line.sku, line.name].filter(Boolean).join(" "))}${line.sizes ? `<br><small class="muted">${esc(line.sizes)}</small>` : ""}</span>
-                <span>${line.qty} × ${esc(money(line.price_per_pair))}</span></div>`).join("")}
+              <div class="inv-line">
+                <div class="inv-line-top"><span>${esc([line.sku, line.name].filter(Boolean).join(" "))}</span><span class="nowrap">${line.qty} × ${esc(money(line.price_per_pair))}</span></div>
+                ${line.sizes ? `<div class="inv-sizes">${esc(line.sizes)}</div>` : ""}
+              </div>`).join("")}
           </div>
           <div class="detail">
-            <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><span>${esc(money(inv.total))}</span></div>
-            ${inv.settled ? `<div class="detail-row"><span class="muted">${esc(t("fees_settled"))}${inv.settled_items.length ? `<br><small>${inv.settled_items.map((item) => `${esc(item.name)} ${esc(money(item.amount))}`).join(" · ")}</small>` : ""}</span><span>− ${esc(money(inv.settled))}</span></div>` : ""}
+            <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><span class="nowrap">${esc(money(inv.total))}</span></div>
+            ${inv.settled ? (inv.settled_items.length
+              ? `<details class="tracking-list">
+                  <summary class="detail-row"><span class="muted">${esc(t("fees_settled"))} (${inv.settled_items.length}) ▾</span><span class="nowrap">− ${esc(money(inv.settled))}</span></summary>
+                  <div class="fee-items">${inv.settled_items.map((item) => `<div><span>${esc(item.name)}</span><span class="nowrap">${esc(money(item.amount))}</span></div>`).join("")}</div>
+                </details>`
+              : `<div class="detail-row"><span class="muted">${esc(t("fees_settled"))}</span><span class="nowrap">− ${esc(money(inv.settled))}</span></div>`) : ""}
             <div class="detail-row"><span class="muted">${esc(t("you_receive"))}</span><b>${esc(money(inv.you_receive))}</b></div>
             <div class="detail-row"><span class="muted">${esc(t("invoice"))}</span><span>${esc(inv.number || t("st_inv_preparing"))}</span></div>
           </div>

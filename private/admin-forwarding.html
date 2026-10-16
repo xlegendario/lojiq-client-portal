@@ -434,19 +434,6 @@
         <select class="select" id="invPartner"></select>
       </div>
 
-      <label class="fee-row"><input type="checkbox" id="invImport"> <span><strong>Already invoiced in Rompslomp</strong> <span class="sub">JXT-00001 to -00003: no new invoice, no mail - only the purchase, Voorraadcorrectie and fees</span></span></label>
-
-      <div id="invImportFields" class="addr-grid" hidden>
-        <input class="input" id="invJxt" placeholder="JXT-00001, or a forward: FWD-000033">
-        <input class="input" id="invNumber" placeholder="Rompslomp invoice, e.g. KC202610-2196">
-        <select class="select wide" id="invFeeMode" hidden>
-          <option value="normal">Take the forward's fee off this invoice (normal)</option>
-          <option value="elsewhere">Its fee was settled in another invoice: don't take it off again</option>
-          <option value="twice">Its fee was settled elsewhere AND taken off this payout too: take it off anyway</option>
-        </select>
-        <label class="fee-row wide"><input type="checkbox" id="invPartnerPaid"> <span>The partner is already paid for this (paid by hand)</span></label>
-      </div>
-
       <div class="field" id="invBuyerField">
         <label for="invBuyer">Buyer</label>
         <select class="select" id="invBuyer"></select>
@@ -1704,30 +1691,8 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     };
 
     function drawInvoiceSum() {
-      const importing = $("invImport").checked;
-      $("invImportFields").hidden = !importing;
-      $("invBuyerField").hidden = importing;
-      $("invLinesField").hidden = importing;
-      const forForward = importing && /^\s*fwd/i.test($("invJxt").value);
-      $("invFeeMode").hidden = !forForward;
-      $("invFees").closest(".field").hidden = forForward;
-      if (importing) {
-        const n = parseInt($("invJxt").value.replace(/\D/g, ""), 10);
-        $("invRef").textContent = n > 0 ? (forForward ? `FWD-${String(n).padStart(6, "0")}` : `JXT-${String(n).padStart(5, "0")}`) : "";
-      } else $("invRef").textContent = nextJxt();
-      if (forForward) {
-        $("invSum").innerHTML = `<span>Invoice total</span><strong>from Rompslomp</strong><span>Forward's fee (our margin)</span><strong>${$("invFeeMode").value === "elsewhere" ? "not taken off (settled elsewhere)" : "its pairs' fee"}</strong>`;
-        return;
-      }
-
+      $("invRef").textContent = nextJxt();
       const settled = [...document.querySelectorAll("#invFees input[data-fee-kind]:checked")].reduce((sum, box) => sum + num(box.dataset.amount), 0);
-      if (importing) {
-        $("invSum").innerHTML = `
-          <span>Invoice total</span><strong>from Rompslomp</strong>
-          <span>Fees settled (our margin)</span><strong>− ${euro(settled)}</strong>
-          <span>Partner gets, once the buyer paid</span><strong>total − ${euro(settled)}</strong>`;
-        return;
-      }
       const total = readLines().reduce((sum, line) => sum + num(line.qty) * num(line.price_per_pair), 0);
       $("invSum").innerHTML = `
         <span>Invoice total (buyer pays)</span><strong>${euro(total)}</strong>
@@ -1761,24 +1726,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         ...inv.fees.labels.map((l) => feeRow("label", l, `Label · ${l.carrier}`))
       ];
       // Fees already marked paid by hand: tick only the ones this invoice settled; they stay paid.
-      // Grouped by the day they were marked paid, with "Tick all" per day.
-      const handItems = [
-        ...(inv.fees.paid_by_hand || []).map((f) => ({ kind: "forward", item: f, sub: `${f.pairs} pair(s)` })),
-        ...(inv.fees.labels_paid_by_hand || []).map((l) => ({ kind: "label", item: l, sub: `Label · ${l.carrier}` }))
-      ];
-      const days = new Map();
-      for (const entry of handItems) {
-        const day = entry.item.paid_at ? dayFmt.format(new Date(entry.item.paid_at)) : "";
-        if (!days.has(day)) days.set(day, []);
-        days.get(day).push(entry);
-      }
-      const byHand = [...days.entries()].sort(([a], [b]) => b.split("-").reverse().join("").localeCompare(a.split("-").reverse().join(""))).map(([day, list]) => {
-        const sum = list.reduce((total, entry) => total + Number(entry.item.amount), 0);
-        return `<div class="sub hand-day" style="margin-top:8px"><strong>Paid by hand ${esc(day)}</strong> · ${euro(sum)} <button class="act" type="button" data-tick-day="${esc(day)}">Tick all</button></div>` +
-          list.map((entry) => feeRow(entry.kind, entry.item, entry.sub).replace("<input ", `<input data-paid-day="${esc(day)}" `)).join("");
-      });
-      $("invFees").innerHTML = (rows.length ? rows.join("") : `<span class="sub">Nothing open: every fee of this partner is paid.</span>`) +
-        (byHand.length ? `<div class="sub" style="margin-top:10px"><strong>Already marked paid by hand</strong> - tick only the ones settled in this invoice; they stay paid.</div>${byHand.join("")}` : "");
+      $("invFees").innerHTML = rows.length ? rows.join("") : `<span class="sub">Nothing open: every fee of this partner is paid.</span>`;
       drawInvoiceSum();
     }
 
@@ -1794,14 +1742,6 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     });
 
     $("invPartner").addEventListener("change", fillInvoiceSetup);
-    $("invFees").addEventListener("click", (event) => {
-      const button = event.target.closest("[data-tick-day]");
-      if (!button) return;
-      const boxes = [...document.querySelectorAll("#invFees input[data-paid-day]")].filter((box) => box.dataset.paidDay === button.dataset.tickDay);
-      const all = boxes.every((box) => box.checked);
-      boxes.forEach((box) => { box.checked = !all; });
-      drawInvoiceSum();
-    });
     $("invBuyer").addEventListener("change", () => { $("invNewBuyer").hidden = $("invBuyer").value !== "__new"; });
     $("invAddLine").addEventListener("click", () => { $("invLines").insertAdjacentHTML("beforeend", lineRow()); });
     $("invLines").addEventListener("click", (event) => {
@@ -1828,48 +1768,9 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       return data.buyer.id;
     }
 
-    // An invoice Dario already sent from Rompslomp: read in, booked, not made or mailed again.
-    async function importInvoice(seller, settle) {
-      const forForward = /^\s*fwd/i.test($("invJxt").value);
-      const jxt = parseInt($("invJxt").value.replace(/\D/g, ""), 10);
-      const number = $("invNumber").value.trim();
-      if (!(jxt > 0) || !number) {
-        $("invError").textContent = "Give the JXT number and the Rompslomp invoice number.";
-        $("invError").hidden = false;
-        return;
-      }
-      const what = forForward ? `FWD-${String(jxt).padStart(6, "0")}` : `JXT-${String(jxt).padStart(5, "0")}`;
-      if (!confirm(`Book ${what} from Rompslomp invoice ${number}? No new invoice and no mail - only the purchase and Voorraadcorrectie${forForward ? " (total minus the forward's fee)" : " and the ticked fees"}.`)) return;
-
-      $("invBook").disabled = true;
-      try {
-        const data = await api("/api/admin/partner-invoices/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ seller_record_id: seller, jxt_number: forForward ? $("invJxt").value.trim() : jxt, invoice_number: number, fee_mode: $("invFeeMode").value, partner_paid: $("invPartnerPaid").checked, settle_forward_ids: forForward ? [] : settle("forward"), settle_label_ids: forForward ? [] : settle("label") })
-        });
-        $("invoiceDialog").close();
-        const made = data.invoice;
-        toast(made.failed ? `${made.display_id} saved, but stopped: ${made.failed}. Open it and press Retry.` : `${made.display_id} booked from ${made.invoice_number}: purchase and Voorraadcorrectie done.`);
-        state.selectedInvoice = made.id;
-        $("panel").hidden = false;
-        load();
-        loadCounts();
-      } catch (err) {
-        $("invError").textContent = err.message;
-        $("invError").hidden = false;
-      } finally {
-        $("invBook").disabled = false;
-      }
-    }
-
     $("invBook").addEventListener("click", async () => {
       $("invError").hidden = true;
       const seller = $("invPartner").value;
-      if ($("invImport").checked) {
-        const settleOf = (kind) => [...document.querySelectorAll(`#invFees input[data-fee-kind="${kind}"]:checked`)].map((box) => box.value);
-        return importInvoice(seller, settleOf);
-      }
       const lines = readLines().filter((line) => line.sku || line.name || line.qty || line.price_per_pair);
       const settle = (kind) => [...document.querySelectorAll(`#invFees input[data-fee-kind="${kind}"]:checked`)].map((box) => box.value);
       const total = lines.reduce((sum, line) => sum + num(line.qty) * num(line.price_per_pair), 0);

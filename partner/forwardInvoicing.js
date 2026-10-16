@@ -294,24 +294,6 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     const takenForwards = new Set(pending.flatMap((row) => row.settled_forward_ids || []));
     const takenLabels = new Set(pending.flatMap((row) => row.settled_label_ids || []));
 
-    /*
-     * Forwards Dario marked paid by hand (no note) in the last 60 days, before
-     * the invoice that settled them was booked here (JXT-00003, 16-10-2026).
-     * Ticking one only writes down where it was settled; it stays paid.
-     */
-    const since = new Date(now().getTime() - 60 * 86_400_000).toISOString();
-    const byHand = (await db.get(`forwarding_log?select=*&seller_record_id=eq.${seller}&payment_status=eq.paid&payment_note=is.null&paid_at=gte.${since}&order=forwarding_number.asc&limit=500`).catch(() => [])) || [];
-    const settledBefore = (await db.get(`forward_invoices?select=settled_forward_ids,settled_label_ids&kind=eq.external&seller_record_id=eq.${seller}`).catch(() => [])) || [];
-    const everSettled = new Set(settledBefore.flatMap((row) => row.settled_forward_ids || []));
-    const everSettledLabels = new Set(settledBefore.flatMap((row) => row.settled_label_ids || []));
-    const labelsByHand = ((await db.get(`partner_labels?select=id,label_number,carrier,price,paid_at&seller_record_id=eq.${seller}&status=eq.created&payment_status=eq.paid&paid_at=gte.${since}`).catch(() => [])) || [])
-      .filter((l) => !everSettledLabels.has(l.id) && l.price !== null && l.price !== undefined);
-    const handIds = byHand.map((f) => f.id).filter((id) => !everSettled.has(id));
-    for (let i = 0; i < handIds.length; i += 50) {
-      const list = handIds.slice(i, i + 50).map((id) => `"${id}"`).join(",");
-      pairs.push(...((await db.get(`partner_stock?select=forwarding_log_id,forwarding_fee&forwarding_log_id=in.(${list})&limit=5000`)) || []));
-    }
-
     const labels = (await db.get(`partner_labels?select=id,label_number,carrier,price,payment_status,status,created_at&seller_record_id=eq.${seller}&status=eq.created&payment_status=neq.paid`).catch(() => [])) || [];
 
     return {
@@ -325,26 +307,6 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
           shipping_status: f.shipping_status,
           amount: forwardMoney(f, pairs.filter((p) => p.forwarding_log_id === f.id)).payable
         })),
-      paid_by_hand: byHand
-        .filter((f) => handIds.includes(f.id))
-        .map((f) => ({
-          id: f.id,
-          name: displayId(f),
-          date: f.forwarding_date || text(f.created_at).slice(0, 10),
-          paid_at: f.paid_at,
-          pairs: Number(f.pair_count) || 0,
-          shipping_status: f.shipping_status,
-          amount: forwardMoney(f, pairs.filter((p) => p.forwarding_log_id === f.id)).payable,
-          already_paid: true
-        })),
-      labels_paid_by_hand: labelsByHand.map((l) => ({
-        id: l.id,
-        name: `LBL-${String(l.label_number ?? "").padStart(6, "0")}`,
-        paid_at: l.paid_at,
-        carrier: l.carrier,
-        amount: round2(l.price),
-        already_paid: true
-      })),
       labels: labels
         .filter((l) => l.price !== null && l.price !== undefined && !takenLabels.has(l.id))
         .map((l) => ({ id: l.id, name: `LBL-${String(l.label_number ?? "").padStart(6, "0")}`, date: text(l.created_at).slice(0, 10), carrier: l.carrier, amount: round2(l.price) }))
@@ -360,8 +322,8 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       if (found.some((item) => !item)) throw new InvoiceError("A fee you ticked is not open any more. Reload and tick again.");
       return found;
     };
-    const forwards = pick([...open.forwards, ...(open.paid_by_hand || [])], forwardIds);
-    const labels = pick([...open.labels, ...(open.labels_paid_by_hand || [])], labelIds);
+    const forwards = pick(open.forwards, forwardIds);
+    const labels = pick(open.labels, labelIds);
     const settled = round2([...forwards, ...labels].reduce((sum, item) => sum + item.amount, 0));
     if (settled >= total) throw new InvoiceError(`The fees you ticked (${euro(settled)}) are not less than the invoice (${euro(total)}).`);
     return { forwards, labels, settled };
@@ -369,139 +331,9 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
 
   // What was settled, by name and amount, as it stood when booked.
   const settledItems = (forwards, labels) => [
-    ...forwards.map((f) => ({ kind: "forward", id: f.id, name: f.name, amount: f.amount, ...(f.already_paid ? { already_paid: true } : {}) })),
-    ...labels.map((l) => ({ kind: "label", id: l.id, name: l.name, amount: l.amount, ...(l.already_paid ? { already_paid: true } : {}) }))
+    ...forwards.map((f) => ({ kind: "forward", id: f.id, name: f.name, amount: f.amount })),
+    ...labels.map((l) => ({ kind: "label", id: l.id, name: l.name, amount: l.amount }))
   ];
-
-  /*
-   * A JXT invoice Dario already made in Rompslomp by hand (JXT-00001 to
-   * -00003): the invoice is read, not made again, and not mailed again; the
-   * purchase, the Voorraadcorrectie and the settled fees are booked like any
-   * other. Its lines are the invoice's own.
-   */
-  async function importExternal({ partner, jxtNumber, invoiceNumber, settleForwardIds = [], settleLabelIds = [], partnerPaid = false }) {
-    // "JXT-00001", "00001" or 1 alike.
-    const number = Number(String(jxtNumber ?? "").replace(/\D/g, ""));
-    if (!Number.isInteger(number) || number < 1) throw new InvoiceError("Give the JXT number, e.g. 1 for JXT-00001.");
-    const [taken] = await db.get(`forward_invoices?select=id&jxt_number=eq.${number}`);
-    if (taken) throw new InvoiceError(`${externalReference(number)} is already here.`);
-
-    const invoice = await rompslomp.invoiceByNumber(invoiceNumber);
-    if (!invoice) throw new InvoiceError(`Rompslomp has no invoice ${text(invoiceNumber)} (looked through the newest 1,500).`);
-    const [already] = await db.get(`forward_invoices?select=id&invoice_id=eq.${encodeURIComponent(String(invoice.id))}`);
-    if (already) throw new InvoiceError(`Invoice ${invoice.invoice_number} is already booked here.`);
-
-    const total = round2(invoice.price_with_vat);
-    const lines = (invoice.invoice_lines || []).map((line) => {
-      const qty = Number(line.quantity) || 1;
-      const price = round2(line.price_per_unit);
-      return { sku: text(line.description), name: "", sizes: text(line.extended_description), qty, price_per_pair: price, total: round2(qty * price) };
-    });
-    const { forwards, labels, settled } = await ticked(partner.sellerRecordId, settleForwardIds, settleLabelIds, total);
-
-    // His buyer when we know the Rompslomp contact; the invoice stands without one.
-    const [buyer] = await db.get(`buyers?select=id&rompslomp_contact_id=eq.${encodeURIComponent(String(invoice.contact_id))}`);
-
-    const [row] = await db.insert("forward_invoices", [{
-      kind: "external",
-      jxt_number: number,
-      forwarding_log_id: null,
-      seller_record_id: partner.sellerRecordId,
-      seller_id: partner.sellerId,
-      buyer_id: buyer?.id || null,
-      sku: lines[0]?.sku || "",
-      product_name: `Invoice ${invoice.invoice_number}`,
-      pair_count: lines.reduce((sum, line) => sum + line.qty, 0) || 1,
-      price_per_pair: total,
-      total,
-      fee_total: settled,
-      purchase_total: round2(total - settled),
-      lines,
-      settled_forward_ids: forwards.map((f) => f.id),
-      settled_label_ids: labels.map((l) => l.id),
-      settled_items: settledItems(forwards, labels),
-      rompslomp_contact_id: String(invoice.contact_id),
-      invoice_id: String(invoice.id),
-      invoice_number: invoice.invoice_number,
-      invoice_date: invoice.date,
-      // Sent by Dario when he made it; not mailed again.
-      mailed_at: invoice.published_at || `${invoice.date}T12:00:00Z`,
-      status: "to_invoice",
-      buyer_payment_status: "open",
-      ...payout(partnerPaid)
-    }]);
-    return row;
-  }
-
-  /*
-   * A forward Dario invoiced by hand in Rompslomp before the dashboard could
-   * (FWD-000033, FWD-000034): the invoice is linked to the forward as its
-   * invoice, and the purchase and Voorraadcorrectie are booked for the total
-   * minus the forward's fee - no new invoice, no mail. A fee that another
-   * invoice already settled is not taken off again (feeSettledElsewhere).
-   */
-  async function importForward({ partner, forwardName, invoiceNumber, feeSettledElsewhere = false, feeTwice = false, partnerPaid = false }) {
-    const forwardNumber = Number(String(forwardName ?? "").replace(/\D/g, ""));
-    if (!Number.isInteger(forwardNumber) || forwardNumber < 1) throw new InvoiceError("Give the forward, e.g. FWD-000033.");
-
-    const [forward] = await db.get(`forwarding_log?select=*&forwarding_number=eq.${forwardNumber}&seller_record_id=eq.${encodeURIComponent(partner.sellerRecordId)}`);
-    if (!forward) throw new InvoiceError(`FWD-${String(forwardNumber).padStart(6, "0")} is not a forward of this partner.`);
-    const name = displayId(forward);
-    const [linked] = await db.get(`forward_invoices?select=id&forwarding_log_id=eq.${forward.id}`);
-    if (linked) throw new InvoiceError(`${name} already has its invoice here.`);
-
-    const invoice = await rompslomp.invoiceByNumber(invoiceNumber);
-    if (!invoice) throw new InvoiceError(`Rompslomp has no invoice ${text(invoiceNumber)} (looked through the newest 1,500).`);
-    const [already] = await db.get(`forward_invoices?select=id&invoice_id=eq.${encodeURIComponent(String(invoice.id))}`);
-    if (already) throw new InvoiceError(`Invoice ${invoice.invoice_number} is already booked here.`);
-
-    const pairs = (await db.get(`partner_stock?select=id,sku,size,product_name,forwarding_fee&forwarding_log_id=eq.${forward.id}&order=size.asc`)) || [];
-    if (!pairs.length) throw new InvoiceError(`${name} has no pairs to invoice.`);
-
-    const total = round2(invoice.price_with_vat);
-    const fee = round2(forwardMoney({ ...forward, shipping_costs: 0 }, pairs).fee);
-    const settledBy = text(forward.payment_note).startsWith("Settled in") ? text(forward.payment_note) : "";
-    // Settled elsewhere already: Dario says whether it was taken off this sale too
-    // (FWD-000034: it was, and the €100 is put right with the partner himself).
-    if (settledBy && !feeSettledElsewhere && !feeTwice) {
-      throw new InvoiceError(`${name}'s fee (${euro(fee)}) is already settled: "${settledBy}". Choose whether it was taken off this invoice's payout too.`);
-    }
-    const feeHere = settledBy && !feeTwice ? 0 : fee;
-    if (feeHere >= total) throw new InvoiceError(`The fee (${euro(feeHere)}) is not less than the invoice (${euro(total)}).`);
-
-    const [buyer] = await db.get(`buyers?select=id&rompslomp_contact_id=eq.${encodeURIComponent(String(invoice.contact_id))}`);
-    const first = pairs[0];
-
-    const [row] = await db.insert("forward_invoices", [{
-      kind: "forward",
-      forwarding_log_id: forward.id,
-      seller_record_id: partner.sellerRecordId,
-      seller_id: partner.sellerId,
-      buyer_id: buyer?.id || null,
-      sku: text(first.sku).toUpperCase(),
-      product_name: text(first.product_name) || null,
-      pair_count: pairs.length,
-      price_per_pair: round2(total / pairs.length),
-      total,
-      fee_total: feeHere,
-      purchase_total: round2(total - feeHere),
-      rompslomp_contact_id: String(invoice.contact_id),
-      invoice_id: String(invoice.id),
-      invoice_number: invoice.invoice_number,
-      invoice_date: invoice.date,
-      // Sent by Dario when he made it; not mailed again.
-      mailed_at: invoice.published_at || `${invoice.date}T12:00:00Z`,
-      status: "to_invoice",
-      buyer_payment_status: "open",
-      ...payout(partnerPaid)
-    }]);
-    return row;
-  }
-
-  // Paid to the partner before it was booked here (Dario paid by hand), or not yet.
-  const payout = (paid) => (paid
-    ? { partner_payout_status: "paid", partner_paid_at: now().toISOString(), partner_paid_note: "Paid before it was booked here" }
-    : { partner_payout_status: "waiting", partner_paid_at: null, partner_paid_note: null });
 
   /*
    * An invoice of its own (JXT-00004 and on) for a sale the partner made
@@ -606,7 +438,8 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       const external = row.kind === "external";
       const name = invoiceName(row, forward);
       if (!external && !forward) throw new InvoiceError("The forward is gone.");
-      // A buyer is needed to make and mail the invoice; one read in has both done.
+      // A buyer is needed to make and mail the invoice. JXT-00001 to -00003 and
+      // FWD-000033/34 were made by hand in Rompslomp and read in with both done.
       if (!buyer && !(row.invoice_id && row.mailed_at)) throw new InvoiceError("The invoice has no buyer.");
       if (!external && pairs.length !== row.pair_count) throw new InvoiceError(`The forward has ${pairs.length} pairs, the invoice ${row.pair_count}.`);
 
@@ -646,14 +479,11 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
         const sizes = external
           ? (row.lines || []).map((line) => line.sizes).filter(Boolean).join(", ")
           : [...new Set(pairs.map((p) => text(p.size)))].join(", ");
-        const product = external && text(row.product_name).startsWith("Invoice ")
-          ? `${name} · ${row.product_name}`
-          : external
+        const product = external
           ? (row.lines || []).map((line) => [line.sku, line.name].filter(Boolean).join(" ")).join(" + ")
           : `${row.sku} ${text(row.product_name)}`.trim();
         const booked = await purchases.book({
-          // A read-in invoice says itself what was in it; its line count is no pair count.
-          unit: { product_name: product, size: text(row.product_name).startsWith("Invoice ") ? sizes : `${row.pair_count} pairs${sizes ? ` (${sizes})` : ""}`, vat_type: ROUTE, price: row.purchase_total },
+          unit: { product_name: product, size: `${row.pair_count} pairs${sizes ? ` (${sizes})` : ""}`, vat_type: ROUTE, price: row.purchase_total },
           seller,
           deal: name,
           date: row.invoice_date
@@ -839,5 +669,5 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       : { partner_payout_status: row.buyer_payment_status === "paid" ? "to_pay" : "waiting", partner_paid_at: null, partner_paid_note: null });
   }
 
-  return { configured, open, openFees, openExternal, importExternal, importForward, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
+  return { configured, open, openFees, openExternal, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
 }

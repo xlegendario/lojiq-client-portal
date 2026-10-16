@@ -59,11 +59,6 @@ function setup({ failAt = null, priceWithVat = "240.0" } = {}) {
     async recentJournals() { return []; },
     async createJournal(body) { calls.push(["journal", body.journal_entry.lines[0].debit_amount]); return { id: 80 }; },
     async getInvoice() { return { payment_status: "paid" }; },
-    async invoiceByNumber(number) {
-      return number === "KC202610-2234"
-        ? { id: 714238889, invoice_number: "KC202610-2234", date: "2026-10-13", published_at: "2026-10-13T09:00:00Z", price_with_vat: "1675.0", contact_id: 1802742576, invoice_lines: [{ description: "JXT-00002", extended_description: "U9060PB 1x 36", price_per_unit: "1675.0", quantity: "1.0" }] }
-        : null;
-    },
     async pdf() { return Buffer.from("%PDF"); }
   };
   const purchases = {
@@ -279,121 +274,24 @@ test("a fee ticked on a JXT invoice still being made is not offered twice", asyn
   assert.deepEqual(fees.forwards, [], "FWD-000040 waits for the failed JXT invoice to be retried");
 });
 
-test("a JXT invoice already in Rompslomp: read in, not made or mailed again; purchase, correction and fees booked", async () => {
-  const { db, calls, mails, invoicing } = externalSetup();
-
-  await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-9999" }), /no invoice KC202610-9999/);
-
-  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234", settleForwardIds: ["fw1"] });
-  assert.equal(row.jxt_number, 2);
-  assert.equal(row.invoice_number, "KC202610-2234");
-  assert.equal(Number(row.total), 1675);
-  assert.equal(Number(row.purchase_total), 1671);
-  assert.equal(row.buyer_id, null, "no buyer of ours has that Rompslomp contact");
-
-  const done = await invoicing.run(row.id);
-  assert.equal(done.status, "invoiced");
-  assert.deepEqual(calls.map(([what]) => what), ["journal", "expense"], "no contact, no invoice");
-  assert.deepEqual(calls.at(-1), ["expense", 1671, "JXT-00002"]);
-  assert.equal(mails.length, 0, "Dario sent it himself");
-  assert.match(db.tables.forwarding_log[0].payment_note, /Settled in JXT-00002 \(invoice KC202610-2234\)/);
-
-  await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234" }), /JXT-00002 is already here/);
-  await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 3, invoiceNumber: "KC202610-2234" }), /already booked here/);
-});
-
-test("a forward already marked paid by hand can be settled in a JXT invoice: it stays paid and learns where", async () => {
-  const { db, invoicing } = externalSetup();
-  db.tables.forwarding_log.push({ id: "fw9", forwarding_number: 36, unit_forwarding_fee: 1, shipping_costs: 0, pair_count: 94, seller_record_id: "recJIMMY", payment_status: "paid", paid_at: "2026-10-16T06:57:12Z", payment_note: null, shipping_status: "shipped" });
-
-  const fees = await invoicing.openFees("recJIMMY");
-  assert.deepEqual(fees.paid_by_hand.map((f) => [f.name, f.amount]), [["FWD-000036", 94]]);
-  assert.ok(!fees.forwards.some((f) => f.id === "fw9"), "not among the open ones");
-
-  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234", settleForwardIds: ["fw9"] });
-  assert.equal(Number(row.fee_total), 94);
-  await invoicing.run(row.id);
-
-  const fw = db.tables.forwarding_log.find((f) => f.id === "fw9");
-  assert.equal(fw.paid_at, "2026-10-16T06:57:12Z", "its own paid date stays");
-  assert.match(fw.payment_note, /Settled in JXT-00002/);
-  assert.equal((await invoicing.openFees("recJIMMY")).paid_by_hand.length, 0, "not offered again");
-});
-
-test("a label already marked paid by hand can be settled too, and keeps its paid date", async () => {
-  const { db, invoicing } = externalSetup();
-  Object.assign(db.tables.partner_labels[0], { payment_status: "paid", paid_at: "2026-10-16T06:57:12Z" });
-
-  const fees = await invoicing.openFees("recJIMMY");
-  assert.deepEqual(fees.labels_paid_by_hand.map((l) => [l.name, l.amount]), [["LBL-000002", 7.5]]);
-
-  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234", settleLabelIds: ["l1"] });
-  assert.equal(Number(row.fee_total), 7.5);
-  await invoicing.run(row.id);
-  assert.equal(db.tables.partner_labels[0].paid_at, "2026-10-16T06:57:12Z");
-  assert.equal((await invoicing.openFees("recJIMMY")).labels_paid_by_hand.length, 0);
-});
-
-test("the JXT number may be typed as JXT-00002", async () => {
-  const { invoicing } = externalSetup();
-  const row = await invoicing.importExternal({ partner, jxtNumber: "JXT-00002", invoiceNumber: "KC202610-2234" });
-  assert.equal(row.jxt_number, 2);
-});
-
-test("a forward invoiced by hand in Rompslomp: linked to the forward, purchase and correction for total minus its fee", async () => {
-  const { db, calls, mails, invoicing } = externalSetup();
-
-  const row = await invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234" });
-  assert.equal(row.kind, "forward");
-  assert.equal(row.forwarding_log_id, "fw1");
-  assert.equal(Number(row.fee_total), 4);
-  assert.equal(Number(row.purchase_total), 1671);
-
-  await invoicing.run(row.id);
-  assert.deepEqual(calls.map(([what]) => what), ["journal", "expense"]);
-  assert.deepEqual(calls.at(-1), ["expense", 1671, "FWD-000040"]);
-  assert.equal(mails.length, 0);
-  assert.equal(db.tables.forwarding_log[0].payment_status, "paid");
-  assert.match(db.tables.forwarding_log[0].payment_note, /KC202610-2234/);
-
-  await assert.rejects(invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234" }), /already has its invoice/);
-});
-
-test("a forward whose fee another invoice already settled: refused, unless booked without taking it off again", async () => {
-  const { db, invoicing } = externalSetup();
-  Object.assign(db.tables.forwarding_log[0], { payment_status: "paid", paid_at: "2026-10-16T06:57:09Z", payment_note: "Settled in JXT-00003 (invoice KC202610-2267)" });
-
-  await assert.rejects(invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234" }), /already settled/);
-
-  const row = await invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234", feeSettledElsewhere: true });
-  assert.equal(Number(row.fee_total), 0);
-  assert.equal(Number(row.purchase_total), 1675);
-  await invoicing.run(row.id);
-  assert.equal(db.tables.forwarding_log[0].payment_note, "Settled in JXT-00003 (invoice KC202610-2267)", "its note stays");
-  assert.equal(db.tables.forwarding_log[0].paid_at, "2026-10-16T06:57:09Z");
-});
-
-test("a forward whose fee was settled elsewhere and taken off this payout too: booked with the fee off, partner already paid", async () => {
-  const { db, invoicing } = externalSetup();
-  Object.assign(db.tables.forwarding_log[0], { payment_status: "paid", paid_at: "2026-10-16T06:57:09Z", payment_note: "Settled in JXT-00003 (invoice KC202610-2267)" });
-
-  const row = await invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234", feeTwice: true, partnerPaid: true });
-  assert.equal(Number(row.purchase_total), 1671);
-  assert.equal(row.partner_payout_status, "paid");
-
-  await invoicing.run(row.id);
-  await invoicing.sweep();
-  const after = db.tables.forward_invoices.find((r) => r.id === row.id);
-  assert.equal(after.buyer_payment_status, "paid");
-  assert.equal(after.partner_payout_status, "paid", "the buyer paying later does not undo a payout already made");
-});
-
 test("the partner can be marked paid before the buyer paid, only when Dario says so", async () => {
   const { invoicing } = externalSetup();
-  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234" });
+  const row = await invoicing.openExternal({ partner, buyerId: "b1", lines: jxtLines });
   await invoicing.run(row.id);
 
   await assert.rejects(invoicing.setPartnerPaid(row.id, true), /not paid yet/);
   const paid = await invoicing.setPartnerPaid(row.id, true, "", { early: true });
   assert.equal(paid.partner_payout_status, "paid");
+});
+
+test("a payout made before the buyer paid stays paid when the buyer pays", async () => {
+  const { db, invoicing } = externalSetup();
+  const row = await invoicing.openExternal({ partner, buyerId: "b1", lines: jxtLines });
+  await invoicing.run(row.id);
+  await invoicing.setPartnerPaid(row.id, true, "", { early: true });
+
+  await invoicing.sweep();
+  const after = db.tables.forward_invoices.find((r) => r.id === row.id);
+  assert.equal(after.buyer_payment_status, "paid");
+  assert.equal(after.partner_payout_status, "paid");
 });

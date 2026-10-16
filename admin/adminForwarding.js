@@ -568,52 +568,6 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
       }
     });
 
-    // JXT-00001 to -00003, made by hand in Rompslomp: booked here without a new invoice or mail.
-    router.post("/api/admin/partner-invoices/import", express.json({ limit: "20kb" }), async (req, res) => {
-      try {
-        const seller = text(req.body?.seller_record_id);
-        const partner = (await partnerList()).find((p) => p.seller_record_id === seller);
-        if (!partner) return res.status(400).json({ error: "Choose the partner." });
-
-        const who = { sellerRecordId: partner.seller_record_id, sellerId: partner.seller_id };
-        // "FWD-000033": a forward invoiced by hand; anything else is a JXT number.
-        const forForward = /^\s*fwd/i.test(text(req.body?.jxt_number));
-        const opened = forForward
-          ? await invoicing.importForward({
-              partner: who,
-              forwardName: req.body?.jxt_number,
-              invoiceNumber: req.body?.invoice_number,
-              feeSettledElsewhere: req.body?.fee_mode === "elsewhere",
-              feeTwice: req.body?.fee_mode === "twice",
-              partnerPaid: req.body?.partner_paid === true
-            })
-          : await invoicing.importExternal({
-              partner: who,
-              jxtNumber: req.body?.jxt_number,
-              invoiceNumber: req.body?.invoice_number,
-              settleForwardIds: req.body?.settle_forward_ids,
-              settleLabelIds: req.body?.settle_label_ids,
-              partnerPaid: req.body?.partner_paid === true
-            });
-
-        const name = forForward ? displayId(await store.get(opened.forwarding_log_id)) : invoiceName(opened);
-        await audit.record({
-          actor: req.admin,
-          action: "partner_invoice_import",
-          source: "partner_invoices",
-          recordId: opened.id,
-          label: name,
-          details: { invoice: opened.invoice_number, total: opened.total, settled: opened.fee_total, partner_gets: opened.purchase_total }
-        });
-
-        const after = await invoicing.run(opened.id).catch(async (err) => ({ ...(await invoicing.load(opened.id)).row, failed: err.message }));
-        res.json({ invoice: { ...after, display_id: name } });
-      } catch (err) {
-        if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
-        send(res, err);
-      }
-    });
-
     router.get("/api/admin/forwarding/invoice-pdf", async (req, res) => {
       try {
         const { row } = await invoicing.load(text(req.query.id));
