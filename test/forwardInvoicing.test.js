@@ -339,3 +339,36 @@ test("the JXT number may be typed as JXT-00002", async () => {
   const row = await invoicing.importExternal({ partner, jxtNumber: "JXT-00002", invoiceNumber: "KC202610-2234" });
   assert.equal(row.jxt_number, 2);
 });
+
+test("a forward invoiced by hand in Rompslomp: linked to the forward, purchase and correction for total minus its fee", async () => {
+  const { db, calls, mails, invoicing } = externalSetup();
+
+  const row = await invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234" });
+  assert.equal(row.kind, "forward");
+  assert.equal(row.forwarding_log_id, "fw1");
+  assert.equal(Number(row.fee_total), 4);
+  assert.equal(Number(row.purchase_total), 1671);
+
+  await invoicing.run(row.id);
+  assert.deepEqual(calls.map(([what]) => what), ["journal", "expense"]);
+  assert.deepEqual(calls.at(-1), ["expense", 1671, "FWD-000040"]);
+  assert.equal(mails.length, 0);
+  assert.equal(db.tables.forwarding_log[0].payment_status, "paid");
+  assert.match(db.tables.forwarding_log[0].payment_note, /KC202610-2234/);
+
+  await assert.rejects(invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234" }), /already has its invoice/);
+});
+
+test("a forward whose fee another invoice already settled: refused, unless booked without taking it off again", async () => {
+  const { db, invoicing } = externalSetup();
+  Object.assign(db.tables.forwarding_log[0], { payment_status: "paid", paid_at: "2026-10-16T06:57:09Z", payment_note: "Settled in JXT-00003 (invoice KC202610-2267)" });
+
+  await assert.rejects(invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234" }), /already settled/);
+
+  const row = await invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234", feeSettledElsewhere: true });
+  assert.equal(Number(row.fee_total), 0);
+  assert.equal(Number(row.purchase_total), 1675);
+  await invoicing.run(row.id);
+  assert.equal(db.tables.forwarding_log[0].payment_note, "Settled in JXT-00003 (invoice KC202610-2267)", "its note stays");
+  assert.equal(db.tables.forwarding_log[0].paid_at, "2026-10-16T06:57:09Z");
+});

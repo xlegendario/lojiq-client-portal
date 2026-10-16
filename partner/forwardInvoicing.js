@@ -434,6 +434,69 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
   }
 
   /*
+   * A forward Dario invoiced by hand in Rompslomp before the dashboard could
+   * (FWD-000033, FWD-000034): the invoice is linked to the forward as its
+   * invoice, and the purchase and Voorraadcorrectie are booked for the total
+   * minus the forward's fee - no new invoice, no mail. A fee that another
+   * invoice already settled is not taken off again (feeSettledElsewhere).
+   */
+  async function importForward({ partner, forwardName, invoiceNumber, feeSettledElsewhere = false }) {
+    const forwardNumber = Number(String(forwardName ?? "").replace(/\D/g, ""));
+    if (!Number.isInteger(forwardNumber) || forwardNumber < 1) throw new InvoiceError("Give the forward, e.g. FWD-000033.");
+
+    const [forward] = await db.get(`forwarding_log?select=*&forwarding_number=eq.${forwardNumber}&seller_record_id=eq.${encodeURIComponent(partner.sellerRecordId)}`);
+    if (!forward) throw new InvoiceError(`FWD-${String(forwardNumber).padStart(6, "0")} is not a forward of this partner.`);
+    const name = displayId(forward);
+    const [linked] = await db.get(`forward_invoices?select=id&forwarding_log_id=eq.${forward.id}`);
+    if (linked) throw new InvoiceError(`${name} already has its invoice here.`);
+
+    const invoice = await rompslomp.invoiceByNumber(invoiceNumber);
+    if (!invoice) throw new InvoiceError(`Rompslomp has no invoice ${text(invoiceNumber)} (looked through the newest 1,500).`);
+    const [already] = await db.get(`forward_invoices?select=id&invoice_id=eq.${encodeURIComponent(String(invoice.id))}`);
+    if (already) throw new InvoiceError(`Invoice ${invoice.invoice_number} is already booked here.`);
+
+    const pairs = (await db.get(`partner_stock?select=id,sku,size,product_name,forwarding_fee&forwarding_log_id=eq.${forward.id}&order=size.asc`)) || [];
+    if (!pairs.length) throw new InvoiceError(`${name} has no pairs to invoice.`);
+
+    const total = round2(invoice.price_with_vat);
+    const fee = round2(forwardMoney({ ...forward, shipping_costs: 0 }, pairs).fee);
+    const settledBy = text(forward.payment_note).startsWith("Settled in") ? text(forward.payment_note) : "";
+    if (settledBy && !feeSettledElsewhere) {
+      throw new InvoiceError(`${name}'s fee (${euro(fee)}) is already settled: "${settledBy}". Tick "fee settled in another invoice" to book this one without taking it off again.`);
+    }
+    const feeHere = settledBy ? 0 : fee;
+    if (feeHere >= total) throw new InvoiceError(`The fee (${euro(feeHere)}) is not less than the invoice (${euro(total)}).`);
+
+    const [buyer] = await db.get(`buyers?select=id&rompslomp_contact_id=eq.${encodeURIComponent(String(invoice.contact_id))}`);
+    const first = pairs[0];
+
+    const [row] = await db.insert("forward_invoices", [{
+      kind: "forward",
+      forwarding_log_id: forward.id,
+      seller_record_id: partner.sellerRecordId,
+      seller_id: partner.sellerId,
+      buyer_id: buyer?.id || null,
+      sku: text(first.sku).toUpperCase(),
+      product_name: text(first.product_name) || null,
+      pair_count: pairs.length,
+      price_per_pair: round2(total / pairs.length),
+      total,
+      fee_total: feeHere,
+      purchase_total: round2(total - feeHere),
+      rompslomp_contact_id: String(invoice.contact_id),
+      invoice_id: String(invoice.id),
+      invoice_number: invoice.invoice_number,
+      invoice_date: invoice.date,
+      // Sent by Dario when he made it; not mailed again.
+      mailed_at: invoice.published_at || `${invoice.date}T12:00:00Z`,
+      status: "to_invoice",
+      buyer_payment_status: "open",
+      partner_payout_status: "waiting"
+    }]);
+    return row;
+  }
+
+  /*
    * An invoice of its own (JXT-00004 and on) for a sale the partner made
    * outside our forwards. The amounts settled are worked out here again from
    * what is still open, never taken from the page.
@@ -597,10 +660,12 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
         const forwardIds = external ? row.settled_forward_ids || [] : [forward.id];
         for (const forwardId of forwardIds) {
           const note = external ? `Settled in ${name} (invoice ${row.invoice_number})` : `Settled in invoice ${row.invoice_number}`;
-          const [current] = await db.get(`forwarding_log?select=id,payment_status&id=eq.${forwardId}`);
-          // Marked paid by hand already: it keeps its date and only learns where.
-          if (external && current?.payment_status === "paid") await db.patch(`forwarding_log?id=eq.${forwardId}`, { payment_note: note });
-          else await db.patch(`forwarding_log?id=eq.${forwardId}`, { payment_status: "paid", paid_at: now().toISOString(), payment_note: note });
+          const [current] = await db.get(`forwarding_log?select=id,payment_status,payment_note&id=eq.${forwardId}`);
+          // Paid already (by hand, or settled in another invoice): it keeps its
+          // date, and a note it has; one without a note learns where.
+          if (current?.payment_status === "paid") {
+            if (!text(current.payment_note)) await db.patch(`forwarding_log?id=eq.${forwardId}`, { payment_note: note });
+          } else await db.patch(`forwarding_log?id=eq.${forwardId}`, { payment_status: "paid", paid_at: now().toISOString(), payment_note: note });
         }
         for (const labelId of external ? row.settled_label_ids || [] : []) {
           // One already marked paid by hand keeps its date.
@@ -765,5 +830,5 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       : { partner_payout_status: row.buyer_payment_status === "paid" ? "to_pay" : "waiting", partner_paid_at: null, partner_paid_note: null });
   }
 
-  return { configured, open, openFees, openExternal, importExternal, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
+  return { configured, open, openFees, openExternal, importExternal, importForward, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
 }

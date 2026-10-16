@@ -575,15 +575,20 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
         const partner = (await partnerList()).find((p) => p.seller_record_id === seller);
         if (!partner) return res.status(400).json({ error: "Choose the partner." });
 
-        const opened = await invoicing.importExternal({
-          partner: { sellerRecordId: partner.seller_record_id, sellerId: partner.seller_id },
-          jxtNumber: req.body?.jxt_number,
-          invoiceNumber: req.body?.invoice_number,
-          settleForwardIds: req.body?.settle_forward_ids,
-          settleLabelIds: req.body?.settle_label_ids
-        });
+        const who = { sellerRecordId: partner.seller_record_id, sellerId: partner.seller_id };
+        // "FWD-000033": a forward invoiced by hand; anything else is a JXT number.
+        const forForward = /^\s*fwd/i.test(text(req.body?.jxt_number));
+        const opened = forForward
+          ? await invoicing.importForward({ partner: who, forwardName: req.body?.jxt_number, invoiceNumber: req.body?.invoice_number, feeSettledElsewhere: req.body?.fee_settled_elsewhere === true })
+          : await invoicing.importExternal({
+              partner: who,
+              jxtNumber: req.body?.jxt_number,
+              invoiceNumber: req.body?.invoice_number,
+              settleForwardIds: req.body?.settle_forward_ids,
+              settleLabelIds: req.body?.settle_label_ids
+            });
 
-        const name = invoiceName(opened);
+        const name = forForward ? displayId(await store.get(opened.forwarding_log_id)) : invoiceName(opened);
         await audit.record({
           actor: req.admin,
           action: "partner_invoice_import",
