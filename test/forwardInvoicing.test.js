@@ -301,3 +301,35 @@ test("a JXT invoice already in Rompslomp: read in, not made or mailed again; pur
   await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234" }), /JXT-00002 is already here/);
   await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 3, invoiceNumber: "KC202610-2234" }), /already booked here/);
 });
+
+test("a forward already marked paid by hand can be settled in a JXT invoice: it stays paid and learns where", async () => {
+  const { db, invoicing } = externalSetup();
+  db.tables.forwarding_log.push({ id: "fw9", forwarding_number: 36, unit_forwarding_fee: 1, shipping_costs: 0, pair_count: 94, seller_record_id: "recJIMMY", payment_status: "paid", paid_at: "2026-10-16T06:57:12Z", payment_note: null, shipping_status: "shipped" });
+
+  const fees = await invoicing.openFees("recJIMMY");
+  assert.deepEqual(fees.paid_by_hand.map((f) => [f.name, f.amount]), [["FWD-000036", 94]]);
+  assert.ok(!fees.forwards.some((f) => f.id === "fw9"), "not among the open ones");
+
+  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234", settleForwardIds: ["fw9"] });
+  assert.equal(Number(row.fee_total), 94);
+  await invoicing.run(row.id);
+
+  const fw = db.tables.forwarding_log.find((f) => f.id === "fw9");
+  assert.equal(fw.paid_at, "2026-10-16T06:57:12Z", "its own paid date stays");
+  assert.match(fw.payment_note, /Settled in JXT-00002/);
+  assert.equal((await invoicing.openFees("recJIMMY")).paid_by_hand.length, 0, "not offered again");
+});
+
+test("a label already marked paid by hand can be settled too, and keeps its paid date", async () => {
+  const { db, invoicing } = externalSetup();
+  Object.assign(db.tables.partner_labels[0], { payment_status: "paid", paid_at: "2026-10-16T06:57:12Z" });
+
+  const fees = await invoicing.openFees("recJIMMY");
+  assert.deepEqual(fees.labels_paid_by_hand.map((l) => [l.name, l.amount]), [["LBL-000002", 7.5]]);
+
+  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234", settleLabelIds: ["l1"] });
+  assert.equal(Number(row.fee_total), 7.5);
+  await invoicing.run(row.id);
+  assert.equal(db.tables.partner_labels[0].paid_at, "2026-10-16T06:57:12Z");
+  assert.equal((await invoicing.openFees("recJIMMY")).labels_paid_by_hand.length, 0);
+});

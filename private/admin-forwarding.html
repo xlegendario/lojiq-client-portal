@@ -1745,7 +1745,25 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         ...inv.fees.forwards.map((f) => feeRow("forward", f, `${f.date ? dayFmt.format(new Date(f.date)) : ""} · ${f.pairs} pair(s) · ${STATUS[f.shipping_status]?.[0] || f.shipping_status}`)),
         ...inv.fees.labels.map((l) => feeRow("label", l, `Label · ${l.carrier}`))
       ];
-      $("invFees").innerHTML = rows.length ? rows.join("") : `<span class="sub">Nothing open: every fee of this partner is paid.</span>`;
+      // Fees already marked paid by hand: tick only the ones this invoice settled; they stay paid.
+      // Grouped by the day they were marked paid, with "Tick all" per day.
+      const handItems = [
+        ...(inv.fees.paid_by_hand || []).map((f) => ({ kind: "forward", item: f, sub: `${f.pairs} pair(s)` })),
+        ...(inv.fees.labels_paid_by_hand || []).map((l) => ({ kind: "label", item: l, sub: `Label · ${l.carrier}` }))
+      ];
+      const days = new Map();
+      for (const entry of handItems) {
+        const day = entry.item.paid_at ? dayFmt.format(new Date(entry.item.paid_at)) : "";
+        if (!days.has(day)) days.set(day, []);
+        days.get(day).push(entry);
+      }
+      const byHand = [...days.entries()].sort(([a], [b]) => b.split("-").reverse().join("").localeCompare(a.split("-").reverse().join(""))).map(([day, list]) => {
+        const sum = list.reduce((total, entry) => total + Number(entry.item.amount), 0);
+        return `<div class="sub hand-day" style="margin-top:8px"><strong>Paid by hand ${esc(day)}</strong> · ${euro(sum)} <button class="act" type="button" data-tick-day="${esc(day)}">Tick all</button></div>` +
+          list.map((entry) => feeRow(entry.kind, entry.item, entry.sub).replace("<input ", `<input data-paid-day="${esc(day)}" `)).join("");
+      });
+      $("invFees").innerHTML = (rows.length ? rows.join("") : `<span class="sub">Nothing open: every fee of this partner is paid.</span>`) +
+        (byHand.length ? `<div class="sub" style="margin-top:10px"><strong>Already marked paid by hand</strong> - tick only the ones settled in this invoice; they stay paid.</div>${byHand.join("")}` : "");
       drawInvoiceSum();
     }
 
@@ -1761,6 +1779,14 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     });
 
     $("invPartner").addEventListener("change", fillInvoiceSetup);
+    $("invFees").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-tick-day]");
+      if (!button) return;
+      const boxes = [...document.querySelectorAll("#invFees input[data-paid-day]")].filter((box) => box.dataset.paidDay === button.dataset.tickDay);
+      const all = boxes.every((box) => box.checked);
+      boxes.forEach((box) => { box.checked = !all; });
+      drawInvoiceSum();
+    });
     $("invBuyer").addEventListener("change", () => { $("invNewBuyer").hidden = $("invBuyer").value !== "__new"; });
     $("invAddLine").addEventListener("click", () => { $("invLines").insertAdjacentHTML("beforeend", lineRow()); });
     $("invLines").addEventListener("click", (event) => {

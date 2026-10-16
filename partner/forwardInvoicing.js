@@ -294,6 +294,24 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     const takenForwards = new Set(pending.flatMap((row) => row.settled_forward_ids || []));
     const takenLabels = new Set(pending.flatMap((row) => row.settled_label_ids || []));
 
+    /*
+     * Forwards Dario marked paid by hand (no note) in the last 60 days, before
+     * the invoice that settled them was booked here (JXT-00003, 16-10-2026).
+     * Ticking one only writes down where it was settled; it stays paid.
+     */
+    const since = new Date(now().getTime() - 60 * 86_400_000).toISOString();
+    const byHand = (await db.get(`forwarding_log?select=*&seller_record_id=eq.${seller}&payment_status=eq.paid&payment_note=is.null&paid_at=gte.${since}&order=forwarding_number.asc&limit=500`).catch(() => [])) || [];
+    const settledBefore = (await db.get(`forward_invoices?select=settled_forward_ids,settled_label_ids&kind=eq.external&seller_record_id=eq.${seller}`).catch(() => [])) || [];
+    const everSettled = new Set(settledBefore.flatMap((row) => row.settled_forward_ids || []));
+    const everSettledLabels = new Set(settledBefore.flatMap((row) => row.settled_label_ids || []));
+    const labelsByHand = ((await db.get(`partner_labels?select=id,label_number,carrier,price,paid_at&seller_record_id=eq.${seller}&status=eq.created&payment_status=eq.paid&paid_at=gte.${since}`).catch(() => [])) || [])
+      .filter((l) => !everSettledLabels.has(l.id) && l.price !== null && l.price !== undefined);
+    const handIds = byHand.map((f) => f.id).filter((id) => !everSettled.has(id));
+    for (let i = 0; i < handIds.length; i += 50) {
+      const list = handIds.slice(i, i + 50).map((id) => `"${id}"`).join(",");
+      pairs.push(...((await db.get(`partner_stock?select=forwarding_log_id,forwarding_fee&forwarding_log_id=in.(${list})&limit=5000`)) || []));
+    }
+
     const labels = (await db.get(`partner_labels?select=id,label_number,carrier,price,payment_status,status,created_at&seller_record_id=eq.${seller}&status=eq.created&payment_status=neq.paid`).catch(() => [])) || [];
 
     return {
@@ -307,6 +325,26 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
           shipping_status: f.shipping_status,
           amount: forwardMoney(f, pairs.filter((p) => p.forwarding_log_id === f.id)).payable
         })),
+      paid_by_hand: byHand
+        .filter((f) => handIds.includes(f.id))
+        .map((f) => ({
+          id: f.id,
+          name: displayId(f),
+          date: f.forwarding_date || text(f.created_at).slice(0, 10),
+          paid_at: f.paid_at,
+          pairs: Number(f.pair_count) || 0,
+          shipping_status: f.shipping_status,
+          amount: forwardMoney(f, pairs.filter((p) => p.forwarding_log_id === f.id)).payable,
+          already_paid: true
+        })),
+      labels_paid_by_hand: labelsByHand.map((l) => ({
+        id: l.id,
+        name: `LBL-${String(l.label_number ?? "").padStart(6, "0")}`,
+        paid_at: l.paid_at,
+        carrier: l.carrier,
+        amount: round2(l.price),
+        already_paid: true
+      })),
       labels: labels
         .filter((l) => l.price !== null && l.price !== undefined && !takenLabels.has(l.id))
         .map((l) => ({ id: l.id, name: `LBL-${String(l.label_number ?? "").padStart(6, "0")}`, date: text(l.created_at).slice(0, 10), carrier: l.carrier, amount: round2(l.price) }))
@@ -322,8 +360,8 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       if (found.some((item) => !item)) throw new InvoiceError("A fee you ticked is not open any more. Reload and tick again.");
       return found;
     };
-    const forwards = pick(open.forwards, forwardIds);
-    const labels = pick(open.labels, labelIds);
+    const forwards = pick([...open.forwards, ...(open.paid_by_hand || [])], forwardIds);
+    const labels = pick([...open.labels, ...(open.labels_paid_by_hand || [])], labelIds);
     const settled = round2([...forwards, ...labels].reduce((sum, item) => sum + item.amount, 0));
     if (settled >= total) throw new InvoiceError(`The fees you ticked (${euro(settled)}) are not less than the invoice (${euro(total)}).`);
     return { forwards, labels, settled };
@@ -331,8 +369,8 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
 
   // What was settled, by name and amount, as it stood when booked.
   const settledItems = (forwards, labels) => [
-    ...forwards.map((f) => ({ kind: "forward", id: f.id, name: f.name, amount: f.amount })),
-    ...labels.map((l) => ({ kind: "label", id: l.id, name: l.name, amount: l.amount }))
+    ...forwards.map((f) => ({ kind: "forward", id: f.id, name: f.name, amount: f.amount, ...(f.already_paid ? { already_paid: true } : {}) })),
+    ...labels.map((l) => ({ kind: "label", id: l.id, name: l.name, amount: l.amount, ...(l.already_paid ? { already_paid: true } : {}) }))
   ];
 
   /*
@@ -556,14 +594,18 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
         // A forward's own fee, or every fee Dario ticked on an external one.
         const forwardIds = external ? row.settled_forward_ids || [] : [forward.id];
         for (const forwardId of forwardIds) {
-          await db.patch(`forwarding_log?id=eq.${forwardId}`, {
-            payment_status: "paid",
-            paid_at: now().toISOString(),
-            payment_note: external ? `Settled in ${name} (invoice ${row.invoice_number})` : `Settled in invoice ${row.invoice_number}`
-          });
+          const note = external ? `Settled in ${name} (invoice ${row.invoice_number})` : `Settled in invoice ${row.invoice_number}`;
+          const [current] = await db.get(`forwarding_log?select=id,payment_status&id=eq.${forwardId}`);
+          // Marked paid by hand already: it keeps its date and only learns where.
+          if (external && current?.payment_status === "paid") await db.patch(`forwarding_log?id=eq.${forwardId}`, { payment_note: note });
+          else await db.patch(`forwarding_log?id=eq.${forwardId}`, { payment_status: "paid", paid_at: now().toISOString(), payment_note: note });
         }
         for (const labelId of external ? row.settled_label_ids || [] : []) {
-          await db.patch(`partner_labels?id=eq.${labelId}`, { payment_status: "paid", paid_at: now().toISOString(), updated_at: now().toISOString() });
+          // One already marked paid by hand keeps its date.
+          const [current] = await db.get(`partner_labels?select=id,payment_status&id=eq.${labelId}`);
+          if (current?.payment_status !== "paid") {
+            await db.patch(`partner_labels?id=eq.${labelId}`, { payment_status: "paid", paid_at: now().toISOString(), updated_at: now().toISOString() });
+          }
         }
         row = await save(id, { fee_settled_at: now().toISOString() });
       }
