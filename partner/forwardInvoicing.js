@@ -379,7 +379,7 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
    * purchase, the Voorraadcorrectie and the settled fees are booked like any
    * other. Its lines are the invoice's own.
    */
-  async function importExternal({ partner, jxtNumber, invoiceNumber, settleForwardIds = [], settleLabelIds = [] }) {
+  async function importExternal({ partner, jxtNumber, invoiceNumber, settleForwardIds = [], settleLabelIds = [], partnerPaid = false }) {
     // "JXT-00001", "00001" or 1 alike.
     const number = Number(String(jxtNumber ?? "").replace(/\D/g, ""));
     if (!Number.isInteger(number) || number < 1) throw new InvoiceError("Give the JXT number, e.g. 1 for JXT-00001.");
@@ -428,7 +428,7 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       mailed_at: invoice.published_at || `${invoice.date}T12:00:00Z`,
       status: "to_invoice",
       buyer_payment_status: "open",
-      partner_payout_status: "waiting"
+      ...payout(partnerPaid)
     }]);
     return row;
   }
@@ -440,7 +440,7 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
    * minus the forward's fee - no new invoice, no mail. A fee that another
    * invoice already settled is not taken off again (feeSettledElsewhere).
    */
-  async function importForward({ partner, forwardName, invoiceNumber, feeSettledElsewhere = false }) {
+  async function importForward({ partner, forwardName, invoiceNumber, feeSettledElsewhere = false, feeTwice = false, partnerPaid = false }) {
     const forwardNumber = Number(String(forwardName ?? "").replace(/\D/g, ""));
     if (!Number.isInteger(forwardNumber) || forwardNumber < 1) throw new InvoiceError("Give the forward, e.g. FWD-000033.");
 
@@ -461,10 +461,12 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     const total = round2(invoice.price_with_vat);
     const fee = round2(forwardMoney({ ...forward, shipping_costs: 0 }, pairs).fee);
     const settledBy = text(forward.payment_note).startsWith("Settled in") ? text(forward.payment_note) : "";
-    if (settledBy && !feeSettledElsewhere) {
-      throw new InvoiceError(`${name}'s fee (${euro(fee)}) is already settled: "${settledBy}". Tick "fee settled in another invoice" to book this one without taking it off again.`);
+    // Settled elsewhere already: Dario says whether it was taken off this sale too
+    // (FWD-000034: it was, and the €100 is put right with the partner himself).
+    if (settledBy && !feeSettledElsewhere && !feeTwice) {
+      throw new InvoiceError(`${name}'s fee (${euro(fee)}) is already settled: "${settledBy}". Choose whether it was taken off this invoice's payout too.`);
     }
-    const feeHere = settledBy ? 0 : fee;
+    const feeHere = settledBy && !feeTwice ? 0 : fee;
     if (feeHere >= total) throw new InvoiceError(`The fee (${euro(feeHere)}) is not less than the invoice (${euro(total)}).`);
 
     const [buyer] = await db.get(`buyers?select=id&rompslomp_contact_id=eq.${encodeURIComponent(String(invoice.contact_id))}`);
@@ -491,10 +493,15 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       mailed_at: invoice.published_at || `${invoice.date}T12:00:00Z`,
       status: "to_invoice",
       buyer_payment_status: "open",
-      partner_payout_status: "waiting"
+      ...payout(partnerPaid)
     }]);
     return row;
   }
+
+  // Paid to the partner before it was booked here (Dario paid by hand), or not yet.
+  const payout = (paid) => (paid
+    ? { partner_payout_status: "paid", partner_paid_at: now().toISOString(), partner_paid_note: "Paid before it was booked here" }
+    : { partner_payout_status: "waiting", partner_paid_at: null, partner_paid_note: null });
 
   /*
    * An invoice of its own (JXT-00004 and on) for a sale the partner made
@@ -711,11 +718,12 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       await run(row.id).catch(() => {});
     }
 
-    for (const row of await db.get("forward_invoices?select=id,invoice_id,invoice_number&status=eq.invoiced&buyer_payment_status=eq.open&limit=200")) {
+    for (const row of await db.get("forward_invoices?select=id,invoice_id,invoice_number,partner_payout_status&status=eq.invoiced&buyer_payment_status=eq.open&limit=200")) {
       try {
         const invoice = await rompslomp.getInvoice(row.invoice_id);
         if (invoice?.payment_status === "paid") {
-          await save(row.id, { buyer_payment_status: "paid", buyer_paid_at: now().toISOString(), partner_payout_status: "to_pay" });
+          // A partner paid before the buyer paid us stays paid.
+          await save(row.id, { buyer_payment_status: "paid", buyer_paid_at: now().toISOString(), partner_payout_status: row.partner_payout_status === "paid" ? "paid" : "to_pay" });
           console.log(`[forward-invoice] ${row.invoice_number} paid by the buyer; partner payout is due`);
         }
       } catch (err) {
@@ -821,9 +829,10 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     return run(id);
   }
 
-  async function setPartnerPaid(id, paid, note = "") {
+  // early: Dario paid the partner before the buyer paid us (he says so first).
+  async function setPartnerPaid(id, paid, note = "", { early = false } = {}) {
     const { row } = await load(id);
-    if (paid && row.partner_payout_status === "waiting") throw new InvoiceError("The buyer has not paid yet, so the partner is not owed anything yet.");
+    if (paid && row.partner_payout_status === "waiting" && !early) throw new InvoiceError("The buyer has not paid yet, so the partner is not owed anything yet.");
 
     return save(id, paid
       ? { partner_payout_status: "paid", partner_paid_at: now().toISOString(), partner_paid_note: text(note) || null }

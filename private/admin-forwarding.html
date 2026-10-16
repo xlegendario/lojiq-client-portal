@@ -439,7 +439,12 @@
       <div id="invImportFields" class="addr-grid" hidden>
         <input class="input" id="invJxt" placeholder="JXT-00001, or a forward: FWD-000033">
         <input class="input" id="invNumber" placeholder="Rompslomp invoice, e.g. KC202610-2196">
-        <label class="fee-row wide" id="invElsewhereRow" hidden><input type="checkbox" id="invElsewhere"> <span>The forward's fee was settled in another invoice - book this one without taking the fee off again</span></label>
+        <select class="select wide" id="invFeeMode" hidden>
+          <option value="normal">Take the forward's fee off this invoice (normal)</option>
+          <option value="elsewhere">Its fee was settled in another invoice: don't take it off again</option>
+          <option value="twice">Its fee was settled elsewhere AND taken off this payout too: take it off anyway</option>
+        </select>
+        <label class="fee-row wide"><input type="checkbox" id="invPartnerPaid"> <span>The partner is already paid for this (paid by hand)</span></label>
       </div>
 
       <div class="field" id="invBuyerField">
@@ -1493,6 +1498,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       const actions = [
         inv.status === "failed" ? `<button class="act" type="button" data-inv-action="retry" data-inv-id="${esc(inv.id)}">Retry</button>` : "",
         inv.partner_payout_status === "to_pay" ? `<button class="act" type="button" data-inv-action="paid" data-inv-id="${esc(inv.id)}">Mark paid to partner</button>` : "",
+        inv.status === "invoiced" && inv.partner_payout_status === "waiting" ? `<button class="act" type="button" data-inv-action="paid-early" data-inv-id="${esc(inv.id)}">Already paid to partner</button>` : "",
         inv.partner_payout_status === "paid" ? `<button class="act" type="button" data-inv-action="unpaid" data-inv-id="${esc(inv.id)}">Mark not paid</button>` : ""
       ].join("");
 
@@ -1516,6 +1522,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
     async function invoiceAction(id, action) {
       if (action === "paid" && !confirm("Mark this partner payout as paid?")) return;
+      if (action === "paid-early" && !confirm("The buyer has not paid us yet. Mark the partner as paid anyway (you paid him by hand)?")) return;
       if (action === "same" && !confirm("Use the existing buyer for this invoice? The look-alike the partner made is removed.")) return;
 
       try {
@@ -1524,7 +1531,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, action })
         });
-        toast({ retry: "Invoice done.", same: "Existing buyer used; invoice made.", different: "New buyer kept; invoice made.", paid: "Marked paid to the partner.", unpaid: "Marked not paid." }[action] || "Done.");
+        toast({ retry: "Invoice done.", same: "Existing buyer used; invoice made.", different: "New buyer kept; invoice made.", paid: "Marked paid to the partner.", "paid-early": "Marked paid to the partner.", unpaid: "Marked not paid." }[action] || "Done.");
       } catch (err) {
         toast(err.message);
       }
@@ -1702,14 +1709,14 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       $("invBuyerField").hidden = importing;
       $("invLinesField").hidden = importing;
       const forForward = importing && /^\s*fwd/i.test($("invJxt").value);
-      $("invElsewhereRow").hidden = !forForward;
+      $("invFeeMode").hidden = !forForward;
       $("invFees").closest(".field").hidden = forForward;
       if (importing) {
         const n = parseInt($("invJxt").value.replace(/\D/g, ""), 10);
         $("invRef").textContent = n > 0 ? (forForward ? `FWD-${String(n).padStart(6, "0")}` : `JXT-${String(n).padStart(5, "0")}`) : "";
       } else $("invRef").textContent = nextJxt();
       if (forForward) {
-        $("invSum").innerHTML = `<span>Invoice total</span><strong>from Rompslomp</strong><span>Forward's fee (our margin)</span><strong>${$("invElsewhere").checked ? "already settled" : "its pairs' fee"}</strong>`;
+        $("invSum").innerHTML = `<span>Invoice total</span><strong>from Rompslomp</strong><span>Forward's fee (our margin)</span><strong>${$("invFeeMode").value === "elsewhere" ? "not taken off (settled elsewhere)" : "its pairs' fee"}</strong>`;
         return;
       }
 
@@ -1839,7 +1846,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         const data = await api("/api/admin/partner-invoices/import", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ seller_record_id: seller, jxt_number: forForward ? $("invJxt").value.trim() : jxt, invoice_number: number, fee_settled_elsewhere: $("invElsewhere").checked, settle_forward_ids: forForward ? [] : settle("forward"), settle_label_ids: forForward ? [] : settle("label") })
+          body: JSON.stringify({ seller_record_id: seller, jxt_number: forForward ? $("invJxt").value.trim() : jxt, invoice_number: number, fee_mode: $("invFeeMode").value, partner_paid: $("invPartnerPaid").checked, settle_forward_ids: forForward ? [] : settle("forward"), settle_label_ids: forForward ? [] : settle("label") })
         });
         $("invoiceDialog").close();
         const made = data.invoice;

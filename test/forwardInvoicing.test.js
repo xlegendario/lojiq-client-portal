@@ -372,3 +372,28 @@ test("a forward whose fee another invoice already settled: refused, unless booke
   assert.equal(db.tables.forwarding_log[0].payment_note, "Settled in JXT-00003 (invoice KC202610-2267)", "its note stays");
   assert.equal(db.tables.forwarding_log[0].paid_at, "2026-10-16T06:57:09Z");
 });
+
+test("a forward whose fee was settled elsewhere and taken off this payout too: booked with the fee off, partner already paid", async () => {
+  const { db, invoicing } = externalSetup();
+  Object.assign(db.tables.forwarding_log[0], { payment_status: "paid", paid_at: "2026-10-16T06:57:09Z", payment_note: "Settled in JXT-00003 (invoice KC202610-2267)" });
+
+  const row = await invoicing.importForward({ partner, forwardName: "FWD-000040", invoiceNumber: "KC202610-2234", feeTwice: true, partnerPaid: true });
+  assert.equal(Number(row.purchase_total), 1671);
+  assert.equal(row.partner_payout_status, "paid");
+
+  await invoicing.run(row.id);
+  await invoicing.sweep();
+  const after = db.tables.forward_invoices.find((r) => r.id === row.id);
+  assert.equal(after.buyer_payment_status, "paid");
+  assert.equal(after.partner_payout_status, "paid", "the buyer paying later does not undo a payout already made");
+});
+
+test("the partner can be marked paid before the buyer paid, only when Dario says so", async () => {
+  const { invoicing } = externalSetup();
+  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234" });
+  await invoicing.run(row.id);
+
+  await assert.rejects(invoicing.setPartnerPaid(row.id, true), /not paid yet/);
+  const paid = await invoicing.setPartnerPaid(row.id, true, "", { early: true });
+  assert.equal(paid.partner_payout_status, "paid");
+});

@@ -579,13 +579,21 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
         // "FWD-000033": a forward invoiced by hand; anything else is a JXT number.
         const forForward = /^\s*fwd/i.test(text(req.body?.jxt_number));
         const opened = forForward
-          ? await invoicing.importForward({ partner: who, forwardName: req.body?.jxt_number, invoiceNumber: req.body?.invoice_number, feeSettledElsewhere: req.body?.fee_settled_elsewhere === true })
+          ? await invoicing.importForward({
+              partner: who,
+              forwardName: req.body?.jxt_number,
+              invoiceNumber: req.body?.invoice_number,
+              feeSettledElsewhere: req.body?.fee_mode === "elsewhere",
+              feeTwice: req.body?.fee_mode === "twice",
+              partnerPaid: req.body?.partner_paid === true
+            })
           : await invoicing.importExternal({
               partner: who,
               jxtNumber: req.body?.jxt_number,
               invoiceNumber: req.body?.invoice_number,
               settleForwardIds: req.body?.settle_forward_ids,
-              settleLabelIds: req.body?.settle_label_ids
+              settleLabelIds: req.body?.settle_label_ids,
+              partnerPaid: req.body?.partner_paid === true
             });
 
         const name = forForward ? displayId(await store.get(opened.forwarding_log_id)) : invoiceName(opened);
@@ -631,6 +639,7 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
           after = await invoicing.resolveHold(id, action === "same", { buyers })
             .catch(async (err) => ({ ...(await invoicing.load(id)).row, failed: err.message }));
         } else if (action === "paid" || action === "unpaid") after = await invoicing.setPartnerPaid(id, action === "paid", req.body?.note);
+        else if (action === "paid-early") after = await invoicing.setPartnerPaid(id, true, req.body?.note || "Paid before the buyer paid", { early: true });
         else throw new ForwardingError("Unknown action.");
 
         const details = {
