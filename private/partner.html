@@ -590,7 +590,7 @@
         no_sent: "You have no forwards yet.",
         sec_open: "Pending",
         sec_done: "Done",
-        sec_fee: "Fee to pay",
+        sec_fee: "Not paid",
         sec_cancelled: "Cancelled",
         tab_labels: "Labels",
         box_one: "box",
@@ -797,7 +797,7 @@
         no_sent: "您还没有发过货。",
         sec_open: "待处理",
         sec_done: "已完成",
-        sec_fee: "待付服务费",
+        sec_fee: "未付款",
         sec_cancelled: "已取消",
         tab_labels: "面单",
         box_one: "箱",
@@ -1979,13 +1979,14 @@
       }
 
       /*
-        Each forward in one place: not shipped yet, shipped with its fee
-        still open, or done. The money at the top counts every open fee,
-        the same total the admin's Forwarding Payments shows for him.
+        Each forward in one place: not shipped yet, shipped but he is not
+        paid for it yet (his buyer, or we on an invoice), or done. The fees
+        he owes us are in the Balance at the top, not in these sections.
       */
       const live = sent.data.filter((f) => f.status !== "cancelled");
       const pending = sent.data.filter((f) => f.status === "awaiting_label" || f.status === "ready_to_ship");
-      const feeToPay = sent.data.filter((f) => f.status === "shipped" && !f.fee_paid);
+      const isPaid = (f) => (f.invoice ? f.invoice.stage === "paid" : Boolean(f.buyer?.paid));
+      const feeToPay = sent.data.filter((f) => f.status === "shipped" && !isPaid(f));
       const cancelled = sent.data.filter((f) => f.status === "cancelled");
       const done = sent.data.filter((f) => !pending.includes(f) && !feeToPay.includes(f) && !cancelled.includes(f));
 
