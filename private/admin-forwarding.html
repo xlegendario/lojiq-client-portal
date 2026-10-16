@@ -1486,7 +1486,6 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         inv.status === "failed" ? `<button class="act" type="button" data-inv-action="retry" data-inv-id="${esc(inv.id)}">Retry</button>` : "",
         inv.partner_payout_status === "to_pay" ? `<button class="act" type="button" data-inv-action="paid" data-inv-id="${esc(inv.id)}">Mark paid to partner</button>` : "",
         inv.status === "invoiced" && inv.partner_payout_status === "waiting" ? `<button class="act" type="button" data-inv-action="paid-early" data-inv-id="${esc(inv.id)}">Already paid to partner</button>` : "",
-        !inv.buyer_id && inv.rompslomp_contact_id ? `<button class="act" type="button" data-inv-action="buyer-from-rompslomp" data-inv-id="${esc(inv.id)}">Add buyer from Rompslomp</button>` : "",
         inv.partner_payout_status === "paid" ? `<button class="act" type="button" data-inv-action="unpaid" data-inv-id="${esc(inv.id)}">Mark not paid</button>` : ""
       ].join("");
 
@@ -1519,7 +1518,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, action })
         });
-        toast({ retry: "Invoice done.", same: "Existing buyer used; invoice made.", different: "New buyer kept; invoice made.", paid: "Marked paid to the partner.", "paid-early": "Marked paid to the partner.", "buyer-from-rompslomp": "Buyer added, and in the partner's list.", unpaid: "Marked not paid." }[action] || "Done.");
+        toast({ retry: "Invoice done.", same: "Existing buyer used; invoice made.", different: "New buyer kept; invoice made.", paid: "Marked paid to the partner.", "paid-early": "Marked paid to the partner.", unpaid: "Marked not paid." }[action] || "Done.");
       } catch (err) {
         toast(err.message);
       }

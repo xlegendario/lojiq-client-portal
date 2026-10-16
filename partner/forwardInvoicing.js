@@ -671,40 +671,6 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
   }
 
   // early: Dario paid the partner before the buyer paid us (he says so first).
-  /*
-   * An invoice that has no buyer of ours (made by hand in Rompslomp): the
-   * buyer is made from its Rompslomp contact, or the one we already have
-   * with that VAT number or email is used, and lands in the partner's list.
-   */
-  async function buyerFromRompslomp(id, { buyers }) {
-    const { row } = await load(id);
-    if (row.buyer_id) throw new InvoiceError("This invoice has its buyer already.");
-    if (!row.rompslomp_contact_id) throw new InvoiceError("This invoice has no Rompslomp contact to take the buyer from.");
-
-    const contact = await rompslomp.getContact(row.rompslomp_contact_id);
-    if (!contact) throw new InvoiceError("Rompslomp does not know that contact any more.");
-
-    const code = text(contact.country_code).toUpperCase();
-    const country = code ? new Intl.DisplayNames(["en"], { type: "region" }).of(code) : "";
-    const made = await buyers.create(row.seller_record_id, {
-      company_name: text(contact.company_name),
-      full_name: text(contact.contact_person_name),
-      email: text(contact.contact_person_email_address) || text(contact.email),
-      vat_id: text(contact.vat_number),
-      address: text(contact.address),
-      zipcode: text(contact.zipcode),
-      city: text(contact.city),
-      country,
-      confirm_new: true
-    });
-    const buyerId = made.buyer?.id;
-    if (!buyerId) throw new InvoiceError("The buyer could not be made.");
-
-    // The buyer knows its Rompslomp contact from now on, unless it has one.
-    await db.patch(`buyers?id=eq.${buyerId}&rompslomp_contact_id=is.null`, { rompslomp_contact_id: String(row.rompslomp_contact_id) });
-    return save(id, { buyer_id: buyerId });
-  }
-
   async function setPartnerPaid(id, paid, note = "", { early = false } = {}) {
     const { row } = await load(id);
     if (paid && row.partner_payout_status === "waiting" && !early) throw new InvoiceError("The buyer has not paid yet, so the partner is not owed anything yet.");
@@ -714,5 +680,5 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
       : { partner_payout_status: row.buyer_payment_status === "paid" ? "to_pay" : "waiting", partner_paid_at: null, partner_paid_note: null });
   }
 
-  return { configured, open, openFees, openExternal, buyerFromRompslomp, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
+  return { configured, open, openFees, openExternal, run, sweep, pdf, load, forForwards, payouts, resolveHold, setPartnerPaid };
 }

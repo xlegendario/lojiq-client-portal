@@ -198,6 +198,7 @@
     .detail-row .muted { color: var(--muted); }
 
     .stats { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 13px; margin-top: 3px; }
+    .stats .buyer { flex-basis: 100%; }
     .done { color: var(--muted); }
     .card.done .card-title { color: var(--text); }
 
@@ -2023,7 +2024,7 @@
       // Forwards | Invoices, only once he has an invoice of his own (JXT).
       const switcher = sent.invoices.length ? `
         <div class="seg" role="group">
-          <button type="button" data-sent-view="forwards" aria-pressed="${sent.view === "forwards"}">${esc(t("seg_forwards"))}</button>
+          <button type="button" data-sent-view="forwards" aria-pressed="${sent.view === "forwards"}">${esc(t("seg_forwards"))} (${sent.data.length})</button>
           <button type="button" data-sent-view="invoices" aria-pressed="${sent.view === "invoices"}">${esc(t("seg_invoices"))} (${sent.invoices.length})</button>
         </div>` : "";
 
