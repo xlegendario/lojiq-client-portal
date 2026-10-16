@@ -594,6 +594,7 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
             .catch(async (err) => ({ ...(await invoicing.load(id)).row, failed: err.message }));
         } else if (action === "paid" || action === "unpaid") after = await invoicing.setPartnerPaid(id, action === "paid", req.body?.note);
         else if (action === "paid-early") after = await invoicing.setPartnerPaid(id, true, req.body?.note || "Paid before the buyer paid", { early: true });
+        else if (action === "buyer-from-rompslomp") after = await invoicing.buyerFromRompslomp(id, { buyers });
         else throw new ForwardingError("Unknown action.");
 
         const details = {

@@ -32,7 +32,7 @@ test("the invoice is a margin invoice with the forward number and the sizes coun
   assert.equal(invoiceReference(forward), "FWD-000040-Margin");
 });
 
-function setup({ failAt = null, priceWithVat = "240.0" } = {}) {
+function setup({ failAt = null, priceWithVat = "240.0", contacts = {} } = {}) {
   const db = fakeDb({
     forwarding_log: [{ ...forward, payment_status: "pending" }],
     partner_stock: [pair("40"), pair("40")],
@@ -50,7 +50,7 @@ function setup({ failAt = null, priceWithVat = "240.0" } = {}) {
 
   const rompslomp = {
     configured: true,
-    async getContact() { return null; },
+    async getContact(id) { return contacts[id] || null; },
     async searchContacts() { return []; },
     async createContact(body) { calls.push(["contact", body.contact.contact_number]); return { id: 61 }; },
     async findInvoice() { return null; },
@@ -294,4 +294,24 @@ test("a payout made before the buyer paid stays paid when the buyer pays", async
   const after = db.tables.forward_invoices.find((r) => r.id === row.id);
   assert.equal(after.buyer_payment_status, "paid");
   assert.equal(after.partner_payout_status, "paid");
+});
+
+test("an invoice without our buyer gets one from its Rompslomp contact, in the partner's list", async () => {
+  const contact = { company_name: "Rarus", contact_person_name: "Paul Hofbauer", contact_person_email_address: "invoice@rarus.at", vat_number: "ATU77404925", address: "Weintraubengasse 22", zipcode: "1020", city: "Vienna", country_code: "AT" };
+  const { db, invoicing } = externalSetup({ contacts: { 64364090: contact } });
+  db.tables.forward_invoices.push({ id: "old1", kind: "external", jxt_number: 1, buyer_id: null, rompslomp_contact_id: "64364090", seller_record_id: "recJIMMY", status: "invoiced" });
+  db.tables.buyers.push({ id: "b85", company_name: "Rarus", rompslomp_contact_id: null });
+
+  const asked = [];
+  const buyers = { async create(seller, input) { asked.push([seller, input]); return { buyer: { id: "b85" } }; } };
+
+  const row = await invoicing.buyerFromRompslomp("old1", { buyers });
+  assert.equal(row.buyer_id, "b85");
+  assert.equal(asked[0][0], "recJIMMY");
+  assert.equal(asked[0][1].country, "Austria");
+  assert.equal(asked[0][1].vat_id, "ATU77404925");
+  assert.equal(asked[0][1].email, "invoice@rarus.at");
+  assert.equal(db.tables.buyers.find((b) => b.id === "b85").rompslomp_contact_id, "64364090");
+
+  await assert.rejects(invoicing.buyerFromRompslomp("old1", { buyers }), /has its buyer already/);
 });
