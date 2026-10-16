@@ -28,7 +28,7 @@ import {
 import { createSupabaseRest } from "../admin/externalSalesSync.js";
 import { loadPartnerPairs, summarizeStock } from "./partnerStock.js";
 import { ForwardError, createPartnerForward, loadForwardable, summarizeForwardable } from "./partnerForward.js";
-import { loadForwards } from "./partnerSent.js";
+import { loadForwards, setBuyerPaid } from "./partnerSent.js";
 import { BuyerError, createPartnerBuyers } from "./partnerBuyers.js";
 import { createForwardInvoicing, sellerFromFields } from "./forwardInvoicing.js";
 import { createLabelReader, labelFromDataUrl } from "./labelReader.js";
@@ -484,6 +484,21 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
       });
     } catch (err) {
       console.error(`[partner] forwards for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  // "The buyer paid me", or back to not paid - forwards without an invoice.
+  router.post("/api/partner/forwards/:id/buyer-paid", express.json({ limit: "2kb" }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      const answer = await setBuyerPaid(db, req.partner.sellerRecordId, req.params.id, req.body?.paid === true);
+      if (answer.error) return res.status(answer.error === "invoiced" ? 409 : 404).json(answer);
+      console.log(`[partner] ${req.partner.sellerId} marked forward ${text(req.params.id)} buyer ${answer.paid ? "paid" : "not paid"}`);
+      res.json(answer);
+    } catch (err) {
+      console.error(`[partner] buyer paid for ${req.partner.sellerId} failed:`, err.message);
       res.status(502).json({ error: "try_again" });
     }
   });

@@ -664,6 +664,13 @@
         inv_need_price: "Fill in the price per pair.",
         invoice_no_price: "Fill in the price per pair.",
         invoice_no_buyer: "Choose the buyer.",
+        need_buyer: "Choose the buyer.",
+        buyer_paid: "Buyer paid",
+        buyer_unpaid: "Buyer not paid",
+        buyer_paid_you: "Paid to you",
+        mark_buyer_paid: "Buyer paid me",
+        mark_buyer_unpaid: "Not paid yet",
+        buyer_paid_us: "Pays us (invoice)",
         invoice_price_below_fee: "The price per pair must be higher than the forwarding fee.",
         invoice_price_too_high: "This price looks too high. Please check it.",
         invoice_unavailable: "Invoices are not available right now. Try again later.",
@@ -849,6 +856,13 @@
         inv_need_price: "请填写每双价格。",
         invoice_no_price: "请填写每双价格。",
         invoice_no_buyer: "请选择买家。",
+        need_buyer: "请选择买家。",
+        buyer_paid: "买家已付款",
+        buyer_unpaid: "买家未付款",
+        buyer_paid_you: "已付给您",
+        mark_buyer_paid: "买家已付我款",
+        mark_buyer_unpaid: "还没付款",
+        buyer_paid_us: "付款给我们（发票）",
         invoice_price_below_fee: "每双价格必须高于转运服务费。",
         invoice_price_too_high: "价格好像太高了，请检查。",
         invoice_unavailable: "现在无法开发票，请稍后再试。",
@@ -1367,7 +1381,7 @@
       if (problem) {
         inv.error = problem;
         renderSend();
-        $("invPrice")?.closest(".card")?.scrollIntoView({ block: "center" });
+        document.querySelector(".card.invoice")?.scrollIntoView({ block: "center" });
         return;
       }
 
@@ -1381,6 +1395,7 @@
           body: {
             lines,
             labels: send.labels.map((l) => ({ data_url: l.dataUrl, name: l.name, tracking: labelNumbers(l) })),
+            buyer_id: inv.buyerId,
             invoice: inv.on ? { buyer_id: inv.buyerId, price_per_pair: parsePrice(inv.price) } : undefined
           }
         });
@@ -1702,29 +1717,35 @@
       }
     }
 
+    // The buyer always (Dario, 16-10-2026: he keeps track of who paid him);
+    // the invoice is a tick under it, with the price when ticked.
     function invoiceBlock() {
-      const head = `
+      const tick = `
         <label class="check">
           <input type="checkbox" id="invOn"${inv.on ? " checked" : ""}>
           <span><b>${esc(t("inv_generate"))}</b><small>${esc(t("inv_generate_hint"))}</small></span>
         </label>`;
 
-      if (!inv.on) return `<div class="card invoice">${head}</div>`;
-      if (pickedSkus().size > 1) return `<div class="card invoice">${head}<div class="card-body"><div class="error">${esc(t("invoice_one_product"))}</div></div></div>`;
-
-      return `
-        <div class="card invoice">${head}
-          <div class="card-body">
-            <div class="inv-step"><span class="step-n">1</span>${esc(t("inv_buyer"))}</div>
-            ${buyerSection()}
+      const invoicePart = !inv.on
+        ? ""
+        : pickedSkus().size > 1
+          ? `<div class="error">${esc(t("invoice_one_product"))}</div>`
+          : `
             <div class="inv-step"><span class="step-n">2</span>${esc(t("inv_price"))}</div>
             <div class="price-field">
               <span>€</span>
               <input id="invPrice" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(inv.price)}">
               <span class="per">${esc(t("per_pair"))}</span>
-            </div>
-            ${inv.error ? `<div class="error">${esc(inv.error)}</div>` : ""}
+            </div>`;
+
+      return `
+        <div class="card invoice">
+          <div class="card-body">
+            <div class="inv-step"><span class="step-n">1</span>${esc(t("inv_buyer"))} *</div>
+            ${buyerSection()}
           </div>
+          ${tick}
+          ${invoicePart || inv.error ? `<div class="card-body">${invoicePart}${inv.error ? `<div class="error">${esc(inv.error)}</div>` : ""}</div>` : ""}
         </div>`;
     }
 
@@ -1850,9 +1871,9 @@
 
     // What has to be right before sending, said in his words.
     function invoiceProblem() {
+      if (!inv.buyerId || inv.view !== "pick") return t("inv_need_buyer");
       if (!inv.on) return "";
       if (pickedSkus().size > 1) return t("invoice_one_product");
-      if (!inv.buyerId || inv.view !== "pick") return t("inv_need_buyer");
       const price = parsePrice(inv.price);
       if (!price) return t("inv_need_price");
       if (price <= highestFee()) return t("invoice_price_below_fee");
@@ -1973,6 +1994,7 @@
             ${f.shipped_at ? `<div class="detail-row"><span class="muted">${esc(t("shipped_on"))}</span><span>${esc(niceDate(dayOfStamp(f.shipped_at)))}</span></div>` : ""}
             ${f.invoice ? "" : `<div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span class="fee-line">${esc(money(f.fee))} <span class="pill ${f.fee_paid ? "good" : "bad"}">${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></span></div>`}
           </div>
+          ${f.invoice ? "" : buyerPaidBlock(f)}
           ${f.invoice ? `
             <div class="detail">
               <div class="detail-row"><span class="muted">${esc(t("buyer"))}</span><span>${esc(f.invoice.buyer)}</span></div>
@@ -1989,19 +2011,52 @@
           <button class="card-head" type="button" data-sent-open="${esc(f.id)}" aria-expanded="${isOpen}">
             <div class="card-text">
               <div class="card-title">${esc(f.display_id)}</div>
-              <div class="stats"><span>${esc(niceDate(dayOfStamp(f.created_at)))}</span><span>${f.pairs} ${esc(t(f.pairs === 1 ? "pair" : "pairs"))}</span>${f.invoice?.buyer ? `<span class="buyer">${esc(f.invoice.buyer)}</span>` : ""}</div>
+              <div class="stats"><span>${esc(niceDate(dayOfStamp(f.created_at)))}</span><span>${f.pairs} ${esc(t(f.pairs === 1 ? "pair" : "pairs"))}</span>${f.buyer?.name ? `<span class="buyer">${esc(f.buyer.name)}</span>` : ""}</div>
             </div>
             <div class="pills">
               <span class="pill ${status.tone}">${esc(t(status.word))}</span>
-              ${f.invoice ? `<span class="pill inv${f.invoice.stage === "paid" ? " good" : f.invoice.stage === "to_pay" ? " wait" : ""}">${esc(t(`st_inv_${f.invoice.stage}`))}</span>` : ""}
+              ${f.invoice
+                ? `<span class="pill inv${f.invoice.stage === "paid" ? " good" : f.invoice.stage === "to_pay" ? " wait" : ""}">${esc(t(`st_inv_${f.invoice.stage}`))}</span>`
+                : f.status !== "cancelled" && f.buyer?.name ? `<span class="pill ${f.buyer.paid ? "good" : "bad"}">${esc(t(f.buyer.paid ? "buyer_paid" : "buyer_unpaid"))}</span>` : ""}
             </div>
             ${CHEV}
           </button>${body}
         </div>`;
     }
 
+    // Without an invoice he ticks off himself that the buyer paid him.
+    function buyerPaidBlock(f) {
+      if (!f.buyer || f.status === "cancelled") return "";
+      return `
+        <div class="detail">
+          <div class="detail-row"><span class="muted">${esc(t("buyer"))}</span><span>${esc(f.buyer.name || "—")}</span></div>
+          <div class="detail-row"><span class="muted">${esc(t("buyer_paid_you"))}</span>
+            <span class="fee-line"><span class="pill ${f.buyer.paid ? "good" : "bad"}">${esc(t(f.buyer.paid ? "buyer_paid" : "buyer_unpaid"))}</span></span></div>
+        </div>
+        ${f.buyer.editable ? `<button class="btn file-btn${f.buyer.paid ? "" : " primary"}" type="button" data-buyer-paid="${esc(f.id)}" data-paid="${f.buyer.paid ? "0" : "1"}">${esc(t(f.buyer.paid ? "mark_buyer_unpaid" : "mark_buyer_paid"))}</button>` : ""}`;
+    }
+
+    async function setBuyerPaid(button) {
+      const id = button.dataset.buyerPaid;
+      const paid = button.dataset.paid === "1";
+      button.disabled = true;
+      try {
+        await api(`/api/partner/forwards/${encodeURIComponent(id)}/buyer-paid`, { method: "POST", body: { paid } });
+        const f = sent.data?.find((row) => row.id === id);
+        if (f?.buyer) f.buyer.paid = paid;
+        renderSent();
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        button.disabled = false;
+        alert(t("try_again"));
+      }
+    }
+
     $("sentList").addEventListener("click", (event) => {
       if (event.target.closest("[data-sent-reload]")) return loadSent(true);
+
+      const paidButton = event.target.closest("[data-buyer-paid]");
+      if (paidButton) return setBuyerPaid(paidButton);
 
       const head = event.target.closest("[data-sent-open]");
       if (!head) return;

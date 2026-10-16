@@ -53,8 +53,32 @@ export function invoiceView(row, buyer) {
   };
 }
 
-export function summarizeForwards(forwards, pairs, invoices = [], buyers = []) {
+/*
+ * Who bought it and whether they paid the partner. With an invoice that is
+ * ours to follow (the buyer pays us); without one he ticks it off himself.
+ */
+export function buyerView(row, invoice, sale, buyerOf) {
+  if (invoice) {
+    return {
+      name: text(invoice.buyer),
+      paid: invoice.stage === "to_pay" || invoice.stage === "paid",
+      editable: false
+    };
+  }
+
+  const buyer = sale ? buyerOf.get(text(sale.buyer_id)) : null;
+  return {
+    // Only a buyer from his own list: an older forward made by us may carry
+    // one of our buyers in forwarding_log, which is not his to see.
+    name: buyer ? text(buyer.company_name) || text(buyer.full_name) : "",
+    paid: Boolean(sale?.buyer_paid_at),
+    editable: text(row.shipping_status) !== "cancelled"
+  };
+}
+
+export function summarizeForwards(forwards, pairs, invoices = [], buyers = [], sales = []) {
   const invoiceOf = new Map((invoices || []).map((row) => [text(row.forwarding_log_id), row]));
+  const saleOf = new Map((sales || []).map((row) => [text(row.forwarding_log_id), row]));
   const buyerOf = new Map((buyers || []).map((row) => [text(row.id), row]));
 
   const byForward = new Map();
@@ -80,6 +104,8 @@ export function summarizeForwards(forwards, pairs, invoices = [], buyers = []) {
         if (!product.image && pair.image_url) product.image = text(pair.image_url);
       }
 
+      const invoice = invoiceView(invoiceOf.get(text(row.id)), buyerOf.get(text(invoiceOf.get(text(row.id))?.buyer_id)));
+
       return {
         id: text(row.id),
         display_id: displayId(row),
@@ -90,7 +116,8 @@ export function summarizeForwards(forwards, pairs, invoices = [], buyers = []) {
         tracking: (row.tracking_numbers || []).map(text).filter(Boolean),
         fee: forwardMoney(row, own.length ? own : null).payable,
         fee_paid: text(row.payment_status) === "paid",
-        invoice: invoiceView(invoiceOf.get(text(row.id)), buyerOf.get(text(invoiceOf.get(text(row.id))?.buyer_id))),
+        invoice,
+        buyer: buyerView(row, invoice, saleOf.get(text(row.id)), buyerOf),
         products: [...products.values()]
           .map((product) => ({
             ...product,
@@ -128,10 +155,38 @@ export async function loadForwards(db, sellerRecordId) {
   const invoices = await db.get(
     `forward_invoices?select=forwarding_log_id,buyer_id,status,invoice_id,invoice_number,price_per_pair,total,fee_total,purchase_total,buyer_payment_status,partner_payout_status,partner_paid_at&seller_record_id=eq.${seller}`
   ).catch(() => []);
-  const buyerIds = [...new Set((invoices || []).map((row) => row.buyer_id).filter(Boolean))];
+  // Missing until its table exists; the tab works without it.
+  const sales = await db.get(`partner_forward_sales?select=forwarding_log_id,buyer_id,buyer_paid_at&seller_record_id=eq.${seller}`).catch(() => []);
+
+  const buyerIds = [...new Set([...(invoices || []), ...(sales || [])].map((row) => row.buyer_id).filter(Boolean))];
   const buyers = buyerIds.length
     ? await db.get(`buyers?select=id,company_name,full_name&id=in.(${buyerIds.map((id) => `"${id}"`).join(",")})`)
     : [];
 
-  return summarizeForwards(forwards, pairs, invoices, buyers);
+  return summarizeForwards(forwards, pairs, invoices, buyers, sales);
+}
+
+/*
+ * The partner ticks off that the buyer paid him, or takes it back. Only for
+ * his own forwards without an invoice: an invoiced one is paid to us, and
+ * Dario marks that.
+ */
+export async function setBuyerPaid(db, sellerRecordId, forwardId, paid, now = () => new Date()) {
+  const id = text(forwardId);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "not_found" };
+
+  const seller = encodeURIComponent(sellerRecordId);
+  const [forward] = await db.get(`forwarding_log?select=id,shipping_status&id=eq.${id}&seller_record_id=eq.${seller}`);
+  if (!forward) return { error: "not_found" };
+  if (text(forward.shipping_status) === "cancelled") return { error: "not_found" };
+
+  const [invoice] = await db.get(`forward_invoices?select=id&forwarding_log_id=eq.${id}`);
+  if (invoice) return { error: "invoiced" };
+
+  const stamp = paid ? now().toISOString() : null;
+  const [sale] = await db.get(`partner_forward_sales?select=forwarding_log_id&forwarding_log_id=eq.${id}`);
+  if (sale) await db.patch(`partner_forward_sales?forwarding_log_id=eq.${id}`, { buyer_paid_at: stamp, updated_at: now().toISOString() });
+  else await db.insert("partner_forward_sales", [{ forwarding_log_id: id, seller_record_id: sellerRecordId, buyer_paid_at: stamp }]);
+
+  return { paid: Boolean(stamp) };
 }

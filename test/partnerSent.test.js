@@ -76,3 +76,43 @@ test("forwards and their pairs are read for this partner only", async () => {
   assert.ok(paths.every((p) => p.includes("seller_record_id=eq.recJIMMY00000001")));
   assert.ok(paths[1].includes('forwarding_log_id=in.("f1")'));
 });
+
+test("the buyer and whether he paid: ticked off by the partner without an invoice, ours to follow with one", async () => {
+  const { buyerView } = await import("../partner/partnerSent.js");
+  const buyers = new Map([["b1", { id: "b1", company_name: "", full_name: "Wang Lei" }]]);
+
+  assert.deepEqual(buyerView(forward({}), null, { buyer_id: "b1", buyer_paid_at: null }, buyers), { name: "Wang Lei", paid: false, editable: true });
+  assert.deepEqual(buyerView(forward({}), null, { buyer_id: "b1", buyer_paid_at: "2026-10-16T10:00:00Z" }, buyers).paid, true);
+  assert.deepEqual(buyerView(forward({ buyer_name: "Paul" }), null, null, buyers), { name: "", paid: false, editable: true }, "our own buyer on an old forward stays hidden");
+  assert.deepEqual(buyerView(forward({}), { buyer: "Kicks BV", stage: "to_pay" }, null, buyers), { name: "Kicks BV", paid: true, editable: false });
+  assert.equal(buyerView(forward({ shipping_status: "cancelled" }), null, null, buyers).editable, false);
+});
+
+test("buyer paid: only his own forward, never an invoiced or cancelled one", async () => {
+  const { setBuyerPaid } = await import("../partner/partnerSent.js");
+  const id = "aaaaaaaa-2222-3333-4444-555555555555";
+  const writes = [];
+  const db = (invoiced, status = "shipped", sale = []) => ({
+    async get(path) {
+      if (path.startsWith("forwarding_log")) return path.includes("recJIMMY") ? [{ id, shipping_status: status }] : [];
+      if (path.startsWith("forward_invoices")) return invoiced ? [{ id: "i1" }] : [];
+      return sale;
+    },
+    async insert(table, rows) { writes.push(["insert", table, rows[0]]); return rows; },
+    async patch(path, fields) { writes.push(["patch", path, fields]); return [fields]; }
+  });
+  const now = () => new Date("2026-10-16T12:00:00Z");
+
+  assert.deepEqual(await setBuyerPaid(db(false), "recOTHER", id, true, now), { error: "not_found" });
+  assert.deepEqual(await setBuyerPaid(db(true), "recJIMMY", id, true, now), { error: "invoiced" });
+  assert.deepEqual(await setBuyerPaid(db(false, "cancelled"), "recJIMMY", id, true, now), { error: "not_found" });
+
+  assert.deepEqual(await setBuyerPaid(db(false), "recJIMMY", id, true, now), { paid: true });
+  assert.deepEqual(writes.pop(), ["insert", "partner_forward_sales", { forwarding_log_id: id, seller_record_id: "recJIMMY", buyer_paid_at: "2026-10-16T12:00:00.000Z" }]);
+
+  assert.deepEqual(await setBuyerPaid(db(false, "shipped", [{ forwarding_log_id: id }]), "recJIMMY", id, false, now), { paid: false });
+  const [kind, path, fields] = writes.pop();
+  assert.equal(kind, "patch");
+  assert.ok(path.startsWith("partner_forward_sales?forwarding_log_id=eq."));
+  assert.equal(fields.buyer_paid_at, null, "taken back");
+});

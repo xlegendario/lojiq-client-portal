@@ -249,19 +249,25 @@ export async function createPartnerForward({ db, callKc, callWms, buyers = null,
   const { ids, picked, short } = pickPairs(await loadForwardable(db, partner.sellerRecordId), lines);
   if (short.length) throw new ForwardError("pairs_gone", 409, { short });
 
-  // Everything about the invoice is checked before the pairs are touched.
+  /*
+   * Every forward has its buyer, from his own list - with or without an
+   * invoice (Dario, 16-10-2026): the partner keeps track of who paid him.
+   * Everything is checked before the pairs are touched.
+   */
+  const buyerId = text(body?.buyer_id || body?.invoice?.buyer_id);
+  if (!/^[0-9a-f-]{36}$/i.test(buyerId)) throw new ForwardError("need_buyer");
+  if (!buyers || !(await buyers.owns(partner.sellerRecordId, buyerId))) throw new ForwardError("need_buyer");
+
+  const [buyer] = await db.get(`buyers?select=*&id=eq.${buyerId}`);
+  if (!buyer) throw new ForwardError("need_buyer");
+
   let invoice = null;
-  let buyer = null;
   let hold = null;
 
   if (body?.invoice) {
-    if (!invoicing?.configured || !buyers) throw new ForwardError("invoice_unavailable", 503);
+    if (!invoicing?.configured) throw new ForwardError("invoice_unavailable", 503);
 
-    invoice = checkInvoice({ invoice: body.invoice, lines, picked, defaultFee });
-    if (!(await buyers.owns(partner.sellerRecordId, invoice.buyerId))) throw new ForwardError("invoice_no_buyer");
-
-    [buyer] = await db.get(`buyers?select=*&id=eq.${invoice.buyerId}`);
-    if (!buyer) throw new ForwardError("invoice_no_buyer");
+    invoice = checkInvoice({ invoice: { ...body.invoice, buyer_id: buyerId }, lines, picked, defaultFee });
 
     // The first invoice to a buyer that looks like one of ours waits for Dario.
     hold = await buyers.duplicateCheck(partner.sellerRecordId, invoice.buyerId);
@@ -287,14 +293,12 @@ export async function createPartnerForward({ db, callKc, callWms, buyers = null,
     labels_needed: 0,
     tracking_numbers: tracking,
     labels,
-    buyer: buyer
-      ? {
-          record_id: text(buyer.airtable_record_id) || null,
-          buyer_id: buyer.buyer_number ? `BU-${String(buyer.buyer_number).padStart(5, "0")}` : null,
-          name: text(buyer.company_name) || text(buyer.full_name),
-          country: text(buyer.country)
-        }
-      : null,
+    buyer: {
+      record_id: text(buyer.airtable_record_id) || null,
+      buyer_id: buyer.buyer_number ? `BU-${String(buyer.buyer_number).padStart(5, "0")}` : null,
+      name: text(buyer.company_name) || text(buyer.full_name),
+      country: text(buyer.country)
+    },
     notes: `Made by ${partner.name} in the partner dashboard${invoice ? ", with invoice" : ""}`
   });
 
@@ -307,7 +311,15 @@ export async function createPartnerForward({ db, callKc, callWms, buyers = null,
     invoice: null
   };
 
-  if (!invoice) return result;
+  /*
+   * Without an invoice, whether the buyer paid him is his to tick off; the
+   * row says who the buyer is. A failure here leaves the forward as it is.
+   */
+  if (!invoice) {
+    await db.insert("partner_forward_sales", [{ forwarding_log_id: forward.id, seller_record_id: partner.sellerRecordId, buyer_id: buyerId }])
+      .catch((err) => console.error(`[partner] ${forward.display_id} made, but its buyer was NOT written down:`, err.message));
+    return result;
+  }
 
   /*
    * The pairs are off the shelf from here on, whatever happens to the

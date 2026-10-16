@@ -89,11 +89,19 @@ test("every forward needs its labels, each with a real tracking number", () => {
   assert.equal(labels[0].file.ext, "pdf");
 });
 
+const BUYER = { id: "11111111-2222-3333-4444-555555555555", full_name: "Wang Lei", country: "Netherlands", buyer_number: 12 };
+
 function deps(rows, used = []) {
   const calls = [];
+  const inserted = [];
   return {
     calls,
-    db: { get: async (path) => (path.startsWith("forwarding_log") ? used : rows) },
+    inserted,
+    db: {
+      get: async (path) => (path.startsWith("forwarding_log") ? used : path.startsWith("buyers") ? [BUYER] : rows),
+      insert: async (table, list) => (inserted.push({ table, rows: list }), list)
+    },
+    buyers: { owns: async (seller, id) => id === BUYER.id, duplicateCheck: async () => null },
     async callKc(path, body) {
       calls.push({ to: "kc", path, body });
       return { ok: true, forward: { id: "f1", display_id: "FWD-000040", shipping_status: body.labels.length ? "ready_to_ship" : "awaiting_label" } };
@@ -110,7 +118,8 @@ test("a forward is made through the Kickz Caviar portal with the picked pairs an
 
   const result = await createPartnerForward(d, partner, {
     lines: [{ sku: "A05FW702", size: "44", qty: 2 }],
-    labels: [label([UPS]), label(["05222389098799", "05222389098711"])]
+    labels: [label([UPS]), label(["05222389098799", "05222389098711"])],
+    buyer_id: BUYER.id
   });
 
   assert.deepEqual(result, { id: "f1", display_id: "FWD-000040", pairs: 2, shipping_status: "ready_to_ship", invoice: null });
@@ -121,14 +130,25 @@ test("a forward is made through the Kickz Caviar portal with the picked pairs an
   assert.deepEqual(made.pair_ids.sort(), ["p1", "p2"]);
   assert.deepEqual(made.tracking_numbers, [UPS, "05222389098799", "05222389098711"]);
   assert.deepEqual(made.labels.map((l) => l.tracking), [UPS, "05222389098799, 05222389098711"]);
-  assert.equal(made.buyer, null);
+  assert.equal(made.buyer.name, "Wang Lei");
+  assert.equal(made.buyer.buyer_id, "BU-00012");
+  assert.deepEqual(d.inserted, [{ table: "partner_forward_sales", rows: [{ forwarding_log_id: "f1", seller_record_id: "recJIMMY00000001", buyer_id: BUYER.id }] }], "without an invoice the buyer is written down for him");
+});
+
+test("every forward needs a buyer from his own list, with or without an invoice", async () => {
+  const d = deps([pair("p1")]);
+  const base = { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], labels: [label()] };
+
+  await assert.rejects(createPartnerForward(d, partner, base), (err) => err.code === "need_buyer");
+  await assert.rejects(createPartnerForward(d, partner, { ...base, buyer_id: "99999999-2222-3333-4444-555555555555" }), (err) => err.code === "need_buyer");
+  assert.equal(d.calls.length, 0, "nothing stored, nothing made");
 });
 
 test("a label already on a forward is refused before anything is made", async () => {
   const d = deps([pair("p1")], [{ forwarding_number: 37, tracking_numbers: [UPS] }]);
 
   await assert.rejects(
-    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], labels: [label()] }),
+    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], labels: [label()], buyer_id: BUYER.id }),
     (err) => err.code === "label_used" && err.used.forward === "FWD-000037"
   );
   assert.equal(d.calls.length, 0);
@@ -138,7 +158,7 @@ test("nothing is made when a size no longer has enough pairs", async () => {
   const d = deps([pair("p1")]);
 
   await assert.rejects(
-    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 2 }], labels: [label()] }),
+    createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 2 }], labels: [label()], buyer_id: BUYER.id }),
     (err) => err.code === "pairs_gone" && err.status === 409
   );
   assert.equal(d.calls.length, 0, "no label stored and no forward made");
