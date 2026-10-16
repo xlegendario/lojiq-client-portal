@@ -59,6 +59,11 @@ function setup({ failAt = null, priceWithVat = "240.0" } = {}) {
     async recentJournals() { return []; },
     async createJournal(body) { calls.push(["journal", body.journal_entry.lines[0].debit_amount]); return { id: 80 }; },
     async getInvoice() { return { payment_status: "paid" }; },
+    async invoiceByNumber(number) {
+      return number === "KC202610-2234"
+        ? { id: 714238889, invoice_number: "KC202610-2234", date: "2026-10-13", published_at: "2026-10-13T09:00:00Z", price_with_vat: "1675.0", contact_id: 1802742576, invoice_lines: [{ description: "JXT-00002", extended_description: "U9060PB 1x 36", price_per_unit: "1675.0", quantity: "1.0" }] }
+        : null;
+    },
     async pdf() { return Buffer.from("%PDF"); }
   };
   const purchases = {
@@ -272,4 +277,27 @@ test("a fee ticked on a JXT invoice still being made is not offered twice", asyn
 
   const fees = await invoicing.openFees("recJIMMY");
   assert.deepEqual(fees.forwards, [], "FWD-000040 waits for the failed JXT invoice to be retried");
+});
+
+test("a JXT invoice already in Rompslomp: read in, not made or mailed again; purchase, correction and fees booked", async () => {
+  const { db, calls, mails, invoicing } = externalSetup();
+
+  await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-9999" }), /no invoice KC202610-9999/);
+
+  const row = await invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234", settleForwardIds: ["fw1"] });
+  assert.equal(row.jxt_number, 2);
+  assert.equal(row.invoice_number, "KC202610-2234");
+  assert.equal(Number(row.total), 1675);
+  assert.equal(Number(row.purchase_total), 1671);
+  assert.equal(row.buyer_id, null, "no buyer of ours has that Rompslomp contact");
+
+  const done = await invoicing.run(row.id);
+  assert.equal(done.status, "invoiced");
+  assert.deepEqual(calls.map(([what]) => what), ["journal", "expense"], "no contact, no invoice");
+  assert.deepEqual(calls.at(-1), ["expense", 1671, "JXT-00002"]);
+  assert.equal(mails.length, 0, "Dario sent it himself");
+  assert.match(db.tables.forwarding_log[0].payment_note, /Settled in JXT-00002 \(invoice KC202610-2234\)/);
+
+  await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 2, invoiceNumber: "KC202610-2234" }), /JXT-00002 is already here/);
+  await assert.rejects(invoicing.importExternal({ partner, jxtNumber: 3, invoiceNumber: "KC202610-2234" }), /already booked here/);
 });

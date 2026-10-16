@@ -434,7 +434,14 @@
         <select class="select" id="invPartner"></select>
       </div>
 
-      <div class="field">
+      <label class="fee-row"><input type="checkbox" id="invImport"> <span><strong>Already invoiced in Rompslomp</strong> <span class="sub">JXT-00001 to -00003: no new invoice, no mail - only the purchase, Voorraadcorrectie and fees</span></span></label>
+
+      <div id="invImportFields" class="addr-grid" hidden>
+        <input class="input" id="invJxt" inputmode="numeric" placeholder="JXT number, e.g. 1">
+        <input class="input" id="invNumber" placeholder="Rompslomp invoice, e.g. KC202610-2196">
+      </div>
+
+      <div class="field" id="invBuyerField">
         <label for="invBuyer">Buyer</label>
         <select class="select" id="invBuyer"></select>
         <div id="invNewBuyer" class="addr-grid" hidden>
@@ -449,7 +456,7 @@
         </div>
       </div>
 
-      <div class="field">
+      <div class="field" id="invLinesField">
         <label>What was sold</label>
         <div class="inv-lines" id="invLines"></div>
         <div><button class="act" type="button" id="invAddLine">+ Line</button></div>
@@ -1689,8 +1696,24 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     };
 
     function drawInvoiceSum() {
+      const importing = $("invImport").checked;
+      $("invImportFields").hidden = !importing;
+      $("invBuyerField").hidden = importing;
+      $("invLinesField").hidden = importing;
+      if (importing) {
+        const n = parseInt($("invJxt").value, 10);
+        $("invRef").textContent = n > 0 ? `JXT-${String(n).padStart(5, "0")}` : "";
+      } else $("invRef").textContent = nextJxt();
+
+      const settled = [...document.querySelectorAll("#invFees input[data-fee-kind]:checked")].reduce((sum, box) => sum + num(box.dataset.amount), 0);
+      if (importing) {
+        $("invSum").innerHTML = `
+          <span>Invoice total</span><strong>from Rompslomp</strong>
+          <span>Fees settled (our margin)</span><strong>− ${euro(settled)}</strong>
+          <span>Partner gets, once the buyer paid</span><strong>total − ${euro(settled)}</strong>`;
+        return;
+      }
       const total = readLines().reduce((sum, line) => sum + num(line.qty) * num(line.price_per_pair), 0);
-      const settled = [...document.querySelectorAll("#invFees input:checked")].reduce((sum, box) => sum + num(box.dataset.amount), 0);
       $("invSum").innerHTML = `
         <span>Invoice total (buyer pays)</span><strong>${euro(total)}</strong>
         <span>Fees settled (our margin)</span><strong>− ${euro(settled)}</strong>
@@ -1764,9 +1787,46 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       return data.buyer.id;
     }
 
+    // An invoice Dario already sent from Rompslomp: read in, booked, not made or mailed again.
+    async function importInvoice(seller, settle) {
+      const jxt = parseInt($("invJxt").value, 10);
+      const number = $("invNumber").value.trim();
+      if (!(jxt > 0) || !number) {
+        $("invError").textContent = "Give the JXT number and the Rompslomp invoice number.";
+        $("invError").hidden = false;
+        return;
+      }
+      if (!confirm(`Book JXT-${String(jxt).padStart(5, "0")} from Rompslomp invoice ${number}? No new invoice and no mail - only the purchase, Voorraadcorrectie and the ticked fees.`)) return;
+
+      $("invBook").disabled = true;
+      try {
+        const data = await api("/api/admin/partner-invoices/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seller_record_id: seller, jxt_number: jxt, invoice_number: number, settle_forward_ids: settle("forward"), settle_label_ids: settle("label") })
+        });
+        $("invoiceDialog").close();
+        const made = data.invoice;
+        toast(made.failed ? `${made.display_id} saved, but stopped: ${made.failed}. Open it and press Retry.` : `${made.display_id} booked from ${made.invoice_number}: purchase and Voorraadcorrectie done.`);
+        state.selectedInvoice = made.id;
+        $("panel").hidden = false;
+        load();
+        loadCounts();
+      } catch (err) {
+        $("invError").textContent = err.message;
+        $("invError").hidden = false;
+      } finally {
+        $("invBook").disabled = false;
+      }
+    }
+
     $("invBook").addEventListener("click", async () => {
       $("invError").hidden = true;
       const seller = $("invPartner").value;
+      if ($("invImport").checked) {
+        const settleOf = (kind) => [...document.querySelectorAll(`#invFees input[data-fee-kind="${kind}"]:checked`)].map((box) => box.value);
+        return importInvoice(seller, settleOf);
+      }
       const lines = readLines().filter((line) => line.sku || line.name || line.qty || line.price_per_pair);
       const settle = (kind) => [...document.querySelectorAll(`#invFees input[data-fee-kind="${kind}"]:checked`)].map((box) => box.value);
       const total = lines.reduce((sum, line) => sum + num(line.qty) * num(line.price_per_pair), 0);

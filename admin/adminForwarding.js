@@ -568,6 +568,39 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
       }
     });
 
+    // JXT-00001 to -00003, made by hand in Rompslomp: booked here without a new invoice or mail.
+    router.post("/api/admin/partner-invoices/import", express.json({ limit: "20kb" }), async (req, res) => {
+      try {
+        const seller = text(req.body?.seller_record_id);
+        const partner = (await partnerList()).find((p) => p.seller_record_id === seller);
+        if (!partner) return res.status(400).json({ error: "Choose the partner." });
+
+        const opened = await invoicing.importExternal({
+          partner: { sellerRecordId: partner.seller_record_id, sellerId: partner.seller_id },
+          jxtNumber: req.body?.jxt_number,
+          invoiceNumber: req.body?.invoice_number,
+          settleForwardIds: req.body?.settle_forward_ids,
+          settleLabelIds: req.body?.settle_label_ids
+        });
+
+        const name = invoiceName(opened);
+        await audit.record({
+          actor: req.admin,
+          action: "partner_invoice_import",
+          source: "partner_invoices",
+          recordId: opened.id,
+          label: name,
+          details: { invoice: opened.invoice_number, total: opened.total, settled: opened.fee_total, partner_gets: opened.purchase_total }
+        });
+
+        const after = await invoicing.run(opened.id).catch(async (err) => ({ ...(await invoicing.load(opened.id)).row, failed: err.message }));
+        res.json({ invoice: { ...after, display_id: name } });
+      } catch (err) {
+        if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message });
+        send(res, err);
+      }
+    });
+
     router.get("/api/admin/forwarding/invoice-pdf", async (req, res) => {
       try {
         const { row } = await invoicing.load(text(req.query.id));

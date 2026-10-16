@@ -451,6 +451,17 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
     async getInvoice(id) {
       return (await call(`/sales_invoices/${id}`))?.sales_invoice;
     },
+    // Rompslomp cannot search on the number, so the newest pages are read.
+    async invoiceByNumber(number, pages = 15) {
+      const wanted = text(number).toUpperCase();
+      for (let page = 1; page <= pages; page += 1) {
+        const rows = (await call(`/sales_invoices?page=${page}&per_page=100`))?.sales_invoices || [];
+        const hit = rows.find((row) => text(row.invoice_number).toUpperCase() === wanted);
+        if (hit) return hit;
+        if (rows.length < 100) return null;
+      }
+      return null;
+    },
     async createInvoice(body) {
       return (await call("/sales_invoices", { method: "POST", body }))?.sales_invoice;
     },
