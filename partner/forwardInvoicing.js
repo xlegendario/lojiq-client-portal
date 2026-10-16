@@ -582,7 +582,8 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
           ? (row.lines || []).map((line) => [line.sku, line.name].filter(Boolean).join(" ")).join(" + ")
           : `${row.sku} ${text(row.product_name)}`.trim();
         const booked = await purchases.book({
-          unit: { product_name: product, size: `${row.pair_count} pairs${sizes ? ` (${sizes})` : ""}`, vat_type: ROUTE, price: row.purchase_total },
+          // A read-in invoice says itself what was in it; its line count is no pair count.
+          unit: { product_name: product, size: text(row.product_name).startsWith("Invoice ") ? sizes : `${row.pair_count} pairs${sizes ? ` (${sizes})` : ""}`, vat_type: ROUTE, price: row.purchase_total },
           seller,
           deal: name,
           date: row.invoice_date
