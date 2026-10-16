@@ -437,7 +437,7 @@
       <label class="fee-row"><input type="checkbox" id="invImport"> <span><strong>Already invoiced in Rompslomp</strong> <span class="sub">JXT-00001 to -00003: no new invoice, no mail - only the purchase, Voorraadcorrectie and fees</span></span></label>
 
       <div id="invImportFields" class="addr-grid" hidden>
-        <input class="input" id="invJxt" inputmode="numeric" placeholder="JXT number, e.g. 1">
+        <input class="input" id="invJxt" inputmode="numeric" placeholder="JXT number, e.g. JXT-00001">
         <input class="input" id="invNumber" placeholder="Rompslomp invoice, e.g. KC202610-2196">
       </div>
 
@@ -1701,7 +1701,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
       $("invBuyerField").hidden = importing;
       $("invLinesField").hidden = importing;
       if (importing) {
-        const n = parseInt($("invJxt").value, 10);
+        const n = parseInt($("invJxt").value.replace(/\D/g, ""), 10);
         $("invRef").textContent = n > 0 ? `JXT-${String(n).padStart(5, "0")}` : "";
       } else $("invRef").textContent = nextJxt();
 
@@ -1815,7 +1815,7 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
 
     // An invoice Dario already sent from Rompslomp: read in, booked, not made or mailed again.
     async function importInvoice(seller, settle) {
-      const jxt = parseInt($("invJxt").value, 10);
+      const jxt = parseInt($("invJxt").value.replace(/\D/g, ""), 10);
       const number = $("invNumber").value.trim();
       if (!(jxt > 0) || !number) {
         $("invError").textContent = "Give the JXT number and the Rompslomp invoice number.";

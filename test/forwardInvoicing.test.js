@@ -333,3 +333,9 @@ test("a label already marked paid by hand can be settled too, and keeps its paid
   assert.equal(db.tables.partner_labels[0].paid_at, "2026-10-16T06:57:12Z");
   assert.equal((await invoicing.openFees("recJIMMY")).labels_paid_by_hand.length, 0);
 });
+
+test("the JXT number may be typed as JXT-00002", async () => {
+  const { invoicing } = externalSetup();
+  const row = await invoicing.importExternal({ partner, jxtNumber: "JXT-00002", invoiceNumber: "KC202610-2234" });
+  assert.equal(row.jxt_number, 2);
+});

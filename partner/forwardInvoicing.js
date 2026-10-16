@@ -380,7 +380,8 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
    * other. Its lines are the invoice's own.
    */
   async function importExternal({ partner, jxtNumber, invoiceNumber, settleForwardIds = [], settleLabelIds = [] }) {
-    const number = Number(jxtNumber);
+    // "JXT-00001", "00001" or 1 alike.
+    const number = Number(String(jxtNumber ?? "").replace(/\D/g, ""));
     if (!Number.isInteger(number) || number < 1) throw new InvoiceError("Give the JXT number, e.g. 1 for JXT-00001.");
     const [taken] = await db.get(`forward_invoices?select=id&jxt_number=eq.${number}`);
     if (taken) throw new InvoiceError(`${externalReference(number)} is already here.`);
