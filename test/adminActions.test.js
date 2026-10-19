@@ -314,3 +314,17 @@ test("Manual Deal creates an approved Order Processing Form for the order and th
 
   await assert.rejects(runAction({ key: "manual_deal", source: "store", record: record({ "Fulfillment Status": "Allocated" }), input: { seller: "SE-00035", payout: "1", vat: "Margin" }, deps }), /open order/);
 });
+
+test("Request Label goes through the Kickz Caviar dashboard route", async () => {
+  const deps = fakeDeps();
+
+  assert.deepEqual(availableActions("store", ["request_label"], { "Fulfillment Status": "Allocated" }), ["request_label"]);
+  assert.deepEqual(availableActions("store", ["request_label"], { "Fulfillment Status": "Requested Label" }), ["request_label"]);
+  assert.deepEqual(availableActions("store", ["request_label"], { "Fulfillment Status": "Ready to Ship" }), []);
+  // A marketplace label was already made once it is requested.
+  assert.deepEqual(availableActions("store", ["request_label"], { "Fulfillment Status": "Requested Label", Marketplace: "bol" }), []);
+
+  await runAction({ key: "request_label", source: "store", record: record({ "Fulfillment Status": "Requested Label", "Store Name": ["UNION"] }), deps });
+
+  assert.deepEqual(deps.calls, [{ kind: "kc", path: "/api/dashboard/request-label", body: { order_record_id: "recAAAAAAAAAAAAAA" }, which: undefined }]);
+});

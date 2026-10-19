@@ -243,6 +243,56 @@ export const ACTIONS = {
     }
   },
 
+  /*
+   * Ask the store for a label, for an order that never got the embed.
+   *
+   * Some orders reach Allocated or Requested Label without the label request
+   * ever being posted, and until now only the consignor's Discord button
+   * could post it. This calls the same Kickz Caviar route as the dashboard
+   * button, which runs what that Discord button runs: a marketplace gets its
+   * own label (SneakerAsk, Woovin, bol, Hypeneedz), every other order posts
+   * the Label Request embed in the store's channel - or ours, when the store
+   * has none - and only then moves to Requested Label.
+   *
+   * Pressing it on Requested Label posts the request again, which is the
+   * point for a store order whose embed went missing. A marketplace order
+   * there already has a label made, and a second press would make another.
+   */
+  request_label: {
+    label: "Request Label",
+    sources: ["store"],
+    needs: { store: ["Fulfillment Status", "Marketplace", "Store Name"] },
+    confirm: (source, f) => {
+      const marketplace = text(f.Marketplace);
+      if (marketplace) return `Make the ${marketplace} label for this order now, as when the consignor presses Request Label?`;
+
+      return status(f) === "Requested Label"
+        ? "Post the label request to the store again? Use this when the store never got it; a store that did will see it twice."
+        : "Send the label request to the store? The order moves to Requested Label once it is posted.";
+    },
+    why(source, f) {
+      const allowed = ["Allocated", "Awaiting Label", "Requested Label", "Label Error"];
+      if (!allowed.includes(status(f))) return `A label can be requested while the status is ${allowed.join(", ")}.`;
+      if (text(f.Marketplace) && status(f) === "Requested Label") {
+        return `The ${text(f.Marketplace)} label was already requested; asking again would make a second one.`;
+      }
+      return "";
+    },
+    async run({ record, deps }) {
+      const before = status(record.fields);
+      const marketplace = text(record.fields.Marketplace);
+
+      await deps.callKc("/api/dashboard/request-label", { order_record_id: record.id });
+
+      return {
+        message: marketplace
+          ? `The ${marketplace} label is requested; it goes to the seller once it is made.`
+          : `Label request posted for ${text(first(record.fields["Store Name"])) || "the store"}. The order is on Requested Label.`,
+        changed: { "Fulfillment Status": { from: before, to: "Requested Label" }, label_request: "posted" }
+      };
+    }
+  },
+
   mark_shipped: {
     label: "Mark Shipped",
     sources: ["store", "mwtb"],
