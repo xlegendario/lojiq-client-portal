@@ -1683,9 +1683,16 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
        * booked consignment pair stands on, and his Confirmed tab filters
        * on exactly that word. Written on the pair because his dashboard
        * reads it from a lookup the unit of a broker deal cannot have.
+       *
+       * Only for a pair that is actually coming in from one. Our own shelf
+       * and a partner's are already here, and saying otherwise told the
+       * deal that every pair on it was somebody else's to post - which is
+       * read as "nothing for us to box" and took Add parcel off a deal
+       * that still had one of ours to ship (EXTD-000134, 19-10-2026).
        */
-      consignor_fulfillment_status: "Allocated",
-      consignor_shipping_status: "Pending"
+      ...(["own", "partner"].includes(text(line.source))
+        ? {}
+        : { consignor_fulfillment_status: "Allocated", consignor_shipping_status: "Pending" })
     }]);
 
     await db.patch(`deal_lines?id=eq.${line.id}`, {

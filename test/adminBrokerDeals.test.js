@@ -600,6 +600,31 @@ test("confirming books what the deal bought", async () => {
 });
 
 /*
+  A pair off our own shelf is not coming in from anybody.
+
+  It used to be written down as "Allocated" like a consignment pair, and
+  the panel reads that as "somebody else posts this one" - so a deal whose
+  every pair carried it lost Add parcel, with one of ours still to box
+  (EXTD-000134, 19-10-2026).
+*/
+test("our own pair is not written down as coming in from a consignor", async () => {
+  const { store, tables } = shop({
+    lines: [
+      line({ id: "l1", status: "locked", source: "own", offer_id: null, inventory_unit_record_id: "recUNIT0000000001", buyer_price: 220, payout: 150 })
+    ],
+    offers: []
+  });
+
+  await store.confirmDeal(SALE.id);
+
+  const [pair] = tables.external_sale_pairs;
+
+  assert.ok(pair, "the pair is on the sale");
+  assert.equal(pair.consignor_fulfillment_status, undefined, "nobody is holding it for us");
+  assert.equal(pair.consignor_shipping_status, undefined, "and nobody is posting it");
+});
+
+/*
  * Rompslomp being down must not leave a confirmed deal half made: the sale
  * is real either way, and the health page carries what is unbooked.
  */
