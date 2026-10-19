@@ -40,6 +40,38 @@ function routes(store) {
   };
 }
 
+/*
+  Express answers with the first route that matches, and "own-stock" is a
+  perfectly good :id as far as it is concerned. So both stock searches were
+  answered by the deal lookup and refused as "Which deal?" - the dialog
+  showed that where the pairs should have been, and searching our own shelf
+  never returned a thing (EXTD-000134, 19-10-2026).
+
+  The harness above keys handlers by their exact path, which is blind to
+  this by construction, so the order itself is what is checked.
+*/
+test("the stock searches are mounted before the route that would swallow them", () => {
+  // Per verb: express matches GET against GET routes only, and there is a
+  // DELETE on the same path that has nothing to do with this.
+  const gets = [];
+
+  mountBrokerDeals(
+    { get: (path) => gets.push(path), post: () => {}, delete: () => {} },
+    { store: {} }
+  );
+
+  const idRoute = gets.indexOf("/api/admin/broker-deals/:id");
+
+  assert.ok(idRoute >= 0, "the deal lookup is still there");
+
+  for (const path of ["/api/admin/broker-deals/own-stock", "/api/admin/broker-deals/partner-stock"]) {
+    const at = gets.indexOf(path);
+
+    assert.ok(at >= 0, `${path} is mounted`);
+    assert.ok(at < idRoute, `${path} is mounted before /:id, or /:id answers it`);
+  }
+});
+
 const SALE = {
   id: "11111111-1111-4111-8111-111111111111",
   kind: "broker",

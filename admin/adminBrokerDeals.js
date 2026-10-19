@@ -2042,6 +2042,32 @@ export function mountBrokerDeals(router, { store, audit = null }) {
     }
   });
 
+  /*
+   * Both of these sit in front of /:id on purpose.
+   *
+   * Express answers with the first route that matches, and "own-stock" is a
+   * perfectly good :id as far as it is concerned - so both searches were
+   * answered by the deal lookup, which refused them as "Which deal?". The
+   * dialog showed that where the pairs should be, and searching our own or
+   * a partner's shelf never returned a thing.
+   */
+  // Our own shelf, for the deal dialog.
+  router.get("/api/admin/broker-deals/own-stock", json, async (req, res) => {
+    try {
+      res.json(await store.ownStock({ q: req.query?.q, limit: req.query?.limit }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/broker-deals/partner-stock", json, async (req, res) => {
+    try {
+      res.json(await store.partnerStock({ q: req.query?.q, limit: req.query?.limit }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
   router.get("/api/admin/broker-deals/:id", json, async (req, res) => {
     try {
       res.json(await store.get(req.params.id));
@@ -2067,23 +2093,6 @@ export function mountBrokerDeals(router, { store, audit = null }) {
       })?.catch?.(() => {});
 
       res.json(out);
-    } catch (err) {
-      send(res, err);
-    }
-  });
-
-  // Our own shelf, for the deal dialog.
-  router.get("/api/admin/broker-deals/own-stock", json, async (req, res) => {
-    try {
-      res.json(await store.ownStock({ q: req.query?.q, limit: req.query?.limit }));
-    } catch (err) {
-      send(res, err);
-    }
-  });
-
-  router.get("/api/admin/broker-deals/partner-stock", json, async (req, res) => {
-    try {
-      res.json(await store.partnerStock({ q: req.query?.q, limit: req.query?.limit }));
     } catch (err) {
       send(res, err);
     }
