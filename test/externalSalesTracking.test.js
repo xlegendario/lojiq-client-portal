@@ -200,3 +200,33 @@ test("our own half still on the shelf holds the delivery back", async () => {
   assert.deepEqual(out.delivered, [], "but the order is not delivered");
   assert.equal(sale.shipping_status, "shipped");
 });
+
+test("his pairs follow his box, so his dashboard stops asking him to ship it", async () => {
+  const BOX = "11111111-1111-4111-8111-111111111111";
+  const db = fakeDb({
+    external_sales: [{ id: "s1", deal_number: 107, shipping_status: "ready_to_ship", payment_status: "paid", shipped_at: null, delivered_at: null }],
+    external_sale_pairs: [
+      { id: "pa", sale_id: "s1", shipment_id: BOX, consignor_fulfillment_status: "Ready to Ship", consignor_shipping_status: "Pending", cancelled_at: null },
+      // Ours, in the same box: not his, so not touched.
+      { id: "pb", sale_id: "s1", shipment_id: BOX, consignor_fulfillment_status: null, consignor_shipping_status: null, cancelled_at: null }
+    ],
+    shipments: [{ id: BOX, external_sale_id: "s1", tracking_number: "1ZAAA1111111111111", status: "pending", shipped_at: null, delivered_at: null }]
+  });
+  const tracking = createExternalSalesTracking({ db });
+  const [his, ours] = db.tables.external_sale_pairs;
+
+  await tracking.applyUpdates([{ id: BOX, status: "pending" }]);
+  assert.equal(his.consignor_shipping_status, "Pending", "nothing moved yet");
+
+  await tracking.applyUpdates([{ id: BOX, status: "in_transit" }]);
+  assert.equal(his.consignor_shipping_status, "Shipped");
+  assert.equal(his.consignor_fulfillment_status, "Ready to Ship", "the admin's step is left alone");
+
+  await tracking.applyUpdates([{ id: BOX, status: "delivered", delivered_at: "2026-10-12T09:57:00.000Z" }]);
+  assert.equal(his.consignor_shipping_status, "Delivered");
+  assert.equal(ours.consignor_shipping_status, null);
+
+  // A late read from the carrier does not take him back.
+  await tracking.applyUpdates([{ id: BOX, status: "in_transit" }]);
+  assert.equal(his.consignor_shipping_status, "Delivered");
+});

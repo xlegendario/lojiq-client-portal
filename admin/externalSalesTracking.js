@@ -203,6 +203,8 @@ export function createExternalSalesTracking({ db }) {
       await db.patch(`shipments?id=eq.${parcel.id}`, fields);
       if (fields.status) updated += 1;
       if (parcel.external_sale_id) touchedSales.add(parcel.external_sale_id);
+
+      await moveConsignorPairs(parcel.id, fields.status || parcel.status);
     }
 
     const delivered = [];
@@ -255,6 +257,36 @@ export function createExternalSalesTracking({ db }) {
     }
 
     return { updated, shipped, delivered, unknown };
+  }
+
+  /*
+   * His pairs go with his box.
+   *
+   * FIXED - a consignor's dashboard reads the step off the pair, not off the
+   * parcel, and only the broker's Mark shipped button ever moved it. Every
+   * box that went out without that click sat on Ready to Ship in his portal
+   * long after it was delivered (EXTD-000097 to -000130, SE-00035, 19-10-2026).
+   * The carrier is the better witness anyway, so the parcel moves the pair.
+   *
+   * consignor_fulfillment_status stays as it is: "Ready to Ship" is what the
+   * admin reads as "his label is out", and moving it would hand the broker
+   * the upload form again. Only forward, as with the parcel itself.
+   */
+  async function moveConsignorPairs(shipmentId, status) {
+    const step = { in_transit: "Shipped", delivered: "Delivered" }[text(status)];
+    if (!step) return;
+
+    const pairs = await db.get(
+      `external_sale_pairs?select=id,consignor_shipping_status,consignor_fulfillment_status` +
+      `&shipment_id=eq.${shipmentId}&consignor_fulfillment_status=not.is.null&cancelled_at=is.null`
+    );
+
+    for (const pair of pairs) {
+      const current = text(pair.consignor_shipping_status);
+      if (current === step || current === "Delivered") continue;
+
+      await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { consignor_shipping_status: step });
+    }
   }
 
   /*
