@@ -504,7 +504,7 @@
               ["status", "string", "active or cancelled. A cancelled sale is never shipped."],
               ["sku, size, product_name", "string", "The pair you sold."],
               ["amount", "number", "Your payout for this pair in EUR."],
-              ["source", "string", "order: a shop customer bought it. member_wtb: it filled somebody's want-to-buy. You ship both the same way."],
+              ["source", "string", "order: a shop customer bought it. member_wtb: it filled somebody's want-to-buy. external_sale: it was sold in a deal we arranged; its label is made for you, so you never request one. You ship all three the same way."],
               ["reference", "string", "Our order number (ORD-...) or want-to-buy number (MWTB-...), the same number your dashboard shows."],
               ["order_id", "string or null", "Our order number, such as ORD-007454, when source is order. Otherwise null."],
               ["member_wtb_id", "string or null", "The want-to-buy number, such as MWTB-000422, when source is member_wtb. Otherwise null."],
@@ -775,7 +775,8 @@
           notes: [
             "409 label_available: a label already exists, fetch it instead.",
             "409 not_requestable: the deal is past the point where a label can be requested; fulfillment_status says where it is.",
-            "409 awaiting_payment: for a sale with source member_wtb, the buyer has to pay first."
+            "409 awaiting_payment: for a sale with source member_wtb, the buyer has to pay first.",
+            "409 label_automatic: for a sale with source external_sale the label is made for you. Wait for label.ready."
           ]
         },
         {
