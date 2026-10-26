@@ -88,7 +88,7 @@ export function moneyLines(price, vatType) {
 /* ---------------- the PDF itself ---------------- */
 
 // A string as PDF bytes: WinAnsi, which is Latin-1 with the euro at 0x80.
-function pdfString(value) {
+export function pdfString(value) {
   const bytes = [];
   for (const char of String(value)) {
     const code = char.codePointAt(0);
@@ -102,7 +102,7 @@ function pdfString(value) {
 // Helvetica's own widths, near enough for wrapping and right-aligning.
 const WIDTH_TABLE = { " ": 278, "0": 556, ".": 278, ",": 278, "€": 556 };
 
-function textWidth(value, size, bold = false) {
+export function textWidth(value, size, bold = false) {
   let units = 0;
   for (const char of String(value)) {
     const known = WIDTH_TABLE[char];
@@ -115,7 +115,7 @@ function textWidth(value, size, bold = false) {
   return (units / 1000) * size;
 }
 
-function wrap(value, size, maxWidth, bold = false) {
+export function wrap(value, size, maxWidth, bold = false) {
   const words = String(value).split(/\s+/).filter(Boolean);
   const lines = [];
   let line = "";

@@ -16,6 +16,7 @@
 
 import { labelId } from "../partner/partnerLabels.js";
 import { invoiceName } from "../partner/forwardInvoicing.js";
+import { adminView as documentAdminView, documentNumber } from "../partner/saleDocuments.js";
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -476,6 +477,65 @@ export function mountForwarding(router, { store, audit, callWms, pageFile, forwa
       } catch (err) {
         if (err?.row) await labelLog(req, "partner_label_failed", err.row, { error: err.reason }).catch(() => {});
         labelSend(res, err);
+      }
+    });
+  }
+
+  /*
+   * Partner Documents (partner/saleDocuments.js): the sale documents a
+   * partner makes in his own name for his own buyers. He signs it; we fill
+   * in our fee per line and release it, which gives it its number. Nothing
+   * here books anything: the sale is his.
+   */
+  if (forwardInvoices?.documents) {
+    const { documents } = forwardInvoices;
+
+    const documentLog = (req, action, row, details) =>
+      audit.record({ actor: req.admin, action, source: "partner_documents", recordId: row.id, label: documentNumber(row) || row.id, details });
+
+    const documentSend = (res, err) => {
+      if (err?.code) return res.status(err.status || 400).json({ error: err.code });
+      console.error("[admin partner documents]", err.message);
+      res.status(500).json({ error: "Partner documents failed." });
+    };
+
+    router.get("/api/admin/partner-documents", async (req, res) => {
+      try {
+        const rows = await documents.all();
+        const open = [...new Set(rows.filter((row) => row.status === "requested").map((row) => row.seller_record_id))];
+        const defaults = Object.fromEntries(await Promise.all(open.map(async (seller) => [seller, await documents.defaultsFor(seller)])));
+        const partners = forwardInvoices.labels ? await forwardInvoices.labels.partners().catch(() => []) : [];
+        res.json({ documents: rows.map(documentAdminView), partners, fee_defaults: defaults });
+      } catch (err) {
+        documentSend(res, err);
+      }
+    });
+
+    router.get("/api/admin/partner-documents/:id/pdf", async (req, res) => {
+      try {
+        const { pdf, filename } = await documents.pdf(await documents.load(req.params.id));
+        res.set("Content-Type", "application/pdf");
+        res.set("Content-Disposition", `inline; filename="${filename}"`);
+        res.send(pdf);
+      } catch (err) {
+        documentSend(res, err);
+      }
+    });
+
+    router.post("/api/admin/partner-documents", express.json({ limit: "50kb" }), async (req, res) => {
+      const action = text(req.body?.action);
+      const id = text(req.body?.id);
+
+      try {
+        let row;
+        if (action === "approve") row = await documents.approve(id, req.body?.fees, req.admin?.name || req.admin?.email || "admin");
+        else if (action === "reject") row = await documents.reject(id, req.body?.reason);
+        else return res.status(400).json({ error: "Unknown action." });
+
+        await documentLog(req, `partner_document_${action}`, row, { status: row.status, total: row.total, fee_total: row.fee_total ?? null, reason: row.reject_reason || null });
+        res.json({ document: documentAdminView(row) });
+      } catch (err) {
+        documentSend(res, err);
       }
     });
   }

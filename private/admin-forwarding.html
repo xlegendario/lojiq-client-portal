@@ -243,6 +243,11 @@
     #lpDirty { color: var(--amber, #E0A030); }
     .act.primary-act { background: var(--primary); border-color: var(--primary); color: #fff; }
     tr[data-label-id] { cursor: pointer; }
+    tr[data-doc-id] { cursor: pointer; }
+    .doc-line { border-top: 1px solid var(--border); padding: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+    .doc-line .panel-form .select { width: 120px; flex: none; }
+    .doc-line .panel-form .input { width: 90px; flex: none; }
+    .doc-sum dl { margin-top: 10px; }
     .act.danger { border-color: var(--red); color: var(--bad-text); }
     .hold-box { border: 1px solid var(--warning); border-radius: 10px; padding: 12px; margin: 0 0 14px; background: var(--wait-bg); }
     .hold-box p { margin: 4px 0 8px; }
@@ -285,6 +290,7 @@
         <button class="nav-item" type="button" data-shipping="all">All forwards</button>
         <button class="nav-item" type="button" data-mode="labels">Partner Labels <small id="labelCount"></small></button>
         <button class="nav-item" type="button" data-mode="invoices">Partner Invoices</button>
+        <button class="nav-item" type="button" data-mode="documents">Partner Documents <small id="docCount"></small></button>
       </div>
 
       <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
@@ -544,9 +550,12 @@
     const params = new URLSearchParams(location.search);
 
     const state = {
-      mode: ["payments", "partner-payouts", "labels", "invoices"].includes(params.get("view")) ? params.get("view") : "forwards",
+      mode: ["payments", "partner-payouts", "labels", "invoices", "documents"].includes(params.get("view")) ? params.get("view") : "forwards",
       invoices: [],
       selectedInvoice: "",
+      documents: [],
+      feeDefaults: {},
+      selectedDocument: "",
       labels: [],
       partners: [],
       payouts: [],
@@ -586,7 +595,7 @@
     } catch {}
 
     function currentSection() {
-      return ["forwards", "labels", "invoices"].includes(state.mode) ? "forwarding" : "money";
+      return ["forwards", "labels", "invoices", "documents"].includes(state.mode) ? "forwarding" : "money";
     }
 
     function saveNavSections() {
@@ -610,6 +619,7 @@
       document.querySelector('[data-mode="partner-payouts"]').classList.toggle("active", state.mode === "partner-payouts");
       document.querySelector('[data-mode="labels"]').classList.toggle("active", state.mode === "labels");
       document.querySelector('[data-mode="invoices"]').classList.toggle("active", state.mode === "invoices");
+      document.querySelector('[data-mode="documents"]').classList.toggle("active", state.mode === "documents");
     }
 
     // Counts for every tab, from the same cached endpoint the main page uses.
@@ -667,6 +677,7 @@
       if (event.target.closest('[data-mode="partner-payouts"]')) switchTo("partner-payouts");
       if (event.target.closest('[data-mode="labels"]')) switchTo("labels");
       if (event.target.closest('[data-mode="invoices"]')) switchTo("invoices");
+      if (event.target.closest('[data-mode="documents"]')) switchTo("documents");
     });
 
     function switchTo(mode, shipping = state.shipping) {
@@ -745,10 +756,11 @@
     function render() {
       $("newLabelBtn").hidden = state.mode !== "labels";
       $("newInvoiceBtn").hidden = state.mode !== "invoices";
-      $("sellerFilter").hidden = state.mode === "labels" || state.mode === "invoices";
+      $("sellerFilter").hidden = state.mode === "labels" || state.mode === "invoices" || state.mode === "documents";
       if (state.mode === "partner-payouts") return renderPartnerPayouts();
       if (state.mode === "labels") return renderLabels();
       if (state.mode === "invoices") return renderInvoices();
+      if (state.mode === "documents") return renderDocuments();
 
       const rows = visibleForwards();
       const payments = state.mode === "payments";
@@ -1048,6 +1060,7 @@
       state.selected = "";
       state.selectedLabel = "";
       state.selectedInvoice = "";
+      state.selectedDocument = "";
       if (redraw) render();
     }
 
@@ -1152,6 +1165,21 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
     /* ---------------- loading ---------------- */
 
     async function load() {
+      if (state.mode === "documents") {
+        try {
+          const data = await api("/api/admin/partner-documents");
+          state.documents = data.documents || [];
+          state.partners = data.partners || [];
+          state.feeDefaults = data.fee_defaults || {};
+          render();
+          const open = state.selectedDocument && state.documents.find((d) => d.id === state.selectedDocument);
+          if (open && !$("panel").hidden) drawDocPanel(open);
+        } catch (err) {
+          $("rows").innerHTML = `<tr><td colspan="9" class="empty">${esc(err.message)}</td></tr>`;
+        }
+        return;
+      }
+
       if (state.mode === "labels") {
         try {
           const data = await api("/api/admin/partner-labels");
@@ -1251,6 +1279,8 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         $("labelCount").textContent = (labelData.labels || []).filter((l) => l.status === "requested" || l.status === "failed").length || "";
 
         $("payoutCount").textContent = (payouts.payouts || []).filter((inv) => inv.partner_payout_status === "to_pay").length || "";
+        const docData = await api("/api/admin/partner-documents").catch(() => ({ documents: [] }));
+        $("docCount").textContent = (docData.documents || []).filter((d) => d.status === "requested").length || "";
 
         const current = $("sellerFilter").value;
         $("sellerFilter").innerHTML = `<option value="">Every partner</option>` +
@@ -2275,6 +2305,236 @@ Cancel ${row.display_id} and put its ${row.pair_count} pair(s) back on the shelf
         $("lblError").hidden = false;
       } finally {
         $("lblSave").disabled = false;
+      }
+    });
+
+    /* ---------------- partner documents ---------------- */
+
+    /*
+     * Partner Documents: the sales invoice and purchase declaration a partner
+     * makes in his own name for his own buyer. He signs it; here our fee is
+     * filled in per line (a percentage of the line or an amount per item) and
+     * it is released, which gives it its number. Nothing is booked.
+     */
+    const DOC_STATUS = { requested: ["To check", "wait"], approved: ["Released", "good"], rejected: ["Rejected", "bad"] };
+    const docPill = (d) => {
+      const [label, cls] = DOC_STATUS[d.status] || [d.status, ""];
+      return `<span class="pill ${cls}">${esc(label)}</span>`;
+    };
+    const docName = (d) => d.number || "New";
+    const docSizes = (line) => (line.sizes || []).map((s) => `${s.size} × ${s.qty}`).join(", ");
+    const docKey = (line) => (line.sku ? `sku:${line.sku}` : `name:${String(line.name || "").toLowerCase()}`);
+
+    function docDefault(d, line) {
+      const defaults = state.feeDefaults[d.seller_record_id] || {};
+      return defaults.by_key?.[docKey(line)] || defaults.last || { type: "per_item", value: 0 };
+    }
+
+    function docLineFee(line, type, value) {
+      const v = Number(String(value ?? "").replace(",", "."));
+      if (!(v >= 0)) return null;
+      return Math.round((type === "percent" ? line.total * v / 100 : line.qty * v) * 100) / 100;
+    }
+
+    function renderDocuments() {
+      const query = $("searchInput").value.trim().toLowerCase();
+      const rows = state.documents.filter((d) => !query || [docName(d), d.seller_id, d.buyer_label, ...(d.lines || []).map((l) => `${l.sku} ${l.name}`)].join(" ").toLowerCase().includes(query));
+
+      $("crumb").textContent = "Forward Service";
+      $("viewTitle").textContent = "Partner Documents";
+      document.title = "Partner Documents · Forward Service · Lojiq Admin";
+      $("paymentFilter").hidden = true;
+      $("actionbar").hidden = true;
+      const open = rows.filter((d) => d.status === "requested");
+      const fees = rows.filter((d) => d.status === "approved").reduce((sum, d) => sum + Number(d.fee_total || 0), 0);
+      $("count").textContent = `${open.length} to check · fees released ${euro(fees)}`;
+      drawNavSections();
+
+      $("tableHead").innerHTML = `
+        <tr>
+          <th>Document</th>
+          <th>Signed</th>
+          <th>Partner</th>
+          <th>Buyer</th>
+          <th class="money">Lines</th>
+          <th class="money">Total</th>
+          <th class="money">Our fee</th>
+          <th>Status</th>
+          <th>Buyer paid</th>
+        </tr>`;
+
+      $("rows").innerHTML = rows.length
+        ? rows.map((d) => `
+            <tr data-doc-id="${esc(d.id)}"${state.selectedDocument === d.id ? ' class="selected"' : ""}>
+              <td><span class="id">${esc(docName(d))}</span></td>
+              <td>${esc(dateFmt.format(new Date(d.signed_at || d.created_at)))}</td>
+              <td>${esc(partnerName(d.seller_record_id) || d.seller_id)}</td>
+              <td>${esc(d.buyer_label)}</td>
+              <td class="money">${(d.lines || []).length}</td>
+              <td class="money">${euro(d.total)}</td>
+              <td class="money">${d.status === "approved" ? euro(d.fee_total) : '<span class="dash">—</span>'}</td>
+              <td>${docPill(d)}</td>
+              <td>${d.status === "approved" ? (d.buyer_paid_at ? '<span class="pill good">Paid</span>' : '<span class="pill wait">Not paid</span>') : '<span class="dash">—</span>'}</td>
+            </tr>`).join("")
+        : `<tr><td colspan="9" class="empty">No partner documents yet.</td></tr>`;
+    }
+
+    function drawDocPanel(d) {
+      const open = d.status === "requested";
+      $("panelTitle").textContent = `${docName(d)} · ${partnerName(d.seller_record_id) || d.seller_id}`;
+      $("panelActions").innerHTML = [
+        `<a class="act" href="/api/admin/partner-documents/${encodeURIComponent(d.id)}/pdf" target="_blank" rel="noopener">${open ? "View draft PDF" : "View PDF"}</a>`,
+        open ? `<button class="act primary-act" type="button" data-docp="approve">Release with these fees</button>` : ""
+      ].join("");
+
+      const lines = (d.lines || []).map((line, i) => {
+        const fee = open ? docDefault(d, line) : { type: line.fee_type, value: line.fee_value };
+        const lock = open ? "" : " disabled";
+        return `
+          <div class="doc-line" data-doc-line="${i}">
+            <div><b>${esc(line.name || line.sku)}</b>${line.sku && line.name ? ` <span class="sub">${esc(line.sku)}</span>` : ""}
+              ${line.sizes?.length ? `<br><span class="sub">${esc(docSizes(line))}</span>` : ""}
+              <br>${line.qty} × ${euro(line.unit_price)} = <b>${euro(line.total)}</b></div>
+            <div class="panel-form">
+              <select class="select" data-fee-type${lock}>
+                <option value="per_item"${fee.type === "per_item" ? " selected" : ""}>€ per item</option>
+                <option value="percent"${fee.type === "percent" ? " selected" : ""}>% of line</option>
+              </select>
+              <input class="input" data-fee-value inputmode="decimal" value="${esc(fee.value ?? 0)}"${lock}>
+              <span class="sub" data-fee-out>${euro(open ? docLineFee(line, fee.type, fee.value) : line.fee)}</span>
+            </div>
+          </div>`;
+      }).join("");
+
+      $("panelBody").innerHTML = [
+        panelGroup("Document", [
+          ["Status", docPill(d)],
+          ["Number", esc(d.number || "given on release")],
+          ["Buyer", esc(d.buyer_label)],
+          ["Buyer address", esc([d.buyer?.address, [d.buyer?.zipcode, d.buyer?.city].filter(Boolean).join(" "), d.buyer?.country].filter(Boolean).join(", "))],
+          ["Buyer VAT", esc(d.buyer?.vat_id || "")],
+          ["Delivery date", esc(d.delivery_date || "")],
+          ["Pays to", esc(`${d.payment?.iban || ""} · ${d.payment?.holder || ""}`)],
+          ["Released", d.approved_at ? `${esc(dateFmt.format(new Date(d.approved_at)))} · ${esc(d.approved_by || "")}` : ""],
+          ["Rejected", esc(d.reject_reason || "")]
+        ]),
+        `<section class="group"><h3>Lines and our fee</h3>${lines}
+          <div class="doc-sum" id="docSum"></div>
+          ${open ? '<p class="sub">Our fee per line: an amount per item or a percentage of the line. Filled in with what you used last time for the same product. The partner sees the fee once it is released.</p>' : ""}
+        </section>`,
+        panelGroup("Signed by the partner", [
+          ["Seller", esc(`${d.seller?.name || ""} · ${[d.seller?.address, d.seller?.zipcode, d.seller?.city, d.seller?.country].filter(Boolean).join(", ")}`)],
+          ["Signed", d.signed_at ? esc(dateFmt.format(new Date(d.signed_at))) : ""],
+          ["IP address", esc(d.signed_ip || "")],
+          ["Device", esc(d.signed_agent || "")],
+          ["Terms", esc(d.terms_version ? `version ${d.terms_version}` : "")],
+          ["Content hash", `<span class="sub">${esc(d.content_hash || "")}</span>`],
+          ["PDF hash", `<span class="sub">${esc(d.pdf_hash || "")}</span>`]
+        ]),
+        open
+          ? `<section class="group"><h3>Reject</h3>
+              <div class="panel-form">
+                <input class="input" id="docReason" placeholder="Why not - the partner sees this">
+                <button class="act danger" type="button" data-docp="reject">Reject</button>
+              </div>
+            </section>`
+          : ""
+      ].join("");
+
+      drawDocSum(d);
+    }
+
+    // What the fees come to, live while typing.
+    function readDocFees(d) {
+      return (d.lines || []).map((line, i) => {
+        const row = document.querySelector(`[data-doc-line="${i}"]`);
+        const type = row?.querySelector("[data-fee-type]")?.value || "per_item";
+        const value = row?.querySelector("[data-fee-value]")?.value ?? "0";
+        return { type, value, fee: docLineFee(line, type, value) };
+      });
+    }
+
+    function drawDocSum(d) {
+      const fees = d.status === "requested" ? readDocFees(d) : (d.lines || []).map((line) => ({ fee: Number(line.fee || 0) }));
+      fees.forEach((f, i) => {
+        const out = document.querySelector(`[data-doc-line="${i}"] [data-fee-out]`);
+        if (out) out.textContent = f.fee === null ? "?" : euro(f.fee);
+      });
+      const fee = fees.reduce((sum, f) => sum + (f.fee || 0), 0);
+      if ($("docSum")) $("docSum").innerHTML = `<dl>
+        <dt>Buyer pays the partner</dt><dd>${euro(d.total)}</dd>
+        <dt>Our fee (incl. VAT)</dt><dd><b>${euro(fee)}</b></dd>
+        <dt>Partner keeps</dt><dd>${euro(Number(d.total) - fee)}</dd>
+      </dl>`;
+    }
+
+    function openDocPanel(id) {
+      const d = state.documents.find((row) => row.id === id);
+      if (!d) return;
+      state.selectedDocument = id;
+      state.selected = "";
+      state.selectedLabel = "";
+      $("panel").hidden = false;
+      drawDocPanel(d);
+      render();
+    }
+
+    $("rows").addEventListener("click", (event) => {
+      if (state.mode !== "documents") return;
+      const row = event.target.closest("tr[data-doc-id]");
+      if (row) openDocPanel(row.dataset.docId);
+    });
+
+    $("panelBody").addEventListener("input", (event) => {
+      if (state.mode !== "documents" || !event.target.closest("[data-doc-line]")) return;
+      const d = state.documents.find((row) => row.id === state.selectedDocument);
+      if (d) drawDocSum(d);
+    });
+
+    $("panelBody").addEventListener("change", (event) => {
+      if (state.mode !== "documents" || !event.target.closest("[data-doc-line]")) return;
+      const d = state.documents.find((row) => row.id === state.selectedDocument);
+      if (d) drawDocSum(d);
+    });
+
+    $("panel").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-docp]");
+      if (!button || state.mode !== "documents") return;
+      const d = state.documents.find((row) => row.id === state.selectedDocument);
+      if (!d) return;
+
+      const action = button.dataset.docp;
+      let body;
+      if (action === "approve") {
+        const fees = readDocFees(d);
+        if (fees.some((f) => f.fee === null)) { toast("Fill in a fee on every line (0 is fine)."); return; }
+        const total = fees.reduce((sum, f) => sum + f.fee, 0);
+        if (!confirm(`Release ${docName(d)} for ${partnerName(d.seller_record_id) || d.seller_id} with ${euro(total)} fee?`)) return;
+        body = { action, id: d.id, fees: fees.map(({ type, value }) => ({ type, value })) };
+      } else if (action === "reject") {
+        const reason = $("docReason").value.trim();
+        if (!reason) { toast("Write why, the partner sees it."); return; }
+        body = { action, id: d.id, reason };
+      } else return;
+
+      document.querySelectorAll("[data-docp]").forEach((b) => { b.disabled = true; });
+      try {
+        const data = await api("/api/admin/partner-documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        state.documents = state.documents.map((row) => (row.id === d.id ? data.document : row));
+        toast(action === "approve" ? `${data.document.number} released.` : "Rejected.");
+        drawDocPanel(data.document);
+        render();
+        loadCounts();
+      } catch (err) {
+        const words = {
+          fee_above_total: "The fee is more than the sale.",
+          fee_per_line: "Every line needs a fee.",
+          bad_fee: "A fee is not a valid number (a percentage is at most 100).",
+          not_open: "This document was already released or rejected. Reload.",
+          reason_needed: "Write why, the partner sees it."
+        };
+        toast(words[err.message] || err.message);
+        document.querySelectorAll("[data-docp]").forEach((b) => { b.disabled = false; });
       }
     });
 

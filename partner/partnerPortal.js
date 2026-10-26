@@ -36,6 +36,10 @@ import { usedTracking } from "./partnerForward.js";
 import { COUNTRIES, LabelError, createPartnerLabels, partnerView } from "./partnerLabels.js";
 import { createRompslomp } from "../admin/externalSalesInvoicing.js";
 import { createPurchaseExpense } from "../admin/purchaseExpense.js";
+import { DocumentError, createSaleDocuments, partnerView as documentView, sellerParty } from "./saleDocuments.js";
+import { saleDocumentPdf } from "./saleDocumentPdf.js";
+import { airtableSelect, createCatalogSearch } from "./catalogSearch.js";
+import { termsView } from "./sellerTerms.js";
 
 export const PARTNER_COOKIE = "lojiq_partner";
 
@@ -45,6 +49,9 @@ const SWEEP_MS = 5 * 60_000;
 
 // Labels as data URLs: a few PDFs or (shrunk) phone photos per forward.
 export const FORWARD_BODY_LIMIT = "25mb";
+
+// A sale document: up to sixty lines and a drawn signature as a JPEG.
+export const DOCUMENT_BODY_LIMIT = "2mb";
 
 // What Claude takes in one go: a PDF up to 32 MB, a picture up to 5 MB.
 const READ_LIMITS = { "application/pdf": 20 * 1024 * 1024, "image/jpeg": 5 * 1024 * 1024, "image/png": 5 * 1024 * 1024 };
@@ -546,6 +553,135 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     }
   });
 
+  /* ----- his own sale documents ----- */
+
+  // Where the request came from, for the record of what he signed. Render
+  // puts the visitor first in X-Forwarded-For.
+  const clientIp = (req) => text(String(req.headers["x-forwarded-for"] || "").split(",")[0]) || text(req.ip);
+  const clientAgent = (req) => text(req.headers["user-agent"]);
+
+  async function sellerFields(sellerRecordId) {
+    if (!services.airtable) return {};
+    const record = await services.airtable(services.sellersTable || "Sellers Database").find(sellerRecordId);
+    return record?.fields || {};
+  }
+
+  const documents = services.documents || createSaleDocuments({
+    db,
+    sellerOf: (sellerRecordId) => sellerFields(sellerRecordId),
+    owns: (sellerRecordId, buyerId) => buyers.owns(sellerRecordId, buyerId),
+    renderPdf: async (row, options) => saleDocumentPdf(row, options)
+  });
+
+  const catalog = services.catalog || createCatalogSearch({
+    select: services.airtable ? airtableSelect(services.airtable) : async () => []
+  });
+
+  const documentSend = (res, err, who) => {
+    if (err instanceof DocumentError) return res.status(err.status).json({ error: err.code });
+    console.error(`[partner] documents for ${who} failed:`, err.message);
+    res.status(502).json({ error: "try_again" });
+  };
+
+  const sendPdf = (res, { pdf, filename }) => {
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `inline; filename="${filename}"`);
+    res.send(pdf);
+  };
+
+  // The agreement he accepts once, with his own details in it.
+  router.get("/api/partner/terms", async (req, res) => {
+    try {
+      const [fields, accepted] = await Promise.all([sellerFields(req.partner.sellerRecordId), documents.acceptance(req.partner.sellerRecordId)]);
+      const party = sellerParty(req.partner.sellerId, fields);
+      res.json({
+        ...termsView({ ...party, address: [party.address, [party.zipcode, party.city].filter(Boolean).join(" ")].filter(Boolean).join(", ") }),
+        accepted: Boolean(accepted),
+        accepted_at: accepted?.accepted_at || null
+      });
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  router.post("/api/partner/terms/accept", express.json({ limit: "2kb" }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      await documents.acceptTerms(req.partner, { ip: clientIp(req), agent: clientAgent(req) });
+      console.log(`[partner] ${req.partner.sellerId} accepted the document terms`);
+      res.json({ accepted: true });
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  router.get("/api/partner/catalog", async (req, res) => {
+    try {
+      res.json(await catalog.search(text(req.query.q).slice(0, 100)));
+    } catch (err) {
+      console.error(`[partner] catalogue search for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
+    }
+  });
+
+  router.get("/api/partner/documents", async (req, res) => {
+    try {
+      const [rows, payment, accepted] = await Promise.all([
+        documents.list(req.partner.sellerRecordId),
+        documents.lastPayment(req.partner.sellerRecordId).catch(() => null),
+        documents.acceptance(req.partner.sellerRecordId)
+      ]);
+      res.json({ documents: rows.map(documentView), payment, terms_accepted: Boolean(accepted) });
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  // The document as it will look, before he signs it.
+  router.post("/api/partner/documents/preview", express.json({ limit: "200kb" }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      sendPdf(res, await documents.preview(req.partner, req.body || {}));
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  router.post("/api/partner/documents", express.json({ limit: DOCUMENT_BODY_LIMIT }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      const row = await documents.request(req.partner, req.body || {}, { ip: clientIp(req), agent: clientAgent(req) });
+      console.log(`[partner] ${req.partner.sellerId} signed a sale document: ${row.lines.length} line(s), total ${row.total}`);
+      res.json({ document: documentView(row) });
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  router.get("/api/partner/documents/:id/pdf", async (req, res) => {
+    try {
+      const row = await documents.load(req.params.id);
+      if (row.seller_record_id !== req.partner.sellerRecordId) return res.status(404).json({ error: "not_found" });
+      sendPdf(res, await documents.pdf(row));
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  router.post("/api/partner/documents/:id/buyer-paid", express.json({ limit: "2kb" }), async (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: "Not allowed" });
+
+    try {
+      const row = await documents.setBuyerPaid(req.partner.sellerRecordId, req.params.id, req.body?.paid === true);
+      res.json({ document: documentView(row) });
+    } catch (err) {
+      documentSend(res, err, req.partner.sellerId);
+    }
+  });
+
   /* ----- buyers ----- */
 
   router.get("/api/partner/buyers", async (req, res) => {
@@ -570,7 +706,7 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
     }
   });
 
-  return { router, enabled, db, invoicing, buyers, labels };
+  return { router, enabled, db, invoicing, buyers, labels, documents };
 }
 
 export function partnerPagePath(dirname) {

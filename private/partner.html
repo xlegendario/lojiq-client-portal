@@ -387,6 +387,10 @@
     .pill.inv.wait { background: rgba(245, 158, 11, 0.16); color: #FBBF4C; }
     a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 
+    .sig-wrap { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); touch-action: none; }
+    .sig-wrap canvas { display: block; touch-action: none; }
+    .field input[type="date"] { min-height: 52px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); font-size: 17px; color: var(--text); width: 100%; }
+
     .tabbar {
       position: fixed;
       left: 0;
@@ -476,6 +480,10 @@
         <h2 data-t="tab_labels">Labels</h2>
         <div id="labelsBody"><div class="note" data-t="loading">Loading…</div></div>
       </section>
+      <section id="view-docs" data-view hidden>
+        <h2 data-t="tab_docs">Invoices</h2>
+        <div id="docsBody"><div class="note" data-t="loading">Loading…</div></div>
+      </section>
     </main>
 
     <button class="sendbar" id="sendBar" type="button" hidden>
@@ -501,6 +509,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
           <span data-t="tab_labels">Labels</span>
         </button>
+        <button class="tab" role="tab" type="button" data-tab="docs" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+          <span data-t="tab_docs">Invoices</span>
+        </button>
       </div>
     </nav>
   </div>
@@ -512,6 +524,70 @@
     // language, so every label is also in Simplified Chinese.
     const WORDS = {
       en: {
+        tab_docs: "Invoices",
+        sd_create: "+ Create invoice",
+        sd_none: "No invoices yet.",
+        sd_waiting: "Waiting for Lojiq",
+        sd_ready: "Ready",
+        sd_rejected: "Rejected",
+        sd_sec_waiting: "Waiting for Lojiq",
+        sd_sec_ready: "Ready",
+        sd_no_number: "New invoice",
+        sd_fee: "Lojiq fee",
+        sd_download: "Download invoice (PDF)",
+        sd_view_draft: "View draft (PDF)",
+        sd_buyer_paid: "Buyer paid me",
+        sd_buyer_paid_hint: "Only for your own overview.",
+        sd_terms_intro: "Read this once before your first invoice. You only agree one time.",
+        sd_agree: "I agree",
+        sd_products: "Products",
+        sd_no_products: "No products yet.",
+        sd_add_product: "+ Add product",
+        sd_add_other: "Other item (no SKU)",
+        sd_remove: "Remove",
+        sd_delivery: "Delivery date",
+        sd_payment: "Buyer pays to",
+        sd_holder: "Account holder",
+        sd_next_sign: "Next: sign",
+        sd_search_ph: "SKU or name",
+        sd_search_btn: "Search",
+        sd_search_hint: "Type the SKU or a few words of the name, then Search.",
+        sd_search_partial: "Nothing matched every word. These are the closest.",
+        sd_search_none: "Nothing found. Try other words, or use Other item.",
+        sd_tap_sizes: "Tap a size to add 1. Use + and − to change.",
+        sd_shoe_sizes: "Shoe sizes",
+        sd_clothing_sizes: "Clothing sizes",
+        sd_other_size: "Other size",
+        sd_price_each: "Price per item",
+        sd_per_item: "per item",
+        sd_items: "Items",
+        sd_add_to_invoice: "Add to invoice",
+        sd_other_name: "Name of the item",
+        sd_other_name_ph: "e.g. Shoe creases black",
+        sd_qty: "Quantity",
+        sd_preview: "See the invoice (PDF)",
+        sd_declaration_title: "Your declaration",
+        sd_declaration: "I am the seller of these goods. The information above is correct. I declare that no VAT has been deducted as input tax on these goods, and I instruct Lojiq to issue this invoice in my name.",
+        sd_sign_hint: "Sign below with your finger.",
+        sd_clear: "Clear",
+        sd_sign_send: "Sign and send",
+        sd_sent: "Invoice sent. Lojiq checks it and then you can download it.",
+        sd_need_products: "Add at least one product.",
+        sd_need_sizes: "Choose at least one size.",
+        sd_need_name: "Fill in the name.",
+        sd_need_qty: "Fill in the quantity.",
+        sd_need_signature: "Please sign first.",
+        sd_err_bad_iban: "This IBAN is not correct.",
+        sd_err_no_holder: "Fill in the account holder.",
+        sd_err_no_signature: "Please sign first.",
+        sd_err_no_buyer: "Choose the buyer.",
+        sd_err_bad_price: "Check the prices.",
+        sd_err_bad_qty: "Check the quantities.",
+        sd_err_no_lines: "Add at least one product.",
+        sd_err_bad_date: "Check the delivery date.",
+        sd_err_terms_not_accepted: "Please agree to the terms first.",
+        sd_err_vat_registered: "Your account has a VAT number. Contact Lojiq.",
+        sd_err_seller_incomplete: "Your name or address is missing. Contact Lojiq.",
         login_title: "Your stock at Lojiq",
         login_intro: "Sign in to see your stock and forward pairs.",
         email: "E-mail",
@@ -719,6 +795,70 @@
         st_inv_paid: "Paid"
       },
       zh: {
+        tab_docs: "发票",
+        sd_create: "+ 创建发票",
+        sd_none: "还没有发票。",
+        sd_waiting: "等待 Lojiq",
+        sd_ready: "已完成",
+        sd_rejected: "已拒绝",
+        sd_sec_waiting: "等待 Lojiq",
+        sd_sec_ready: "已完成",
+        sd_no_number: "新发票",
+        sd_fee: "Lojiq 费用",
+        sd_download: "下载发票 (PDF)",
+        sd_view_draft: "查看草稿 (PDF)",
+        sd_buyer_paid: "买家已付款给我",
+        sd_buyer_paid_hint: "仅供您自己查看。",
+        sd_terms_intro: "第一次开发票前请阅读。只需同意一次。",
+        sd_agree: "我同意",
+        sd_products: "商品",
+        sd_no_products: "还没有商品。",
+        sd_add_product: "+ 添加商品",
+        sd_add_other: "其他商品（无 SKU）",
+        sd_remove: "删除",
+        sd_delivery: "交货日期",
+        sd_payment: "买家付款到",
+        sd_holder: "账户持有人",
+        sd_next_sign: "下一步：签名",
+        sd_search_ph: "SKU 或名称",
+        sd_search_btn: "搜索",
+        sd_search_hint: "输入 SKU 或名称中的几个词，然后点搜索。",
+        sd_search_partial: "没有完全匹配的结果。这些是最接近的。",
+        sd_search_none: "没有找到。请换个词，或使用其他商品。",
+        sd_tap_sizes: "点尺码加 1。用 + 和 − 修改。",
+        sd_shoe_sizes: "鞋码",
+        sd_clothing_sizes: "服装尺码",
+        sd_other_size: "其他尺码",
+        sd_price_each: "单价",
+        sd_per_item: "每件",
+        sd_items: "件数",
+        sd_add_to_invoice: "加入发票",
+        sd_other_name: "商品名称",
+        sd_other_name_ph: "例如：黑色防皱鞋撑",
+        sd_qty: "数量",
+        sd_preview: "查看发票 (PDF)",
+        sd_declaration_title: "您的声明",
+        sd_declaration: "我是这些商品的卖家。以上信息正确。我声明未就这些商品抵扣进项增值税，并委托 Lojiq 以我的名义开具此发票。",
+        sd_sign_hint: "请用手指在下方签名。",
+        sd_clear: "清除",
+        sd_sign_send: "签名并提交",
+        sd_sent: "发票已提交。Lojiq 审核后即可下载。",
+        sd_need_products: "请至少添加一个商品。",
+        sd_need_sizes: "请至少选择一个尺码。",
+        sd_need_name: "请填写名称。",
+        sd_need_qty: "请填写数量。",
+        sd_need_signature: "请先签名。",
+        sd_err_bad_iban: "IBAN 不正确。",
+        sd_err_no_holder: "请填写账户持有人。",
+        sd_err_no_signature: "请先签名。",
+        sd_err_no_buyer: "请选择买家。",
+        sd_err_bad_price: "请检查价格。",
+        sd_err_bad_qty: "请检查数量。",
+        sd_err_no_lines: "请至少添加一个商品。",
+        sd_err_bad_date: "请检查交货日期。",
+        sd_err_terms_not_accepted: "请先同意条款。",
+        sd_err_vat_registered: "您的账户有增值税号。请联系 Lojiq。",
+        sd_err_seller_incomplete: "缺少您的姓名或地址。请联系 Lojiq。",
         login_title: "您在 Lojiq 的库存",
         login_intro: "登录查看库存和转运发货。",
         email: "邮箱",
@@ -997,7 +1137,7 @@
     }
 
     function openTab(name) {
-      if (!["stock", "new", "sent", "labels"].includes(name)) name = "stock";
+      if (!["stock", "new", "sent", "labels", "docs"].includes(name)) name = "stock";
 
       document.querySelectorAll("[data-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
       document.querySelectorAll("[data-view]").forEach((view) => { view.hidden = view.id !== `view-${name}`; });
@@ -1007,6 +1147,7 @@
       if (name === "new") loadSend();
       if (name === "sent") loadSent(true);
       if (name === "labels") loadLabels();
+      if (name === "docs") loadDocs();
       if (typeof send !== "undefined") renderSendBar();
     }
 
@@ -2427,6 +2568,703 @@
       if (!lbl.form) return;
       if (event.target.id === "lblAddress") lbl.form.address_id = event.target.value;
       if (event.target.dataset.la) lbl.form.newAddress[event.target.dataset.la] = event.target.value;
+    });
+
+    /* ---------- his own invoices (sale documents) ---------- */
+
+    // The invoice and purchase declaration he gives his own buyer, in his
+    // own name. He fills it in and signs; Lojiq releases it with our fee,
+    // and then it has its number and can be downloaded.
+    const sd = {
+      data: null, payment: null, accepted: false, terms: null, loading: false,
+      view: "list", notice: "", error: "", saving: false,
+      buyers: null, countries: [], buyerView: "pick", buyerForm: {}, buyerBad: [], buyerSame: null,
+      form: null,
+      search: { q: "", results: null, loading: false, partial: false },
+      pick: null,
+      other: null,
+      signed: false
+    };
+
+    const SHOE_SIZES = ["35.5", "36", "36.5", "37.5", "38", "38.5", "39", "40", "40.5", "41", "42", "42.5", "43", "44", "44.5", "45", "45.5", "46", "47", "47.5", "48", "48.5", "49", "49.5", "50"];
+    const CLOTHING_SIZES = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL"];
+    const DOC_STATUS = { requested: ["sd_waiting", "wait"], approved: ["sd_ready", "good"], rejected: ["sd_rejected", "off"] };
+
+    const todayIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const lineTotal = (line) => Math.round(line.qty * line.unit_price * 100) / 100;
+    const formTotal = () => Math.round((sd.form?.lines || []).reduce((sum, line) => sum + lineTotal(line), 0) * 100) / 100;
+    const sizesLabel = (line) => (line.sizes || []).map((s) => `${s.size} × ${s.qty}`).join(", ");
+
+    function newDocForm() {
+      return {
+        buyerId: "",
+        lines: [],
+        delivery_date: todayIso(),
+        iban: sd.payment?.iban || "",
+        holder: sd.payment?.holder || ""
+      };
+    }
+
+    async function loadDocs(force = false) {
+      if (sd.loading || (!force && sd.data)) return renderDocs();
+      sd.loading = true;
+      if (!sd.data) $("docsBody").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
+      try {
+        const data = await api("/api/partner/documents");
+        sd.data = data.documents || [];
+        sd.payment = data.payment || null;
+        sd.accepted = Boolean(data.terms_accepted);
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        $("docsBody").innerHTML = `<div class="note">${esc(t("try_again"))}</div>`;
+        return;
+      } finally {
+        sd.loading = false;
+      }
+      renderDocs();
+    }
+
+    async function loadDocBuyers() {
+      if (sd.buyers) return;
+      try {
+        const data = await api("/api/partner/buyers");
+        sd.buyers = data.buyers || [];
+        sd.countries = data.countries || [];
+      } catch (err) {
+        sd.buyers = [];
+      }
+      renderDocs();
+    }
+
+    function renderDocs() {
+      if (!sd.data) return;
+      const screens = { list: docList, terms: docTerms, form: docForm, search: docSearch, sizes: docSizes, other: docOther, sign: docSign };
+      $("docsBody").innerHTML = (screens[sd.view] || docList)();
+      if (sd.view === "sign") startSignaturePad();
+    }
+
+    /* ----- the list ----- */
+
+    function docList() {
+      const notice = sd.notice ? `<div class="money-box"><div class="money-row"><span class="ok-text">✓ ${esc(sd.notice)}</span></div></div>` : "";
+
+      const card = (d) => {
+        const [word, tone] = DOC_STATUS[d.status] || DOC_STATUS.requested;
+        const lines = d.lines.map((l) => `
+          <div class="inv-line">
+            <div class="inv-line-top"><span>${esc(l.name || l.sku)}</span><span class="nowrap">${l.qty} × ${esc(money(l.unit_price))}</span></div>
+            ${l.sizes?.length ? `<div class="inv-sizes">${esc(sizesLabel(l))}</div>` : ""}
+          </div>`).join("");
+        const released = d.status === "approved" ? `
+          <div class="detail">
+            <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><b>${esc(money(d.total))}</b></div>
+            <div class="detail-row"><span class="muted">${esc(t("sd_fee"))}</span><span>− ${esc(money(d.fee_total))}</span></div>
+            <div class="detail-row"><span class="muted">${esc(t("you_receive"))}</span><b class="ok-text">${esc(money(d.receive))}</b></div>
+          </div>
+          <a class="lbl-download" href="/api/partner/documents/${encodeURIComponent(d.id)}/pdf" target="_blank" rel="noopener"><span>${esc(t("sd_download"))}</span><small>${esc(d.number)}</small></a>
+          <label class="check" style="padding:12px 2px 0">
+            <input type="checkbox" data-sd-paid="${esc(d.id)}"${d.buyer_paid ? " checked" : ""}>
+            <span><b>${esc(t("sd_buyer_paid"))}</b><small>${esc(t("sd_buyer_paid_hint"))}</small></span>
+          </label>` : d.status === "requested"
+          ? `<a class="lbl-download" href="/api/partner/documents/${encodeURIComponent(d.id)}/pdf" target="_blank" rel="noopener"><span>${esc(t("sd_view_draft"))}</span><small>${esc(money(d.total))}</small></a>`
+          : "";
+
+        return `
+          <div class="card">
+            <div class="card-head static">
+              <div class="card-text">
+                <div class="card-title">${esc(d.number || t("sd_no_number"))} · ${esc(d.buyer)}</div>
+                <div class="stats"><span>${esc(niceDate(dayOfStamp(d.created_at)))}</span><span>${esc(money(d.total))}</span></div>
+              </div>
+              <span class="pill ${tone}">${esc(t(word))}</span>
+            </div>
+            <div class="card-body">
+              <div class="detail">${lines}</div>
+              ${d.reject_reason ? `<p class="hint" style="margin-top:10px">${esc(d.reject_reason)}</p>` : ""}
+              ${released}
+            </div>
+          </div>`;
+      };
+
+      const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(card).join("")}</div>` : "");
+      const sections =
+        section(t("sd_sec_waiting"), sd.data.filter((d) => d.status === "requested")) +
+        section(t("sd_sec_ready"), sd.data.filter((d) => d.status === "approved")) +
+        section(t("lbl_rejected"), sd.data.filter((d) => d.status === "rejected"));
+
+      return `
+        ${notice}
+        <button class="btn primary wide-btn" type="button" data-sd="create">${esc(t("sd_create"))}</button>
+        <div style="margin-top:18px">${sections || `<div class="note">${esc(t("sd_none"))}</div>`}</div>`;
+    }
+
+    /* ----- the terms, once ----- */
+
+    function docTerms() {
+      if (!sd.terms) return `<div class="note">${esc(t("loading"))}</div>`;
+      const tm = sd.terms;
+      return `
+        <div class="card"><div class="card-body" style="padding-top:12px">
+          <p class="hint">${esc(t("sd_terms_intro"))}</p>
+          <h3 style="margin:6px 0 4px;color:var(--strong);font-size:17px">${esc(tm.title)}</h3>
+          <p class="hint">Version ${esc(tm.version)}</p>
+          <p style="font-size:14px;margin:0 0 4px"><b>Service Provider:</b> ${esc(tm.provider.name)}<br>${tm.provider.lines.map(esc).join("<br>")}</p>
+          <p style="font-size:14px"><b>Seller:</b> ${esc(tm.seller.name)}<br>${esc(tm.seller.address)}<br>${esc(tm.seller.country)}<br>Seller ID: ${esc(tm.seller.seller_id)}</p>
+          ${tm.sections.map((s) => `<h4 style="margin:14px 0 6px;color:var(--strong)">${esc(s.heading)}</h4>${s.paragraphs.map((p) => `<p style="font-size:14px;margin:0 0 8px">${esc(p)}</p>`).join("")}`).join("")}
+        </div></div>
+        ${sd.error ? `<div class="error" style="margin-top:12px">${esc(sd.error)}</div>` : ""}
+        <div class="actions">
+          <button class="btn" type="button" data-sd="close">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-sd="agree"${sd.saving ? " disabled" : ""}>${esc(sd.saving ? t("sending") : t("sd_agree"))}</button>
+        </div>`;
+    }
+
+    /* ----- the form ----- */
+
+    function docBuyerSection() {
+      if (!sd.buyers) {
+        loadDocBuyers();
+        return `<div class="note">${esc(t("loading"))}</div>`;
+      }
+
+      if (sd.buyerView === "same") {
+        return `
+          <div class="same-box">
+            <b>${esc(t("same_title"))}</b>
+            <div class="buyer-chosen"><div><b>${esc(sd.buyerSame.label)}</b><small>${esc(buyerSub(sd.buyerSame))}</small></div></div>
+            <div class="actions">
+              <button class="btn" type="button" data-sd="same-no">${esc(t("same_no"))}</button>
+              <button class="btn primary" type="button" data-sd="same-yes">${esc(t("same_yes"))}</button>
+            </div>
+          </div>`;
+      }
+
+      if (sd.buyerView === "new") {
+        const field = ([name, word, required, auto]) => `
+          <div class="field${sd.buyerBad.includes(name) ? " bad" : ""}">
+            <label for="sdb_${name}">${esc(t(word))}${required ? " *" : ""}</label>
+            <input id="sdb_${name}" data-sdb="${name}" autocomplete="${auto}" value="${esc(sd.buyerForm[name] || "")}"${name === "email" ? ' type="email" inputmode="email" autocapitalize="off"' : ""}>
+          </div>`;
+        return `
+          <div class="buyer-form">
+            <p class="hint">${esc(t("name_hint"))}</p>
+            ${BUYER_FIELDS.map(field).join("")}
+            <div class="field${sd.buyerBad.includes("country") ? " bad" : ""}">
+              <label for="sdb_country">${esc(t("f_country"))} *</label>
+              <select id="sdb_country" data-sdb="country">
+                <option value="">${esc(t("choose_country"))}</option>
+                ${sd.countries.map((c) => `<option${sd.buyerForm.country === c ? " selected" : ""}>${esc(c)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="actions">
+              <button class="btn" type="button" data-sd="buyer-cancel">${esc(t("cancel"))}</button>
+              <button class="btn primary" type="button" data-sd="buyer-save"${sd.saving ? " disabled" : ""}>${esc(sd.saving ? t("sending") : t("save_buyer"))}</button>
+            </div>
+          </div>`;
+      }
+
+      const chosen = sd.buyers.find((b) => b.id === sd.form.buyerId);
+      const options = sd.buyers.length
+        ? `<option value="">${esc(t("choose_buyer"))}</option>` + sd.buyers.map((b) => `<option value="${esc(b.id)}"${b.id === sd.form.buyerId ? " selected" : ""}>${esc(b.label)}</option>`).join("")
+        : `<option value="">${esc(t("no_buyers_yet"))}</option>`;
+      return `
+        <select class="buyer-select" id="sdBuyer"${sd.buyers.length ? "" : " disabled"}>${options}</select>
+        ${chosen ? `<p class="hint buyer-sub">${esc(buyerSub(chosen))}</p>` : ""}
+        <button type="button" class="btn file-btn" data-sd="buyer-new">${esc(t("new_buyer"))}</button>`;
+    }
+
+    function docForm() {
+      const f = sd.form;
+      const lines = f.lines.map((l, i) => `
+        <div class="label-row">
+          <div class="label-text">
+            <b>${esc(l.name || l.sku)}</b>
+            ${l.sku && l.name ? `<span class="muted">${esc(l.sku)}</span>` : ""}
+            ${l.sizes?.length ? `<div class="inv-sizes">${esc(sizesLabel(l))}</div>` : ""}
+            <div>${l.qty} × ${esc(money(l.unit_price))} = <b style="display:inline">${esc(money(lineTotal(l)))}</b></div>
+          </div>
+          <button class="link" type="button" data-sd-remove="${i}">${esc(t("sd_remove"))}</button>
+        </div>`).join("");
+
+      return `
+        <div class="card invoice">
+          <div class="card-body">
+            <div class="inv-step"><span class="step-n">1</span>${esc(t("inv_buyer"))} *</div>
+            ${docBuyerSection()}
+
+            <div class="inv-step"><span class="step-n">2</span>${esc(t("sd_products"))} *</div>
+            ${lines || `<p class="hint">${esc(t("sd_no_products"))}</p>`}
+            <button type="button" class="btn primary file-btn" data-sd="add-product">${esc(t("sd_add_product"))}</button>
+            <div style="text-align:center;margin-top:6px"><button class="link" type="button" data-sd="add-other">${esc(t("sd_add_other"))}</button></div>
+
+            <div class="inv-step"><span class="step-n">3</span>${esc(t("sd_delivery"))}</div>
+            <div class="field"><input type="date" id="sdDelivery" value="${esc(f.delivery_date)}"></div>
+
+            <div class="inv-step"><span class="step-n">4</span>${esc(t("sd_payment"))}</div>
+            <div class="field${sd.bad?.includes("iban") ? " bad" : ""}"><label for="sdIban">IBAN *</label><input id="sdIban" autocapitalize="characters" autocomplete="off" value="${esc(f.iban)}"></div>
+            <div class="field${sd.bad?.includes("holder") ? " bad" : ""}"><label for="sdHolder">${esc(t("sd_holder"))} *</label><input id="sdHolder" autocomplete="off" value="${esc(f.holder)}"></div>
+          </div>
+        </div>
+        <div class="total"><div><span>${esc(t("sale_total"))}</span><b>${esc(money(formTotal()))}</b></div></div>
+        ${sd.error ? `<div class="error" style="margin-top:12px">${esc(sd.error)}</div>` : ""}
+        <div class="actions">
+          <button class="btn" type="button" data-sd="close">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-sd="to-sign">${esc(t("sd_next_sign"))}</button>
+        </div>`;
+    }
+
+    /* ----- adding a product ----- */
+
+    function docSearch() {
+      const s = sd.search;
+      const results = s.loading
+        ? `<div class="note">${esc(t("loading"))}</div>`
+        : s.results === null
+          ? `<p class="hint">${esc(t("sd_search_hint"))}</p>`
+          : s.results.length
+            ? `${s.partial ? `<p class="hint">${esc(t("sd_search_partial"))}</p>` : ""}<div class="list">${s.results.map((p, i) => `
+                <button class="card card-head" type="button" data-sd-result="${i}">
+                  ${thumb(p.image)}
+                  <div class="card-text"><div class="card-title">${esc(p.name || p.sku)}</div><div class="card-sub">${esc(p.sku)}</div></div>
+                </button>`).join("")}</div>`
+            : `<div class="note">${esc(t("sd_search_none"))}</div>`;
+
+      return `
+        <div class="box-row" style="margin-bottom:12px">
+          <input id="sdQuery" type="search" autocomplete="off" placeholder="${esc(t("sd_search_ph"))}" value="${esc(s.q)}">
+          <button class="btn primary" type="button" data-sd="search">${esc(t("sd_search_btn"))}</button>
+        </div>
+        ${results}
+        <div style="text-align:center;margin-top:12px"><button class="link" type="button" data-sd="add-other">${esc(t("sd_add_other"))}</button></div>
+        <div class="actions"><button class="btn" type="button" data-sd="to-form">${esc(t("back"))}</button></div>`;
+    }
+
+    function pickSizeList() {
+      const p = sd.pick;
+      const base = p.mode === "known" ? p.product.sizes : p.mode === "clothing" ? CLOTHING_SIZES : SHOE_SIZES;
+      return [...base, ...p.extra.filter((s) => !base.includes(s))];
+    }
+
+    function docSizes() {
+      const p = sd.pick;
+      const sizes = pickSizeList();
+      const picked = sizes.filter((s) => (p.qty.get(s) || 0) > 0);
+      const count = picked.reduce((sum, s) => sum + p.qty.get(s), 0);
+      const toggle = p.product.sizes.length ? "" : `
+        <div class="seg" role="group">
+          <button type="button" data-sd-mode="shoes" aria-pressed="${p.mode === "shoes"}">${esc(t("sd_shoe_sizes"))}</button>
+          <button type="button" data-sd-mode="clothing" aria-pressed="${p.mode === "clothing"}">${esc(t("sd_clothing_sizes"))}</button>
+        </div>`;
+
+      return `
+        <div class="card"><div class="card-head static">${thumb(p.product.image)}<div class="card-text"><div class="card-title">${esc(p.product.name || p.product.sku)}</div><div class="card-sub">${esc(p.product.sku)}</div></div></div></div>
+        <p class="hint" style="margin-top:12px">${esc(t("sd_tap_sizes"))}</p>
+        ${toggle}
+        <div class="sizes">${sizes.map((s) => `<button class="size" type="button" data-sd-size="${esc(s)}" aria-pressed="${(p.qty.get(s) || 0) > 0}"><b>${esc(s)}</b><span>${p.qty.get(s) || ""}</span></button>`).join("")}</div>
+        <div class="box-row" style="margin-top:10px">
+          <input id="sdCustomSize" autocomplete="off" placeholder="${esc(t("sd_other_size"))}">
+          <button class="btn" type="button" data-sd="custom-size">+</button>
+        </div>
+        ${picked.length ? `<div class="detail" style="margin-top:12px">${picked.map((s) => `
+          <div class="line"><span class="line-size">${esc(s)}</span>
+            <div class="stepper">
+              <button type="button" data-sd-minus="${esc(s)}" aria-label="−">−</button><b>${p.qty.get(s)}</b><button type="button" data-sd-plus="${esc(s)}" aria-label="+">+</button>
+            </div></div>`).join("")}</div>` : ""}
+        <div class="inv-step" style="margin-top:16px">${esc(t("sd_price_each"))} *</div>
+        <div class="price-field"><span>€</span><input id="sdPickPrice" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(p.price)}"><span class="per">${esc(t("sd_per_item"))}</span></div>
+        <div class="total"><div><span>${esc(t("sd_items"))}</span><b>${count}</b></div></div>
+        ${sd.error ? `<div class="error" style="margin-top:12px">${esc(sd.error)}</div>` : ""}
+        <div class="actions">
+          <button class="btn" type="button" data-sd="to-search">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-sd="pick-add">${esc(t("sd_add_to_invoice"))}</button>
+        </div>`;
+    }
+
+    function docOther() {
+      const o = sd.other;
+      return `
+        <div class="card invoice"><div class="card-body" style="padding-top:12px">
+          <div class="field"><label for="sdOtherName">${esc(t("sd_other_name"))} *</label><input id="sdOtherName" autocomplete="off" value="${esc(o.name)}" placeholder="${esc(t("sd_other_name_ph"))}"></div>
+          <div class="field"><label for="sdOtherQty">${esc(t("sd_qty"))} *</label><input id="sdOtherQty" inputmode="numeric" autocomplete="off" value="${esc(o.qty)}"></div>
+          <div class="inv-step">${esc(t("sd_price_each"))} *</div>
+          <div class="price-field"><span>€</span><input id="sdOtherPrice" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(o.price)}"><span class="per">${esc(t("sd_per_item"))}</span></div>
+        </div></div>
+        ${sd.error ? `<div class="error" style="margin-top:12px">${esc(sd.error)}</div>` : ""}
+        <div class="actions">
+          <button class="btn" type="button" data-sd="to-form">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-sd="other-add">${esc(t("sd_add_to_invoice"))}</button>
+        </div>`;
+    }
+
+    /* ----- signing ----- */
+
+    function docSign() {
+      const buyer = (sd.buyers || []).find((b) => b.id === sd.form.buyerId);
+      return `
+        <div class="card"><div class="card-body" style="padding-top:12px">
+          <div class="detail">
+            <div class="detail-row"><span class="muted">${esc(t("inv_buyer"))}</span><span>${esc(buyer?.label || "")}</span></div>
+            <div class="detail-row"><span class="muted">${esc(t("sd_products"))}</span><span>${sd.form.lines.length}</span></div>
+            <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><b>${esc(money(formTotal()))}</b></div>
+          </div>
+          <button class="btn file-btn" type="button" data-sd="preview" style="margin-top:12px">${esc(t("sd_preview"))}</button>
+          <div class="inv-step" style="margin-top:18px">${esc(t("sd_declaration_title"))}</div>
+          <p style="font-size:15px;margin:0 0 6px">${esc(t("sd_declaration"))}</p>
+          <p class="hint">${esc(t("sd_sign_hint"))}</p>
+          <div class="sig-wrap"><canvas id="sdPad"></canvas></div>
+          <div style="text-align:right"><button class="link" type="button" data-sd="clear-sign">${esc(t("sd_clear"))}</button></div>
+        </div></div>
+        ${sd.error ? `<div class="error" style="margin-top:12px">${esc(sd.error)}</div>` : ""}
+        <div class="actions">
+          <button class="btn" type="button" data-sd="to-form">${esc(t("back"))}</button>
+          <button class="btn primary" type="button" data-sd="submit"${sd.saving ? " disabled" : ""}>${esc(sd.saving ? t("sending") : t("sd_sign_send"))}</button>
+        </div>`;
+    }
+
+    // A white pad he signs with his finger; sent as a JPEG.
+    function startSignaturePad() {
+      const canvas = $("sdPad");
+      if (!canvas) return;
+      const ratio = Math.max(1, window.devicePixelRatio || 1);
+      const width = canvas.parentElement.clientWidth;
+      const height = 190;
+      canvas.width = width * ratio;
+      canvas.height = height * ratio;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(ratio, ratio);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#0B1F4D";
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      sd.signed = false;
+
+      let drawing = false;
+      const at = (e) => {
+        const r = canvas.getBoundingClientRect();
+        return [e.clientX - r.left, e.clientY - r.top];
+      };
+      canvas.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        drawing = true;
+        canvas.setPointerCapture(e.pointerId);
+        const [x, y] = at(e);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        if (!drawing) return;
+        e.preventDefault();
+        const [x, y] = at(e);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        sd.signed = true;
+      });
+      const stop = () => { drawing = false; };
+      canvas.addEventListener("pointerup", stop);
+      canvas.addEventListener("pointercancel", stop);
+    }
+
+    // At most 900 pixels wide, so the request stays small.
+    function signatureJpeg() {
+      const canvas = $("sdPad");
+      const scale = Math.min(1, 900 / canvas.width);
+      const out = document.createElement("canvas");
+      out.width = Math.round(canvas.width * scale);
+      out.height = Math.round(canvas.height * scale);
+      const ctx = out.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(canvas, 0, 0, out.width, out.height);
+      return out.toDataURL("image/jpeg", 0.85);
+    }
+
+    /* ----- what is sent ----- */
+
+    function docBody() {
+      const f = sd.form;
+      return {
+        buyer_id: f.buyerId,
+        delivery_date: f.delivery_date,
+        payment: { iban: f.iban, holder: f.holder },
+        lines: f.lines.map((l) => ({ kind: l.kind, sku: l.sku, name: l.name, image: l.image, sizes: l.sizes, qty: l.qty, unit_price: l.unit_price }))
+      };
+    }
+
+    function formProblem() {
+      const f = sd.form;
+      sd.bad = [];
+      if (!f.buyerId || sd.buyerView !== "pick") return t("inv_need_buyer");
+      if (!f.lines.length) return t("sd_need_products");
+      if (!/^[A-Za-z]{2}\d{2}[A-Za-z0-9 ]{10,40}$/.test(f.iban.trim())) sd.bad.push("iban");
+      if (!f.holder.trim()) sd.bad.push("holder");
+      if (sd.bad.length) return t("buyer_missing");
+      return "";
+    }
+
+    const docError = (err) => t(err.message in WORDS.en ? err.message : `sd_err_${err.message}` in WORDS.en ? `sd_err_${err.message}` : "try_again");
+
+    async function openTerms() {
+      sd.view = "terms";
+      sd.error = "";
+      renderDocs();
+      try {
+        sd.terms = await api("/api/partner/terms");
+        if (sd.terms.accepted) {
+          sd.accepted = true;
+          return startForm();
+        }
+      } catch (err) {
+        if (err.message !== "not_signed_in") sd.error = t("try_again");
+      }
+      renderDocs();
+    }
+
+    function startForm() {
+      sd.form = newDocForm();
+      sd.buyerView = "pick";
+      sd.view = "form";
+      sd.error = "";
+      sd.notice = "";
+      window.scrollTo(0, 0);
+      renderDocs();
+    }
+
+    async function runSearch() {
+      const q = sd.search.q.trim();
+      if (!q) return;
+      sd.search.loading = true;
+      renderDocs();
+      try {
+        const data = await api(`/api/partner/catalog?q=${encodeURIComponent(q)}`);
+        sd.search.results = data.products || [];
+        sd.search.partial = Boolean(data.partial);
+      } catch (err) {
+        if (err.message !== "not_signed_in") sd.search.results = [];
+      } finally {
+        sd.search.loading = false;
+        renderDocs();
+      }
+    }
+
+    async function saveDocBuyer(confirmNew = false) {
+      const f = sd.buyerForm;
+      const bad = [];
+      if (!String(f.company_name || "").trim() && !String(f.full_name || "").trim()) bad.push("company_name", "full_name");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(f.email || "").trim())) bad.push("email");
+      if (String(f.company_name || "").trim() && !String(f.vat_id || "").trim()) bad.push("vat_id");
+      for (const name of ["address", "zipcode", "city", "country"]) if (!String(f[name] || "").trim()) bad.push(name);
+      sd.buyerBad = bad;
+      sd.error = bad.length ? t("buyer_missing") : "";
+      if (bad.length) return renderDocs();
+
+      sd.saving = true;
+      renderDocs();
+      try {
+        const data = await api("/api/partner/buyers", { method: "POST", body: { ...f, confirm_new: confirmNew } });
+        if (data.same) {
+          sd.buyerSame = data.same;
+          sd.buyerView = "same";
+        } else {
+          sd.buyers = [...sd.buyers.filter((b) => b.id !== data.buyer.id), data.buyer];
+          sd.form.buyerId = data.buyer.id;
+          sd.buyerView = "pick";
+          sd.buyerForm = {};
+          inv.buyers = null;
+        }
+      } catch (err) {
+        if (err.message !== "not_signed_in") sd.error = t(err.message in WORDS.en ? err.message : "try_again");
+      } finally {
+        sd.saving = false;
+        renderDocs();
+      }
+    }
+
+    async function previewDoc() {
+      // Opened first, filled after: a phone only allows a new tab on the tap itself.
+      const win = window.open("", "_blank");
+      try {
+        const response = await fetch("/api/partner/documents/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(docBody())
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "try_again");
+        }
+        const url = URL.createObjectURL(await response.blob());
+        if (win) win.location.href = url;
+        else location.href = url;
+      } catch (err) {
+        if (win) win.close();
+        sd.error = docError(err);
+        renderDocs();
+      }
+    }
+
+    async function submitDoc() {
+      if (!sd.signed) {
+        sd.error = t("sd_need_signature");
+        return renderDocs();
+      }
+      const body = { ...docBody(), signature: signatureJpeg() };
+      sd.saving = true;
+      sd.error = "";
+      renderDocs();
+      try {
+        const data = await api("/api/partner/documents", { method: "POST", body });
+        sd.data = [data.document, ...sd.data];
+        sd.payment = body.payment;
+        sd.view = "list";
+        sd.form = null;
+        sd.notice = t("sd_sent");
+        window.scrollTo(0, 0);
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        sd.error = docError(err);
+      } finally {
+        sd.saving = false;
+        renderDocs();
+      }
+    }
+
+    // Typing is kept without redrawing, so the phone keyboard stays open.
+    $("view-docs").addEventListener("input", (event) => {
+      const el = event.target;
+      if (el.dataset.sdb) sd.buyerForm[el.dataset.sdb] = el.value;
+      else if (el.id === "sdQuery") sd.search.q = el.value;
+      else if (el.id === "sdIban") sd.form.iban = el.value;
+      else if (el.id === "sdHolder") sd.form.holder = el.value;
+      else if (el.id === "sdDelivery") sd.form.delivery_date = el.value;
+      else if (el.id === "sdPickPrice") sd.pick.price = el.value;
+      else if (el.id === "sdOtherName") sd.other.name = el.value;
+      else if (el.id === "sdOtherQty") sd.other.qty = el.value;
+      else if (el.id === "sdOtherPrice") sd.other.price = el.value;
+    });
+
+    $("view-docs").addEventListener("change", (event) => {
+      const el = event.target;
+      if (el.id === "sdBuyer") { sd.form.buyerId = el.value; renderDocs(); }
+      else if (el.dataset.sdb) sd.buyerForm[el.dataset.sdb] = el.value;
+      else if (el.id === "sdDelivery") sd.form.delivery_date = el.value;
+      else if (el.dataset.sdPaid) setDocPaid(el.dataset.sdPaid, el.checked);
+    });
+
+    $("view-docs").addEventListener("keydown", (event) => {
+      if (event.target.id === "sdQuery" && event.key === "Enter") {
+        event.preventDefault();
+        runSearch();
+      }
+    });
+
+    async function setDocPaid(id, paid) {
+      try {
+        const data = await api(`/api/partner/documents/${encodeURIComponent(id)}/buyer-paid`, { method: "POST", body: { paid } });
+        sd.data = sd.data.map((d) => (d.id === id ? data.document : d));
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+      }
+      renderDocs();
+    }
+
+    $("view-docs").addEventListener("click", (event) => {
+      const action = event.target.closest("[data-sd]")?.dataset.sd;
+      const result = event.target.closest("[data-sd-result]")?.dataset.sdResult;
+      const size = event.target.closest("[data-sd-size]")?.dataset.sdSize;
+      const plus = event.target.closest("[data-sd-plus]")?.dataset.sdPlus;
+      const minus = event.target.closest("[data-sd-minus]")?.dataset.sdMinus;
+      const mode = event.target.closest("[data-sd-mode]")?.dataset.sdMode;
+      const remove = event.target.closest("[data-sd-remove]")?.dataset.sdRemove;
+      sd.error = action === "submit" || action === "preview" ? sd.error : "";
+
+      if (result !== undefined) {
+        const product = sd.search.results[Number(result)];
+        sd.pick = { product, mode: product.sizes.length ? "known" : /hoodie|tee|shirt|pants|short|set|jacket|sweat|crew|jogger|vest/i.test(product.name) ? "clothing" : "shoes", qty: new Map(), extra: [], price: "" };
+        sd.view = "sizes";
+        window.scrollTo(0, 0);
+      } else if (size !== undefined || plus !== undefined) {
+        const s = size ?? plus;
+        sd.pick.qty.set(s, (sd.pick.qty.get(s) || 0) + 1);
+      } else if (minus !== undefined) {
+        sd.pick.qty.set(minus, Math.max(0, (sd.pick.qty.get(minus) || 0) - 1));
+      } else if (mode) {
+        sd.pick.mode = mode;
+      } else if (remove !== undefined) {
+        sd.form.lines.splice(Number(remove), 1);
+      } else if (action === "create") {
+        if (!sd.accepted) return openTerms();
+        startForm();
+        return;
+      } else if (action === "agree") {
+        sd.saving = true;
+        renderDocs();
+        api("/api/partner/terms/accept", { method: "POST", body: {} })
+          .then(() => { sd.accepted = true; sd.saving = false; startForm(); })
+          .catch((err) => { sd.saving = false; if (err.message !== "not_signed_in") { sd.error = t("try_again"); renderDocs(); } });
+        return;
+      } else if (action === "close") {
+        sd.view = "list";
+        sd.form = null;
+      } else if (action === "buyer-new") { sd.buyerView = "new"; sd.buyerForm = {}; sd.buyerBad = []; }
+      else if (action === "buyer-cancel") { sd.buyerView = "pick"; sd.buyerBad = []; }
+      else if (action === "buyer-save") return saveDocBuyer(false);
+      else if (action === "same-no") return saveDocBuyer(true);
+      else if (action === "same-yes") {
+        sd.buyers = [...sd.buyers.filter((b) => b.id !== sd.buyerSame.id), sd.buyerSame];
+        sd.form.buyerId = sd.buyerSame.id;
+        sd.buyerView = "pick";
+        sd.buyerForm = {};
+      }
+      else if (action === "add-product" || action === "to-search") { sd.view = "search"; window.scrollTo(0, 0); }
+      else if (action === "search") return runSearch();
+      else if (action === "add-other") { sd.other = { name: "", qty: "", price: "" }; sd.view = "other"; window.scrollTo(0, 0); }
+      else if (action === "to-form") { sd.view = "form"; }
+      else if (action === "custom-size") {
+        const value = ($("sdCustomSize")?.value || "").trim().toUpperCase().slice(0, 12);
+        if (value) {
+          if (!pickSizeList().includes(value)) sd.pick.extra.push(value);
+          sd.pick.qty.set(value, (sd.pick.qty.get(value) || 0) + 1);
+        }
+      } else if (action === "pick-add") {
+        const sizes = pickSizeList().filter((s) => (sd.pick.qty.get(s) || 0) > 0).map((s) => ({ size: s, qty: sd.pick.qty.get(s) }));
+        const price = parsePrice(sd.pick.price);
+        if (!sizes.length) sd.error = t("sd_need_sizes");
+        else if (!price) sd.error = t("inv_need_price");
+        else {
+          const p = sd.pick.product;
+          sd.form.lines.push({ kind: "product", sku: p.sku, name: p.name, image: p.image, sizes, qty: sizes.reduce((sum, s) => sum + s.qty, 0), unit_price: price });
+          sd.pick = null;
+          sd.search = { q: "", results: null, loading: false, partial: false };
+          sd.view = "form";
+          window.scrollTo(0, 0);
+        }
+      } else if (action === "other-add") {
+        const qty = Number(String(sd.other.qty).trim());
+        const price = parsePrice(sd.other.price);
+        if (!sd.other.name.trim()) sd.error = t("sd_need_name");
+        else if (!Number.isInteger(qty) || qty < 1) sd.error = t("sd_need_qty");
+        else if (!price) sd.error = t("inv_need_price");
+        else {
+          sd.form.lines.push({ kind: "other", sku: "", name: sd.other.name.trim(), image: "", sizes: [], qty, unit_price: price });
+          sd.other = null;
+          sd.view = "form";
+          window.scrollTo(0, 0);
+        }
+      } else if (action === "to-sign") {
+        const problem = formProblem();
+        if (problem) sd.error = problem;
+        else { sd.view = "sign"; window.scrollTo(0, 0); }
+      } else if (action === "preview") return previewDoc();
+      else if (action === "clear-sign") { /* drawn again below: a fresh, empty pad */ }
+      else if (action === "submit") return submitDoc();
+      else return;
+
+      renderDocs();
     });
 
     applyLang();

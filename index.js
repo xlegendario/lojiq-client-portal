@@ -63,7 +63,7 @@ app.use(express.static(path.join(__dirname, "public")));
  * to do with it ever runs. That path brings its own parser, so it is left
  * alone here.
  */
-const OWN_PARSER = ["/api/admin/wtb-match/photo", "/api/partner/forwards", "/api/partner/labels/read"];
+const OWN_PARSER = ["/api/admin/wtb-match/photo", "/api/partner/forwards", "/api/partner/labels/read", "/api/partner/documents"];
 
 app.use((req, res, next) => (
   OWN_PARSER.includes(req.path) ? next() : express.json()(req, res, next)
@@ -237,7 +237,7 @@ const adminPortal = createAdminPortal({
   supabaseUrl: SUPABASE_URL,
   serviceKey: SUPABASE_SERVICE_ROLE_KEY,
   // The invoices partners make on their forwards, handled in Forward Service.
-  forwardInvoices: { invoicing: partnerPortal.invoicing, buyers: partnerPortal.buyers, labels: partnerPortal.labels }
+  forwardInvoices: { invoicing: partnerPortal.invoicing, buyers: partnerPortal.buyers, labels: partnerPortal.labels, documents: partnerPortal.documents }
 });
 
 app.use(adminPortal.router);
