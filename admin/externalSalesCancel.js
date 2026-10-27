@@ -197,6 +197,26 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
       continue;
     }
 
+    /*
+     * What the seller gives up of it, if he does.
+     *
+     * The discount only ever touched the selling side, so when the seller
+     * took part of it his lower payout was typed into Airtable by hand and
+     * the pair kept its old purchase price - EXTD-000098 showed EUR 10 profit
+     * in Earnings on a pair that made EUR 30.
+     */
+    const sellerAmount = round2(row.seller_amount);
+    const purchaseWas = round2(pair.purchase_price_ex_vat);
+
+    if (sellerAmount < 0) {
+      problems.push(`What the seller gives up on ${pair.item_id || pair.sku || "the pair"} cannot be negative.`);
+      continue;
+    }
+    if (sellerAmount > 0 && !(purchaseWas > sellerAmount)) {
+      problems.push(`${sellerAmount.toFixed(2)} off the seller of ${pair.item_id || pair.sku || "the pair"} is more than his payout of ${purchaseWas.toFixed(2)}.`);
+      continue;
+    }
+
     lines.push({
       id: pair.id,
       pair: pair.item_id || pair.sku || "",
@@ -204,7 +224,13 @@ export function discountPlan({ sale, pairs, wanted = [], invoices = [] }) {
       reason: text(row.reason),
       was,
       becomes: round2(was - amount),
-      discount_so_far: round2(round2(pair.discount) + amount)
+      discount_so_far: round2(round2(pair.discount) + amount),
+      seller_amount: sellerAmount,
+      purchase_was: purchaseWas,
+      purchase_becomes: sellerAmount > 0 ? round2(purchaseWas - sellerAmount) : null,
+      unit: text(pair.inventory_unit_record_id),
+      partner: Boolean(text(pair.partner_stock_id)),
+      purchase_expense_id: text(pair.purchase_expense_id)
     });
   }
 
@@ -652,7 +678,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
    */
   async function discountPairs(id, { pairs: wanted = [], reason = "", by = "" } = {}) {
     const asked = (Array.isArray(wanted) ? wanted : [wanted])
-      .map((row) => ({ id: text(row?.id), amount: Number(row?.amount), reason: text(row?.reason) || text(reason) }))
+      .map((row) => ({ id: text(row?.id), amount: Number(row?.amount), seller_amount: Number(row?.seller_amount) || 0, reason: text(row?.reason) || text(reason) }))
       .filter((row) => row.id);
 
     const { sale, pairs, invoices } = await load(id);
@@ -676,15 +702,56 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
         selling_price: line.becomes,
         discount: line.discount_so_far,
         discount_reason: line.reason || null,
-        discounted_at: now
+        discounted_at: now,
+        ...(line.purchase_becomes !== null ? { purchase_price_ex_vat: line.purchase_becomes } : {})
       });
+    }
+
+    /*
+     * The seller's share, on the unit he is paid from: Purchase Price is what
+     * Seller Payouts pays, Payment Note what it says. A unit already paid out
+     * is left alone and said so - the money went at the old price.
+     */
+    const sellerLines = result.lines.filter((line) => line.purchase_becomes !== null);
+    if (sellerLines.length) {
+      const units = await airtable.byIds("Inventory Units", sellerLines.map((line) => line.unit).filter(Boolean), ["Payment Status"]).catch(() => new Map());
+
+      for (const line of sellerLines) {
+        const name = line.pair || "a pair";
+
+        if (!line.unit) {
+          log.push(`${name}: no Inventory Unit, so the seller's payout was not lowered there.`);
+          continue;
+        }
+        if (text(units.get(line.unit)?.["Payment Status"]) === "Paid") {
+          log.push(`${name}: the seller was already paid ${line.purchase_was.toFixed(2)}; get ${line.seller_amount.toFixed(2)} back from him by hand.`);
+          continue;
+        }
+
+        try {
+          await airtable.update("Inventory Units", line.unit, {
+            "Purchase Price": line.purchase_becomes,
+            "Payment Note": `€ ${line.purchase_becomes.toFixed(2)}`,
+            "Selling Price": line.becomes
+          });
+          log.push(`${name}: seller payout ${line.purchase_was.toFixed(2)} -> ${line.purchase_becomes.toFixed(2)}`);
+        } catch (err) {
+          log.push(`${name}: the seller's payout could not be lowered on the unit (${err.message}); do it by hand.`);
+        }
+
+        // A partner pair was bought with its own expense in Rompslomp, at the old price.
+        if (line.partner && line.purchase_expense_id) {
+          log.push(`${name}: purchase expense ${line.purchase_expense_id} in Rompslomp still says ${line.purchase_was.toFixed(2)}; change it to ${line.purchase_becomes.toFixed(2)}.`);
+        }
+      }
     }
 
     await db.insert("external_sale_notes", [{
       sale_id: sale.id,
       written_by: text(by) || null,
       body: `Discount ${result.given.toFixed(2)}: ` +
-        result.lines.map((line) => `${line.pair || "a pair"} ${line.was.toFixed(2)} -> ${line.becomes.toFixed(2)}`).join(", ") +
+        result.lines.map((line) => `${line.pair || "a pair"} ${line.was.toFixed(2)} -> ${line.becomes.toFixed(2)}` +
+          (line.purchase_becomes !== null ? ` (seller ${line.purchase_was.toFixed(2)} -> ${line.purchase_becomes.toFixed(2)})` : "")).join(", ") +
         `${text(reason) ? ` - ${text(reason)}` : ""}`
     }]).catch(() => {});
 

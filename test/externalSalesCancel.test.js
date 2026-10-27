@@ -245,7 +245,11 @@ test("a discount says what each pair becomes and what the deal is worth", () => 
 
   assert.equal(plan.ok, true);
   assert.equal(plan.given, 50);
-  assert.deepEqual(plan.lines[0], { id: P1, pair: "PCS-007999", amount: 50, reason: "Small mark", was: 250, becomes: 200, discount_so_far: 50 });
+  assert.deepEqual(plan.lines[0], {
+    id: P1, pair: "PCS-007999", amount: 50, reason: "Small mark", was: 250, becomes: 200, discount_so_far: 50,
+    // No seller share asked for: his payout stays where it was.
+    seller_amount: 0, purchase_was: 200, purchase_becomes: null, unit: "recA", partner: false, purchase_expense_id: ""
+  });
   assert.equal(plan.new_total, 550, "the other pair keeps its price");
   assert.equal(plan.reinvoice, true);
 });
@@ -284,6 +288,42 @@ test("discounting credits, writes the pair cheaper and invoices again", async ()
   assert.equal(deal.total_selling_price, 550);
   assert.equal(deal.bookkeeping_status, "to_invoice");
   assert.match(db.tables.external_sale_notes[0].body, /Discount 50.00: PCS-007999 250.00 -> 200.00 - Small mark/);
+});
+
+test("the seller can give up part of a discount: his payout drops on the pair and the unit (EXTD-000098)", async () => {
+  const { db, written, cancel } = fakes();
+
+  const out = await cancel.discountPairs(S1, { pairs: [{ id: P1, amount: 20, seller_amount: 20 }], reason: "Flaw on the laces" });
+
+  const pair = db.tables.external_sale_pairs.find((p) => p.id === P1);
+  assert.equal(pair.selling_price, 230);
+  assert.equal(pair.purchase_price_ex_vat, 180, "what Earnings counts as the cost");
+
+  const unit = written.find((w) => w.id === "recA");
+  assert.equal(unit.fields["Purchase Price"], 180);
+  assert.equal(unit.fields["Selling Price"], 230);
+  assert.match(unit.fields["Payment Note"], /180\.00/);
+  assert.match(out.log.join(" "), /seller payout 200.00 -> 180.00/);
+  assert.match(db.tables.external_sale_notes[0].body, /\(seller 200.00 -> 180.00\)/);
+});
+
+test("a seller already paid out keeps his unit, and the log says to get it back", async () => {
+  const { db, written, cancel } = fakes({ unitFields: { recA: { "Payment Status": "Paid" } } });
+
+  const out = await cancel.discountPairs(S1, { pairs: [{ id: P1, amount: 20, seller_amount: 20 }] });
+
+  assert.equal(db.tables.external_sale_pairs.find((p) => p.id === P1).purchase_price_ex_vat, 180);
+  assert.equal(written.filter((w) => w.id === "recA").length, 0);
+  assert.match(out.log.join(" "), /already paid 200.00; get 20.00 back/);
+});
+
+test("without a seller share the payout is left alone, and more than his payout is refused", () => {
+  const plain = discountPlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, amount: 20 }] });
+  assert.equal(plain.lines[0].purchase_becomes, null);
+
+  const tooMuch = discountPlan({ sale: SALE, pairs: PAIRS, wanted: [{ id: P1, amount: 20, seller_amount: 200 }] });
+  assert.equal(tooMuch.ok, false);
+  assert.match(tooMuch.problems.join(" "), /more than his payout of 200.00/);
 });
 
 test("a second discount is added to the first, and a paid deal owes the difference", async () => {

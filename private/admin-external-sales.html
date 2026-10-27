@@ -3130,6 +3130,10 @@
             <span class="sub">− €</span>
             <input class="input slim" type="text" inputmode="decimal" data-discount="${esc(p.id)}" placeholder="0,00">
           </span>
+          <span class="pick">
+            <span class="sub">of which the seller gives up €</span>
+            <input class="input slim" type="text" inputmode="decimal" data-seller-off="${esc(p.id)}" placeholder="0,00">
+          </span>
         </label>`).join("");
 
       $("discountReason").value = "";
@@ -3138,8 +3142,19 @@
       $("discountDialog").showModal();
     }
 
+    // What comes off the seller's payout is optional and per pair; left empty,
+    // the discount is ours alone, as it always was.
+    const sellerOffFor = (id) => {
+      const box = $("discountPairs").querySelector(`[data-seller-off="${CSS.escape(id)}"]`);
+      return box ? Number(box.value.trim().replace(",", ".")) || 0 : 0;
+    };
+
     const discountLines = () => [...$("discountPairs").querySelectorAll("[data-discount]")]
-      .map((box) => ({ id: box.dataset.discount, amount: Number(box.value.trim().replace(",", ".")) }))
+      .map((box) => ({
+        id: box.dataset.discount,
+        amount: Number(box.value.trim().replace(",", ".")),
+        seller_amount: sellerOffFor(box.dataset.discount)
+      }))
       .filter((line) => line.amount > 0);
 
     /*
@@ -3170,12 +3185,16 @@
       }
 
       const total = pairs.reduce((sum, p) => sum + priceValue(p), 0) - given;
+      const fromSeller = lines.reduce((sum, line) => sum + (line.seller_amount || 0), 0);
       const back = Number(s.paid_amount || 0) - total;
 
       $("discountConfirm").disabled = false;
       $("discountPlan").innerHTML = [
         `<span>Off the invoice: <strong>${esc(euro(given))}</strong> over ${lines.length} ${lines.length === 1 ? "pair" : "pairs"}</span>`,
         `<span>Deal becomes <strong>${esc(euro(total))}</strong></span>`,
+        fromSeller > 0
+          ? `<span>Off the seller's payout: <strong>${esc(euro(fromSeller))}</strong>; we give up ${esc(euro(given - fromSeller))}</span>`
+          : "<span>The seller's payout stays as it is: the discount is ours.</span>",
         s.bookkeeping_status === "invoiced" ? "<span>Credit invoice, then a new invoice for the lower amount</span>" : "",
         "<span>The stock correction stays as it is: nothing came back.</span>",
         back > 0.005 ? `<span class="warn">${esc(euro(back))} has to go back to the buyer by bank</span>` : ""
