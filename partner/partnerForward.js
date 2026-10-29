@@ -178,7 +178,8 @@ export async function loadForwardable(db, sellerRecordId) {
 
   for (let offset = 0; ; offset += PAGE) {
     const page = await db.get(
-      `partner_stock?select=${COLUMNS}&seller_record_id=eq.${seller}&status=eq.in_stock&warehouse=eq.${OWN_WAREHOUSE}&order=id.asc&limit=${PAGE}&offset=${offset}`
+      // A closed box (SKU "BOX") is sent on by us for now, not from Send pairs.
+      `partner_stock?select=${COLUMNS}&seller_record_id=eq.${seller}&status=eq.in_stock&warehouse=eq.${OWN_WAREHOUSE}&sku=neq.BOX&order=id.asc&limit=${PAGE}&offset=${offset}`
     );
 
     rows.push(...(page || []));

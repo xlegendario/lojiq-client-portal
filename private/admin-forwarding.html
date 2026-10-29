@@ -744,6 +744,17 @@
       return `<span class="pill ${cls}">${esc(label)}</span>`;
     };
 
+    // A forward of closed boxes (SKU "BOX") counts boxes, not pairs.
+    const boxCount = (row) => (row.fee_lines || []).filter((line) => line.sku === "BOX").reduce((sum, line) => sum + line.count, 0);
+    function unitsText(row) {
+      const boxes = boxCount(row);
+      const pairs = Number(row.pair_count || 0) - boxes;
+      const part = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+      if (!boxes) return part(pairs, "pair", "pairs");
+      if (!pairs) return part(boxes, "box", "boxes");
+      return `${part(pairs, "pair", "pairs")} + ${part(boxes, "box", "boxes")}`;
+    }
+
     const paymentPill = (row) => row.payment_status === "paid"
       ? '<span class="pill good">Paid</span>'
       : '<span class="pill wait">Not paid</span>';
@@ -805,7 +816,7 @@
               <td>${esc(dayFmt.format(new Date(row.forwarding_date)))}</td>
               <td>${esc(row.seller_name || row.seller_id)}</td>
               <td>${dash(row.buyer_name)}${row.invoice ? ` ${invoicePill(row.invoice)}` : ""}</td>
-              <td class="money">${row.pair_count}</td>
+              <td class="money">${boxCount(row) ? esc(unitsText(row)) : row.pair_count}</td>
               <td class="money">${countCell((row.tracking_numbers || []).length)}</td>
               <td class="money">${countCell((row.labels || []).length)}</td>
               <td>${shippingPill(row)}</td>
@@ -893,7 +904,7 @@
             <td class="check"><input type="checkbox" data-pick="${esc(row.id)}"${state.picked.has(row.id) ? " checked" : ""} aria-label="Select ${esc(row.display_id)}"></td>
             <td><span class="id">${esc(row.display_id)}</span></td>
             <td>${esc(dayFmt.format(new Date(row.forwarding_date)))}</td>
-            <td class="money">${row.pair_count}</td>
+            <td class="money">${boxCount(row) ? esc(unitsText(row)) : row.pair_count}</td>
             <td class="money">${euro(row.money.fee)}</td>
             <td class="money">${euro(row.money.shipping)}</td>
             <td class="money"><strong>${euro(row.money.payable)}</strong></td>
@@ -1017,7 +1028,7 @@
           ["Labels needed", row.labels_needed ? String(row.labels_needed) : ""],
           ["Items per parcel", esc(row.items_per_parcel || "")]
         ]),
-        `<section class="group"><h3>Pairs (${row.pair_count})</h3>${pairs}</section>`,
+        `<section class="group"><h3>${boxCount(row) === Number(row.pair_count) ? "Boxes" : "Pairs"} (${row.pair_count})</h3>${pairs}</section>`,
         panelGroup("Tracking & labels", [
           ["Tracking", tracking || '<span class="dash">None yet</span>'],
           ["Labels", labels || '<span class="dash">None yet</span>']
@@ -1025,13 +1036,13 @@
         invoiceGroup(row),
         row.invoice ? "" : feeTable(row),
         row.invoice ? "" : panelGroup("Costs", [
-          ["Fee", `${row.pair_count} pair(s) = ${euro(row.money.fee)}`],
+          ["Fee", `${esc(unitsText(row))} = ${euro(row.money.fee)}`],
           ["Shipping costs", euro(row.money.shipping)],
           ["Payable by partner", `<strong>${euro(row.money.payable)}</strong>`],
           ["Payment", row.shipping_status === "cancelled" ? '<span class="dash">Not owed (cancelled)</span>' : paymentPill(row)],
           ["Paid on", row.paid_at ? esc(dateFmt.format(new Date(row.paid_at))) : ""]
         ]),
-        row.invoice ? panelGroup("Fee", [["Fee", `${row.pair_count} pair(s) = ${euro(row.money.fee)}`], ["Payment", `${paymentPill(row)} ${esc(row.payment_note || "")}`]]) : "",
+        row.invoice ? panelGroup("Fee", [["Fee", `${esc(unitsText(row))} = ${euro(row.money.fee)}`], ["Payment", `${paymentPill(row)} ${esc(row.payment_note || "")}`]]) : "",
         row.notes ? panelGroup("Notes", [["Notes", esc(row.notes)]]) : "",
         `<section class="group"><h3>History</h3>${timeline}</section>`
       ].join("");

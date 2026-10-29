@@ -173,7 +173,8 @@ export async function loadPartnerPairs(db, sellerRecordId) {
 
   for (let offset = 0; ; offset += PAGE) {
     const page = await db.get(
-      `partner_stock?select=${COLUMNS}&seller_record_id=eq.${seller}&order=id.asc&limit=${PAGE}&offset=${offset}`
+      // Closed boxes (SKU "BOX") are not his shoes; they stay out of Stock for now.
+      `partner_stock?select=${COLUMNS}&seller_record_id=eq.${seller}&sku=neq.BOX&order=id.asc&limit=${PAGE}&offset=${offset}`
     );
 
     rows.push(...(page || []));
