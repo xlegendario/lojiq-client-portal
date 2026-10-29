@@ -14,6 +14,7 @@
 
 import express from "express";
 import fs from "fs";
+import { readAllPages } from "./readAllPages.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -55,10 +56,11 @@ export function createBolPagesStore({ supabaseUrl, serviceKey, fetchImpl = fetch
     return data;
   }
 
+  // In pages: Supabase stops at 1000 rows a call (readAllPages.js).
   async function list({ status = "all" } = {}) {
-    const params = new URLSearchParams({ select: "*", order: "last_seen.desc", limit: "2000" });
+    const params = new URLSearchParams({ select: "*", order: "last_seen.desc,ean.asc" });
     if (PAGE_STATUSES.includes(status)) params.set("status", `eq.${status}`);
-    return request(`bol_page_checks?${params}`);
+    return readAllPages(request, `bol_page_checks?${params}`);
   }
 
   async function get(ean) {
@@ -84,7 +86,7 @@ export function createBolPagesStore({ supabaseUrl, serviceKey, fetchImpl = fetch
 
   // Only the blocked ones, for the sidebar.
   async function counts() {
-    const rows = await request("bol_page_checks?select=status&limit=5000");
+    const rows = await readAllPages(request, "bol_page_checks?select=status&status=eq.blocked&order=ean.asc");
     return { blocked: (rows || []).filter((row) => row.status === "blocked").length };
   }
 

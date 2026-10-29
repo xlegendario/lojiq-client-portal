@@ -27,6 +27,7 @@ import { createExternalSalesCancel } from "./externalSalesCancel.js";
 import { createPurchaseExpense } from "./purchaseExpense.js";
 import { createExternalSalesTracking, plausibleTracking } from "./externalSalesTracking.js";
 import { createExternalSalesPayments } from "./externalSalesPayments.js";
+import { readAllPages } from "./readAllPages.js";
 
 export { ExternalSalesError };
 
@@ -266,11 +267,12 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
       // stage: a broker deal that is still being negotiated is not a sale
       // yet - it has no pairs, no total and nothing to invoice - so it
       // stays on its own screen until the first pair is really bought.
-      db.get("external_sales?select=*&stage=eq.open&order=deal_number.desc&limit=10000"),
-      db.get("external_sale_pairs?select=*&limit=50000"),
-      db.get("shipments?select=*&external_sale_id=not.is.null&order=created_at.asc&limit=50000"),
-      db.get("external_sale_invoice_deals?select=*&limit=50000"),
-      db.get("external_sale_invoices?select=*&limit=10000")
+      // Every list in pages: Supabase stops at 1000 rows a call (readAllPages.js).
+      readAllPages((path) => db.get(path), "external_sales?select=*&stage=eq.open&order=deal_number.desc,id.desc"),
+      readAllPages((path) => db.get(path), "external_sale_pairs?select=*&order=id.asc"),
+      readAllPages((path) => db.get(path), "shipments?select=*&external_sale_id=not.is.null&order=created_at.asc,id.asc"),
+      readAllPages((path) => db.get(path), "external_sale_invoice_deals?select=*&order=invoice_id.asc,sale_id.asc"),
+      readAllPages((path) => db.get(path), "external_sale_invoices?select=*&order=id.asc")
     ]);
 
     const group = (rows, key) => rows.reduce((map, r) => map.set(r[key], [...(map.get(r[key]) || []), r]), new Map());
