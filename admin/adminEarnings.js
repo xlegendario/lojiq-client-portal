@@ -262,7 +262,15 @@ export function createEarningsStore({ airtable = null, db = null, cacheMs = 120_
     if (!db?.configured) return [];
 
     const logs = await db.get("forwarding_log?select=*&order=forwarding_date.desc&limit=10000");
-    const pairs = await db.get("partner_stock?select=id,forwarding_log_id,forwarding_fee&forwarding_log_id=not.is.null&limit=50000");
+    // Supabase hands back at most 1000 rows a call, whatever the limit says:
+    // past 1000 forwarded pairs the newest forwards lost pairs and showed a
+    // fee of a few pairs (FWD-000050: €10 of €48, 29-10-2026). Read in pages.
+    const pairs = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = (await db.get(`partner_stock?select=id,forwarding_log_id,forwarding_fee&forwarding_log_id=not.is.null&order=id.asc&limit=1000&offset=${offset}`)) || [];
+      pairs.push(...page);
+      if (page.length < 1000) break;
+    }
 
     const byLog = new Map();
 

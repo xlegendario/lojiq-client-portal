@@ -108,8 +108,15 @@ export function createPartnerStockStore({ db, airtable, cacheMs = 120_000 }) {
     if (!cache.promise || Date.now() - cache.at > cacheMs) {
       cache = {
         at: Date.now(),
-        promise: db.get(`partner_stock?select=${COLUMNS}&order=received_at.desc&limit=5000`)
-          .then((rows) => (rows || []).map(stockRow))
+        // In pages: Supabase gives at most 1000 rows a call, and the shelf is past that.
+        promise: (async () => {
+          const rows = [];
+          for (let offset = 0; ; offset += 1000) {
+            const page = (await db.get(`partner_stock?select=${COLUMNS}&order=received_at.desc,id.desc&limit=1000&offset=${offset}`)) || [];
+            rows.push(...page);
+            if (page.length < 1000) return rows.map(stockRow);
+          }
+        })()
       };
 
       cache.promise.catch(() => { cache = { at: 0, promise: null }; });

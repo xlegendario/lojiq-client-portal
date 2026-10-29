@@ -202,13 +202,23 @@ export function createForwardingStore({ supabaseUrl, serviceKey, fetchImpl = fet
 
     for (let i = 0; i < ids.length; i += 100) {
       const chunk = ids.slice(i, i + 100);
-      const pairParams = new URLSearchParams({
-        select: "id,forwarding_log_id,sku,size,product_name,image_url,barcode,forwarding_fee",
-        forwarding_log_id: `in.(${chunk.join(",")})`,
-        order: "sku.asc,size.asc"
-      });
 
-      pairs.push(...(await request(`partner_stock?${pairParams}`)));
+      // In pages: Supabase gives at most 1000 rows a call, and a hundred
+      // forwards hold more pairs than that (29-10-2026: 1288 for 47 forwards,
+      // so the newest forwards were short of pairs and of fee).
+      for (let offset = 0; ; offset += 1000) {
+        const pairParams = new URLSearchParams({
+          select: "id,forwarding_log_id,sku,size,product_name,image_url,barcode,forwarding_fee",
+          forwarding_log_id: `in.(${chunk.join(",")})`,
+          order: "sku.asc,size.asc,id.asc",
+          limit: "1000",
+          offset: String(offset)
+        });
+
+        const page = (await request(`partner_stock?${pairParams}`)) || [];
+        pairs.push(...page);
+        if (page.length < 1000) break;
+      }
     }
 
     const byForward = new Map();

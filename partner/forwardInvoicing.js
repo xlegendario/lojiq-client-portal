@@ -286,7 +286,11 @@ export function createForwardInvoicing({ db, rompslomp, purchases, sellerOf, sen
     const invoiced = new Set();
     for (let i = 0; i < ids.length; i += 50) {
       const list = ids.slice(i, i + 50).map((id) => `"${id}"`).join(",");
-      pairs.push(...((await db.get(`partner_stock?select=forwarding_log_id,forwarding_fee&forwarding_log_id=in.(${list})&limit=5000`)) || []));
+      for (let offset = 0; ; offset += 1000) {
+        const page = (await db.get(`partner_stock?select=forwarding_log_id,forwarding_fee&forwarding_log_id=in.(${list})&order=id.asc&limit=1000&offset=${offset}`)) || [];
+        pairs.push(...page);
+        if (page.length < 1000) break;
+      }
       for (const row of (await db.get(`forward_invoices?select=forwarding_log_id&forwarding_log_id=in.(${list})`)) || []) invoiced.add(row.forwarding_log_id);
     }
 

@@ -267,14 +267,19 @@ export function createInboundScansStore({ airtable, db }) {
   }
 
   async function partnerRows(tracking = "") {
-    const where = tracking
-      ? `tracking_number=eq.${encodeURIComponent(tracking)}`
-      : "tracking_number=not.is.null&order=received_at.desc&limit=5000";
-
-    return db.get(
+    const select =
       "partner_stock?select=tracking_number,seller_id,seller_record_id,sku,size,product_name,barcode," +
-      `mode,partner_price,markup,status,sold_ref,received_at&${where}`
-    );
+      "mode,partner_price,markup,status,sold_ref,received_at";
+
+    if (tracking) return db.get(`${select}&tracking_number=eq.${encodeURIComponent(tracking)}`);
+
+    // In pages: Supabase gives at most 1000 rows a call, and there are more pairs than that.
+    const rows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = (await db.get(`${select}&tracking_number=not.is.null&order=received_at.desc,id.desc&limit=1000&offset=${offset}`)) || [];
+      rows.push(...page);
+      if (page.length < 1000) return rows;
+    }
   }
 
   // Who sent it. A partner parcel knows its seller, a warehouse parcel links
