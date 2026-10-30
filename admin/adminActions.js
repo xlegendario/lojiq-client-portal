@@ -12,6 +12,9 @@
 //                   /api/member-wtb/send-current-offer-to-buyer.
 //   Custom Price    Custom Offer, which Offer To Store / Offer To Buyer read first.
 //                   An offer already sent is refreshed the same way as above.
+//   Edit Offer      a store offer already sent, at a new price of ours: the old
+//                   offer embeds are deleted by the Discord updates bot first,
+//                   so the store never sees the lower number it replaces.
 //   Upload label    the WMS route the label-request page uses, which stores the
 //                   PDF and moves a store order to Ready to Ship; a member WTB
 //                   is forwarded by the WMS to Kickz Caviar.
@@ -200,6 +203,58 @@ export const ACTIONS = {
       return {
         message: price === null ? "Custom price removed." : `Custom price set to € ${price}.${resent ? " The offer is sent to the buyer again." : ""}`,
         changed: { "Custom Offer": { from: before, to: price } }
+      };
+    }
+  },
+
+  /*
+   * A new price on an offer the store already has, usually a higher one: the
+   * seller's payout stays as it is and the difference is ours.
+   *
+   * Custom Price does the same to the price but leaves the old embed in the
+   * channel, disabled, with the lower number still on it. Here the bot
+   * deletes it before the new offer is posted. The delete goes first: the
+   * engine posts the new offer as soon as the price changes, and the bot
+   * takes only the messages it already knew about off the list.
+   */
+  edit_offer: {
+    label: "Edit Offer",
+    sources: ["store"],
+    needs: { store: ["Fulfillment Status", "Offer To Store", "Offer VAT Type", "Offer Sent?", "Offer Accepted?", "Custom Offer", "Store Name"] },
+    inputs: [{ name: "price", label: "New offer price (€)", type: "money", required: true, prefill: "Offer To Store" }],
+    note: "The store's current offer message is deleted and a new one is posted at this price. The seller's payout does not change.",
+    confirm: (source, f) => `Replace the offer of € ${f["Offer To Store"]} that the store has now?`,
+    why(source, f) {
+      if (!OPEN.includes(status(f))) return "Only open orders (Pending or Outsource) can have their offer changed.";
+      if (!f["Offer Sent?"]) return "No offer has been sent yet: use Custom Price, then Send Offer.";
+      if (f["Offer Accepted?"]) return "The store already accepted this offer.";
+      return "";
+    },
+    async run({ record, input, deps }) {
+      const price = Number(text(input.price).replace(",", "."));
+
+      if (!(Number.isFinite(price) && price > 0 && price < 100000)) {
+        throw new ActionError("Enter a price above € 0.", 400);
+      }
+
+      const before = record.fields["Offer To Store"] ?? null;
+
+      if (Number(before) === price) {
+        throw new ActionError(`The store already has an offer of € ${price}.`);
+      }
+
+      const note = await deps.notify(deps.discordUpdatesUrl, {
+        trigger_type: "delete-offer-messages",
+        store_name: text(first(record.fields["Store Name"])),
+        record_id: record.id
+      }, "removal of the old offer message");
+
+      const fields = { "Custom Offer": price, offer_request_webhook_key: "" };
+      await deps.airtable.update(TABLES.store, record.id, fields);
+
+      return {
+        message: `Offer changed to € ${price}. The new offer appears in the store's offer-requests channel within a minute.${note ? ` ${note}` : ""}`,
+        changed: { "Offer To Store": { from: before, to: price } }
       };
     }
   },

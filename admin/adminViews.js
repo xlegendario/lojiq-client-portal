@@ -309,7 +309,7 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 // The buttons on each tab, from the Whimsical. What each one does is in
 // adminActions.js; a button only shows on a row where it can run.
 const TAB_ACTIONS = {
-  "store/open": ["send_offer", "custom_price", "above_max", "manual_deal"],
+  "store/open": ["send_offer", "edit_offer", "custom_price", "above_max", "manual_deal"],
   "store/processing": ["discord"],
   "mwtb/processing": ["discord"],
   "store/offers": ["accept", "counter"],

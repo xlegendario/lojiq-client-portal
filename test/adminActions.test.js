@@ -61,6 +61,22 @@ test("Send Offer on a store order hands it to the automation engine", async () =
   assert.deepEqual(deps.calls, [{ kind: "airtable", table: "Unfulfilled Orders Log", id: "recAAAAAAAAAAAAAA", fields: { "Offer Sent?": true, offer_request_webhook_key: "" } }]);
 });
 
+test("Edit Offer: the old embeds are deleted before the new price goes out", async () => {
+  const deps = { ...fakeDeps(), discordUpdatesUrl: "https://updates.test/" };
+  const sent = record({ "Fulfillment Status": "Outsource", "Offer To Store": 97.5, "Offer VAT Type": "Margin", "Offer Sent?": true, "Store Name": ["APLUG.PL"] });
+
+  assert.deepEqual(availableActions("store", ["edit_offer"], sent.fields), ["edit_offer"]);
+  assert.deepEqual(availableActions("store", ["edit_offer"], { ...sent.fields, "Offer Sent?": false }), []);
+  assert.deepEqual(availableActions("store", ["edit_offer"], { ...sent.fields, "Offer Accepted?": true }), []);
+
+  await assert.rejects(runAction({ key: "edit_offer", source: "store", record: sent, input: { price: "97,5" }, deps }), /already has an offer/);
+  await runAction({ key: "edit_offer", source: "store", record: sent, input: { price: "120" }, deps });
+
+  assert.deepEqual(deps.calls.map((call) => call.kind), ["notify", "airtable"]);
+  assert.deepEqual(deps.calls[0].body, { trigger_type: "delete-offer-messages", store_name: "APLUG.PL", record_id: "recAAAAAAAAAAAAAA" });
+  assert.deepEqual(deps.calls[1].fields, { "Custom Offer": 120, offer_request_webhook_key: "" });
+});
+
 test("Send Offer on a member WTB uses the Kickz Caviar route with the portal secret", async () => {
   const deps = fakeDeps();
   await runAction({
