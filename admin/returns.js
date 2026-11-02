@@ -376,7 +376,18 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
     // No money moved for either document: a matching pair on Kruisposten.
     const amount = round2(-Number(credit.price_with_vat));
-    if (text(o["Invoice Status"]) === "Paid") {
+
+    /*
+      A marketplace pays out per payout, not per invoice: the sale was in a
+      payout already, and the refund comes off a later one as a correction.
+      Kruisposten would mark the invoice paid with money that never moved,
+      so the credit waits for that payout instead (Woovin payout #7289 paid
+      ORD-026411 out before the return, 02-11-2026).
+    */
+    if (/Consignment$/.test(text(o["Order Source"])) && text(o["Order Source"]) !== "Shopify") {
+      const market = text(o["Order Source"]).replace(/ Consignment$/, "");
+      todos.push(todo(`${market} paid ${found.invoice.invoice_number} out in a payout and takes € ${amount.toFixed(2)} back as a correction on a later one. Link ${credit.invoice_number} to that payout's bank line, with the sales on it; the payout of the sale itself pays ${found.invoice.invoice_number}.`, "marketplace_settle"));
+    } else if (text(o["Invoice Status"]) === "Paid") {
       todos.push(todo(`${text(first(o["Store Name"])) || "The store"} already paid ${found.invoice.invoice_number}: refund € ${amount.toFixed(2)} or take it off the next payment, and link that to ${credit.invoice_number}.`, "refund_store"));
     } else if (amount > 0) {
       try {

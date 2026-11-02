@@ -419,3 +419,11 @@ test("a sale that ended unshipped can still turn out to be a return", async () =
   assert.equal(w.db.data.returns[0].status, "expected");
   assert.equal(w.db.data.returns[0].external_return_id, "woovin-W-10");
 });
+
+test("a marketplace invoice is settled through its payouts, not on Kruisposten", async () => {
+  const w = world({ order: { "Order Source": "Woovin Consignment" } });
+  const out = await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "shipped", outcome: "return" } });
+  assert.equal(w.rompslomp.made.invoices.length, 1);
+  assert.equal(w.rompslomp.made.payments.length, 0);
+  assert.ok(out.todos.some((t) => t.kind === "marketplace_settle" && /Woovin/.test(t.text)));
+});
