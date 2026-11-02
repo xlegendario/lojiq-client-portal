@@ -502,3 +502,12 @@ test("Mark paid writes the Payment Note of the bank payment", async () => {
   await markUnitsPaid({ ids: [UNIT], airtable, note: "100 (MON20260211)" });
   assert.deepEqual(written[0], { "Payment Status": "Paid", "Payment Note": "100 (MON20260211)" });
 });
+
+test("Seller Payouts shows an external sale's deal number as its order", async () => {
+  const airtable = {
+    async select() { return { records: [{ id: UNIT, fields: { "Item ID": "PCS-008597", "Payment Status": "To Pay", "Final Purchase Price": 60, "Seller ID": ["recS"], "External Deal ID": "EXTD-000144" } }] }; },
+    async byIds() { return new Map(); }
+  };
+  const data = await loadPayouts(airtable, {});
+  assert.equal(data.groups[0].rows[0].reference_id, "EXTD-000144");
+});

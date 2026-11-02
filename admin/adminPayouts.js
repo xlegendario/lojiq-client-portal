@@ -24,7 +24,8 @@ export const PAYOUT_FIELDS = [
   "Verification Status", "Availability Status",
   "Seller ID", "Seller Name", "Seller Company Name", "Seller ID (Lookup)",
   "Unfulfilled Orders Log", "Shopify Order Number", "Store Name", "Shipping Status", "Tracking URL (from Unfulfilled Orders Log)",
-  "Member WTBs", "Member WTB ID", "Shipping Status (MWTB)", "Tracking URL (MWTB)"
+  "Member WTBs", "Member WTB ID", "Shipping Status (MWTB)", "Tracking URL (MWTB)",
+  "External Deal ID"
 ];
 
 export const SELLER_FIELDS = ["Seller ID", "Full Name", "Company Name", "Discord", "Payout Info"];
@@ -68,6 +69,8 @@ function unitRow(record, sellers, orderIds = new Map()) {
 
   const onOrder = Boolean(first(f["Unfulfilled Orders Log"]));
   const onWtb = Boolean(first(f["Member WTBs"])) || Boolean(first(f["Member WTB ID"]));
+  // An external sale has no order row, only its deal number on the unit.
+  const deal = text(f["External Deal ID"]);
   const picture = Array.isArray(f.Picture) && f.Picture[0] ? f.Picture[0].thumbnails?.small?.url || f.Picture[0].url || "" : "";
 
   let reference = "";
@@ -75,6 +78,7 @@ function unitRow(record, sellers, orderIds = new Map()) {
   const orderId = onOrder ? text(orderIds.get(first(f["Unfulfilled Orders Log"]))) : "";
   if (onOrder) reference = [orderId, text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ");
   else if (onWtb) reference = text(first(f["Member WTB ID"]));
+  else if (deal) reference = deal;
 
   return {
     id: record.id,
@@ -93,7 +97,7 @@ function unitRow(record, sellers, orderIds = new Map()) {
     availability: text(f["Availability Status"]),
     reference,
     // Just the ID, for pasting into the bank transfer's description.
-    reference_id: onOrder ? orderId : onWtb ? text(first(f["Member WTB ID"])) : "",
+    reference_id: onOrder ? orderId : onWtb ? text(first(f["Member WTB ID"])) : deal,
     shopify: onOrder ? [text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ") : "",
     shipping: onOrder ? text(first(f["Shipping Status"])) : onWtb ? text(first(f["Shipping Status (MWTB)"])) : "",
     track: onOrder ? webUrl(f["Tracking URL (from Unfulfilled Orders Log)"]) : onWtb ? webUrl(f["Tracking URL (MWTB)"]) : "",
