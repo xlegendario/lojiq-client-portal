@@ -487,3 +487,15 @@ test("a pair we lost before shipping: off stock, the seller still paid", async (
   assert.equal(w.purchases.calls.credit.length, 0, "the purchase stands");
   assert.ok(w.db.data.returns[0].todo.some((t) => t.kind === "journal_by_hand"));
 });
+
+test("Mark paid writes the Payment Note of the bank payment", async () => {
+  const written = [];
+  const airtable = {
+    async byIds(table, ids) {
+      return new Map(ids.map((id) => [id, { "Item ID": "PCS-009001", "Payment Status": "To Pay", "Final Purchase Price": 100, "Seller ID": ["recS"], "Seller ID (Lookup)": ["SE-00781"] }]));
+    },
+    async update(table, id, fields) { written.push(fields); }
+  };
+  await markUnitsPaid({ ids: [UNIT], airtable, note: "100 (MON20260211)" });
+  assert.deepEqual(written[0], { "Payment Status": "Paid", "Payment Note": "100 (MON20260211)" });
+});

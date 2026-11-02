@@ -1789,16 +1789,50 @@
     $("actionText").textContent = kind === "payouts"
       ? `${rows.length} ${rows.length === 1 ? one : many}, ${money.format(total)} in total, paid to ${list.length === 1 ? "this seller" : `${list.length} sellers`}? Payment Status becomes Paid.`
       : `${rows.length} ${rows.length === 1 ? one : many}, ${money.format(total)} in total, received by bank transfer? They are marked Paid with today's date, recorded as one Bank Transfer payment per store, and any payment link they were on is cancelled.`;
-    $("actionInputs").innerHTML = list.map((batch) => {
+    $("actionInputs").innerHTML = list.map((batch, i) => {
       const sum = money2(batch.rows.reduce((s, row) => s + row.amount, 0));
       const ids = batch.rows.map((row) => kind === "payouts" ? row.item : row.label).join(", ");
-      return `<p class="note"><strong>${esc(batch.label)}</strong> · ${batch.rows.length} · ${esc(money.format(sum))}<br>${esc(ids)}</p>`;
+      // The Payment Note ties the units to the bank payment: its total and a code.
+      const note = kind === "payouts"
+        ? `<label class="note" for="payNote${i}" style="display:block;margin-top:6px">Payment Note</label><input class="input" id="payNote${i}" maxlength="100" value="${esc(paymentNote(batch.rows[0], sum))}">`
+        : "";
+      return `<p class="note"><strong>${esc(batch.label)}</strong> · ${batch.rows.length} · ${esc(money.format(sum))}<br>${esc(ids)}</p>${note}`;
     }).join("");
     $("actionError").textContent = "";
     $("actionConfirm").textContent = "Mark paid";
     $("actionConfirm").disabled = false;
     $("actionDialog").showModal();
     $("actionConfirm").focus();
+  }
+
+  /*
+   * "15490 (MON20260211)": the total, then a code of the seller's prefix and
+   * today as year, day, month - the way Dario writes them in the bank. The
+   * prefix is remembered per seller; the first time it is guessed from his
+   * Discord name.
+   */
+  const NOTE_PREFIXES = "kc_payout_note_prefix";
+
+  function notePrefixes() {
+    try { return JSON.parse(localStorage.getItem(NOTE_PREFIXES) || "{}") || {}; } catch { return {}; }
+  }
+
+  function paymentNote(row, sum) {
+    const key = row.seller_record_id || row.seller?.id || "";
+    const prefix = notePrefixes()[key] ?? String(row.seller?.discord || row.seller?.name || "").replace(/^@/, "").replace(/[^a-z]/gi, "").slice(0, 3).toUpperCase();
+    const now = new Date();
+    const code = `${now.getFullYear()}${String(now.getDate()).padStart(2, "0")}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    return `${Number(sum.toFixed(2))} (${prefix}${code})`;
+  }
+
+  function rememberPrefix(row, note) {
+    const found = /\(([A-Za-z]*)\d{8}\)\s*$/.exec(note);
+    if (!found) return;
+    try {
+      const all = notePrefixes();
+      all[row.seller_record_id || row.seller?.id || ""] = found[1];
+      localStorage.setItem(NOTE_PREFIXES, JSON.stringify(all));
+    } catch { /* only a convenience */ }
   }
 
   async function submitMoneyPaid() {
@@ -1812,13 +1846,15 @@
 
     for (const batch of batches) {
       try {
+        const note = kind === "payouts" ? ($(`payNote${batches.indexOf(batch)}`)?.value || "").trim() : "";
         const body = kind === "payouts"
-          ? { ids: batch.rows.map((row) => row.id) }
+          ? { ids: batch.rows.map((row) => row.id), note }
           : { targets: batch.rows.map((row) => ({ source: row.source, id: row.id })) };
 
         const result = await api(kind === "payouts" ? "/api/admin/payouts/mark-paid" : "/api/admin/payments/mark-paid", { method: "POST", body: JSON.stringify(body) });
 
         for (const row of batch.rows) m.picked.delete(m.rowKey(row));
+        if (note) rememberPrefix(batch.rows[0], note);
         done.push(result.message || `${batch.label} marked paid.`);
       } catch (err) {
         failed.push(`${batch.label}: ${err.message}`);

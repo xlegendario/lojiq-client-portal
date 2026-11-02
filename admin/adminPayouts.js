@@ -208,10 +208,13 @@ export async function loadPayouts(airtable, { shipping = "all", type = "", searc
 }
 
 // Mark these units Paid: the seller has been paid by hand in the bank.
-export async function markUnitsPaid({ ids, airtable, openReturns = null }) {
+// note: the Payment Note, the bank payment's total and code ("15490 (MON20260211)").
+export async function markUnitsPaid({ ids, airtable, openReturns = null, note = "" }) {
   const clean = [...new Set((Array.isArray(ids) ? ids : []).map(text).filter((id) => /^rec[A-Za-z0-9]{14}$/.test(id)))];
+  const paymentNote = text(note);
 
   if (!clean.length) throw new PayoutError("Select at least one unit.", 400);
+  if (paymentNote.length > 100) throw new PayoutError("Keep the Payment Note under 100 characters.", 400);
   if (clean.length > 200) throw new PayoutError("Mark at most 200 units paid at once.", 400);
 
   const found = await airtable.byIds(UNIT_TABLE, clean, ["Item ID", "Payment Status", "Final Purchase Price", "Seller ID", "Seller ID (Lookup)"]);
@@ -240,7 +243,7 @@ export async function markUnitsPaid({ ids, airtable, openReturns = null }) {
   if (sellerIds.size > 1) throw new PayoutError("Mark units paid one seller at a time.", 400);
 
   for (const id of clean) {
-    await airtable.update(UNIT_TABLE, id, { "Payment Status": "Paid" });
+    await airtable.update(UNIT_TABLE, id, { "Payment Status": "Paid", ...(paymentNote ? { "Payment Note": paymentNote } : {}) });
   }
 
   const total = Math.round(clean.reduce((sum, id) => sum + money(found.get(id)["Final Purchase Price"]), 0) * 100) / 100;
