@@ -911,18 +911,23 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     return { exact, same_sku: sameSku, others: open.filter((r) => !exact.includes(r) && !sameSku.includes(r)).length };
   }
 
-  // Another To Pay pair of the partner at the same price: the money already
-  // paid for the returned pair pays for that one.
+  /*
+   * Another To Pay pair of the partner, of the same SKU and price: the money
+   * already paid for the returned pair pays for that one. The same SKU,
+   * because Dario tells the partner per payment how many of which SKU it
+   * covered (02-11-2026).
+   */
   async function partnerSwap(unit, returnedLabel, paymentNote) {
     const u = unit.fields;
     const sellerId = quote(first(u["Seller ID (Lookup)"]));
+    const sku = text(first(u.SKU)).toUpperCase();
     const price = round2(u["Purchase Price"]);
     const records = [];
     let offset = "";
     do {
       const page = await airtable.select(UNITS, {
-        formula: `AND({Payment Status} = 'To Pay', {Availability Status} = 'Sold', {Purchase Price} = ${price}, FIND('${sellerId}', ARRAYJOIN({Seller ID (Lookup)})), OR(FIND('Delivered', {Shipping Status} & ''), FIND('Shipped', {Shipping Status} & '')))`,
-        fields: ["Item ID", "Payment Note", "Purchase Date", "Item Condition", "Unfulfilled Orders Log"],
+        formula: `AND({Payment Status} = 'To Pay', {Availability Status} = 'Sold', {Purchase Price} = ${price}, FIND('${sellerId}', ARRAYJOIN({Seller ID (Lookup)})), FIND('${quote(sku)}', UPPER({SKU} & '')), OR(FIND('Delivered', {Shipping Status} & ''), FIND('Shipped', {Shipping Status} & '')))`,
+        fields: ["Item ID", "SKU", "Payment Note", "Purchase Date", "Item Condition", "Unfulfilled Orders Log"],
         pageSize: 100,
         offset
       });
@@ -933,7 +938,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     // The oldest sale first: that is the one Dario pays next, so the money
     // already paid settles what is owed soonest (Dario, 02-11-2026).
     const when = (r) => text(r.fields?.["Purchase Date"]) || "9999";
-    const candidates = records.filter((r) => r.id !== unit.id).sort((a, b) => when(a).localeCompare(when(b)));
+    const sameSku = (r) => text(first(r.fields?.SKU)).toUpperCase() === sku;
+    const candidates = records.filter((r) => r.id !== unit.id && sameSku(r)).sort((a, b) => when(a).localeCompare(when(b)));
     if (!candidates.length) return null;
 
     const busy = await db.get(`returns?select=inventory_unit_record_id&status=in.(to_decide,expected,received)&inventory_unit_record_id=in.(${candidates.map((r) => `"${r.id}"`).join(",")})`);

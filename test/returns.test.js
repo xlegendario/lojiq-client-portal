@@ -331,8 +331,10 @@ test("a flaw at the scan, our own pair: Troubled Stock", async () => {
 
 test("OK at the scan, a partner pair already paid: another To Pay pair is settled with it", async () => {
   const w = world({ unit: { Type: "Partner Consignment", "Item ID": "PCS-009001", "Seller ID (Lookup)": ["SE-00781"], "Payment Status": "Paid", "Payment Note": "2400 (MO20261509)" } });
-  w.tables["Inventory Units"].recUNIT0000000003 = { "Item ID": "PCS-009003", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-30" };
-  w.tables["Inventory Units"].recUNIT0000000002 = { "Item ID": "PCS-009002", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-01" };
+  w.tables["Inventory Units"].recUNIT0000000003 = { "Item ID": "PCS-009003", SKU: ["DD1391-100"], "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-30" };
+  w.tables["Inventory Units"].recUNIT0000000002 = { "Item ID": "PCS-009002", SKU: ["DD1391-100"], "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-01" };
+  // Older and the same price, but another SKU: never this one.
+  w.tables["Inventory Units"].recUNIT0000000004 = { "Item ID": "PCS-009004", SKU: ["U9060ECA"], "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-09-01" };
   w.db.data.partner_stock.push({ id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100 });
   const row = await expected(w);
   const done = await w.returns.receive(row.id, { verdict: "ok" });
@@ -349,6 +351,7 @@ test("OK at the scan, a partner pair already paid: another To Pay pair is settle
   assert.equal(w.db.data.partner_stock[0].status, "in_stock");
   assert.match(done.result, /PCS-009002/, "the oldest sale is settled first");
   assert.equal(w.tables["Inventory Units"].recUNIT0000000003["Payment Status"], "To Pay");
+  assert.equal(w.tables["Inventory Units"].recUNIT0000000004["Payment Status"], "To Pay", "another SKU is never settled");
 });
 
 test("OK at the scan, a partner pair already paid and nothing to settle: ours", async () => {
