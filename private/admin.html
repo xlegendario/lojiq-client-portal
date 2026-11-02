@@ -1921,9 +1921,10 @@
     $("actionInputs").innerHTML = list.map((batch, i) => {
       const sum = money2(batch.rows.reduce((s, row) => s + row.amount, 0));
       const ids = batch.rows.map((row) => kind === "payouts" ? row.item : row.label).join(", ");
-      // The Payment Note ties the units to the bank payment: its total and a code.
+      // Only for a bulk payment: then the note ties the units to that one bank
+      // payment, its total and a code. Otherwise the note stays as it is.
       const note = kind === "payouts"
-        ? `<label class="note" for="payNote${i}" style="display:block;margin-top:6px">Payment Note</label><input class="input" id="payNote${i}" maxlength="100" value="${esc(paymentNote(batch.rows[0], sum))}">`
+        ? `<label class="note" style="display:flex;gap:8px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="payNoteOn${i}" data-note-toggle="${i}"> Bulk payment: write a Payment Note</label><input class="input" id="payNote${i}" maxlength="100" value="${esc(paymentNote(batch.rows[0], sum))}" style="display:none">`
         : "";
       return `<p class="note"><strong>${esc(batch.label)}</strong> · ${batch.rows.length} · ${esc(money.format(sum))}<br>${esc(ids)}</p>${note}`;
     }).join("");
@@ -1964,6 +1965,14 @@
     } catch { /* only a convenience */ }
   }
 
+  $("actionInputs").addEventListener("change", (event) => {
+    const box = event.target.closest("input[data-note-toggle]");
+    if (!box) return;
+    const input = $(`payNote${box.dataset.noteToggle}`);
+    input.style.display = box.checked ? "" : "none";
+    if (box.checked) input.focus();
+  });
+
   async function submitMoneyPaid() {
     const { kind, batches } = pending.money;
     const m = MONEY[kind];
@@ -1975,7 +1984,8 @@
 
     for (const batch of batches) {
       try {
-        const note = kind === "payouts" ? ($(`payNote${batches.indexOf(batch)}`)?.value || "").trim() : "";
+        const i = batches.indexOf(batch);
+        const note = kind === "payouts" && $(`payNoteOn${i}`)?.checked ? ($(`payNote${i}`)?.value || "").trim() : "";
         const body = kind === "payouts"
           ? { ids: batch.rows.map((row) => row.id), note }
           : { targets: batch.rows.map((row) => ({ source: row.source, id: row.id })) };
