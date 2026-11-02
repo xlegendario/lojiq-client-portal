@@ -463,6 +463,23 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
     async createJournal(body) {
       return (await call("/journal_entries", { method: "POST", body }))?.journal_entry;
     },
+    // Expenses from a date on, a page at a time; searching them is by date only.
+    async listExpenses({ from = "", page = 1 } = {}) {
+      const params = new URLSearchParams({ selection: "all", page: String(page), per_page: "100" });
+      if (from) params.set("search[from]", from);
+      return (await call(`/expenses?${params}`))?.expenses || [];
+    },
+    /*
+     * A payment on a balance account, unlinked. Their API has no way to tie a
+     * payment to an invoice or expense, so it is made with a description that
+     * says which document it is for, and linked in Rompslomp by hand.
+     */
+    async createPayment({ amount, description, accountId, accountPath, paidAt }) {
+      return (await call("/payments", {
+        method: "POST",
+        body: { payment: { amount: Number(amount).toFixed(2), description, account_id: accountId, account_path: accountPath, paid_at: paidAt } }
+      }))?.payment;
+    },
     async invoicesOfContact(contactId) {
       const out = [];
       for (let page = 1; page <= 5; page++) {

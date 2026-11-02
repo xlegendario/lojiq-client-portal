@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Returns · Lojiq Admin</title>
+  <link rel="icon" href="/favicon.png">
+  <script>
+    try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
+  </script>
+  <style>
+    /* Same palette and components as admin.html, so Forward Service reads as
+       part of the same portal. */
+    :root {
+      --bg: #08080A;
+      --panel: #121215;
+      --panel-2: #17171B;
+      --border: #26262B;
+      --text: #E9E9EE;
+      --muted: #8B8B95;
+      --nav-item: #A8A8AF;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --primary-tint: rgba(102, 179, 255, 0.16);
+      --red: #F04438;
+      --warning: #F59E0B;
+      --strong: #FFFFFF;
+      --faint: #55555D;
+      --nav-title: #5F5F68;
+      --hover-border: #3A3A41;
+      --strip: #1B1C21;
+      --row-hover: rgba(102, 179, 255, 0.06);
+      --pill-bg: rgba(139, 139, 149, 0.16);
+      --pill-text: #CFCFD7;
+      --good-bg: rgba(22, 179, 100, 0.16);
+      --good-text: #4ADE9A;
+      --wait-bg: rgba(245, 158, 11, 0.16);
+      --wait-text: #FBBF4C;
+      --move-bg: rgba(47, 128, 237, 0.18);
+      --bad-bg: rgba(240, 68, 56, 0.16);
+      --bad-text: #FF7A70;
+      --toast-bg: #0F2A1E;
+      --toast-border: rgba(22, 179, 100, 0.5);
+      --toast-text: #D6F5E6;
+      --shadow: rgba(0, 0, 0, 0.5);
+      --backdrop: rgba(0, 0, 0, 0.6);
+      --logo-plate: transparent;
+      color-scheme: dark;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #F3F5F8;
+      --panel: #FFFFFF;
+      --panel-2: #F0F2F6;
+      --border: #DCE0E7;
+      --text: #1A1D23;
+      --muted: #616875;
+      --nav-item: #3E4450;
+      --primary-soft: #1B64C8;
+      --primary-tint: rgba(47, 128, 237, 0.12);
+      --red: #D63B30;
+      --warning: #B86E00;
+      --strong: #0C0E13;
+      --faint: #A2A8B2;
+      --nav-title: #8A909B;
+      --hover-border: #C3C9D3;
+      --strip: #F1F3F7;
+      --row-hover: rgba(47, 128, 237, 0.05);
+      --pill-bg: rgba(97, 104, 117, 0.12);
+      --pill-text: #3E4450;
+      --good-bg: rgba(18, 151, 90, 0.12);
+      --good-text: #0C7446;
+      --wait-bg: rgba(214, 139, 0, 0.14);
+      --wait-text: #8F5500;
+      --move-bg: rgba(47, 128, 237, 0.12);
+      --bad-bg: rgba(214, 59, 48, 0.1);
+      --bad-text: #B42E24;
+      --toast-bg: #E6F5EC;
+      --toast-border: rgba(18, 151, 90, 0.45);
+      --toast-text: #0E4F31;
+      --shadow: rgba(20, 28, 40, 0.14);
+      --backdrop: rgba(20, 28, 40, 0.35);
+      --logo-plate: #121215;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: var(--primary-soft); }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--primary-soft); outline-offset: 2px; }
+
+    .input, .select { height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); min-width: 0; }
+    textarea.input { height: auto; min-height: 70px; padding: 9px 11px; resize: vertical; }
+    .input:focus, .select:focus { border-color: var(--primary); outline: none; }
+    .btn { height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; font-weight: 700; white-space: nowrap; }
+    .btn:hover { border-color: var(--hover-border); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+
+    .app { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
+    .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
+    .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
+    .nav-section { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 10px 0 2px; padding: 6px 8px; border: 0; border-radius: 7px; background: none; cursor: pointer; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nav-title); text-align: left; }
+    .nav-section::after { content: "▸"; font-size: 11px; letter-spacing: 0; transition: transform 0.15s ease; }
+    .nav-section[aria-expanded="true"]::after { transform: rotate(90deg); }
+    .nav-section:hover { color: var(--text); background: var(--primary-tint); }
+    .nav-section.current { color: var(--primary-soft); }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    @media (prefers-reduced-motion: reduce) { .nav-section::after { transition: none; } }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav-item); text-decoration: none; font-size: 12px; border: 0; background: none; cursor: pointer; text-align: left; width: 100%; }
+    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
+    .nav-item.active { font-weight: 700; }
+    .nav-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .content { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .heading { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .heading h1 { margin: 0; font-size: 20px; }
+    .crumb { color: var(--muted); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    .totals { display: flex; flex-wrap: wrap; gap: 8px; }
+    .total { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 130px; }
+    .total span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .total strong { font-size: 16px; color: var(--strong); font-variant-numeric: tabular-nums; }
+
+    .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto; background: var(--panel); max-height: calc(100vh - 260px); }
+    table { border-collapse: collapse; width: max-content; min-width: 100%; }
+    th { position: sticky; top: 0; z-index: 4; background: var(--panel-2); text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+    tbody tr:hover td { background: var(--row-hover); }
+    td.money, th.money { text-align: right; font-variant-numeric: tabular-nums; }
+    td.check, th.check { width: 34px; text-align: center; }
+    td.check input, th.check input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+    .id { font-weight: 700; color: var(--strong); }
+    .dash { color: var(--faint); }
+    .sub { color: var(--muted); font-size: 12px; }
+    tbody tr[data-id] { cursor: pointer; }
+    tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
+
+    /* Side panel, as on the Store Orders and Member WTBs tabs. */
+    .panel { position: fixed; top: 0; right: 0; width: min(480px, 100%); height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -20px 0 50px var(--shadow); z-index: 40; display: flex; flex-direction: column; }
+    .panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .panel-head h2 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+    .panel-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .panel-body { overflow-y: auto; padding: 14px 16px 30px; display: flex; flex-direction: column; gap: 18px; }
+    .group h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .group dl { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 12px; }
+    .group dt { color: var(--muted); }
+    .group dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .pair-list li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .pair-list img, .pair-list .no-img { width: 44px; height: 44px; object-fit: contain; background: #fff; border-radius: 6px; }
+    .pair-list .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
+    .pair-list strong { color: var(--strong); }
+    .link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+    .timeline small { color: var(--muted); }
+    .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--pill-bg); color: var(--pill-text); }
+    .pill.good { background: var(--good-bg); color: var(--good-text); }
+    .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
+    .pill.move { background: var(--move-bg); color: var(--primary-soft); }
+    .pill.bad { background: var(--bad-bg); color: var(--bad-text); }
+    .row-actions { display: inline-flex; gap: 6px; }
+    .act { height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel-2); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .act:hover { border-color: var(--primary); color: var(--strong); }
+    .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+
+    tr.group-row td { background: var(--strip); padding: 10px 12px; }
+    tbody tr.group-row:hover td { background: var(--strip); }
+    .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+    .group-head strong { color: var(--strong); font-variant-numeric: tabular-nums; }
+    .group-head .old { color: var(--warning); font-weight: 700; }
+    .actionbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .actionbar[hidden] { display: none !important; }
+
+    dialog { width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 0; box-shadow: 0 30px 80px var(--shadow); }
+    dialog::backdrop { background: var(--backdrop); }
+    .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .dialog-body h2 { margin: 0; font-size: 17px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .field .hint { color: var(--muted); font-size: 12px; }
+    .label-list { display: flex; flex-direction: column; gap: 6px; }
+    .label-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .label-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+    .label-add input[type=file] { color: var(--muted); min-width: 0; }
+    .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; max-width: min(560px, calc(100vw - 32px)); background: var(--toast-bg); border: 1px solid var(--toast-border); color: var(--toast-text); padding: 12px 16px; border-radius: 10px; box-shadow: 0 16px 40px var(--shadow); }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
+      .label-add { grid-template-columns: 1fr; }
+    }
+  </style>
+  <style>
+    /* Only this page: a payout is a list of payments, each with what it paid. */
+    .payout-note { display: flex; flex-direction: column; gap: 6px; }
+    .pay-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .pay { border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .pay.unknown { border-color: var(--warning); }
+    .pay-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .pay-head strong { color: var(--strong); font-variant-numeric: tabular-nums; }
+    .pay-head .sub { margin-left: auto; }
+    .pay-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .pay-lines li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+    .pay-lines .inv { color: var(--primary-soft); }
+    .sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+    .sum span:nth-child(even) { font-variant-numeric: tabular-nums; text-align: right; }
+    .sum .big { color: var(--strong); font-weight: 700; }
+    .off { color: var(--warning); }
+
+    /* Same foot as the main admin page: who is signed in, the theme switch
+       and Log out. Without it those two disappear the moment you open a tab
+       that has its own page. */
+    .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+    .sidebar-foot strong { color: var(--text); }
+    .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+
+    /* ---- Returns ---- */
+    .tabs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+    .tab { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; font-size: 12px; font-weight: 700; color: var(--muted); }
+    .tab:hover { color: var(--text); border-color: var(--hover-border); }
+    .tab.active { background: var(--primary-tint); color: var(--strong); border-color: var(--primary); }
+    .old { color: var(--warning); font-weight: 700; }
+    .todo { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+    .todo input { margin-top: 2px; accent-color: var(--primary); }
+    td { vertical-align: top; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" aria-label="Admin navigation">
+      <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
+      <button class="nav-section" type="button" data-nav-section="store" aria-controls="navStore" aria-expanded="false">Store Orders</button>
+      <div class="nav-group" id="navStore" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="mwtb" aria-controls="navMwtb" aria-expanded="false">Member WTBs</button>
+      <div class="nav-group" id="navMwtb" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Finance</button>
+      <div class="nav-group" id="navMoney" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="earnings" aria-controls="navEarnings" aria-expanded="false">Earnings</button>
+      <div class="nav-group" id="navEarnings" hidden>
+        <a class="nav-item" href="/admin/earnings">General</a>
+        <a class="nav-item" href="/admin/earnings?channel=Store+orders">Store Orders</a>
+        <a class="nav-item" href="/admin/earnings?channel=Member+WTBs">Member WTBs</a>
+        <a class="nav-item" href="/admin/earnings?channel=External+sales">External Sales</a>
+        <a class="nav-item" href="/admin/earnings?channel=Forwarding">Forwarding</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
+      <div class="nav-group" id="navForwarding" hidden>
+        <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label <small data-nav-count="forwarding/awaiting_label"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=ready_to_ship">Ready to Ship <small data-nav-count="forwarding/ready_to_ship"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=shipped">Shipped <small data-nav-count="forwarding/shipped"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=all">All forwards</a>
+        <a class="nav-item" href="/admin/forwarding?view=labels">Partner Labels</a>
+        <a class="nav-item" href="/admin/forwarding?view=invoices">Partner Invoices</a>
+        <a class="nav-item" href="/admin/forwarding?view=documents">Partner Documents</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
+      <div class="nav-group" id="navExternal" hidden>
+        <a class="nav-item" href="/admin/external-sales?tab=draft">Draft <small class="nav-count" data-nav-count="external/draft"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=pending">Pending <small class="nav-count" data-nav-count="external/pending"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=ready">Ready to Ship <small class="nav-count" data-nav-count="external/ready"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=shipped">Shipped</a>
+        <a class="nav-item" href="/admin/external-sales?tab=all">All</a>
+        <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
+        <a class="nav-item" href="/admin/wtb-match">WTB Match</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
+      <div class="nav-group" id="navMarketplaces" hidden>
+        <a class="nav-item" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
+      <div class="nav-group" id="navWarehouse" hidden>
+        <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
+        <a class="nav-item" href="/admin/returns">Returns</a>
+        <a class="nav-item" href="/admin/returns?view=troubled">Troubled Stock</a>
+      </div>
+
+      <div class="sidebar-foot">
+        <span>Signed in as <strong id="userName">…</strong></span>
+        <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
+        <button class="btn ghost" id="logoutButton" type="button">Log out</button>
+      </div>
+    </nav>
+
+    <main class="content">
+      <div class="heading">
+        <span class="crumb">Warehouse</span>
+        <h1 id="pageTitle">Returns</h1>
+      </div>
+
+      <p class="sub" id="pageIntro" style="margin:0;max-width:820px"></p>
+
+      <div class="filters">
+        <div class="tabs" id="tabs" role="tablist"></div>
+        <input class="input" id="search" type="search" placeholder="Order, SKU, item, seller, tracking…" autocomplete="off">
+        <span class="count" id="count"></span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead id="head"></thead>
+          <tbody id="rows">
+            <tr><td class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <div class="panel" id="panel" hidden aria-label="Return">
+    <div class="panel-head">
+      <h2 id="panelTitle">Return</h2>
+      <button class="btn ghost" type="button" id="closePanel" aria-label="Close">✕</button>
+    </div>
+    <div class="panel-actions" id="panelActions"></div>
+    <div class="panel-body" id="panelBody"></div>
+  </div>
+
+  <dialog id="stepDialog">
+    <form method="dialog" class="dialog-body" id="stepForm">
+      <h2 id="stepTitle"></h2>
+      <p class="sub" id="stepText" style="margin:0;white-space:pre-line"></p>
+      <div id="stepFields"></div>
+      <p class="sub" id="stepError" style="margin:0;color:var(--red)"></p>
+      <div class="dialog-foot">
+        <button class="btn ghost" type="button" id="stepClose">Close</button>
+        <button class="btn primary" type="submit" id="stepGo">Go</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" hidden role="status"></div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const esc = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+    const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
+
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, { credentials: "same-origin", ...options });
+      if (response.status === 401) {
+        location.href = "/admin";
+        throw new Error("Not signed in");
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `The server answered ${response.status}.`);
+      return data;
+    }
+
+    let toastTimer = null;
+
+    function toast(message) {
+      $("toast").textContent = message;
+      $("toast").hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4000);
+    }
+
+    /* ---------------- sidebar ---------------- */
+
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", earnings: "navEarnings", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
+    const NAV_OPEN_KEY = "lojiq-admin-nav-open";
+    const openNavSections = new Set();
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || "null");
+      if (Array.isArray(saved)) saved.forEach((section) => openNavSections.add(section));
+    } catch {}
+
+    openNavSections.add("warehouse");
+
+    function saveNavSections() {
+      try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
+    }
+
+    saveNavSections();
+
+    function drawNavSections() {
+      for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
+        const expanded = openNavSections.has(section);
+        const header = document.querySelector(`[data-nav-section="${section}"]`);
+        $(groupId).hidden = !expanded;
+        header.setAttribute("aria-expanded", String(expanded));
+        header.classList.toggle("current", section === "warehouse");
+      }
+    }
+
+    let navCounts = {};
+    let navViews = [];
+
+    const navCount = (key) => {
+      const n = navCounts[key];
+      return `<small>${typeof n === "number" && n > 0 ? n : ""}</small>`;
+    };
+
+    function drawOtherSections(views) {
+      navViews = views || [];
+      const link = (view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)} ${navCount(`${view.section}/${view.key}`)}</a>`;
+
+      $("navStore").innerHTML = navViews.filter((view) => view.section === "store").map(link).join("");
+      $("navMwtb").innerHTML = navViews.filter((view) => view.section === "mwtb").map(link).join("");
+      const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
+      $("navMoney").innerHTML = finance.map(link).join("") +
+        `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a><a class="nav-item" href="/admin/collective-invoices">Collective Invoices</a>`;
+
+      $("navWarehouse").innerHTML =
+        `<a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>` +
+        `<a class="nav-item${state.view === "troubled" ? "" : " active"}" href="/admin/returns">Returns</a>` +
+        `<a class="nav-item${state.view === "troubled" ? " active" : ""}" href="/admin/returns?view=troubled">Troubled Stock</a>` +
+        `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
+        `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
+        `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;
+
+      document.querySelectorAll("[data-nav-count]").forEach((el) => {
+        const n = navCounts[el.dataset.navCount];
+        el.textContent = typeof n === "number" && n > 0 ? String(n) : "";
+      });
+    }
+
+    async function loadNavCounts() {
+      try {
+        const data = await api("/api/admin/counts");
+        navCounts = data.tabs || {};
+        drawOtherSections(navViews);
+      } catch {}
+    }
+
+    document.querySelector(".sidebar").addEventListener("click", (event) => {
+      const header = event.target.closest("[data-nav-section]");
+      if (!header) return;
+
+      const section = header.dataset.navSection;
+      if (openNavSections.has(section)) openNavSections.delete(section);
+      else openNavSections.add(section);
+      saveNavSections();
+      drawNavSections();
+    });
+
+    /* ---------------- returns ---------------- */
+
+    const params = new URLSearchParams(location.search);
+    const TABS = [
+      { key: "open", label: "Open" },
+      { key: "to_decide", label: "To decide" },
+      { key: "todo", label: "To do" },
+      { key: "done", label: "Done" },
+      { key: "all", label: "All" },
+      { key: "troubled", label: "Troubled Stock" }
+    ];
+
+    const state = {
+      view: TABS.some((t) => t.key === params.get("view")) ? params.get("view") : "open",
+      q: params.get("q") || "",
+      rows: [],
+      units: [],
+      open: null
+    };
+
+    // A link with ?q= (from Seller Payouts) means: find it, wherever it is.
+    if (state.q && !params.get("view")) state.view = "all";
+
+    const STATUS = {
+      to_decide: ["To decide", "wait"],
+      expected: ["Expected", "move"],
+      received: ["Received", "move"],
+      done: ["Done", "good"],
+      cancelled: ["Closed", ""]
+    };
+    const SOURCE = { store_order: "Store order", member_wtb: "Member WTB", woovin: "Woovin", bol: "bol", manual: "By hand" };
+    const HELD = {
+      warehouse: "In our warehouse - back on sale",
+      consignor_has: "The seller still has it - back in his consignment stock",
+      consignor_gone: "The seller no longer has it - void",
+      partner: "Partner pair, still here - back on the partner's shelf"
+    };
+
+    const ageDays = (value) => Math.floor((Date.now() - new Date(value).getTime()) / 86400000);
+    const openTodos = (row) => (row.todo || []).filter((t) => !t.done);
+
+    function drawTabs() {
+      $("tabs").innerHTML = TABS.map((t) => `<button class="tab${t.key === state.view ? " active" : ""}" type="button" data-tab="${t.key}">${esc(t.label)}</button>`).join("");
+      const troubled = state.view === "troubled";
+      $("pageTitle").textContent = troubled ? "Troubled Stock" : "Returns";
+      document.title = `${troubled ? "Troubled Stock" : "Returns"} · Lojiq Admin`;
+      $("pageIntro").textContent = troubled
+        ? "Pairs that came back with a flaw and are ours to deal with: put one back on sale, write it off, or send it back to the seller. What is wrong with it is in its condition."
+        : "Every pair that came off a sale. Expected ones are closed by the Returns scan in the WMS, which decides OK or flaw. To decide: a sale ended before it shipped, so say where the pair is. To do: what is left for a person, in Rompslomp or with a seller.";
+      $("search").hidden = troubled;
+      document.querySelectorAll("#navWarehouse .nav-item").forEach((a) => {
+        const href = a.getAttribute("href");
+        a.classList.toggle("active", troubled ? href === "/admin/returns?view=troubled" : href === "/admin/returns");
+      });
+    }
+
+    $("tabs").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-tab]");
+      if (!button) return;
+      state.view = button.dataset.tab;
+      const url = new URL(location.href);
+      url.searchParams.set("view", state.view);
+      history.replaceState(null, "", url);
+      closePanel();
+      drawTabs();
+      load();
+    });
+
+    function drawList() {
+      if (state.view === "troubled") return drawTroubled();
+
+      $("head").innerHTML = `<tr><th>Return</th><th>Since</th><th>From</th><th>Order</th><th>Pair</th><th>Unit</th><th>Seller</th><th>Reason</th><th>Tracking</th><th>Status</th><th>To do</th></tr>`;
+      const rows = state.rows;
+      $("count").textContent = rows.length ? `${rows.length} return${rows.length === 1 ? "" : "s"}` : "";
+
+      if (!rows.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${state.q ? "Nothing found under that." : "Nothing here."}</td></tr>`;
+        return;
+      }
+
+      $("rows").innerHTML = rows.map((r) => {
+        const age = ageDays(r.created_at);
+        const [label, tone] = STATUS[r.status] || [r.status, ""];
+        const todos = openTodos(r).length;
+        return `
+          <tr data-id="${esc(r.id)}"${state.open?.id === r.id ? ' class="selected"' : ""}>
+            <td class="id">RET-${esc(r.return_number)}</td>
+            <td>${esc(day(r.created_at))}${["expected", "to_decide"].includes(r.status) ? ` <span class="sub${age >= 14 ? " old" : ""}">${age}d</span>` : ""}</td>
+            <td>${esc(SOURCE[r.source] || r.source)}</td>
+            <td>${esc(r.order_id || "—")}${r.marketplace_order_id ? `<div class="sub">${esc(r.marketplace_order_id)}</div>` : ""}</td>
+            <td>${esc(r.sku || "—")} <span class="sub">${esc(r.size || "")}</span></td>
+            <td>${esc(r.item_id || "—")}</td>
+            <td>${esc(r.seller_id || "—")}${r.seller_name ? `<div class="sub">${esc(r.seller_name)}</div>` : ""}</td>
+            <td>${esc(r.reason || "—")}</td>
+            <td>${r.tracking_code ? `${esc(r.tracking_code)}<div class="sub">${esc(r.carrier || "")}</div>` : '<span class="dash">—</span>'}</td>
+            <td><span class="pill ${tone}">${esc(label)}</span>${r.verdict ? ` <span class="pill ${r.verdict === "ok" ? "good" : "bad"}">${r.verdict === "ok" ? "OK" : "Flaw"}</span>` : ""}</td>
+            <td>${todos ? `<span class="pill wait">${todos}</span>` : '<span class="dash">—</span>'}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    function drawTroubled() {
+      $("head").innerHTML = `<tr><th></th><th>Unit</th><th>Pair</th><th>Type</th><th>Seller</th><th>Payment</th><th class="money">Purchase</th><th>Condition</th><th></th></tr>`;
+      const units = state.units;
+      $("count").textContent = units.length ? `${units.length} pair${units.length === 1 ? "" : "s"}` : "";
+
+      if (!units.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">No troubled stock.</td></tr>`;
+        return;
+      }
+
+      $("rows").innerHTML = units.map((u) => `
+        <tr>
+          <td>${u.picture ? `<img src="${esc(u.picture)}" alt="" style="width:40px;height:40px;object-fit:contain;background:#fff;border-radius:6px">` : ""}</td>
+          <td class="id">${esc(u.item_id)}</td>
+          <td>${esc(u.sku)} <span class="sub">${esc(u.size)}</span><div class="sub">${esc(u.product)}</div></td>
+          <td>${esc(u.type || "—")}</td>
+          <td>${esc(u.seller_id || "—")}${u.seller_name ? `<div class="sub">${esc(u.seller_name)}</div>` : ""}</td>
+          <td><span class="pill ${u.payment === "Paid" ? "" : "wait"}">${esc(u.payment || "—")}</span></td>
+          <td class="money">${u.purchase_price ? esc(money(u.purchase_price)) : "—"}</td>
+          <td style="white-space:normal;max-width:420px">${esc(u.condition || "—")}</td>
+          <td><span class="row-actions">
+            <button class="act" type="button" data-trouble="on_sale" data-unit="${esc(u.id)}" data-item="${esc(u.item_id)}">Back on sale</button>
+            <button class="act" type="button" data-trouble="to_seller" data-unit="${esc(u.id)}" data-item="${esc(u.item_id)}">Sent to seller</button>
+            <button class="act" type="button" data-trouble="write_off" data-unit="${esc(u.id)}" data-item="${esc(u.item_id)}">Write off</button>
+          </span></td>
+        </tr>`).join("");
+    }
+
+    $("rows").addEventListener("click", (event) => {
+      const trouble = event.target.closest("[data-trouble]");
+      if (trouble) return troubleStep(trouble.dataset.trouble, trouble.dataset.unit, trouble.dataset.item);
+      const row = event.target.closest("tr[data-id]");
+      if (row) openReturn(row.dataset.id);
+    });
+
+    /* ---------------- one return ---------------- */
+
+    function drawPanel(r) {
+      const [label, tone] = STATUS[r.status] || [r.status, ""];
+      $("panelTitle").textContent = `RET-${r.return_number} · ${r.order_id || ""}`;
+
+      const buttons = [];
+      if (["expected", "received"].includes(r.status)) {
+        buttons.push(`<button class="btn primary" type="button" data-step="receive-ok">Received OK</button>`);
+        buttons.push(`<button class="btn" type="button" data-step="receive-flaw">Received with a flaw</button>`);
+        buttons.push(`<button class="btn ghost" type="button" data-step="not-coming">Not coming back</button>`);
+      }
+      if (r.status === "to_decide") buttons.push(`<button class="btn primary" type="button" data-step="decide">Decide where it is</button>`);
+      if ((r.todo || []).some((t) => t.kind === "credit_invoice" && !t.done)) buttons.push(`<button class="btn" type="button" data-step="credit-invoice">Credit invoice</button>`);
+      $("panelActions").innerHTML = buttons.join("") || '<span class="sub">Nothing left to do with the pair itself.</span>';
+
+      const dl = (pairs) => `<dl>${pairs.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+      const todos = r.todo || [];
+
+      $("panelBody").innerHTML = `
+        <div class="group">
+          <h3>The pair</h3>
+          ${r.image_url ? `<img src="${esc(r.image_url)}" alt="" onerror="this.style.visibility='hidden'" style="width:90px;height:90px;object-fit:contain;background:#fff;border-radius:8px;margin-bottom:8px">` : ""}
+          ${dl([
+            ["Status", `<span class="pill ${tone}">${esc(label)}</span>`],
+            ["Product", esc(r.product_name)],
+            ["SKU / size", `${esc(r.sku)} · ${esc(r.size)}`],
+            ["Unit", esc(r.item_id)],
+            ["Type", esc(r.unit_type)],
+            ["Seller", [esc(r.seller_id), esc(r.seller_name)].filter(Boolean).join(" · ")],
+            ["Purchase", r.purchase_price ? esc(money(r.purchase_price)) : ""],
+            ["Barcode", esc(r.ean)]
+          ])}
+        </div>
+        <div class="group">
+          <h3>The sale</h3>
+          ${dl([
+            ["From", esc(SOURCE[r.source] || r.source)],
+            ["Order", esc(r.order_id)],
+            ["Store", esc(r.store_name)],
+            ["Marketplace order", esc(r.marketplace_order_id)],
+            ["Marketplace status", esc(r.marketplace_status)],
+            ["Shipped", r.shipped ? "Yes" : "No"],
+            ["Reason", esc(r.reason)],
+            ["Customer said", esc(r.customer_comment)],
+            ["Tracking", r.tracking_code ? `${esc(r.tracking_code)} ${esc(r.carrier || "")}` : ""]
+          ])}
+        </div>
+        <div class="group">
+          <h3>Outcome</h3>
+          ${dl([
+            ["Verdict", r.verdict ? (r.verdict === "ok" ? "OK" : "Flaw") : ""],
+            ["Condition", esc(r.condition_note)],
+            ["Result", esc(r.result)],
+            ["Received", r.received_at ? `${esc(day(r.received_at))}${r.received_by ? ` · ${esc(r.received_by)}` : ""}` : ""]
+          ])}
+        </div>
+        <div class="group">
+          <h3>To do</h3>
+          ${todos.length ? `<ul class="link-list">${todos.map((t) => `
+            <li><label class="todo"><input type="checkbox" data-todo="${esc(t.id)}"${t.done ? " checked" : ""}> <span${t.done ? ' class="sub" style="text-decoration:line-through"' : ""}>${esc(t.text)}</span></label></li>`).join("")}</ul>` : '<span class="sub">Nothing.</span>'}
+        </div>
+        <div class="group">
+          <h3>History</h3>
+          <ul class="timeline">${(r.log || []).map((l) => `<li><span>${esc(l.line)}</span><small>${esc(day(l.at))}${l.by ? ` · ${esc(l.by)}` : ""}</small></li>`).join("") || "<li><small>Nothing yet.</small></li>"}</ul>
+        </div>`;
+
+      $("panel").hidden = false;
+    }
+
+    async function openReturn(id) {
+      try {
+        const { return: r } = await api(`/api/admin/returns/${encodeURIComponent(id)}`);
+        state.open = r;
+        drawList();
+        drawPanel(r);
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    function closePanel() {
+      $("panel").hidden = true;
+      state.open = null;
+    }
+
+    $("closePanel").addEventListener("click", () => { closePanel(); drawList(); });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("panel").hidden && !$("stepDialog").open) { closePanel(); drawList(); }
+    });
+
+    const post = (url, body) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+
+    $("panelBody").addEventListener("change", async (event) => {
+      const box = event.target.closest("[data-todo]");
+      if (!box || !state.open) return;
+      try {
+        const { return: r } = await post(`/api/admin/returns/${state.open.id}/tick`, { todo: box.dataset.todo, done: box.checked });
+        state.open = r;
+        const i = state.rows.findIndex((x) => x.id === r.id);
+        if (i >= 0) state.rows[i] = r;
+        drawList();
+        drawPanel(r);
+      } catch (err) {
+        toast(err.message);
+        box.checked = !box.checked;
+      }
+    });
+
+    /* ---------------- steps ---------------- */
+
+    let step = null;
+
+    function openStep({ title, textValue, fields = "", go, run }) {
+      step = { run };
+      $("stepTitle").textContent = title;
+      $("stepText").textContent = textValue || "";
+      $("stepFields").innerHTML = fields;
+      $("stepError").textContent = "";
+      $("stepGo").textContent = go;
+      $("stepGo").disabled = false;
+      $("stepDialog").showModal();
+      ($("stepFields").querySelector("textarea, input, select") || $("stepGo")).focus();
+    }
+
+    $("stepClose").addEventListener("click", () => $("stepDialog").close());
+
+    $("stepForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!step) return;
+      $("stepGo").disabled = true;
+      $("stepError").textContent = "";
+      try {
+        const message = await step.run();
+        $("stepDialog").close();
+        toast(message || "Done.");
+        const reopen = state.open?.id;
+        await load();
+        if (reopen && state.rows.some((r) => r.id === reopen)) openReturn(reopen);
+        else closePanel();
+      } catch (err) {
+        $("stepError").textContent = err.message;
+        $("stepGo").disabled = false;
+      }
+    });
+
+    $("panelActions").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-step]");
+      if (!button || !state.open) return;
+      const r = state.open;
+      const base = `/api/admin/returns/${r.id}`;
+
+      if (button.dataset.step === "receive-ok") {
+        openStep({
+          title: `RET-${r.return_number}: received OK`,
+          textValue: "The pair is back and in order. It goes back on sale, or back on the partner's shelf; the seller is paid as normal.",
+          go: "Received OK",
+          run: async () => { const { return: x } = await post(`${base}/receive`, { verdict: "ok" }); return x.result; }
+        });
+      } else if (button.dataset.step === "receive-flaw") {
+        openStep({
+          title: `RET-${r.return_number}: received with a flaw`,
+          textValue: "Describe what is wrong. Our own pair goes to Troubled Stock; a seller's pair we have not paid yet goes back to him and comes off the payout.",
+          fields: `<div class="field"><label for="stepNote">The flaw</label><textarea class="input" id="stepNote" maxlength="300" required></textarea></div>`,
+          go: "Save",
+          run: async () => { const { return: x } = await post(`${base}/receive`, { verdict: "flaw", note: $("stepNote").value.trim() }); return x.result; }
+        });
+      } else if (button.dataset.step === "not-coming") {
+        openStep({
+          title: `RET-${r.return_number}: not coming back`,
+          textValue: "The buyer keeps it or it got lost. The unit becomes Lost, and booking the stock off again is left as a to-do.",
+          fields: `<div class="field"><label for="stepNote">Why</label><input class="input" id="stepNote" maxlength="200"></div>`,
+          go: "Close the return",
+          run: async () => { await post(`${base}/not-coming`, { note: $("stepNote").value.trim() }); return "Closed."; }
+        });
+      } else if (button.dataset.step === "decide") {
+        openStep({
+          title: `RET-${r.return_number}: where is the pair?`,
+          textValue: `${r.order_id} ended before it shipped (${r.marketplace_status || r.source}). Say where the pair is; the order, the unit and the books follow.`,
+          fields: `<div class="field"><label for="stepHeld">Where it is</label><select class="select" id="stepHeld">${Object.entries(HELD).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>`,
+          go: "Save",
+          run: async () => { await post(`${base}/decide`, { held: $("stepHeld").value }); return "Done."; }
+        });
+      } else if (button.dataset.step === "credit-invoice") {
+        openStep({
+          title: `RET-${r.return_number}: credit the invoice`,
+          textValue: `Credits the invoice of ${r.order_id} in Rompslomp and puts the stock back; where nothing was paid, two Kruisposten payments are made to link.`,
+          go: "Credit",
+          run: async () => { await post(`${base}/credit-invoice`, {}); return "Credited."; }
+        });
+      }
+    });
+
+    function troubleStep(action, unit, item) {
+      const say = { on_sale: "Back on sale", to_seller: "Sent back to the seller", write_off: "Write off" }[action];
+      openStep({
+        title: `${item}: ${say}`,
+        textValue: action === "on_sale" ? "Available again, without a selling price." : "The unit becomes Void, with this note on it.",
+        fields: `<div class="field"><label for="stepNote">Note${action === "on_sale" ? " (optional)" : ""}</label><input class="input" id="stepNote" maxlength="200"></div>`,
+        go: say,
+        run: async () => { await post(`/api/admin/returns/troubled/${unit}`, { action, note: $("stepNote").value.trim() }); return `${item}: ${say}.`; }
+      });
+    }
+
+    /* ---------------- loading ---------------- */
+
+    async function load() {
+      try {
+        if (state.view === "troubled") {
+          const data = await api("/api/admin/returns/troubled");
+          state.units = data.units || [];
+        } else {
+          const data = await api(`/api/admin/returns?view=${encodeURIComponent(state.view)}${state.q ? `&q=${encodeURIComponent(state.q)}` : ""}`);
+          state.rows = data.returns || [];
+        }
+        drawList();
+      } catch (err) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="11">${esc(err.message)}</td></tr>`;
+      }
+    }
+
+    let searchTimer = null;
+    $("search").value = state.q;
+    $("search").addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { state.q = $("search").value.trim(); load(); }, 300);
+    });
+
+    drawTabs();
+
+    drawNavSections();
+    drawOtherSections([]);
+    load();
+    loadNavCounts();
+
+    /* ---------------- who is signed in, theme, log out ---------------- */
+
+    function syncThemeSwitch() {
+      const light = document.documentElement.dataset.theme === "light";
+      $("themeSwitch").textContent = light ? "Dark mode" : "Light mode";
+      $("themeSwitch").setAttribute("aria-pressed", String(light));
+    }
+
+    $("themeSwitch").addEventListener("click", () => {
+      const light = document.documentElement.dataset.theme !== "light";
+
+      if (light) document.documentElement.dataset.theme = "light";
+      else delete document.documentElement.dataset.theme;
+
+      try { localStorage.setItem("lojiq-admin-theme", light ? "light" : "dark"); } catch { /* not remembered, still switched */ }
+      syncThemeSwitch();
+    });
+
+    syncThemeSwitch();
+
+    $("logoutButton").addEventListener("click", async () => {
+      await api("/api/admin/logout", { method: "POST", body: "{}" }).catch(() => {});
+      location.href = "/admin";
+    });
+
+    /*
+     * The sidebar gets its Store Orders and Member WTBs entries from here.
+     * Without it those two sections opened onto nothing, which reads as a
+     * dead button - they are the only groups the page does not know by
+     * heart.
+     */
+    api("/api/admin/me")
+      .then((me) => {
+        $("userName").textContent = me.user?.name || me.user?.email || "";
+        drawOtherSections(me.views);
+      })
+      .catch(() => { $("userName").textContent = ""; });
+  </script>
+</body>
+</html>

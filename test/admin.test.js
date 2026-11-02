@@ -357,7 +357,7 @@ test("router: buttons need a login, read fresh, and refuse what cannot run", asy
 
     const me = await (await fetch(`${base}/api/admin/me`, { headers: { cookie } })).json();
     assert.equal(me.actions.upload_label.upload, true);
-    assert.deepEqual(me.views.find((v) => v.section === "store" && v.key === "ready").actions, ["add_note", "track", "mark_shipped", "discord"]);
+    assert.deepEqual(me.views.find((v) => v.section === "store" && v.key === "ready").actions, ["add_note", "track", "mark_shipped", "discord", "cancel_order"]);
   });
 });
 

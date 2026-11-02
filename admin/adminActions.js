@@ -31,6 +31,7 @@
 // the action log with what it changed.
 
 import { TABLES } from "./adminViews.js";
+import { CANCELLABLE, HELD, OUTCOMES } from "./returns.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -47,6 +48,10 @@ class ActionError extends Error {
     this.status = status;
   }
 }
+
+const said = (err) => {
+  throw err instanceof ActionError ? err : new ActionError(err.message, Number(err.status) || 502);
+};
 
 /* ---------------- links ---------------- */
 
@@ -607,6 +612,42 @@ export const ACTIONS = {
     }
   },
 
+  /*
+   * Cancel, from Allocated up to Completed: the order comes off, the invoice
+   * is credited and the pair goes where it really is. Everything it does is
+   * in admin/returns.js; a pair coming back is closed by the WMS scan.
+   */
+  cancel_order: {
+    label: "Cancel order",
+    sources: ["store", "mwtb"],
+    needs: {
+      store: ["Fulfillment Status", "Shipping Status", "Order ID", "Store Name", "Linked Inventory Unit", "Invoice Status", "Rompslomp Credit Invoice Number"],
+      mwtb: ["Fulfillment Status", "Shipping Status", "Member WTB ID", "Linked Inventory Unit"]
+    },
+    inputs: [
+      { name: "shipped", label: "Did the pair leave?", type: "select", required: true, options: [{ value: "shipped", label: "Yes, it was shipped to the buyer" }, { value: "not_shipped", label: "No, it never left" }] },
+      { name: "outcome", label: "What happens to it?", type: "select", required: true, showIf: { shipped: ["shipped"] }, options: Object.entries(OUTCOMES).map(([value, label]) => ({ value, label })) },
+      { name: "held", label: "Where is it now?", type: "select", required: true, showIf: { shipped: ["not_shipped"] }, options: Object.entries(HELD).map(([value, label]) => ({ value, label })) },
+      { name: "location", label: "Where does it stay?", type: "select", required: true, showIf: { shipped: ["shipped"], outcome: ["store_consign"] }, options: [] },
+      { name: "new_location", label: "New location (shop or reseller)", type: "text", required: true, max: 60, showIf: { shipped: ["shipped"], outcome: ["store_consign"], location: ["__new"] } },
+      { name: "reason", label: "Reason (goes on the unit)", type: "text", required: false, max: 300 }
+    ],
+    why(source, f) {
+      if (text(f["Rompslomp Credit Invoice Number"])) return `Already cancelled and credited (${text(f["Rompslomp Credit Invoice Number"])}).`;
+      if (CANCELLABLE.includes(status(f))) return "";
+      // A marketplace order Woovin closed while its pair was still on it.
+      if (status(f) === "Cancelled" && first(f["Linked Inventory Unit"])) return "";
+      return "Cancel is for orders that have a pair: from Allocated up to Completed.";
+    },
+    describe: ({ source, record, deps }) => deps.returns.describeCancel(source, record).catch(said),
+    async run({ source, record, input, deps, actor }) {
+      // What went wrong is said as it is: a cancel that stops halfway has to
+      // be finished by hand, and "something went wrong" does not say where.
+      const out = await deps.returns.cancelOrder({ table: source, recordId: record.id, input, by: text(actor?.name) || text(actor?.email) }).catch(said);
+      return { message: out.message, changed: { return: out.return_number ? `RET-${out.return_number}` : "", log: out.log, todo: out.todos.map((t) => t.text) } };
+    }
+  },
+
   add_note: {
     label: "Add Note",
     sources: ["store"],
@@ -860,7 +901,7 @@ export function publicActions() {
         kind: a.kind || (a.inputs ? "form" : "confirm"),
         upload: Boolean(a.upload),
         note: a.note || "",
-        inputs: (a.inputs || []).map(({ name, label, type, required, accept, max, sources, options }) => ({ name, label, type, required: Boolean(required), accept, max, sources, options }))
+        inputs: (a.inputs || []).map(({ name, label, type, required, accept, max, sources, options, showIf }) => ({ name, label, type, required: Boolean(required), accept, max, sources, options, showIf }))
       }
     ])
   );
@@ -875,8 +916,18 @@ export async function describeAction(key, source, record, deps) {
     confirm: action.confirm ? action.confirm(source, f) : "",
     prefill: Object.fromEntries((action.inputs || []).filter((i) => i.prefill).map((i) => [i.name, f[i.prefill] ?? ""])),
     blocked: action.why(source, f),
-    options: []
+    options: [],
+    selects: {}
   };
+
+  // Choices that depend on the record (Cancel: where the pair can be, the shops).
+  if (!described.blocked && action.describe) {
+    const extra = await action.describe({ source, record, deps });
+    described.prefill = { ...described.prefill, ...(extra.prefill || {}) };
+    described.selects = extra.selects || {};
+    if (extra.note) described.confirm = [described.confirm, extra.note].filter(Boolean).join(" · ");
+    described.blocked = extra.blocked || "";
+  }
 
   // Accept and Counter: the offers to choose from, as the store or buyer sees them.
   if (!described.blocked && action.options) {
@@ -889,7 +940,7 @@ export async function describeAction(key, source, record, deps) {
   return described;
 }
 
-export async function runAction({ key, source, record, input = {}, file = null, deps }) {
+export async function runAction({ key, source, record, input = {}, file = null, deps, actor = null }) {
   const action = ACTIONS[key];
 
   if (!action || action.kind === "link" || !action.sources.includes(source)) throw new ActionError("This button does not exist here.", 404);
@@ -900,10 +951,12 @@ export async function runAction({ key, source, record, input = {}, file = null, 
   for (const spec of action.inputs || []) {
     // A file is checked by the action itself, a choice against the live offers.
     if (spec.type === "file" || spec.type === "choice") continue;
+    // A field the dialog did not show was not asked.
+    if (spec.showIf && !Object.entries(spec.showIf).every(([name, values]) => values.includes(text(input[name])))) continue;
     if (spec.required && !text(input[spec.name])) throw new ActionError(`Fill in: ${spec.label}.`, 400);
   }
 
-  return action.run({ source, record, input, file, deps });
+  return action.run({ source, record, input, file, deps, actor });
 }
 
 export { ActionError };

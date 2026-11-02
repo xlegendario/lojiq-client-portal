@@ -341,6 +341,74 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     return { expense_id: String(expense.id), expense_number: text(expense.invoice_number) };
   }
 
+  /*
+   * The purchase of a store order or Member WTB.
+   *
+   * Those are booked by a Make scenario as "Purchase Order ORD-x", and its id
+   * never comes back to us, so the expense is found the only way their API
+   * allows: by date, then by the line. A credit already made for it is found
+   * on the same pass, so a cancel that runs twice credits once.
+   */
+  async function findPurchase({ deal, from = "" }) {
+    const { client } = await company();
+    const wanted = `purchase order ${like(deal)}`;
+    let found = null;
+    let credited = false;
+
+    for (let page = 1; page <= 20; page++) {
+      const rows = await client.listExpenses({ from, page });
+
+      for (const row of rows) {
+        for (const line of row.invoice_lines || []) {
+          const said = like(line.description);
+          if (said === wanted && !found) found = { row, line };
+          if (said === `credit ${wanted}`) credited = true;
+        }
+      }
+
+      if (rows.length < 100) break;
+    }
+
+    if (!found) return { expense_id: "", credited };
+
+    return {
+      expense_id: String(found.row.id),
+      expense_number: text(found.row.invoice_number),
+      amount: round2(found.line.price_with_vat ?? found.line.price_per_unit),
+      credited
+    };
+  }
+
+  /*
+   * The two payments on Kruisposten that settle an expense against its own
+   * credit, when no money ever moved for either. Without them both sit on
+   * "Onbetaald" for good; with them Dario links each to its document from
+   * Rompslomp's suggestions, and the description says which is which.
+   */
+  async function kruispost({ amount, original, credit, deal }) {
+    const { client } = await company();
+    const account = (await client.accounts()).find((row) => key(row.name) === "kruisposten");
+    if (!account) throw new ExternalSalesError("The purchase company has no account called Kruisposten.", 502);
+
+    const value = round2(Math.abs(amount));
+    const paidAt = new Date().toISOString().slice(0, 10);
+    const made = [];
+
+    // An expense is money going out: the purchase gets the minus.
+    for (const [sign, document] of [[-1, original], [1, credit]]) {
+      const payment = await client.createPayment({
+        amount: sign * value,
+        description: `Kruispost ${deal}: ${document} (inkoop ${original} tegen credit ${credit})`,
+        accountId: account.id,
+        accountPath: account.path,
+        paidAt
+      });
+      made.push(String(payment?.id || ""));
+    }
+
+    return made;
+  }
+
   // Whether a booking we wrote down is still in Rompslomp: one thrown away
   // there has to be made again here.
   async function exists(expenseId) {
@@ -474,5 +542,5 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     return out;
   }
 
-  return { book, credit, company, exists, ensureSupplier, linkSuppliers };
+  return { book, credit, company, exists, ensureSupplier, linkSuppliers, findPurchase, kruispost };
 }

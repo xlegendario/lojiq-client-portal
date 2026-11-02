@@ -297,6 +297,8 @@
       <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
       <div class="nav-group" id="navWarehouse" hidden>
         <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
+        <a class="nav-item" href="/admin/returns">Returns</a>
+        <a class="nav-item" href="/admin/returns?view=troubled">Troubled Stock</a>
       </div>
 
       <div class="sidebar-foot">
@@ -439,6 +441,8 @@
 
       $("navWarehouse").innerHTML =
         `<a class="nav-item active" href="/admin/inbound-scans">Inbound Scans</a>` +
+        `<a class="nav-item" href="/admin/returns">Returns</a>` +
+        `<a class="nav-item" href="/admin/returns?view=troubled">Troubled Stock</a>` +
         `<a class="nav-item" href="/admin/inventory">Inventory ${navCount("warehouse/inventory_checks")}</a>` +
         `<a class="nav-item" href="/admin/partner-stock">Partner Stock ${navCount("warehouse/partner_stock")}</a>` +
         `<a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>`;

@@ -152,7 +152,12 @@ async function loadOrderIds(airtable, ids) {
  * for it - it would otherwise sit here asking to be paid for a pair that
  * went back to the seller.
  */
-export async function loadPayouts(airtable, { shipping = "all", type = "", search = "" } = {}) {
+/*
+ * openReturns: (unitIds) -> Map of the units with a return still running.
+ * Such a unit shows its return and cannot be marked paid: whether the seller
+ * is owed is only known once the pair is scanned back in.
+ */
+export async function loadPayouts(airtable, { shipping = "all", type = "", search = "" } = {}, { openReturns = null } = {}) {
   const records = await selectAll(airtable, UNIT_TABLE, {
     formula: `AND({Payment Status} = 'To Pay', {Availability Status} != 'Inactive')`,
     fields: PAYOUT_FIELDS
@@ -162,6 +167,14 @@ export async function loadPayouts(airtable, { shipping = "all", type = "", searc
   const needle = text(search).toLowerCase();
   const orderIds = await loadOrderIds(airtable, records.map((record) => first(record.fields?.["Unfulfilled Orders Log"])));
   const allRows = records.map((record) => unitRow(record, sellers, orderIds));
+
+  if (openReturns) {
+    const running = await openReturns(allRows.map((row) => row.id)).catch(() => new Map());
+    for (const row of allRows) {
+      const found = running.get(row.id);
+      if (found) row.return = { number: `RET-${found.return_number}`, status: found.status };
+    }
+  }
 
   const rows = allRows.filter((row) => {
     if (!matchesShipping(row, shipping)) return false;
@@ -195,7 +208,7 @@ export async function loadPayouts(airtable, { shipping = "all", type = "", searc
 }
 
 // Mark these units Paid: the seller has been paid by hand in the bank.
-export async function markUnitsPaid({ ids, airtable }) {
+export async function markUnitsPaid({ ids, airtable, openReturns = null }) {
   const clean = [...new Set((Array.isArray(ids) ? ids : []).map(text).filter((id) => /^rec[A-Za-z0-9]{14}$/.test(id)))];
 
   if (!clean.length) throw new PayoutError("Select at least one unit.", 400);
@@ -208,6 +221,18 @@ export async function markUnitsPaid({ ids, airtable }) {
     if (!f) throw new PayoutError("One of the selected units no longer exists. Refresh the list.", 404);
     if (text(f["Payment Status"]) !== "To Pay") {
       throw new PayoutError(`${text(f["Item ID"]) || id} is not on To Pay anymore (${text(f["Payment Status"]) || "empty"}). Refresh the list.`);
+    }
+  }
+
+  if (openReturns) {
+    // Supabase unreachable is not a reason to stop paying people.
+    const running = await openReturns(clean).catch((err) => {
+      console.error("[payouts] open returns not checked:", err.message);
+      return new Map();
+    });
+    const blocked = clean.filter((id) => running.has(id));
+    if (blocked.length) {
+      throw new PayoutError(`${blocked.map((id) => `${text(found.get(id)["Item ID"])} (RET-${running.get(id).return_number})`).join(", ")}: a return is still running. Pay once it is scanned back in.`);
     }
   }
 

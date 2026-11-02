@@ -69,6 +69,9 @@ import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js"
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 import { createRompslomp } from "./externalSalesInvoicing.js";
+import { createPurchaseExpense } from "./purchaseExpense.js";
+import { createReturns } from "./returns.js";
+import { mountReturns } from "./adminReturns.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -214,11 +217,13 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
 
   // One record, written. Only ever called from an action in adminActions.js,
   // after that action has read the record fresh and checked it may run.
-  async function update(table, id, fields) {
+  // typecast: a select option that does not exist yet is made, the way
+  // typing it into the cell would (Returning, Troubled, a new Location).
+  async function update(table, id, fields, { typecast = false } = {}) {
     const response = await fetchImpl(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}/${id}`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ fields }),
+      body: JSON.stringify(typecast ? { fields, typecast: true } : { fields }),
       signal: AbortSignal.timeout(30_000)
     });
 
@@ -497,6 +502,45 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   mountInventory(router, {
     store: inventory,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-inventory.html") : ""
+  });
+
+  /*
+   * Returns and Troubled Stock (admin/returns.js, admin/adminReturns.js,
+   * private/admin-returns.html): every pair that came off a sale, the Cancel
+   * button on Store Orders and Member WTBs, and the WMS scan that closes it.
+   */
+  const returnsRompslomp = createRompslomp({ token: services.rompslompToken, companyId: services.rompslompCompanyId || undefined, fetchImpl });
+  const returns = createReturns({
+    db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+    airtable,
+    rompslomp: returnsRompslomp,
+    purchases: returnsRompslomp.configured
+      ? createPurchaseExpense({
+        rompslomp: returnsRompslomp,
+        forCompany: (companyId) => createRompslomp({ token: services.rompslompToken, companyId, fetchImpl })
+      })
+      : null,
+    locations: () => locationOptions()
+  });
+
+  // The Location choices, from the schema; empty when the token may not read it.
+  async function locationOptions() {
+    const response = await fetchImpl(`https://api.airtable.com/v0/meta/bases/${airtableBaseId}/tables`, {
+      headers: { Authorization: `Bearer ${airtableToken}` },
+      signal: AbortSignal.timeout(20_000)
+    });
+    if (!response.ok) return [];
+    const data = await response.json().catch(() => ({}));
+    const table = (data.tables || []).find((t) => t.name === TABLES.units);
+    const field = (table?.fields || []).find((f) => f.name === "Location");
+    return (field?.options?.choices || []).map((c) => text(c.name)).filter(Boolean);
+  }
+
+  mountReturns(router, {
+    returns,
+    audit,
+    internalSecret: services.counterOffersSecret,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-returns.html") : ""
   });
 
   // Partner Stock: what a partner keeps here that is not ours until it sells
@@ -1057,6 +1101,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
   const deps = {
     airtable,
+    returns,
 
     // The lists behind the store's and buyer's own Offers tabs.
     async getKc(pathName, params) {
@@ -1163,7 +1208,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   async function perform(req, res, { key, source, id, input, file }) {
     try {
       const record = await freshRecord(source, id, key);
-      const result = await runAction({ key, source, record, input, file, deps });
+      const result = await runAction({ key, source, record, input, file, deps, actor: req.admin });
 
       cache.clear();
       audit.record({
@@ -1318,7 +1363,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     };
 
     try {
-      const data = await cached(JSON.stringify(["payouts", filters, req.query._ ? Date.now() : 0]), () => loadPayouts(airtable, filters));
+      const data = await cached(JSON.stringify(["payouts", filters, req.query._ ? Date.now() : 0]), () => loadPayouts(airtable, filters, { openReturns: returns.openByUnit }));
 
       if (filters.shipping === "all" && !filters.type && !filters.search) lastMoneyCounts["money/payouts"] = data.count;
 
@@ -1331,7 +1376,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
   router.post("/api/admin/payouts/mark-paid", async (req, res) => {
     try {
-      const result = await markUnitsPaid({ ids: req.body?.ids, airtable });
+      const result = await markUnitsPaid({ ids: req.body?.ids, airtable, openReturns: returns.openByUnit });
 
       cache.clear();
 

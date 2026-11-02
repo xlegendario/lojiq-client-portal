@@ -309,29 +309,30 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 // The buttons on each tab, from the Whimsical. What each one does is in
 // adminActions.js; a button only shows on a row where it can run.
 const TAB_ACTIONS = {
+  "store/general": ["cancel_order"],
   "store/open": ["send_offer", "edit_offer", "custom_price", "above_max", "manual_deal"],
   "store/processing": ["discord"],
   "mwtb/processing": ["discord"],
   "store/offers": ["accept", "counter"],
-  "store/fulfilled": ["track", "discord"],
-  "store/allocated": ["request_label", "discord"],
-  "store/labels": ["request_label", "upload_label", "discord"],
-  "store/ready": ["add_note", "track", "mark_shipped", "discord"],
-  "store/delayed": ["add_note", "track", "mark_shipped", "discord"],
-  "store/shipped": ["add_note", "track", "mark_delivered", "discord"],
-  "store/delivered": ["track", "discord"],
-  "store/completed": ["track"],
-  "store/issues": ["solved", "discord"],
+  "store/fulfilled": ["track", "discord", "cancel_order"],
+  "store/allocated": ["request_label", "discord", "cancel_order"],
+  "store/labels": ["request_label", "upload_label", "discord", "cancel_order"],
+  "store/ready": ["add_note", "track", "mark_shipped", "discord", "cancel_order"],
+  "store/delayed": ["add_note", "track", "mark_shipped", "discord", "cancel_order"],
+  "store/shipped": ["add_note", "track", "mark_delivered", "discord", "cancel_order"],
+  "store/delivered": ["track", "discord", "cancel_order"],
+  "store/completed": ["track", "cancel_order"],
+  "store/issues": ["solved", "discord", "cancel_order"],
 
   "mwtb/open": ["send_offer", "custom_price"],
   "mwtb/offers": ["accept", "counter"],
-  "mwtb/fulfilled": ["track", "discord"],
-  "mwtb/allocated": ["discord"],
-  "mwtb/labels": ["upload_label", "discord"],
-  "mwtb/ready": ["track", "mark_shipped", "discord"],
-  "mwtb/shipped": ["track", "mark_delivered", "discord"],
-  "mwtb/delivered": ["track", "discord"],
-  "mwtb/completed": ["track"]
+  "mwtb/fulfilled": ["track", "discord", "cancel_order"],
+  "mwtb/allocated": ["discord", "cancel_order"],
+  "mwtb/labels": ["upload_label", "discord", "cancel_order"],
+  "mwtb/ready": ["track", "mark_shipped", "discord", "cancel_order"],
+  "mwtb/shipped": ["track", "mark_delivered", "discord", "cancel_order"],
+  "mwtb/delivered": ["track", "discord", "cancel_order"],
+  "mwtb/completed": ["track", "cancel_order"]
 };
 
 export const VIEWS = TABS.map((view) => ({

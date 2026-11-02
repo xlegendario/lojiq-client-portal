@@ -501,6 +501,8 @@
     .action-form .input { width: 100%; }
     .action-form input[type=file] { color: var(--muted); }
     .action-inputs { display: flex; flex-direction: column; gap: 14px; }
+    .return-badge { display: inline-flex; align-items: center; height: 20px; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: rgba(245, 158, 11, 0.16); color: var(--warning); text-decoration: none; }
+    .action-note { white-space: pre-line; }
     .action-inputs:empty { display: none; }
     .choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .choices legend { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -683,6 +685,8 @@
       <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
       <div class="nav-group" id="navWarehouse" hidden>
         <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
+        <a class="nav-item" href="/admin/returns">Returns</a>
+        <a class="nav-item" href="/admin/returns?view=troubled">Troubled Stock</a>
         <a class="nav-item" href="/admin/inventory">Inventory <small data-nav-count="warehouse/inventory_checks"></small></a>
         <a class="nav-item" href="/admin/partner-stock">Partner Stock <small data-nav-count="warehouse/partner_stock"></small></a>
         <a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>
@@ -1691,7 +1695,7 @@
           return `<tr data-unit="${esc(row.id)}">
             ${box}
             <td class="image">${render("image", { value: row.picture })}</td>
-            <td class="id">${render("id", { value: row.item })}</td>
+            <td class="id">${render("id", { value: row.item })}${row.return ? ` <a class="return-badge" href="/admin/returns?q=${encodeURIComponent(row.return.number)}" title="A return is running: pay once it is scanned back in">↩ ${esc(row.return.number)}</a>` : ""}</td>
             <td>${render("text", { value: row.type })}</td>
             <td>${render("text", { value: row.product })}</td>
             <td>${render("text", { value: row.size })}</td>
@@ -1952,12 +1956,38 @@
     toastTimer = setTimeout(() => { $("toast").hidden = true; }, 7000);
   }
 
-  function inputHtml(spec, prefill, options = []) {
+  // A field that only applies after another answer: shown when every
+  // field it names has one of the listed values.
+  const showIfAttr = (spec) => (spec.showIf ? ` data-show-if="${esc(JSON.stringify(spec.showIf))}"` : "");
+
+  function fieldShown(el) {
+    const holder = el.closest("[data-show-if]");
+    return !holder || !holder.hidden;
+  }
+
+  function applyShowIf() {
+    const box = $("actionInputs");
+    for (let pass = 0; pass < 3; pass++) {
+      for (const holder of box.querySelectorAll("[data-show-if]")) {
+        const rule = JSON.parse(holder.dataset.showIf);
+        holder.hidden = !Object.entries(rule).every(([name, values]) => {
+          const other = $(`action-${name}`);
+          return other && fieldShown(other) && values.includes(other.value);
+        });
+      }
+    }
+  }
+
+  function inputHtml(spec, prefill, options = [], selects = {}) {
     const id = `action-${spec.name}`;
     const value = prefill === null || prefill === undefined ? "" : prefill;
 
+    // Options are plain strings, or { value, label } when the two differ;
+    // a list the record decides (Cancel's shops) comes with the dialog.
     if (spec.type === "select") {
-      return `<div class="field"><label for="${id}">${esc(spec.label)}</label><select class="select" id="${id}" name="${esc(spec.name)}">${(spec.options || []).map((option) => `<option value="${esc(option)}"${option === value ? " selected" : ""}>${esc(option)}</option>`).join("")}</select></div>`;
+      const list = (selects && selects[spec.name]) || spec.options || [];
+      const opts = list.map((option) => (typeof option === "object" ? option : { value: option, label: option }));
+      return `<div class="field"${showIfAttr(spec)}><label for="${id}">${esc(spec.label)}</label><select class="select" id="${id}" name="${esc(spec.name)}">${opts.map((option) => `<option value="${esc(option.value)}"${option.value === value ? " selected" : ""}>${esc(option.label)}</option>`).join("")}</select></div>`;
     }
 
     if (spec.type === "checkbox") {
@@ -1978,7 +2008,7 @@
     const extra = spec.type === "money" ? ' inputmode="decimal" autocomplete="off"' : ' autocomplete="off"';
     const max = spec.max ? ` maxlength="${Number(spec.max)}"` : "";
 
-    return `<div class="field"><label for="${id}">${esc(spec.label)}</label><input class="input" id="${id}" name="${esc(spec.name)}" type="text" value="${esc(value)}"${extra}${max}></div>`;
+    return `<div class="field"${showIfAttr(spec)}><label for="${id}">${esc(spec.label)}</label><input class="input" id="${id}" name="${esc(spec.name)}" type="text" value="${esc(value)}"${extra}${max}></div>`;
   }
 
   async function openAction(key, source, id) {
@@ -2010,7 +2040,9 @@
       }
 
       $("actionText").textContent = info.confirm || def.note || "";
-      $("actionInputs").innerHTML = def.inputs.filter((spec) => !spec.sources || spec.sources.includes(source)).map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [])).join("");
+      $("actionText").classList.add("action-note");
+      $("actionInputs").innerHTML = def.inputs.filter((spec) => !spec.sources || spec.sources.includes(source)).map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [], info.selects || {})).join("");
+      applyShowIf();
       $("actionConfirm").disabled = false;
       ($("actionInputs").querySelector("input.input") || $("actionInputs").querySelector("input") || $("actionConfirm")).focus();
     } catch (err) {
@@ -2018,6 +2050,8 @@
       $("actionError").textContent = err.message;
     }
   }
+
+  $("actionInputs").addEventListener("change", applyShowIf);
 
   // Enter in a text field confirms, like any form.
   $("actionInputs").addEventListener("keydown", (event) => {
@@ -2044,7 +2078,7 @@
 
     for (const spec of def.inputs) {
       const el = $(`action-${spec.name}`);
-      if (!el) continue;
+      if (!el || !fieldShown(el)) continue;
       if (spec.type === "checkbox") { input[spec.name] = el.checked; continue; }
       if (spec.type === "file") file = el.files[0] || null;
       else if (spec.type === "choice") input[spec.name] = el.querySelector("input:checked")?.value || "";
