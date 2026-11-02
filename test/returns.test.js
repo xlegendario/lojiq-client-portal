@@ -269,8 +269,9 @@ test("not shipped, the seller still has it: void, not owed, purchase credited, b
 
   const unit = w.tables["Inventory Units"][UNIT];
   assert.equal(unit["Availability Status"], "Void");
-  assert.equal(unit["Payment Status"], "Paid");
-  assert.match(unit["Payment Note"], /^Not owed/);
+  assert.equal(unit["Payment Status"], null, "off Seller Payouts");
+  assert.equal(unit["Payment Note"], undefined, "the bank payment code is never written over");
+  assert.match(unit["Item Condition"], /Not owed/);
   assert.equal(w.purchases.calls.credit.length, 1);
   assert.equal(w.purchases.calls.kruispost.length, 1, "nothing was paid: the purchase and its credit get Kruisposten");
   assert.equal(w.db.data.consignment_inventory[0].quantity, 1);
@@ -312,7 +313,7 @@ test("a flaw at the scan, a seller's pair we did not pay: back to him, not owed"
   const done = await w.returns.receive(row.id, { verdict: "flaw", note: "Scuffed toe" });
   const unit = w.tables["Inventory Units"][UNIT];
   assert.equal(unit["Availability Status"], "Void");
-  assert.equal(unit["Payment Status"], "Paid");
+  assert.equal(unit["Payment Status"], null);
   assert.match(unit["Item Condition"], /Scuffed toe/);
   assert.ok(done.todo.some((t) => t.kind === "send_back"));
   assert.equal(w.purchases.calls.credit.length, 1);
@@ -329,15 +330,22 @@ test("a flaw at the scan, our own pair: Troubled Stock", async () => {
 });
 
 test("OK at the scan, a partner pair already paid: another To Pay pair is settled with it", async () => {
-  const w = world({ unit: { Type: "Partner Consignment", "Item ID": "PCS-009001", "Seller ID (Lookup)": ["SE-00781"], "Payment Status": "Paid" } });
+  const w = world({ unit: { Type: "Partner Consignment", "Item ID": "PCS-009001", "Seller ID (Lookup)": ["SE-00781"], "Payment Status": "Paid", "Payment Note": "2400 (MO20261509)" } });
   w.tables["Inventory Units"].recUNIT0000000003 = { "Item ID": "PCS-009003", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-30" };
   w.tables["Inventory Units"].recUNIT0000000002 = { "Item ID": "PCS-009002", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-01" };
   w.db.data.partner_stock.push({ id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100 });
   const row = await expected(w);
   const done = await w.returns.receive(row.id, { verdict: "ok" });
 
-  assert.equal(w.tables["Inventory Units"].recUNIT0000000002["Payment Status"], "Paid");
-  assert.match(w.tables["Inventory Units"].recUNIT0000000002["Payment Note"], /Settled against returned PCS-009001/);
+  const swapped = w.tables["Inventory Units"].recUNIT0000000002;
+  assert.equal(swapped["Payment Status"], "Paid");
+  assert.equal(swapped["Payment Note"], "2400 (MO20261509)", "the bank payment's own note comes along");
+  assert.match(swapped["Item Condition"], /Paid with the payment of returned PCS-009001/);
+  const back = w.tables["Inventory Units"][UNIT];
+  assert.equal(back["Payment Status"], null);
+  assert.equal(back["Payment Note"], null);
+  assert.match(back["Item Condition"], /now pays PCS-009002/);
+  assert.equal(w.purchases.calls.credit.length, 1, "the returned pair's purchase is credited");
   assert.equal(w.db.data.partner_stock[0].status, "in_stock");
   assert.match(done.result, /PCS-009002/, "the oldest sale is settled first");
   assert.equal(w.tables["Inventory Units"].recUNIT0000000003["Payment Status"], "To Pay");

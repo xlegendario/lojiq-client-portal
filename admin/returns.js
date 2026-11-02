@@ -412,7 +412,17 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     if (wasPaid) {
       todos.push(todo(`${text(first(u["Seller Name"])) || text(first(u["Seller ID (Lookup)"])) || "The seller"} was already paid € ${round2(u["Purchase Price"]).toFixed(2)} for ${text(u["Item ID"])}: claim it back.`, "claim_seller"));
     } else {
-      await airtable.update(UNITS, unit.id, { "Payment Status": "Paid", "Payment Note": `Not owed: ${reason} (${orderId}, ${ddmmyyyy()})` });
+      /*
+        Off the payout list by emptying Payment Status. Payment Note is not
+        touched: Dario writes the bank payment's own code there, and a note
+        of ours in it would break the link to that payment. The reason goes
+        in Item Condition, read fresh because it was just written above.
+      */
+      const now = (await airtable.byIds(UNITS, [unit.id], ["Item Condition"])).get(unit.id) || {};
+      await airtable.update(UNITS, unit.id, {
+        "Payment Status": null,
+        "Item Condition": conditionWith(`Not owed: ${reason} (${orderId}, ${ddmmyyyy()})`, text(now["Item Condition"]))
+      });
       log.push(`${text(u["Item ID"])} off Seller Payouts (not owed).`);
     }
 
@@ -849,7 +859,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
   // Another To Pay pair of the partner at the same price: the money already
   // paid for the returned pair pays for that one.
-  async function partnerSwap(unit, returnedLabel) {
+  async function partnerSwap(unit, returnedLabel, paymentNote) {
     const u = unit.fields;
     const sellerId = quote(first(u["Seller ID (Lookup)"]));
     const price = round2(u["Purchase Price"]);
@@ -858,7 +868,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     do {
       const page = await airtable.select(UNITS, {
         formula: `AND({Payment Status} = 'To Pay', {Availability Status} = 'Sold', {Purchase Price} = ${price}, FIND('${sellerId}', ARRAYJOIN({Seller ID (Lookup)})), OR(FIND('Delivered', {Shipping Status} & ''), FIND('Shipped', {Shipping Status} & '')))`,
-        fields: ["Item ID", "Payment Note", "Purchase Date"],
+        fields: ["Item ID", "Payment Note", "Purchase Date", "Item Condition", "Unfulfilled Orders Log"],
         pageSize: 100,
         offset
       });
@@ -877,11 +887,61 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const pick = candidates.find((r) => !taken.has(r.id));
     if (!pick) return null;
 
+    /*
+      The returned pair's Payment Note comes along unchanged: it is the code
+      of the bank payment that paid it, and that payment now pays this one.
+    */
     await airtable.update(UNITS, pick.id, {
       "Payment Status": "Paid",
-      "Payment Note": `Settled against returned ${returnedLabel} (€ ${price.toFixed(2)} already paid), ${ddmmyyyy()}`
+      "Payment Note": paymentNote || null,
+      "Item Condition": conditionWith(`Paid with the payment of returned ${returnedLabel} (€ ${price.toFixed(2)}, ${ddmmyyyy()})`, text(pick.fields?.["Item Condition"]))
     });
-    return { id: pick.id, item_id: text(pick.fields?.["Item ID"]) };
+    return { id: pick.id, item_id: text(pick.fields?.["Item ID"]), order_record_id: text(first(pick.fields?.["Unfulfilled Orders Log"])) };
+  }
+
+  /*
+   * The books of a swap. The bank payment stays where it is, on the purchase
+   * of the returned pair; that purchase is credited, and the credit and the
+   * purchase of the pair it now pays get a matching pair on Kruisposten. All
+   * three end up paid, without unlinking anything - which their API cannot.
+   */
+  async function swapBooks({ returnedOrder, swap, log, todos }) {
+    const returnedId = orderLabel(returnedOrder);
+
+    if (!purchases) {
+      todos.push(todo(`In Rompslomp (Payout): credit the purchase of ${returnedId} and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
+      return;
+    }
+
+    try {
+      const back = await purchases.findPurchase({ deal: returnedId, from: text(returnedOrder.fields?.["Created Time"]).slice(0, 10) });
+      if (!back.expense_id) {
+        todos.push(todo(`No "Purchase Order ${returnedId}" found in Rompslomp: credit it by hand once it is there, and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
+        return;
+      }
+
+      const credit = back.credited ? null : await purchases.credit({ expenseId: back.expense_id, deal: returnedId });
+      if (credit) log.push(`Purchase ${back.expense_number || back.expense_id} of ${returnedId} credited (${credit.expense_number}).`);
+
+      const swapOrder = swap.order_record_id ? await orderOf("store", swap.order_record_id).catch(() => null) : null;
+      const swapId = swapOrder ? orderLabel(swapOrder) : "";
+      const theirs = swapId ? await purchases.findPurchase({ deal: swapId, from: text(swapOrder.fields["Created Time"]).slice(0, 10) }) : { expense_id: "" };
+
+      if (!credit || !theirs.expense_id) {
+        todos.push(todo(`In Rompslomp (Payout): settle the credit of the purchase of ${returnedId} against the purchase of ${swapId || swap.item_id}${theirs.expense_id ? "" : " (not booked yet)"}.`, "link_kruispost"));
+        return;
+      }
+
+      await purchases.kruispost({
+        amount: back.amount,
+        original: theirs.expense_number || `Purchase Order ${swapId}`,
+        credit: credit.expense_number || `Credit Purchase Order ${returnedId}`,
+        deal: `${swapId}/${returnedId}`
+      });
+      todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${swapId}/${returnedId}" to the purchase of ${swapId} and the credit of ${returnedId}.`, "link_kruispost"));
+    } catch (err) {
+      todos.push(todo(`In Rompslomp (Payout): credit the purchase of ${returnedId} and settle it against the purchase of ${swap.item_id} (${err.message}).`, "move_payment"));
+    }
   }
 
   /*
@@ -924,16 +984,19 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
           await undoPurchase(orderForBooks, u, { reason: "back on the partner's shelf", log, todos });
           result = "Back on the partner's shelf";
         } else if (owner === "partner" && paid) {
-          const swap = await partnerSwap(u, `${text(unit["Item ID"])} (${row.order_id})`);
+          const swap = await partnerSwap(u, `${text(unit["Item ID"])} (${row.order_id})`, text(unit["Payment Note"]));
           if (swap) {
+            // Its payment now belongs to the other pair: Status and Note go
+            // with it, and only Item Condition says where.
             await airtable.update(UNITS, u.id, {
               "Availability Status": "Void",
-              "Payment Note": `${text(unit["Payment Note"])} · paid money moved to ${swap.item_id}`.replace(/^ · /, ""),
-              "Item Condition": conditionWith(stamp, text(unit["Item Condition"]))
+              "Payment Status": null,
+              "Payment Note": null,
+              "Item Condition": conditionWith(`${stamp}; its payment${text(unit["Payment Note"]) ? ` (${text(unit["Payment Note"])})` : ""} now pays ${swap.item_id}`, text(unit["Item Condition"]))
             });
             await partnerShelf(u, { note: `Returned OK from ${row.order_id} (${label}), its payment settles ${swap.item_id}` });
             result = `Back on the partner's shelf; ${swap.item_id} is settled with the money already paid`;
-            todos.push(todo(`In Rompslomp (Payout), move the payment of the purchase of ${row.order_id} to the purchase of ${swap.item_id}, then credit the purchase of ${row.order_id}.`, "move_payment"));
+            await swapBooks({ returnedOrder: orderForBooks, swap, log, todos });
           } else {
             await airtable.update(UNITS, u.id, { ...onSale(u, stamp), "Cancel Status": "Return" });
             result = "Ours now: back on sale (the partner was paid and has no other pair to settle it with)";
