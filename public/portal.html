@@ -2495,14 +2495,14 @@ body.kc-dialog-open {
         </div>
       </div>
       
-      <div class="sidebar-section-title">Your shop</div>
+      <div class="sidebar-section-title" id="navShopTitle">Your shop</div>
 
       <!--
         A page of its own rather than a view in here: this shell switches
         between two sources, and a product database with search and inline
         pricing is a different screen. A plain link keeps the two apart.
       -->
-      <a class="nav-main" href="/portal/listings" style="text-decoration:none;color:inherit">
+      <a class="nav-main" id="navShopLink" href="/portal/listings" style="text-decoration:none;color:inherit">
         <span class="nav-arrow">›</span>
         <span class="nav-label">Your shelf</span>
       </a>
@@ -4680,6 +4680,17 @@ async function consignmentCounter(offerId, isMemberWtb) {
         document.getElementById("section-returns")
       ].forEach((el) => {
         if (el) el.style.display = hideReturns ? "none" : "";
+      });
+
+      // Your shelf is the store's Shopify catalogue. A store without a
+      // Shopify Store URL has no catalogue for us to read, so the heading and
+      // the link go. Only an explicit false hides it: a merchant cached from
+      // before this field keeps the section until its next list call.
+      const hideShop = merchant?.has_shopify === false;
+
+      ["navShopTitle", "navShopLink"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = hideShop ? "none" : "";
       });
 
       if (hideReturns && currentView === "returns") {

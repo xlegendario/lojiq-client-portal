@@ -277,6 +277,10 @@ function normalizeMerchant(record) {
     goat_account_mode: asText(record.fields["GOAT Account Mode"]),
     hide_returns: HIDE_RETURNS_MERCHANTS.has(record.id),
 
+    // Your shop only means something to a store whose Shopify we read; the
+    // sidebar hides it for the rest (Shade Studios, Woovin, manual stores).
+    has_shopify: Boolean(asText(record.fields["Shopify Store URL"])),
+
     // NEW - where this store's demand comes from. Blank means API,
     // which is every merchant that exists today, so nothing changes
     // for them until the field is set.
@@ -412,7 +416,8 @@ app.post("/api/login", async (req, res) => {
 
         // NEW - the sidebar hides what a manual store has no data for.
         order_intake: merchant.order_intake,
-        hide_returns: merchant.hide_returns
+        hide_returns: merchant.hide_returns,
+        has_shopify: merchant.has_shopify
       }
     });
   } catch (err) {
@@ -2356,7 +2361,8 @@ app.get("/api/orders", async (req, res) => {
           stockx_account_mode: merchant.stockx_account_mode,
           goat_account_mode: merchant.goat_account_mode,
           order_intake: merchant.order_intake,
-          hide_returns: merchant.hide_returns
+          hide_returns: merchant.hide_returns,
+          has_shopify: merchant.has_shopify
         },
         view,
         count: orders.length,
@@ -2548,7 +2554,8 @@ app.get("/api/orders", async (req, res) => {
         stockx_account_mode: merchant.stockx_account_mode,
         goat_account_mode: merchant.goat_account_mode,
         order_intake: merchant.order_intake,
-        hide_returns: merchant.hide_returns
+        hide_returns: merchant.hide_returns,
+        has_shopify: merchant.has_shopify
       },
       view,
       count: orders.length,
