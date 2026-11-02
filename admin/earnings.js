@@ -39,6 +39,9 @@ const first = (value) => (Array.isArray(value) ? value[0] : value);
 
 export const CHANNELS = ["Store orders", "Member WTBs", "External sales", "Forwarding"];
 
+// Order statuses that undo a sale: the pair did not stay sold.
+export const UNSOLD = ["Cancelled", "Returned"];
+
 // The day out of a date, a date-time, or a lookup holding either.
 export function day(value) {
   const found = text(first(value));
@@ -70,8 +73,10 @@ export function unitChannel(unit = {}) {
   const linked = (name) => Boolean((unit[name] || []).length);
   const ticket = text(unit["Ticket Number"]);
 
-  // A cancelled order is not a sale, whatever else is written on the pair.
-  if (text(first(unit["Fulfillment Status (UOL)"])) === "Cancelled") return "";
+  // A cancelled or returned order is not a sale, whatever else is written on
+  // the pair. A pair sold again after its return has a live order beside it.
+  const statuses = [].concat(unit["Fulfillment Status (UOL)"] || []).map(text).filter(Boolean);
+  if (statuses.length && statuses.every((status) => UNSOLD.includes(status))) return "";
 
   if (linked("External Sales Log")
     || text(unit["External Deal ID"]).startsWith("EXTD-")

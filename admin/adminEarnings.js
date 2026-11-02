@@ -132,9 +132,10 @@ export function soldFormula({ from = "", to = "" } = {}) {
     return edges.length ? `, ${edges.join(", ")}` : "";
   };
 
-  // Everything but a cancelled order. The deal is made when the pair is
-  // bought against it, not when the parcel goes.
-  const live = '{Fulfillment Status (UOL)} != "Cancelled"';
+  // Everything but a cancelled or returned order. The deal is made when the
+  // pair is bought against it, not when the parcel goes; a return undoes it.
+  // Read as text, so a pair sold again after its return still counts.
+  const live = 'AND({Fulfillment Status (UOL)} & "" != "Cancelled", {Fulfillment Status (UOL)} & "" != "Returned")';
 
   return `OR(`
     + `AND({Unfulfilled Orders Log} != "", ${live}, {Date Fulfilled} != BLANK()${window("Date Fulfilled")}), `

@@ -283,3 +283,9 @@ test("margin goods keep the tax on the margin", () => {
   // 21 over the margin, so 21 / 1.21 is left.
   assert.equal(row.gross_after_tax, 17.36);
 });
+
+test("a returned order is not an earning, unless the pair was sold again", () => {
+  assert.equal(unitChannel({ ...SHOP, "Fulfillment Status (UOL)": ["Returned"] }), "");
+  assert.equal(unitChannel({ ...SHOP, "Fulfillment Status (UOL)": ["Cancelled"] }), "");
+  assert.equal(unitChannel({ ...SHOP, "Fulfillment Status (UOL)": ["Returned", "Fulfilled"] }), "Store orders");
+});
