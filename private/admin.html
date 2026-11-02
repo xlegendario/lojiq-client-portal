@@ -374,6 +374,9 @@
     .store-list label { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 6px; border-radius: 6px; cursor: pointer; }
     .store-list label:hover { background: var(--primary-tint); }
     .store-list input { accent-color: var(--primary); }
+    .store-list label { flex-shrink: 0; }
+    .sku-option .sku-code { flex: 1; color: var(--strong); font-weight: 700; }
+    .sku-option .sku-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .popover-foot { display: flex; justify-content: space-between; gap: 8px; }
 
     .save-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -755,7 +758,7 @@
                 <label><input type="radio" name="skuMode" id="skuModeInclude" value="include" checked> Only these</label>
                 <label><input type="radio" name="skuMode" id="skuModeExclude" value="exclude"> All except</label>
               </div>
-              <input class="input" id="skuSearch" type="search" placeholder="Find a SKU or product" aria-label="Find a SKU" autocomplete="off">
+              <input class="input" id="skuSearch" type="search" placeholder="Find a SKU" aria-label="Find a SKU" autocomplete="off">
               <div class="store-list" id="skuList"></div>
               <div class="popover-foot">
                 <button class="btn ghost" id="skuClear" type="button">Clear</button>
@@ -1181,7 +1184,7 @@
       .sort((a, b) => b.n - a.n || a.sku.localeCompare(b.sku));
 
     $("skuList").innerHTML = shown.length
-      ? shown.map((x, i) => '<label><input type="checkbox" id="sku-opt-' + i + '" value="' + esc(x.sku) + '"' + (state.skus.includes(x.sku) ? " checked" : "") + "> <span>" + esc(x.sku) + ' <span class="meta">' + esc(x.product) + " · " + x.n + "</span></span></label>").join("")
+      ? shown.map((x, i) => '<label class="sku-option" title="' + esc(x.product) + '"><input type="checkbox" id="sku-opt-' + i + '" value="' + esc(x.sku) + '"' + (state.skus.includes(x.sku) ? " checked" : "") + '><span class="sku-code">' + esc(x.sku) + '</span><span class="sku-count">' + x.n + "</span></label>").join("")
       : '<div class="results-empty">No SKU matches.</div>';
   }
 
