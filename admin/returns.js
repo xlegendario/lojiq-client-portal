@@ -368,6 +368,10 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       }
     } else if (!stockBack) {
       log.push("The stock correction stays: the pair is gone.");
+    } else {
+      // No unit on the order any more (moved to a new sale by hand): the cost
+      // to put back is not known here.
+      todos.push(todo(`Book the stock of ${orderId} back by hand (Voorraadcorrectie ${credit.invoice_number}): the order has no unit to take the purchase price from.`, "journal_by_hand"));
     }
 
     // No money moved for either document: a matching pair on Kruisposten.
