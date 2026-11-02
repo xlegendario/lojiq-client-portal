@@ -452,3 +452,38 @@ test("a marketplace invoice is settled through its payouts, not on Kruisposten",
   assert.equal(w.rompslomp.made.payments.length, 0);
   assert.ok(out.todos.some((t) => t.kind === "marketplace_settle" && /Woovin/.test(t.text)));
 });
+
+test("a partner's pair coming back shows as reserved, not sold, until it is scanned", async () => {
+  const w = world({ unit: { "Item ID": "PCS-009001", Type: "Partner Consignment", "Seller ID (Lookup)": ["SE-00781"] }, order: { "Marketplace Sale ID": "W-20", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" } });
+  w.db.data.partner_stock.push({ id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100 });
+
+  const out = await w.returns.announce({ source: "woovin", marketplace_order_id: "W-20", external_return_id: "woovin-W-20" });
+  assert.equal(w.db.data.partner_stock[0].status, "reserved");
+  assert.equal(out.return.partner_stock_id, "p1");
+
+  await w.returns.receive(out.return.id, { verdict: "ok" });
+  assert.equal(w.db.data.partner_stock[0].status, "in_stock");
+});
+
+test("a partner's pair that never comes back is sold again", async () => {
+  const w = world({ unit: { "Item ID": "PCS-009001", Type: "Partner Consignment", "Seller ID (Lookup)": ["SE-00781"] }, order: { "Marketplace Sale ID": "W-21", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" } });
+  w.db.data.partner_stock.push({ id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100 });
+
+  const out = await w.returns.announce({ source: "woovin", marketplace_order_id: "W-21", external_return_id: "woovin-W-21" });
+  await w.returns.notComing(out.return.id, { note: "buyer kept it" });
+  assert.equal(w.db.data.partner_stock[0].status, "sold");
+});
+
+test("a pair we lost before shipping: off stock, the seller still paid", async () => {
+  const w = world({ unit: { "Item ID": "PCS-009001", Type: "Partner Consignment", "Seller ID (Lookup)": ["SE-00781"] }, order: { "Marketplace Sale ID": "W-22", "Shipping Status": "Pending", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" } });
+  const out = await w.returns.announce({ source: "woovin", marketplace_order_id: "W-22", external_return_id: "woovin-W-22", shipped: false });
+
+  await assert.rejects(w.returns.decide(out.return.id, { held: "lost" }), /what happened/);
+  await w.returns.decide(out.return.id, { held: "lost", note: "not found on the shelf" });
+
+  const unit = w.tables["Inventory Units"][UNIT];
+  assert.equal(unit["Availability Status"], "Lost");
+  assert.equal(unit["Payment Status"], "To Pay", "the partner is still paid");
+  assert.equal(w.purchases.calls.credit.length, 0, "the purchase stands");
+  assert.ok(w.db.data.returns[0].todo.some((t) => t.kind === "journal_by_hand"));
+});

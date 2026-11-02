@@ -8,7 +8,8 @@
 //   /api/internal/returns/announce    a marketplace saw a return or a cancel
 //   /api/internal/returns/match       the WMS scanned a box
 //   /api/internal/returns/receive     the WMS says OK or flaw
-//   All three internal ones behind x-kc-secret (COUNTER_OFFERS_SECRET).
+//   /api/internal/returns/:id/:step   decide, not-coming, tick from a script
+//   The internal ones behind x-kc-secret (COUNTER_OFFERS_SECRET).
 
 import express from "express";
 import fs from "fs";
@@ -99,7 +100,7 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
           row = await returns.receive(id, { verdict: text(body.verdict), note: text(body.note), by: who(req) });
           break;
         case "decide": {
-          const out = await returns.decide(id, { held: text(body.held), by: who(req) });
+          const out = await returns.decide(id, { held: text(body.held), note: text(body.note), by: who(req) });
           row = out.return_id ? await returns.get(out.return_id) : null;
           break;
         }
@@ -164,6 +165,31 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
         barcode: text(req.body?.barcode)
       });
       record(req, "return_receive", row, { verdict: req.body?.verdict, note: req.body?.note });
+      res.json({ ok: true, return: row });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // The admin's own steps, for work done from a script with the secret.
+  router.post("/api/internal/returns/:id/:step", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!guard(req, res)) return;
+    const id = text(req.params.id);
+    const body = req.body || {};
+    const by = text(body.by) || "Script";
+    try {
+      let row;
+      if (req.params.step === "decide") {
+        const out = await returns.decide(id, { held: text(body.held), note: text(body.note), by });
+        row = out.return_id ? await returns.get(out.return_id) : null;
+      } else if (req.params.step === "not-coming") {
+        row = await returns.notComing(id, { note: text(body.note), by });
+      } else if (req.params.step === "tick") {
+        row = await returns.tick(id, text(body.todo), body.done !== false, by);
+      } else {
+        return res.status(404).json({ ok: false, error: "Unknown step." });
+      }
+      record(req, `return_${req.params.step}`, row, body);
       res.json({ ok: true, return: row });
     } catch (err) {
       send(res, err);

@@ -497,6 +497,7 @@
       consignor_has: "The seller still has it - back in his consignment stock",
       consignor_gone: "The seller no longer has it - void",
       partner: "Partner pair, still here - back on the partner's shelf",
+      lost: "Lost here, we cannot find it - the seller is still paid",
       coming_back: "It was shipped after all - a return is coming back"
     };
 
@@ -778,9 +779,10 @@
         openStep({
           title: `RET-${r.return_number}: where is the pair?`,
           textValue: `${r.order_id} ended before it shipped (${r.marketplace_status || r.source}). Say where the pair is; the order, the unit and the books follow.`,
-          fields: `<div class="field"><label for="stepHeld">Where it is</label><select class="select" id="stepHeld">${Object.entries(HELD).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>`,
+          fields: `<div class="field"><label for="stepHeld">Where it is</label><select class="select" id="stepHeld">${Object.entries(HELD).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>
+            <div class="field"><label for="stepNote">Note (needed for "lost")</label><input class="input" id="stepNote" maxlength="200"></div>`,
           go: "Save",
-          run: async () => { await post(`${base}/decide`, { held: $("stepHeld").value }); return "Done."; }
+          run: async () => { await post(`${base}/decide`, { held: $("stepHeld").value, note: $("stepNote").value.trim() }); return "Done."; }
         });
       } else if (button.dataset.step === "credit-invoice") {
         openStep({
