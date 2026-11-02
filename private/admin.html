@@ -375,6 +375,9 @@
     .store-list label:hover { background: var(--primary-tint); }
     .store-list input { accent-color: var(--primary); }
     .store-list label { flex-shrink: 0; }
+    .until { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 700; white-space: nowrap; }
+    .until[hidden] { display: none; }
+    .until .input { width: 150px; }
     .sku-option .sku-code { flex: 1; color: var(--strong); font-weight: 700; }
     .sku-option .sku-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
     .popover-foot { display: flex; justify-content: space-between; gap: 8px; }
@@ -751,6 +754,7 @@
           <select class="select" id="typeFilter" aria-label="Seller Type" hidden>
             <option value="">Every type</option>
           </select>
+          <label class="until" id="untilFilter" hidden>Sold up to <input class="input" id="untilDate" type="date" aria-label="Sold up to and including"></label>
           <div class="picker" id="skuPicker" hidden>
             <button class="select picker-button" id="skuButton" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="skuPopover">All SKUs</button>
             <div class="popover" id="skuPopover" hidden>
@@ -836,6 +840,7 @@
     unitType: "",
     skus: [],
     skuMode: "include",
+    until: "",
     payouts: null,
     payoutsAll: null,
     payoutsAt: 0,
@@ -956,6 +961,7 @@
     state.shipping = ["shipped", "delivered", "shipped_or_delivered", "not_shipped"].includes(params.get("shipping")) ? params.get("shipping") : "all";
     state.unitType = params.get("type") || "";
     state.skus = params.getAll("sku").filter(Boolean);
+    state.until = /^\d{4}-\d{2}-\d{2}$/.test(params.get("until") || "") ? params.get("until") : "";
     state.skuMode = params.get("sku_mode") === "exclude" ? "exclude" : "include";
 
     return params.get("open") || "";
@@ -974,6 +980,7 @@
     if (state.view === "payouts") {
       for (const sku of state.skus) params.append("sku", sku);
       if (state.skus.length && state.skuMode === "exclude") params.set("sku_mode", "exclude");
+      if (state.until) params.set("until", state.until);
     }
     if (state.buyer && state.section === "mwtb") params.set("buyer", state.buyer);
     if (state.q) params.set("q", state.q);
@@ -1133,6 +1140,8 @@
     $("shippingFilter").hidden = !isPayouts;
     $("typeFilter").hidden = !isPayouts;
     $("skuPicker").hidden = !isPayouts;
+    $("untilFilter").hidden = !isPayouts;
+    $("untilDate").value = state.until;
     $("skuButton").textContent = skuLabel();
     $("skuButton").classList.toggle("active", isPayouts && state.skus.length > 0);
     $("skuModeInclude").checked = state.skuMode !== "exclude";
@@ -1453,6 +1462,11 @@
     filtersChanged();
   });
 
+  $("untilDate").addEventListener("change", () => {
+    state.until = $("untilDate").value;
+    filtersChanged();
+  });
+
   $("typeFilter").addEventListener("change", () => {
     state.unitType = $("typeFilter").value;
     filtersChanged();
@@ -1651,7 +1665,10 @@
       const sku = String(row.sku || "").toUpperCase();
       const skuOk = !state.skus.length || (state.skuMode === "exclude" ? !state.skus.includes(sku) : state.skus.includes(sku));
 
-      return shippingOk && skuOk &&
+      // Sold up to and including that day: the purchase date is the day of the sale.
+      const untilOk = !state.until || (row.date && row.date.slice(0, 10) <= state.until);
+
+      return shippingOk && skuOk && untilOk &&
         (!state.unitType || row.type === state.unitType) &&
         (!needle || [row.seller.name, row.seller.person, row.seller.discord, row.seller.id, row.item, row.reference, row.product, row.sku].join(" ").toLowerCase().includes(needle));
     });
@@ -2436,7 +2453,7 @@
   window.addEventListener("hashchange", () => {
     if ($("appView").hidden) return;
 
-    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind, state.shipping, state.unitType, JSON.stringify(state.skus), state.skuMode].join("|");
+    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind, state.shipping, state.unitType, JSON.stringify(state.skus), state.skuMode, state.until].join("|");
     const sectionBefore = state.section;
     const before = listKey();
     const open = readHash();
