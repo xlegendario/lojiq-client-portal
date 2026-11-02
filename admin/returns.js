@@ -853,13 +853,23 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const u = unit.fields;
     const sellerId = quote(first(u["Seller ID (Lookup)"]));
     const price = round2(u["Purchase Price"]);
-    const { records } = await airtable.select(UNITS, {
-      formula: `AND({Payment Status} = 'To Pay', {Availability Status} = 'Sold', {Purchase Price} = ${price}, FIND('${sellerId}', ARRAYJOIN({Seller ID (Lookup)})), OR(FIND('Delivered', {Shipping Status} & ''), FIND('Shipped', {Shipping Status} & '')))`,
-      fields: ["Item ID", "Payment Note"],
-      pageSize: 50
-    });
+    const records = [];
+    let offset = "";
+    do {
+      const page = await airtable.select(UNITS, {
+        formula: `AND({Payment Status} = 'To Pay', {Availability Status} = 'Sold', {Purchase Price} = ${price}, FIND('${sellerId}', ARRAYJOIN({Seller ID (Lookup)})), OR(FIND('Delivered', {Shipping Status} & ''), FIND('Shipped', {Shipping Status} & '')))`,
+        fields: ["Item ID", "Payment Note", "Purchase Date"],
+        pageSize: 100,
+        offset
+      });
+      records.push(...page.records);
+      offset = page.offset;
+    } while (offset && records.length < 1000);
 
-    const candidates = records.filter((r) => r.id !== unit.id);
+    // The oldest sale first: that is the one Dario pays next, so the money
+    // already paid settles what is owed soonest (Dario, 02-11-2026).
+    const when = (r) => text(r.fields?.["Purchase Date"]) || "9999";
+    const candidates = records.filter((r) => r.id !== unit.id).sort((a, b) => when(a).localeCompare(when(b)));
     if (!candidates.length) return null;
 
     const busy = await db.get(`returns?select=inventory_unit_record_id&status=in.(to_decide,expected,received)&inventory_unit_record_id=in.(${candidates.map((r) => `"${r.id}"`).join(",")})`);
