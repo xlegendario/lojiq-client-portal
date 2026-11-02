@@ -795,7 +795,9 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     // Clear the waiting row first, so the cancel does not refuse on it.
     await saveReturn(row.id, { status: "cancelled", result: "Replaced by the decision" });
     try {
-      const out = await cancelOrder({ table: row.order_table || "store", recordId: row.order_record_id, input: { shipped: "not_shipped", held }, by });
+      // It did leave after all: then it is an ordinary return, on its way back.
+      const input = held === "coming_back" ? { shipped: "shipped", outcome: "return" } : { shipped: "not_shipped", held };
+      const out = await cancelOrder({ table: row.order_table || "store", recordId: row.order_record_id, input, by });
       // The new row takes over the marketplace's facts.
       if (out.return_id) {
         await saveReturn(out.return_id, {

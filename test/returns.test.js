@@ -409,3 +409,13 @@ test("Seller Payouts shows a running return and will not pay it", async () => {
   assert.equal(data.groups[0].rows[0].return.number, "RET-7");
   await assert.rejects(markUnitsPaid({ ids: [UNIT], airtable, openReturns }), /RET-7/);
 });
+
+test("a sale that ended unshipped can still turn out to be a return", async () => {
+  const w = world({ order: { "Marketplace Sale ID": "W-10", "Shipping Status": "Pending", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" } });
+  const out = await w.returns.announce({ source: "woovin", marketplace_order_id: "W-10", external_return_id: "woovin-W-10", shipped: false });
+  await w.returns.decide(out.return.id, { held: "coming_back" });
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Returning");
+  assert.equal(w.db.data.returns.length, 1);
+  assert.equal(w.db.data.returns[0].status, "expected");
+  assert.equal(w.db.data.returns[0].external_return_id, "woovin-W-10");
+});
