@@ -343,10 +343,11 @@ export function invoiceMail({ sale, invoices, to, from, replyTo, pdfs, reminder 
 
 /* ---------------- Rompslomp ---------------- */
 
-export function createRompslomp({ token, companyId = "1296508534", fetchImpl = fetch }) {
+export function createRompslomp({ token, companyId = "1296508534", fetchImpl = fetch, retryScale = 1 }) {
   const configured = Boolean(text(token));
 
-  async function call(path, { method = "GET", body, accept = "application/json" } = {}) {
+  async function call(path, options = {}, retried = false) {
+    const { method = "GET", body, accept = "application/json" } = options;
     if (!configured) throw new ExternalSalesError("Invoicing needs ROMPSLOMP_API_TOKEN on this service.", 503);
 
     const response = await fetchImpl(`https://api.rompslomp.nl/api/v1/companies/${companyId}${path}`, {
@@ -355,6 +356,14 @@ export function createRompslomp({ token, companyId = "1296508534", fetchImpl = f
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(30_000)
     });
+
+    // Rate limited: they say "Retry after 1 minute", so once, after that.
+    // Every step here is found back before it is made, so a retry is safe.
+    if (response.status === 429 && !retried) {
+      const seconds = Math.min(Number(response.headers?.get?.("retry-after")) || 60, 65);
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000 * retryScale));
+      return call(path, options, true);
+    }
 
     if (accept === "application/pdf") {
       if (!response.ok) throw new ExternalSalesError(`Rompslomp PDF failed (${response.status}).`, 502);
@@ -608,6 +617,12 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
    * was invoiced by hand, so a deal on "to invoice" can still have one -
    * EXTD-000066 did.
    */
+  /*
+   * FIXED - this fetched every invoice of the contact one by one to read its
+   * lines. Madonnina (BU-00021) has 760, so one click was ~500 calls and
+   * Rompslomp answered 429 "Rate limit reached". The list rows already carry
+   * the description and the lines, so they are read as they come.
+   */
   async function handMadeInvoices(sale, contactId, known) {
     if (!contactId) return [];
     const found = [];
@@ -615,9 +630,8 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     for (const inv of await rompslomp.invoicesOfContact(contactId)) {
       if (known.has(String(inv.id))) continue;
       if (text(inv.api_reference).startsWith(dealId(sale))) continue;
-      const full = await rompslomp.getInvoice(inv.id);
-      if (!mentionsDeal(full, dealId(sale))) continue;
-      found.push({ id: String(full.id), invoice_number: full.invoice_number, amount: Number(full.price_with_vat), route: routeOfInvoice(full), status: full.status });
+      if (!mentionsDeal(inv, dealId(sale))) continue;
+      found.push({ id: String(inv.id), invoice_number: inv.invoice_number, amount: Number(inv.price_with_vat), route: routeOfInvoice(inv), status: inv.status });
     }
 
     return found;

@@ -5,6 +5,7 @@ import { fakeDb } from "./fakeSupabase.js";
 import {
   contactBody,
   createExternalSalesInvoicing,
+  createRompslomp,
   creditInvoiceBody,
   invoicePlanFor,
   journalBody,
@@ -615,4 +616,47 @@ test("an invoice with more lines than the deal needs loses the ones left over", 
   assert.equal(out.became, 200, "not 350");
   assert.equal(live.invoice_lines.length, 1);
   assert.equal(Number(live.price_with_vat), 200);
+});
+
+test("a buyer with hundreds of invoices is checked from the list, not one call per invoice", async () => {
+  const db = fakeDb({
+    external_sales: [sale({ deal_number: 149 })],
+    external_sale_pairs: [pair({ sale_id: "s1" })],
+    external_sale_invoices: [],
+    external_sale_invoice_deals: [],
+    buyers: [{ id: "b1", buyer_number: 21, company_name: "Madonnina Resell S.r.l.", rompslomp_contact_id: "474787066" }]
+  });
+  const rompslomp = fakeRompslomp();
+  // Madonnina has 760 invoices from other channels, none about this deal.
+  for (let i = 0; i < 300; i++) {
+    await rompslomp.createInvoice({ sales_invoice: { contact_id: 474787066, api_reference: null, description: `ORD-0${30000 + i}`, invoice_lines: [{ description: "adidas Vento XLG", price_per_unit: "185.0", vat_type_id: 688369464 }] } });
+  }
+  let reads = 0;
+  const getInvoice = rompslomp.getInvoice;
+  rompslomp.getInvoice = async (id) => { reads++; return getInvoice(id); };
+
+  const invoicing = createExternalSalesInvoicing({ db, airtable: fakeAirtableBuyers({}), rompslomp, sendMail: async () => {} });
+  assert.equal((await invoicing.preview("s1")).ok, true);
+  await invoicing.invoice("s1", { mail: false });
+
+  assert.ok(reads <= 3, `${reads} single-invoice reads`);
+  assert.equal(db.tables.external_sales[0].bookkeeping_status, "invoiced");
+});
+
+test("a 429 from Rompslomp is tried once more, not shown", async () => {
+  let n = 0;
+  const fetchImpl = async () => {
+    n++;
+    const body = n === 1 ? { error: { message: "Rate limit reached. Retry after 1 minute.", type: "client.rate_limit" } } : { contact: { id: 1 } };
+    return new Response(JSON.stringify(body), { status: n === 1 ? 429 : 200 });
+  };
+  const rs = createRompslomp({ token: "t", fetchImpl, retryScale: 0 });
+  assert.deepEqual(await rs.getContact(1), { id: 1 });
+  assert.equal(n, 2);
+});
+
+test("a second 429 in a row is still said", async () => {
+  const fetchImpl = async () => new Response("{}", { status: 429 });
+  const rs = createRompslomp({ token: "t", fetchImpl, retryScale: 0 });
+  await assert.rejects(rs.getContact(1), /said no \(429\)/);
 });
