@@ -183,6 +183,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       order_id: orderLabel(order),
       store_name: text(first(o["Store Name"])) || text(merchant?.["Store Name"]) || null,
       marketplace_order_id: text(o["Marketplace Sale ID"]) || null,
+      shopify_order_number: text(o["Shopify Order Number"]) || null,
       inventory_unit_record_id: unit?.id || null,
       item_id: text(u["Item ID"]) || null,
       sku: text(first(u.SKU)) || text(first(o.SKU)) || null,
@@ -823,16 +824,20 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       // It did leave after all: then it is an ordinary return, on its way back.
       const input = held === "coming_back" ? { shipped: "shipped", outcome: "return" } : { shipped: "not_shipped", held };
       const out = await cancelOrder({ table: row.order_table || "store", recordId: row.order_record_id, input, by });
-      // The new row takes over the marketplace's facts.
+      // The new row takes over the marketplace's facts and the RET number.
       if (out.return_id) {
+        await db.remove(`returns?id=eq.${row.id}`);
         await saveReturn(out.return_id, {
+          return_number: row.return_number,
           source: row.source,
           external_return_id: row.external_return_id,
           marketplace_status: row.marketplace_status,
           reason: row.reason,
-          customer_comment: row.customer_comment
+          customer_comment: row.customer_comment,
+          tracking_code: row.tracking_code,
+          carrier: row.carrier
         });
-        await db.remove(`returns?id=eq.${row.id}`);
+        out.return_number = row.return_number;
       }
       return out;
     } catch (err) {
@@ -846,10 +851,11 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
   /*
    * Which returns a scanned box can be: open ones of that SKU and size
    * first, then everything still expected, so a box with a wrong label is
-   * not a dead end.
+   * not a dead end. One still waiting for a decision counts too: a box in
+   * hand settles that it came back.
    */
   async function match({ sku = "", size = "" } = {}) {
-    const open = await db.get("returns?select=*&status=in.(expected,received)&order=created_at.asc&limit=500");
+    const open = await db.get("returns?select=*&status=in.(to_decide,expected,received)&order=created_at.asc&limit=500");
     const s = text(sku).toUpperCase().replace(/\s+/g, "");
     const z = text(size).replace(/^EU\s*/i, "");
     const exact = open.filter((r) => text(r.sku).toUpperCase().replace(/\s+/g, "") === s && (!z || text(r.size).replace(/^EU\s*/i, "") === z));
@@ -949,7 +955,15 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
    * done here, so the person at the scanner only answers that one question.
    */
   async function receive(id, { verdict, note = "", by = "", barcode = "" } = {}) {
-    const row = await getReturn(id);
+    let row = await getReturn(id);
+    // Scanned while still waiting for a decision: it did ship and came back.
+    if (row.status === "to_decide") {
+      if (!["ok", "flaw"].includes(verdict)) throw new ReturnsError("Say whether the pair is OK or has a flaw.", 400);
+      if (verdict === "flaw" && !text(note)) throw new ReturnsError("Describe the flaw: it goes on the unit.", 400);
+      const out = await cancelOrderFromReturn(row, { held: "coming_back", by });
+      if (!out.return_id) throw new ReturnsError(`RET-${row.return_number} could not be turned into a return.`);
+      row = await getReturn(out.return_id);
+    }
     if (!["expected", "received"].includes(row.status)) throw new ReturnsError(`RET-${row.return_number} is already ${row.status}.`);
     if (!["ok", "flaw"].includes(verdict)) throw new ReturnsError("Say whether the pair is OK or has a flaw.", 400);
     if (verdict === "flaw" && !text(note)) throw new ReturnsError("Describe the flaw: it goes on the unit.", 400);
@@ -1115,7 +1129,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     if (view === "todo") rows = rows.filter((r) => (r.todo || []).some((t) => !t.done));
     const term = text(q).toLowerCase();
     if (term) {
-      rows = rows.filter((r) => [r.return_number && `ret-${r.return_number}`, r.order_id, r.marketplace_order_id, r.sku, r.item_id, r.seller_id, r.seller_name, r.store_name, r.tracking_code]
+      rows = rows.filter((r) => [r.return_number && `ret-${r.return_number}`, r.order_id, r.marketplace_order_id, r.shopify_order_number, r.sku, r.item_id, r.seller_id, r.seller_name, r.store_name, r.tracking_code]
         .some((v) => text(v).toLowerCase().includes(term)));
     }
     return rows;

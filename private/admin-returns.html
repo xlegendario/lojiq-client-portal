@@ -551,7 +551,7 @@
             <td class="id">RET-${esc(r.return_number)}</td>
             <td>${esc(day(r.created_at))}${["expected", "to_decide"].includes(r.status) ? ` <span class="sub${age >= 14 ? " old" : ""}">${age}d</span>` : ""}</td>
             <td>${esc(SOURCE[r.source] || r.source)}</td>
-            <td>${esc(r.order_id || "—")}${r.marketplace_order_id ? `<div class="sub">${esc(r.marketplace_order_id)}</div>` : ""}</td>
+            <td>${esc(r.order_id || "—")}${r.shopify_order_number || r.marketplace_order_id ? `<div class="sub">${esc(r.shopify_order_number || r.marketplace_order_id)}</div>` : ""}</td>
             <td>${esc(r.sku || "—")} <span class="sub">${esc(r.size || "")}</span></td>
             <td>${esc(r.item_id || "—")}</td>
             <td>${esc(r.seller_id || "—")}${r.seller_name ? `<div class="sub">${esc(r.seller_name)}</div>` : ""}</td>
@@ -638,6 +638,7 @@
             ["From", esc(SOURCE[r.source] || r.source)],
             ["Order", esc(r.order_id)],
             ["Store", esc(r.store_name)],
+            ["Shopify order number", esc(r.shopify_order_number)],
             ["Marketplace order", esc(r.marketplace_order_id)],
             ["Marketplace status", esc(r.marketplace_status)],
             ["Shipped", r.shipped ? "Yes" : "No"],

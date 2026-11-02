@@ -430,6 +430,21 @@ test("a sale that ended unshipped can still turn out to be a return", async () =
   assert.equal(w.db.data.returns[0].external_return_id, "woovin-W-10");
 });
 
+test("a box scanned while its return waits for a decision is taken as returned", async () => {
+  const w = world({ order: { "Marketplace Sale ID": "W-11", "Shipping Status": "Pending", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" } });
+  const out = await w.returns.announce({ source: "woovin", marketplace_order_id: "W-11", external_return_id: "woovin-W-11", shipped: false });
+  const number = out.return.return_number;
+
+  const found = await w.returns.match({ sku: "DD1391-100", size: "42" });
+  assert.equal(found.exact.length, 1, "a return waiting for a decision can be scanned");
+
+  const done = await w.returns.receive(out.return.id, { verdict: "ok", by: "WMS" });
+  assert.equal(done.status, "done");
+  assert.equal(done.return_number, number, "it keeps its RET number");
+  assert.equal(w.db.data.returns.length, 1);
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Available");
+});
+
 test("a marketplace invoice is settled through its payouts, not on Kruisposten", async () => {
   const w = world({ order: { "Order Source": "Woovin Consignment" } });
   const out = await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "shipped", outcome: "return" } });
