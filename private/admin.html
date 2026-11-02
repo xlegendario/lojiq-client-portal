@@ -748,6 +748,21 @@
           <select class="select" id="typeFilter" aria-label="Seller Type" hidden>
             <option value="">Every type</option>
           </select>
+          <div class="picker" id="skuPicker" hidden>
+            <button class="select picker-button" id="skuButton" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="skuPopover">All SKUs</button>
+            <div class="popover" id="skuPopover" hidden>
+              <div class="mode" role="radiogroup" aria-label="Show">
+                <label><input type="radio" name="skuMode" id="skuModeInclude" value="include" checked> Only these</label>
+                <label><input type="radio" name="skuMode" id="skuModeExclude" value="exclude"> All except</label>
+              </div>
+              <input class="input" id="skuSearch" type="search" placeholder="Find a SKU or product" aria-label="Find a SKU" autocomplete="off">
+              <div class="store-list" id="skuList"></div>
+              <div class="popover-foot">
+                <button class="btn ghost" id="skuClear" type="button">Clear</button>
+                <button class="btn primary" id="skuDone" type="button">Done</button>
+              </div>
+            </div>
+          </div>
           <input class="input" id="buyerFilter" type="search" placeholder="Buyer" aria-label="Buyer" hidden>
           <input class="input" id="listSearch" type="search" placeholder="Search this list" aria-label="Search this list">
           <button class="btn" id="refreshButton" type="button">Refresh</button>
@@ -816,6 +831,8 @@
     kind: "all",
     shipping: "all",
     unitType: "",
+    skus: [],
+    skuMode: "include",
     payouts: null,
     payoutsAll: null,
     payoutsAt: 0,
@@ -935,6 +952,8 @@
     state.kind = ["store", "mwtb"].includes(params.get("kind")) ? params.get("kind") : "all";
     state.shipping = ["shipped", "delivered", "shipped_or_delivered", "not_shipped"].includes(params.get("shipping")) ? params.get("shipping") : "all";
     state.unitType = params.get("type") || "";
+    state.skus = params.getAll("sku").filter(Boolean);
+    state.skuMode = params.get("sku_mode") === "exclude" ? "exclude" : "include";
 
     return params.get("open") || "";
   }
@@ -949,6 +968,10 @@
     if (state.section === "money" && state.view === "payments" && state.kind !== "all") params.set("kind", state.kind);
     if (state.view === "payouts" && state.shipping !== "all") params.set("shipping", state.shipping);
     if (state.view === "payouts" && state.unitType) params.set("type", state.unitType);
+    if (state.view === "payouts") {
+      for (const sku of state.skus) params.append("sku", sku);
+      if (state.skus.length && state.skuMode === "exclude") params.set("sku_mode", "exclude");
+    }
     if (state.buyer && state.section === "mwtb") params.set("buyer", state.buyer);
     if (state.q) params.set("q", state.q);
     if (open) params.set("open", open);
@@ -1106,6 +1129,11 @@
     $("kindFilter").hidden = !isMoney || isPayouts;
     $("shippingFilter").hidden = !isPayouts;
     $("typeFilter").hidden = !isPayouts;
+    $("skuPicker").hidden = !isPayouts;
+    $("skuButton").textContent = skuLabel();
+    $("skuButton").classList.toggle("active", isPayouts && state.skus.length > 0);
+    $("skuModeInclude").checked = state.skuMode !== "exclude";
+    $("skuModeExclude").checked = state.skuMode === "exclude";
     $("shippingFilter").value = state.shipping;
     $("typeFilter").value = state.unitType;
     $("kindFilter").value = state.kind;
@@ -1126,6 +1154,84 @@
     writeHash("");
     loadList();
   }
+
+  /* ----- SKUs (Seller Payouts) ----- */
+
+  function skuLabel() {
+    const n = state.skus.length;
+    if (!n) return "All SKUs";
+    const what = n === 1 ? state.skus[0] : n + " SKUs";
+    return state.skuMode === "exclude" ? "All except " + what : what;
+  }
+
+  // The SKUs on the payout list itself, most units first, with a product name.
+  function drawSkuList() {
+    const needle = $("skuSearch").value.trim().toLowerCase();
+    const counts = new Map();
+    for (const row of allRows(MONEY.payouts)) {
+      const sku = String(row.sku || "").toUpperCase();
+      if (!sku) continue;
+      if (!counts.has(sku)) counts.set(sku, { sku, product: row.product || "", n: 0 });
+      counts.get(sku).n += 1;
+    }
+    for (const sku of state.skus) if (!counts.has(sku)) counts.set(sku, { sku, product: "", n: 0 });
+
+    const shown = [...counts.values()]
+      .filter((x) => !needle || (x.sku + " " + x.product).toLowerCase().includes(needle))
+      .sort((a, b) => b.n - a.n || a.sku.localeCompare(b.sku));
+
+    $("skuList").innerHTML = shown.length
+      ? shown.map((x, i) => '<label><input type="checkbox" id="sku-opt-' + i + '" value="' + esc(x.sku) + '"' + (state.skus.includes(x.sku) ? " checked" : "") + "> <span>" + esc(x.sku) + ' <span class="meta">' + esc(x.product) + " · " + x.n + "</span></span></label>").join("")
+      : '<div class="results-empty">No SKU matches.</div>';
+  }
+
+  function toggleSkuPopover(open) {
+    const show = open ?? $("skuPopover").hidden;
+    $("skuPopover").hidden = !show;
+    $("skuButton").setAttribute("aria-expanded", String(show));
+    if (show) {
+      $("skuSearch").value = "";
+      drawSkuList();
+      $("skuSearch").focus();
+    }
+  }
+
+  let skuTimer;
+  const skusChanged = () => {
+    clearTimeout(skuTimer);
+    skuTimer = setTimeout(filtersChanged, 400);
+  };
+
+  $("skuButton").addEventListener("click", () => toggleSkuPopover());
+  $("skuDone").addEventListener("click", () => toggleSkuPopover(false));
+  $("skuSearch").addEventListener("input", drawSkuList);
+
+  $("skuList").addEventListener("change", (event) => {
+    const box = event.target.closest("input[type=checkbox]");
+    if (!box) return;
+    state.skus = box.checked ? [...new Set([...state.skus, box.value])] : state.skus.filter((sku) => sku !== box.value);
+    $("skuButton").textContent = skuLabel();
+    skusChanged();
+  });
+
+  for (const radio of document.querySelectorAll('input[name="skuMode"]')) {
+    radio.addEventListener("change", () => {
+      state.skuMode = $("skuModeExclude").checked ? "exclude" : "include";
+      $("skuButton").textContent = skuLabel();
+      if (state.skus.length) skusChanged();
+    });
+  }
+
+  $("skuClear").addEventListener("click", () => {
+    state.skus = [];
+    state.skuMode = "include";
+    drawSkuList();
+    filtersChanged();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#skuPicker") && !$("skuPopover").hidden) toggleSkuPopover(false);
+  });
 
   /* ----- stores ----- */
 
@@ -1539,7 +1645,10 @@
         : state.shipping === "not_shipped" ? row.shipping !== "Shipped" && row.shipping !== "Delivered"
         : true;
 
-      return shippingOk &&
+      const sku = String(row.sku || "").toUpperCase();
+      const skuOk = !state.skus.length || (state.skuMode === "exclude" ? !state.skus.includes(sku) : state.skus.includes(sku));
+
+      return shippingOk && skuOk &&
         (!state.unitType || row.type === state.unitType) &&
         (!needle || [row.seller.name, row.seller.person, row.seller.discord, row.seller.id, row.item, row.reference, row.product, row.sku].join(" ").toLowerCase().includes(needle));
     });
@@ -2324,7 +2433,7 @@
   window.addEventListener("hashchange", () => {
     if ($("appView").hidden) return;
 
-    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind, state.shipping, state.unitType].join("|");
+    const listKey = () => [state.section, state.view, JSON.stringify(state.stores), state.storeMode, state.buyer, state.q, state.kind, state.shipping, state.unitType, JSON.stringify(state.skus), state.skuMode].join("|");
     const sectionBefore = state.section;
     const before = listKey();
     const open = readHash();
