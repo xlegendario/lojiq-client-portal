@@ -488,9 +488,10 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
           await airtable.update("Inventory Units", unitId, {
             "Availability Status": "Inactive",
             "Cancel Status": rule.status,
-            // Off the payout list: there is no purchase left to pay for.
-            "Payment Status": "Paid",
-            "Payment Note": `Cancelled: ${dealId(sale)} went back to the consignor`,
+            "Verification Status": "Cancelled",
+            // Off the payout list: there is no purchase left to pay for. The
+            // Payment Note is the bank's and stays as it is.
+            "Payment Status": null,
             "Item Condition": conditionWith(conditionNote(sale, outcome), text(unit["Item Condition"]))
           });
         } catch (err) {

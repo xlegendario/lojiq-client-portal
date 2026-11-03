@@ -599,3 +599,16 @@ test("the mail is on unless it is turned off", async () => {
 
   assert.deepEqual(calls, [["amend", "i1"], ["mail", "corrected"]]);
 });
+
+test("back to the consignor takes the pair off the payout list and leaves the bank's Payment Note alone (CS-008267)", async () => {
+  const pairs = [{ ...PAIRS[0], consignor_fulfillment_status: "Ready to Ship", consignor_shipping_status: "Pending" }, PAIRS[1]];
+  const { written, cancel } = fakes({ pairs, unitFields: { recA: { "Payment Status": "To Pay", "Payment Note": "€ 110" } } });
+
+  await cancel.cancelPairs(S1, { pair_ids: [P1], reason: "Cancelled before he shipped", outcome: "to_consignor", by: "Dario" });
+
+  const unit = written.find((w) => w.id === "recA").fields;
+  assert.equal(unit["Availability Status"], "Inactive");
+  assert.equal(unit["Verification Status"], "Cancelled");
+  assert.equal(unit["Payment Status"], null);
+  assert.equal("Payment Note" in unit, false, "the bank payment code is never written over");
+});

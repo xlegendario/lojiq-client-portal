@@ -449,7 +449,7 @@ export function createOutboundMaker({ db, airtable, invoicing, payments = null, 
       for (const pair of claimedPartner) {
         await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, { status: "in_stock", sold_at: null, sold_ref: null, inventory_unit_id: null }).catch(() => {});
         if (pair.inventory_unit_record_id) {
-          await airtable.update("Inventory Units", pair.inventory_unit_record_id, { "Availability Status": "Inactive", "External Deal ID": "", "Payment Status": "Paid", "Payment Note": `Cancelled: ${deal} was not made` }).catch(() => {});
+          await airtable.update("Inventory Units", pair.inventory_unit_record_id, { "Availability Status": "Inactive", "Verification Status": "Cancelled", "External Deal ID": "", "Payment Status": null }).catch(() => {});
         }
       }
 
