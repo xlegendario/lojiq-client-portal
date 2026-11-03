@@ -31,7 +31,7 @@
 // the action log with what it changed.
 
 import { TABLES } from "./adminViews.js";
-import { CANCELLABLE, HELD, OUTCOMES } from "./returns.js";
+import { CANCELLABLE, HELD, IN_WAREHOUSE, ORDER_ACTIONS, OUTCOMES } from "./returns.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -625,12 +625,14 @@ export const ACTIONS = {
       mwtb: ["Fulfillment Status", "Shipping Status", "Member WTB ID", "Linked Inventory Unit"]
     },
     inputs: [
-      { name: "shipped", label: "Did the pair leave?", type: "select", required: true, options: [{ value: "shipped", label: "Yes, it was shipped to the buyer" }, { value: "not_shipped", label: "No, it never left" }] },
-      { name: "outcome", label: "What happens to it?", type: "select", required: true, showIf: { shipped: ["shipped"] }, options: Object.entries(OUTCOMES).map(([value, label]) => ({ value, label })) },
-      { name: "held", label: "Where is it now?", type: "select", required: true, showIf: { shipped: ["not_shipped"] }, options: Object.entries(HELD).map(([value, label]) => ({ value, label })) },
+      { name: "order_action", label: "What happens to the order?", type: "select", required: true, options: Object.entries(ORDER_ACTIONS).map(([value, label]) => ({ value, label })) },
+      { name: "shipped", label: "Was the pair shipped?", type: "select", required: true, options: [{ value: "shipped", label: "Yes" }, { value: "not_shipped", label: "No, not shipped yet" }] },
+      { name: "outcome", label: "What happens to this pair?", type: "select", required: true, showIf: { shipped: ["shipped"] }, options: Object.entries(OUTCOMES).map(([value, label]) => ({ value, label })) },
+      { name: "held", label: "What happens to this pair?", type: "select", required: true, showIf: { shipped: ["not_shipped"] }, options: Object.entries(HELD).map(([value, label]) => ({ value, label })) },
+      { name: "warehouse", label: "And then?", type: "select", required: true, showIf: { shipped: ["not_shipped"], held: ["warehouse"] }, options: Object.entries(IN_WAREHOUSE).map(([value, label]) => ({ value, label })) },
       { name: "location", label: "Where does it stay?", type: "select", required: true, showIf: { shipped: ["shipped"], outcome: ["store_consign"] }, options: [] },
       { name: "new_location", label: "New location (shop or reseller)", type: "text", required: true, max: 60, showIf: { shipped: ["shipped"], outcome: ["store_consign"], location: ["__new"] } },
-      { name: "reason", label: "Reason (goes on the unit)", type: "text", required: false, max: 300 }
+      { name: "reason", label: "Reason or flaw (goes on the unit)", type: "text", required: false, max: 300 }
     ],
     why(source, f) {
       if (text(f["Rompslomp Credit Invoice Number"])) return `Already cancelled and credited (${text(f["Rompslomp Credit Invoice Number"])}).`;

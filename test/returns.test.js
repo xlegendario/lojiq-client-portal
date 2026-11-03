@@ -210,12 +210,16 @@ test("a shipped pair that comes back: credited, stock back, Kruisposten, expecte
   await assert.rejects(w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "shipped", outcome: "return" } }), /already an open return/);
 });
 
-test("lost on the way: credited, but the stock correction stays", async () => {
+test("lost on the way: credited, and the cost moves from the cost of sales to Voorraadverschillen", async () => {
   const w = world();
   await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "shipped", outcome: "lost" } });
   assert.equal(w.rompslomp.made.invoices.length, 1);
-  assert.equal(w.rompslomp.made.journals.length, 0);
+  assert.equal(w.rompslomp.made.journals.length, 1);
+  const [debit, credit] = w.rompslomp.made.journals[0].lines;
+  assert.equal(debit.account_id, 2146917640, "Voorraadverschillen");
+  assert.notEqual(credit.account_id, 1981496874, "not the stock: the correction already took it off");
   assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Lost");
+  assert.equal(w.tables["Inventory Units"][UNIT]["Verification Status"], "Lost");
   assert.equal(w.db.data.returns[0].status, "done");
 });
 
@@ -312,11 +316,84 @@ test("a flaw at the scan, a seller's pair we did not pay: back to him, not owed"
   await assert.rejects(w.returns.receive(row.id, { verdict: "flaw" }), /Describe the flaw/);
   const done = await w.returns.receive(row.id, { verdict: "flaw", note: "Scuffed toe" });
   const unit = w.tables["Inventory Units"][UNIT];
-  assert.equal(unit["Availability Status"], "Void");
+  // Inactive until it ships: the seller sends the label.
+  assert.equal(unit["Availability Status"], "Inactive");
+  assert.equal(unit["Verification Status"], "Rejected");
   assert.equal(unit["Payment Status"], null);
   assert.match(unit["Item Condition"], /Scuffed toe/);
-  assert.ok(done.todo.some((t) => t.kind === "send_back"));
+  assert.equal(done.seller_return_status, "label_requested");
   assert.equal(w.purchases.calls.credit.length, 1);
+
+  await w.returns.sellerReturnStep(row.id, { step: "label_received", tracking: "3SABC123" });
+  const shipped = await w.returns.sellerReturnStep(row.id, { step: "shipped" });
+  assert.equal(shipped.seller_return_tracking, "3SABC123");
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Void");
+  await assert.rejects(w.returns.sellerReturnStep(row.id, { step: "label_received" }), /Already/);
+  assert.equal((await w.returns.list({ view: "returns_sellers" })).length, 1);
+  await w.returns.sellerReturnStep(row.id, { step: "delivered" });
+  assert.equal((await w.returns.list({ view: "returns_sellers" })).length, 0);
+});
+
+test("a flaw at the scan, a seller's pair we keep: Troubled Stock, and he is paid", async () => {
+  const w = world();
+  const row = await expected(w);
+  await w.returns.receive(row.id, { verdict: "flaw", then: "troubled", note: "Small scuff, we sell it" });
+  const unit = w.tables["Inventory Units"][UNIT];
+  assert.equal(unit["Availability Status"], "Troubled");
+  assert.notEqual(unit["Payment Status"], null);
+  assert.equal(w.purchases.calls.credit.length, 0);
+});
+
+test("OK at the scan, but the seller's pair goes back to him", async () => {
+  const w = world();
+  const row = await expected(w);
+  const done = await w.returns.receive(row.id, { verdict: "ok", then: "send_back" });
+  assert.equal(w.tables["Inventory Units"][UNIT]["Verification Status"], "Rejected");
+  assert.equal(done.seller_return_status, "label_requested");
+  assert.equal(w.purchases.calls.credit.length, 1);
+});
+
+test("not shipped, in our warehouse: keep, Troubled or back to the seller", async () => {
+  const keep = world();
+  await keep.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "warehouse", warehouse: "keep" } });
+  assert.equal(keep.tables["Inventory Units"][UNIT]["Availability Status"], "Available");
+
+  const trouble = world();
+  await assert.rejects(trouble.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "warehouse", warehouse: "troubled" } }), /Describe/);
+  await trouble.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "warehouse", warehouse: "troubled", reason: "Glue stains" } });
+  assert.equal(trouble.tables["Inventory Units"][UNIT]["Availability Status"], "Troubled");
+  assert.equal(trouble.purchases.calls.credit.length, 0);
+
+  const back = world();
+  await back.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "warehouse", warehouse: "send_back", reason: "Wrong colourway" } });
+  assert.equal(back.tables["Inventory Units"][UNIT]["Availability Status"], "Inactive");
+  assert.equal(back.db.data.returns[0].seller_return_status, "label_requested");
+  assert.equal(back.purchases.calls.credit.length, 1);
+});
+
+test("not shipped, the seller's pair is flawed: void, Rejected, not owed", async () => {
+  const w = world();
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "flawed", reason: "Creased on the QC photos" } });
+  const unit = w.tables["Inventory Units"][UNIT];
+  assert.equal(unit["Availability Status"], "Void");
+  assert.equal(unit["Verification Status"], "Rejected");
+  assert.equal(unit["Payment Status"], null);
+  assert.equal(w.purchases.calls.credit.length, 1);
+});
+
+test("keep the order: credited, back to Outsource without its pair, and the new pair is invoiced", async () => {
+  const w = world();
+  const out = await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { order_action: "keep", shipped: "not_shipped", held: "consignor_gone" } });
+  const order = w.tables["Unfulfilled Orders Log"][ORDER];
+  assert.equal(order["Fulfillment Status"], "Outsource");
+  assert.deepEqual(order["Linked Inventory Unit"], []);
+  assert.equal(order["Rompslomp Invoice ID"], "");
+  assert.equal(order["Rompslomp Credit Invoice Number"], "");
+  assert.equal(order["Invoice Sent At"], null);
+  assert.equal(order["Retry Invoice"], true);
+  assert.equal(w.rompslomp.made.invoices.length, 1, "the old invoice is credited");
+  assert.match(out.message, /back in Outsource/);
+  assert.match(w.db.data.returns[0].result, /Order kept/);
 });
 
 test("a flaw at the scan, our own pair: Troubled Stock", async () => {
@@ -510,4 +587,32 @@ test("Seller Payouts shows an external sale's deal number as its order", async (
   };
   const data = await loadPayouts(airtable, {});
   assert.equal(data.groups[0].rows[0].reference_id, "EXTD-000144");
+});
+
+test("not coming back: the stock the cancel put back goes to Voorraadverschillen", async () => {
+  const w = world();
+  const row = await expected(w);
+  assert.equal(w.rompslomp.made.journals.length, 1, "the cancel put the stock back");
+  const closed = await w.returns.notComing(row.id, { note: "buyer kept it" });
+  assert.equal(w.rompslomp.made.journals.length, 2);
+  const [debit, credit] = w.rompslomp.made.journals[1].lines;
+  assert.equal(debit.account_id, 2146917640);
+  assert.equal(credit.account_id, 1981496874);
+  assert.equal(debit.debit_amount, w.rompslomp.made.journals[0].lines[0].debit_amount, "by the amount the cancel put back");
+  assert.ok(!closed.todo.some((t) => t.kind === "journal_by_hand"), "nothing left to book by hand");
+  assert.equal(w.tables["Inventory Units"][UNIT]["Verification Status"], "Lost");
+});
+
+test("a seller's refund ticked as received: Payment Status empty, Payment Note untouched", async () => {
+  const w = world({ unit: { "Payment Status": "Paid", "Payment Note": "110" } });
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "consignor_gone" } });
+  const row = w.db.data.returns[0];
+  const claim = row.todo.find((t) => t.kind === "claim_seller");
+  assert.ok(claim);
+  assert.equal((await w.returns.list({ view: "refunds_sellers" })).length, 1);
+  await w.returns.tick(row.id, claim.id, true, "Dario");
+  const unit = w.tables["Inventory Units"][UNIT];
+  assert.equal(unit["Payment Status"], null);
+  assert.equal(unit["Payment Note"], "110");
+  assert.equal((await w.returns.list({ view: "refunds_sellers" })).length, 0);
 });

@@ -312,6 +312,7 @@
         <div class="tabs" id="tabs" role="tablist"></div>
         <input class="input" id="search" type="search" placeholder="Order, SKU, item, seller, tracking…" autocomplete="off">
         <span class="count" id="count"></span>
+        <button class="btn" type="button" id="exportList" hidden>Export to Excel</button>
       </div>
 
       <div class="table-wrap">
@@ -468,10 +469,33 @@
       { key: "open", label: "Open" },
       { key: "to_decide", label: "To decide" },
       { key: "todo", label: "To do" },
+      { key: "refunds_buyers", label: "Refunds to buyers" },
+      { key: "refunds_sellers", label: "Refunds from sellers" },
+      { key: "returns_sellers", label: "Returns to sellers" },
+      { key: "rompslomp", label: "Rompslomp to do" },
       { key: "done", label: "Done" },
       { key: "all", label: "All" },
       { key: "troubled", label: "Troubled Stock" }
     ];
+
+    // The to-do kinds each list shows (admin/returns.js TODO_LISTS).
+    const TODO_LISTS = {
+      refunds_buyers: ["refund_store", "marketplace_settle"],
+      refunds_sellers: ["claim_seller"],
+      rompslomp: ["link_kruispost", "credit_by_hand", "journal_by_hand", "credit_purchase", "move_payment", "credit_invoice"]
+    };
+    const LIST_INTRO = {
+      refunds_buyers: "Buyers who had already paid for a pair that came off their order. Pay it back or take it off their next payment, link that bank line to the credit invoice in Rompslomp, then tick it off.",
+      refunds_sellers: "Sellers we had already paid for a pair we are not keeping. Once the money is back, link it to the credit of the purchase in Rompslomp (Payout) and tick it off: the unit's Payment Status then goes empty.",
+      returns_sellers: "Pairs in our warehouse that go back to their seller. He sends the label and pays for it; the unit is Inactive until it ships, then Void.",
+      rompslomp: "Everything left for Rompslomp, mostly Kruisposten payments to link. Work through this list each quarter; both Kruisposten accounts end at € 0."
+    };
+    const SELLER_RETURN = { label_requested: "Label requested", label_received: "Label received", shipped: "Shipped", delivered: "Delivered" };
+    const NEXT_SELLER_STEP = { label_requested: "label_received", label_received: "shipped", shipped: "delivered" };
+
+    // Whose pair it is, as the server decides it (admin/returns.js ownerOf).
+    const ownerOf = (r) => r.unit_type === "Partner Consignment" ? "partner"
+      : (["Consignment", "Direct"].includes(r.unit_type) || /^(CS|OUT)-/.test(r.item_id || "")) && r.seller_id ? "seller" : "own";
 
     const state = {
       view: TABS.some((t) => t.key === params.get("view")) ? params.get("view") : "open",
@@ -493,12 +517,18 @@
     };
     const SOURCE = { store_order: "Store order", member_wtb: "Member WTB", woovin: "Woovin", bol: "bol", manual: "By hand" };
     const HELD = {
-      warehouse: "In our warehouse - back on sale",
-      consignor_has: "The seller still has it - back in his consignment stock",
-      consignor_gone: "The seller no longer has it - void",
-      partner: "Partner pair, still here - back on the partner's shelf",
-      lost: "Lost here, we cannot find it - the seller is still paid",
+      consignor_has: "Consignor has the pair, add back to consignment",
+      consignor_gone: "Seller doesn't have it, void pair",
+      flawed: "Pair is flawed, void pair",
+      warehouse: "In our warehouse",
+      partner: "Partner pair, here - back on the partner's shelf",
+      lost: "Lost here - the seller is still paid",
       coming_back: "It was shipped after all - a return is coming back"
+    };
+    const IN_WAREHOUSE = {
+      keep: "Keep it, back on sale",
+      send_back: "Send it back to the seller - he sends the label",
+      troubled: "It has a flaw, we keep it - Troubled Stock"
     };
 
     const ageDays = (value) => Math.floor((Date.now() - new Date(value).getTime()) / 86400000);
@@ -512,7 +542,9 @@
       $("pageIntro").textContent = troubled
         ? "Pairs that came back with a flaw and are ours to deal with: put one back on sale, write it off, or send it back to the seller. What is wrong with it is in its condition."
         : "Every pair that came off a sale. Expected ones are closed by the Returns scan in the WMS, which decides OK or flaw. To decide: a sale ended before it shipped, so say where the pair is. To do: what is left for a person, in Rompslomp or with a seller.";
+      if (LIST_INTRO[state.view]) $("pageIntro").textContent = LIST_INTRO[state.view];
       $("search").hidden = troubled;
+      $("exportList").hidden = !LIST_INTRO[state.view];
       document.querySelectorAll("#navWarehouse .nav-item").forEach((a) => {
         const href = a.getAttribute("href");
         a.classList.toggle("active", troubled ? href === "/admin/returns?view=troubled" : href === "/admin/returns");
@@ -531,8 +563,61 @@
       load();
     });
 
+    // One line per open to-do of the list's kinds: that is what gets done.
+    function listLines() {
+      const kinds = TODO_LISTS[state.view];
+      return state.rows.flatMap((r) => (r.todo || []).filter((t) => !t.done && kinds.includes(t.kind)).map((t) => ({ r, t })));
+    }
+
+    function drawTodoList() {
+      $("head").innerHTML = `<tr><th>Return</th><th>Since</th><th>Order</th><th>Pair</th><th>Seller / store</th><th>To do</th><th>Done</th></tr>`;
+      const lines = listLines();
+      $("count").textContent = lines.length ? `${lines.length} to do` : "";
+      if (!lines.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="7">Nothing left here.</td></tr>`;
+        return;
+      }
+      $("rows").innerHTML = lines.map(({ r, t }) => `
+        <tr data-id="${esc(r.id)}">
+          <td class="id">RET-${esc(r.return_number)}</td>
+          <td>${esc(day(r.created_at))}</td>
+          <td>${esc(r.order_id || "—")}${r.shopify_order_number ? `<div class="sub">${esc(r.shopify_order_number)}</div>` : ""}</td>
+          <td>${esc(r.sku || "—")} <span class="sub">${esc(r.size || "")}</span><div class="sub">${esc(r.item_id || "")}</div></td>
+          <td>${esc(r.seller_id || r.store_name || "—")}${r.seller_name ? `<div class="sub">${esc(r.seller_name)}</div>` : ""}</td>
+          <td style="white-space:normal;max-width:520px">${esc(t.text)}</td>
+          <td><input type="checkbox" data-list-tick="${esc(t.id)}" data-return="${esc(r.id)}" aria-label="Done"></td>
+        </tr>`).join("");
+    }
+
+    function drawSellerReturns() {
+      $("head").innerHTML = `<tr><th>Return</th><th>Since</th><th>Pair</th><th>Unit</th><th>Seller</th><th>Why</th><th>Status</th><th>Tracking</th><th></th></tr>`;
+      const rows = state.rows;
+      $("count").textContent = rows.length ? `${rows.length} pair${rows.length === 1 ? "" : "s"}` : "";
+      if (!rows.length) {
+        $("rows").innerHTML = `<tr><td class="empty" colspan="9">No pairs waiting to go back.</td></tr>`;
+        return;
+      }
+      $("rows").innerHTML = rows.map((r) => {
+        const next = NEXT_SELLER_STEP[r.seller_return_status];
+        return `
+        <tr data-id="${esc(r.id)}">
+          <td class="id">RET-${esc(r.return_number)}</td>
+          <td>${esc(day(r.seller_return_at || r.created_at))}</td>
+          <td>${esc(r.sku || "—")} <span class="sub">${esc(r.size || "")}</span></td>
+          <td>${esc(r.item_id || "—")}</td>
+          <td>${esc(r.seller_id || "—")}${r.seller_name ? `<div class="sub">${esc(r.seller_name)}</div>` : ""}</td>
+          <td style="white-space:normal;max-width:320px">${esc(r.condition_note || r.reason || r.result || "—")}</td>
+          <td><span class="pill wait">${esc(SELLER_RETURN[r.seller_return_status] || r.seller_return_status)}</span></td>
+          <td>${esc(r.seller_return_tracking || "—")}</td>
+          <td>${next ? `<button class="act" type="button" data-seller-step="${next}" data-return="${esc(r.id)}">${esc(SELLER_RETURN[next])}</button>` : ""}</td>
+        </tr>`;
+      }).join("");
+    }
+
     function drawList() {
       if (state.view === "troubled") return drawTroubled();
+      if (TODO_LISTS[state.view]) return drawTodoList();
+      if (state.view === "returns_sellers") return drawSellerReturns();
 
       $("head").innerHTML = `<tr><th>Return</th><th>Since</th><th>From</th><th>Order</th><th>Pair</th><th>Unit</th><th>Seller</th><th>Reason</th><th>Tracking</th><th>Status</th><th>To do</th></tr>`;
       const rows = state.rows;
@@ -592,7 +677,23 @@
         </tr>`).join("");
     }
 
+    $("rows").addEventListener("change", async (event) => {
+      const box = event.target.closest("[data-list-tick]");
+      if (!box) return;
+      try {
+        await post(`/api/admin/returns/${box.dataset.return}/tick`, { todo: box.dataset.listTick, done: true });
+        toast("Ticked off.");
+        await load();
+      } catch (err) {
+        toast(err.message);
+        box.checked = false;
+      }
+    });
+
     $("rows").addEventListener("click", (event) => {
+      if (event.target.closest("[data-list-tick]")) return;
+      const sellerStep = event.target.closest("[data-seller-step]");
+      if (sellerStep) return sellerReturnStep(sellerStep.dataset.return, sellerStep.dataset.sellerStep);
       const trouble = event.target.closest("[data-trouble]");
       if (trouble) return troubleStep(trouble.dataset.trouble, trouble.dataset.unit, trouble.dataset.item);
       const row = event.target.closest("tr[data-id]");
@@ -613,6 +714,7 @@
       }
       if (r.status === "to_decide") buttons.push(`<button class="btn primary" type="button" data-step="decide">Decide where it is</button>`);
       if ((r.todo || []).some((t) => t.kind === "credit_invoice" && !t.done)) buttons.push(`<button class="btn" type="button" data-step="credit-invoice">Credit invoice</button>`);
+      if (NEXT_SELLER_STEP[r.seller_return_status]) buttons.push(`<button class="btn" type="button" data-step="seller-return">Back to the seller: ${esc(SELLER_RETURN[NEXT_SELLER_STEP[r.seller_return_status]])}</button>`);
       $("panelActions").innerHTML = buttons.join("") || '<span class="sub">Nothing left to do with the pair itself.</span>';
 
       const dl = (pairs) => `<dl>${pairs.filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
@@ -654,6 +756,7 @@
             ["Verdict", r.verdict ? (r.verdict === "ok" ? "OK" : "Flaw") : ""],
             ["Condition", esc(r.condition_note)],
             ["Result", esc(r.result)],
+            ["Back to the seller", r.seller_return_status ? `${esc(SELLER_RETURN[r.seller_return_status])}${r.seller_return_tracking ? ` · ${esc(r.seller_return_tracking)}` : ""}` : ""],
             ["Received", r.received_at ? `${esc(day(r.received_at))}${r.received_by ? ` · ${esc(r.received_by)}` : ""}` : ""]
           ])}
         </div>
@@ -752,25 +855,37 @@
       const r = state.open;
       const base = `/api/admin/returns/${r.id}`;
 
+      const owner = ownerOf(r);
+      const choose = (id, options) => `<div class="field"><label for="${id}">And then?</label><select class="select" id="${id}">${options.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>`;
+
       if (button.dataset.step === "receive-ok") {
         openStep({
           title: `RET-${r.return_number}: received OK`,
-          textValue: "The pair is back and in order. It goes back on sale, or back on the partner's shelf; the seller is paid as normal.",
+          textValue: owner === "seller"
+            ? "The pair is back and in order. Keep it and it goes back on sale, the seller paid as normal; or send it back to him, not owed."
+            : "The pair is back and in order. It goes back on sale, or back on the partner's shelf.",
+          fields: owner === "seller" ? choose("stepThen", [["keep", "Keep it, back on sale"], ["send_back", "Send it back to the seller - he sends the label"]]) +
+            `<div class="field"><label for="stepNote">Note (optional)</label><input class="input" id="stepNote" maxlength="200"></div>` : "",
           go: "Received OK",
-          run: async () => { const { return: x } = await post(`${base}/receive`, { verdict: "ok" }); return x.result; }
+          run: async () => { const { return: x } = await post(`${base}/receive`, { verdict: "ok", then: $("stepThen")?.value || "", note: $("stepNote")?.value.trim() || "" }); return x.result; }
         });
       } else if (button.dataset.step === "receive-flaw") {
         openStep({
           title: `RET-${r.return_number}: received with a flaw`,
-          textValue: "Describe what is wrong. Our own pair goes to Troubled Stock; a seller's pair we have not paid yet goes back to him and comes off the payout.",
-          fields: `<div class="field"><label for="stepNote">The flaw</label><textarea class="input" id="stepNote" maxlength="300" required></textarea></div>`,
+          textValue: owner === "own"
+            ? "Describe what is wrong. Our own pair goes to Troubled Stock."
+            : "Describe what is wrong. Send it back and the seller is not owed (already paid: a refund to claim); keep it and it goes to Troubled Stock, the seller paid as normal.",
+          fields: (owner === "own" ? "" : choose("stepThen", [["send_back", "Send it back to the seller - he sends the label"], ["troubled", "Keep it - Troubled Stock"]])) +
+            `<div class="field"><label for="stepNote">The flaw</label><textarea class="input" id="stepNote" maxlength="300" required></textarea></div>`,
           go: "Save",
-          run: async () => { const { return: x } = await post(`${base}/receive`, { verdict: "flaw", note: $("stepNote").value.trim() }); return x.result; }
+          run: async () => { const { return: x } = await post(`${base}/receive`, { verdict: "flaw", then: $("stepThen")?.value || "", note: $("stepNote").value.trim() }); return x.result; }
         });
+      } else if (button.dataset.step === "seller-return") {
+        sellerReturnStep(r.id, NEXT_SELLER_STEP[r.seller_return_status]);
       } else if (button.dataset.step === "not-coming") {
         openStep({
           title: `RET-${r.return_number}: not coming back`,
-          textValue: "The buyer keeps it or it got lost. The unit becomes Lost, and booking the stock off again is left as a to-do.",
+          textValue: "The buyer keeps it or it got lost. The unit becomes Lost and the stock the cancel put back is booked to Voorraadverschillen.",
           fields: `<div class="field"><label for="stepNote">Why</label><input class="input" id="stepNote" maxlength="200"></div>`,
           go: "Close the return",
           run: async () => { await post(`${base}/not-coming`, { note: $("stepNote").value.trim() }); return "Closed."; }
@@ -779,11 +894,14 @@
         openStep({
           title: `RET-${r.return_number}: where is the pair?`,
           textValue: `${r.order_id} ended before it shipped (${r.marketplace_status || r.source}). Say where the pair is; the order, the unit and the books follow.`,
-          fields: `<div class="field"><label for="stepHeld">Where it is</label><select class="select" id="stepHeld">${Object.entries(HELD).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>
-            <div class="field"><label for="stepNote">Note (needed for "lost")</label><input class="input" id="stepNote" maxlength="200"></div>`,
+          fields: `<div class="field"><label for="stepOrder">What happens to the order?</label><select class="select" id="stepOrder"><option value="cancel">Cancel the order - the buyer no longer wants it</option><option value="keep">Keep the order, find another pair</option></select></div>
+            <div class="field"><label for="stepHeld">What happens to this pair?</label><select class="select" id="stepHeld">${Object.entries(HELD).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>
+            <div class="field" id="stepThenField" hidden><label for="stepThen">And then?</label><select class="select" id="stepThen">${Object.entries(IN_WAREHOUSE).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("")}</select></div>
+            <div class="field"><label for="stepNote">Reason or flaw (needed for lost, flawed, Troubled and sending back)</label><input class="input" id="stepNote" maxlength="200"></div>`,
           go: "Save",
-          run: async () => { await post(`${base}/decide`, { held: $("stepHeld").value, note: $("stepNote").value.trim() }); return "Done."; }
+          run: async () => { await post(`${base}/decide`, { held: $("stepHeld").value, then: $("stepHeld").value === "warehouse" ? $("stepThen").value : "", order_action: $("stepOrder").value, note: $("stepNote").value.trim() }); return "Done."; }
         });
+        $("stepHeld").addEventListener("change", () => { $("stepThenField").hidden = $("stepHeld").value !== "warehouse"; });
       } else if (button.dataset.step === "credit-invoice") {
         openStep({
           title: `RET-${r.return_number}: credit the invoice`,
@@ -793,6 +911,45 @@
         });
       }
     });
+
+    function sellerReturnStep(id, next) {
+      const r = state.rows.find((x) => x.id === id) || state.open;
+      openStep({
+        title: `RET-${r?.return_number || ""}: ${SELLER_RETURN[next]}`,
+        textValue: next === "label_received" ? "The seller sent his label. Add its tracking number if you have it."
+          : next === "shipped" ? "The pair has left: the unit becomes Void."
+          : "The seller has the pair again. This closes the return to him.",
+        fields: next === "delivered" ? "" : `<div class="field"><label for="stepTracking">Tracking number${next === "shipped" ? " (if not added yet)" : ""}</label><input class="input" id="stepTracking" maxlength="80" value="${esc(r?.seller_return_tracking || "")}"></div>`,
+        go: SELLER_RETURN[next],
+        run: async () => { await post(`/api/admin/returns/${id}/seller-return`, { step: next, tracking: $("stepTracking")?.value.trim() || "" }); return `${SELLER_RETURN[next]}.`; }
+      });
+    }
+
+    /*
+     * The list as an Excel file, for the quarterly round in Rompslomp. SheetJS
+     * is only fetched when someone exports.
+     */
+    async function exportList() {
+      if (!window.XLSX) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+          s.onload = resolve;
+          s.onerror = () => reject(new Error("The Excel library did not load."));
+          document.head.appendChild(s);
+        });
+      }
+      const rows = state.view === "returns_sellers"
+        ? state.rows.map((r) => ({ Return: `RET-${r.return_number}`, Since: day(r.seller_return_at || r.created_at), Order: r.order_id || "", SKU: r.sku || "", Size: r.size || "", Unit: r.item_id || "", Seller: r.seller_id || "", "Seller name": r.seller_name || "", Why: r.condition_note || r.reason || "", Status: SELLER_RETURN[r.seller_return_status] || "", Tracking: r.seller_return_tracking || "" }))
+        : listLines().map(({ r, t }) => ({ Return: `RET-${r.return_number}`, Since: day(r.created_at), Order: r.order_id || "", "Shopify order": r.shopify_order_number || "", SKU: r.sku || "", Size: r.size || "", Unit: r.item_id || "", "Seller / store": r.seller_id || r.store_name || "", "To do": t.text }));
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, "List");
+      const name = (TABS.find((x) => x.key === state.view)?.label || "list").toLowerCase().replace(/\s+/g, "-");
+      XLSX.writeFile(book, `${name}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    }
+
+    $("exportList").addEventListener("click", () => exportList().catch((err) => toast(err.message)));
 
     function troubleStep(action, unit, item) {
       const say = { on_sale: "Back on sale", to_seller: "Sent back to the seller", write_off: "Write off" }[action];

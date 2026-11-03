@@ -4,40 +4,44 @@
 // one road it takes back into stock or out of the books. Agreed with Dario on
 // 02-11-2026; the rules below are his.
 //
-// A cancel starts with one question: did the pair leave?
+// The whole flow is written out in the doc "Cancel- en retourflow"
+// (03-11-2026). A cancel asks two questions:
 //
-//   Not shipped   where is it now?
-//     in our warehouse    back on sale (Available); a seller who sent it to
-//                         us is paid as normal
-//     seller has it       back in his consignment stock, unit Void, not owed
-//     seller lost it      unit Void, not owed
-//     partner pair        back on the partner's shelf, unit Void, not owed
-//   Shipped       what happens to it?
-//     Return              a return is expected; the scan in the WMS decides
-//     Store Consign       stays at the buyer, Available with a Location
-//     Lost                gone - the stock stays written off
-//     Written Off         the buyer keeps it - Void, the reason on the unit
+//   What happens to the order?
+//     cancel   the buyer no longer wants it: Cancelled, or Returned
+//     keep     we find another pair: back to Outsource, the invoice fields
+//              cleared and Retry Invoice ticked, so the new pair is invoiced
 //
-// What the scan decides, on a pair that came back:
+//   Was the pair shipped?  No, not shipped yet -> what happens to this pair?
+//     consignor_has   back in his consignment stock   Void, Cancelled, not owed
+//     consignor_gone  the seller does not have it     Void, Cancelled, not owed
+//     flawed          the seller's pair is flawed     Void, Rejected, not owed
+//     warehouse       in our warehouse, and then:
+//        keep         back on sale                    the seller is paid
+//        send_back    back to the seller, his label   Inactive, Rejected, not owed
+//        troubled     flawed, we keep it              Troubled, the seller is paid
+//     partner         back on the partner's shelf     Void, Cancelled, not owed
+//     lost            lost here                       Lost, the seller is paid
 //
-//   OK    our own pair, or a seller's        back on sale; the seller is paid
-//         a partner's we had not paid yet    back on his shelf, not owed
-//         a partner's we had already paid    another of his To Pay pairs at
-//                                            the same price is settled with
-//                                            that money; none -> ours
-//   Flaw  our own pair                       Troubled Stock
-//         a seller's / partner's, unpaid     back to him, not owed
-//         a seller's / partner's, paid       Troubled Stock, money to claim
+//   Yes -> what happens to this pair?
+//     return          comes back; the WMS scan decides (OK or flaw, and for a
+//                     seller's pair: keep it or send it back)
+//     store_consign   stays at the buyer, Available with a Location
+//     lost            lost by the carrier             Lost
+//     written_off     the buyer keeps it              Void, Written Off
 //
-// The books follow every cancel: the sales invoice is credited (only this
-// order's line on a collective invoice), the stock correction is reversed
-// unless the pair is gone, and a purchase that is undone is credited. Their
-// API cannot tie a payment to a document, so where no money moved the two
-// documents get a matching pair of payments on Kruisposten with a description
-// that says what they are; Dario links them from Rompslomp's suggestions.
+// The books follow every cancel, in three layers, and everything that can be
+// booked is booked here - Dario only links payments (03-11-2026):
+//   buyer    the sales invoice credited (only this order's line on a
+//            collective one); unpaid -> a pair on Kruisposten, paid -> a refund
+//   seller   an undone purchase credited; unpaid -> a pair on Kruisposten,
+//            paid -> a refund to claim
+//   stock    the stock correction reversed when the pair is back with us or
+//            the seller; a pair that is gone moves to Voorraadverschillen
 //
-// Anything that is left for a person to do is a `todo` on the return, shown
-// on the Returns tab until it is ticked off.
+// What is left for a person is a `todo` on the return, shown on the Returns
+// tab until it is ticked off. A pair going back to its seller is tracked on
+// the return itself (seller_return_status).
 
 import { creditInvoiceBody } from "./externalSalesInvoicing.js";
 import { invoicePlan, pickContact } from "./adminCollectiveInvoices.js";
@@ -86,20 +90,54 @@ export const CANCELLABLE = [
   "Ready to Ship", "Fulfilled", "Store Fulfilled"
 ];
 
-export const HELD = {
-  warehouse: "In our warehouse - back on sale",
-  consignor_has: "The seller still has it - back in his consignment stock",
-  consignor_gone: "The seller no longer has it - void",
-  partner: "Partner pair, still here - back on the partner's shelf",
-  lost: "Lost here, we cannot find it - the seller is still paid"
+export const ORDER_ACTIONS = {
+  cancel: "Cancel the order - the buyer no longer wants it",
+  keep: "Keep the order, find another pair"
 };
 
-export const OUTCOMES = {
-  return: "Return - it comes back to us",
-  store_consign: "Store Consign - stays at the buyer, we can sell it",
-  lost: "Lost on the way",
-  written_off: "Written Off - the buyer keeps it"
+// Not shipped yet: what happens to this pair? (wording Dario's, 03-11-2026)
+export const HELD = {
+  consignor_has: "Consignor has the pair, add back to consignment",
+  consignor_gone: "Seller doesn't have it, void pair",
+  flawed: "Pair is flawed, void pair",
+  warehouse: "In our warehouse",
+  partner: "Partner pair, here - back on the partner's shelf",
+  lost: "Lost here - the seller is still paid"
 };
+
+// In our warehouse: and then?
+export const IN_WAREHOUSE = {
+  keep: "Keep it, back on sale",
+  send_back: "Send it back to the seller - he sends the label",
+  troubled: "It has a flaw, we keep it - Troubled Stock"
+};
+
+// Shipped: what happens to this pair?
+export const OUTCOMES = {
+  return: "It comes back to us - scan it when it arrives",
+  store_consign: "The buyer keeps it to sell for us (Store Consign)",
+  lost: "Lost by the carrier",
+  written_off: "The buyer keeps it - write it off"
+};
+
+// A pair on its way back to its seller, who sends the label and pays for it.
+export const SELLER_RETURN = {
+  label_requested: "Label requested",
+  label_received: "Label received",
+  shipped: "Shipped",
+  delivered: "Delivered"
+};
+
+// The todo kinds per list on the Returns tab.
+export const TODO_LISTS = {
+  refunds_buyers: ["refund_store", "marketplace_settle"],
+  refunds_sellers: ["claim_seller"],
+  rompslomp: ["link_kruispost", "credit_by_hand", "journal_by_hand", "credit_purchase", "move_payment", "credit_invoice"]
+};
+
+// Kickz Caviar B.V.'s stock and the account a pair that is gone moves to.
+const STOCK_ACCOUNT = { id: 1981496874, path: "activa.current_assets.voorraad_scout_custom" };
+const SHRINK_ACCOUNT = { id: 2146917640, path: "profit.costs.voorraad_mutatie_custom" };
 
 // Whose pair the unit is, which decides who is owed what.
 export function ownerOf(unit = {}) {
@@ -287,12 +325,31 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     }
   }
 
+  // One journal entry, made once: found back by its description.
+  async function journalOnce({ description, amount, debit, credit }) {
+    const existing = (await rompslomp.recentJournals(2).catch(() => [])).find((j) => text(j.description) === description);
+    if (existing) return false;
+    await rompslomp.createJournal({
+      journal_entry: {
+        description,
+        date: today(),
+        lines: [
+          { account_id: debit.id, account_path: debit.path, debit_amount: String(amount), credit_amount: null },
+          { account_id: credit.id, account_path: credit.path, debit_amount: null, credit_amount: String(amount) }
+        ]
+      }
+    });
+    return true;
+  }
+
   /*
-   * Credit what this order was invoiced, and reverse its stock correction
-   * unless the pair is gone. Safe to run twice: the credit is found back by
-   * its api_reference, the journal by its description.
+   * Credit what this order was invoiced, and put its stock where the pair
+   * now is: back into stock when it is with us or the seller again, onto
+   * Voorraadverschillen when it is gone (lost, or kept by the buyer). Safe to
+   * run twice: the credit is found back by its api_reference, the journals by
+   * their description.
    */
-  async function creditSale(order, unit, merchant, { stockBack, log, todos }) {
+  async function creditSale(order, unit, merchant, { stockBack, gone = false, log, todos }) {
     const o = order.fields;
     const orderId = orderLabel(order);
 
@@ -301,6 +358,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       return;
     }
 
+    // Member WTBs have no invoice flow yet (Dario, 03-11-2026).
     if (order.table === "mwtb") {
       if (o["Invoice Sent?"]) todos.push(todo(`Credit the invoice of ${orderId} in Rompslomp by hand: Member WTB invoices are not linked to the order.`, "credit_by_hand"));
       return;
@@ -319,6 +377,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       if (!bookkeeping || ["To book – marketplace", "Awaiting self-billing"].includes(bookkeeping)) {
         await airtable.update(ORDERS, order.id, { "Bookkeeping Status": "Cancelled" }, { typecast: true });
         log.push(bookkeeping ? `Not invoiced (${bookkeeping}): Bookkeeping Status is now Cancelled.` : "Not invoiced: nothing to credit.");
+        if (gone && unit) todos.push(todo(`${orderId} was never invoiced, so no stock correction took ${text(unit.fields["Item ID"])} off stock: book it from Voorraad Scout to Voorraadverschillen by hand.`, "journal_by_hand"));
       } else {
         todos.push(todo(`${orderId} is "${bookkeeping}" but no invoice was found in Rompslomp. Credit it by hand.`, "credit_by_hand"));
       }
@@ -351,22 +410,26 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       const description = `Voorraadcorrectie ${credit.invoice_number}`;
 
       if (plan && cost > 0) {
-        const existing = (await rompslomp.recentJournals(2).catch(() => [])).find((j) => text(j.description) === description);
-        if (!existing) {
-          await rompslomp.createJournal({
-            journal_entry: {
-              description,
-              date: today(),
-              lines: [
-                { account_id: 1981496874, account_path: "activa.current_assets.voorraad_scout_custom", debit_amount: String(cost), credit_amount: null },
-                { account_id: plan.costAccountId, account_path: plan.costAccountPath || "profit.costs.sneakers_custom", debit_amount: null, credit_amount: String(cost) }
-              ]
-            }
-          });
-        }
+        await journalOnce({ description, amount: cost, debit: STOCK_ACCOUNT, credit: { id: plan.costAccountId, path: plan.costAccountPath || "profit.costs.sneakers_custom" } });
         log.push(`${description}: € ${cost.toFixed(2)} back into stock.`);
       } else {
         todos.push(todo(`Book the stock of ${orderId} back by hand: no purchase price to reverse the Voorraadcorrectie with.`, "journal_by_hand"));
+      }
+    } else if (gone && unit) {
+      /*
+        The pair is gone and nothing was sold: its cost does not belong on
+        the cost of sales (for a margin pair that would shrink the margin
+        VAT), but on Voorraadverschillen.
+      */
+      const plan = invoicePlan({ vatType: first(o["VAT Type"]), storeCountry: merchant?.Country, clientCountry: first(o["Client Country"]) });
+      const cost = plan ? round2(unit.fields[plan.costAmountField]) : 0;
+      const description = `Voorraadverschillen ${credit.invoice_number}`;
+
+      if (plan && cost > 0) {
+        await journalOnce({ description, amount: cost, debit: SHRINK_ACCOUNT, credit: { id: plan.costAccountId, path: plan.costAccountPath || "profit.costs.sneakers_custom" } });
+        log.push(`${description}: € ${cost.toFixed(2)} from the cost of sales to Voorraadverschillen, the pair is gone.`);
+      } else {
+        todos.push(todo(`Book the cost of ${orderId} to Voorraadverschillen by hand: no purchase price on the unit.`, "journal_by_hand"));
       }
     } else if (!stockBack) {
       log.push("The stock correction stays: the pair is gone.");
@@ -598,7 +661,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const open = unit ? await openReturnFor(unit.id, order.id) : null;
 
     // The likeliest first: a partner's pair is on our shelf, a seller's with him.
-    const held = [...(owner === "partner" ? ["partner", "warehouse"] : owner === "seller" ? ["consignor_has", "consignor_gone", "warehouse"] : ["warehouse"]), "lost"];
+    const held = [...(owner === "partner" ? ["partner", "warehouse"] : owner === "seller" ? ["consignor_has", "consignor_gone", "flawed", "warehouse"] : ["warehouse"]), "lost"];
+    const inWarehouse = owner === "own" ? ["keep", "troubled"] : ["keep", "send_back", "troubled"];
 
     const locs = await locationChoices().catch(() => []);
     const notes = [];
@@ -608,9 +672,10 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
     return {
       blocked: open ? `There is already an open return for this pair (RET-${open.return_number}). Find it under Warehouse > Returns.` : "",
-      prefill: { shipped: shipped ? "shipped" : "not_shipped", outcome: "return", held: held[0] },
+      prefill: { order_action: "cancel", shipped: shipped ? "shipped" : "not_shipped", outcome: "return", held: held[0], warehouse: "keep" },
       selects: {
         held: [...new Set(held)].map((value) => ({ value, label: HELD[value] })),
+        warehouse: inWarehouse.map((value) => ({ value, label: IN_WAREHOUSE[value] })),
         location: [...locs.map((value) => ({ value, label: value })), { value: "__new", label: "+ Add location…" }]
       },
       note: [unit ? `${text(unit.fields["Item ID"])} · ${text(unit.fields.Type) || "unit"}${unit.fields["Seller ID (Lookup)"] ? ` · ${text(first(unit.fields["Seller ID (Lookup)"]))}` : ""} · ${text(unit.fields["Payment Status"])}` : "", ...notes].filter(Boolean).join("\n")
@@ -633,14 +698,19 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const unit = await unitOf(order);
     const merchant = table === "store" ? await merchantOf(order) : null;
     const orderId = orderLabel(order);
+    const keep = text(input.order_action) === "keep";
     const shipped = text(input.shipped) === "shipped";
     const outcome = text(input.outcome);
     const held = text(input.held);
+    const then = held === "warehouse" ? text(input.warehouse) || "keep" : "";
     const reason = text(input.reason).slice(0, 300);
 
+    if (text(input.order_action) && !ORDER_ACTIONS[text(input.order_action)]) throw new ReturnsError("Choose what happens to the order.", 400);
     if (shipped && !OUTCOMES[outcome]) throw new ReturnsError("Choose what happens to the pair.", 400);
-    if (!shipped && !HELD[held]) throw new ReturnsError("Choose where the pair is now.", 400);
+    if (!shipped && !HELD[held]) throw new ReturnsError("Choose what happens to the pair.", 400);
+    if (then && !IN_WAREHOUSE[then]) throw new ReturnsError("Choose what we do with the pair in our warehouse.", 400);
     if (shipped && outcome === "written_off" && !reason) throw new ReturnsError("Say why the pair is written off: it goes on the unit.", 400);
+    if ((held === "flawed" || then === "troubled" || then === "send_back") && !reason) throw new ReturnsError("Describe the flaw or the reason: it goes on the unit.", 400);
 
     let location = "";
     if (shipped && outcome === "store_consign") {
@@ -656,21 +726,25 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
     const owner = unit ? ownerOf(unit.fields) : "own";
     if (!shipped && held === "partner" && owner !== "partner") throw new ReturnsError("This is not a partner pair.", 400);
-    if (!shipped && ["consignor_has", "consignor_gone"].includes(held) && owner === "own") throw new ReturnsError("This pair has no seller to give it back to.", 400);
+    if (!shipped && ["consignor_has", "consignor_gone", "flawed"].includes(held) && owner === "own") throw new ReturnsError("This pair has no seller to give it back to.", 400);
+    if (then === "send_back" && owner === "own") throw new ReturnsError("This is our own pair: there is no seller to send it back to.", 400);
     if (!shipped && held === "lost" && !reason) throw new ReturnsError("Say what happened to the pair: it goes on the unit.", 400);
 
     const log = [];
     const todos = [];
-    const stockBack = shipped ? ["return", "store_consign"].includes(outcome) : held !== "lost";
+    const gone = shipped ? ["lost", "written_off"].includes(outcome) : held === "lost";
+    const stockBack = !gone;
+    let sellerReturn = null;
 
     // 1. The books.
-    await creditSale(order, unit, merchant, { stockBack, log, todos });
+    await creditSale(order, unit, merchant, { stockBack, gone, log, todos });
 
     // 2. The pair.
     const buyer = text(first(order.fields["Store Name"])) || text(merchant?.["Store Name"]) || "the buyer";
+    const ended = keep ? `${orderId} kept for another pair` : `${orderId} cancelled`;
     const story = shipped
       ? { return: `Return from ${buyer}`, store_consign: `At ${location}`, lost: `Lost on the way to ${buyer}`, written_off: `Written off, kept by ${buyer}` }[outcome]
-      : held === "lost" ? `Not shipped, ${orderId} cancelled, pair lost here` : `Not shipped, ${orderId} cancelled`;
+      : held === "lost" ? `Not shipped, ${ended}, pair lost here` : held === "flawed" ? `Not shipped, ${ended}, pair flawed` : `Not shipped, ${ended}`;
     const note = `${story} (${orderId}, ${ddmmyyyy()})${reason ? `: ${reason}` : ""}`;
     let status = "done";
     let partnerStockId = null;
@@ -680,7 +754,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
         const fields = {
           return: { "Availability Status": "Returning", "Cancel Status": "Return" },
           store_consign: { ...onSale(unit, note), "Cancel Status": "Store Consign", Location: location },
-          lost: { "Availability Status": "Lost", "Cancel Status": "Lost" },
+          lost: { "Availability Status": "Lost", "Cancel Status": "Lost", "Verification Status": "Lost" },
           written_off: { "Availability Status": "Void", "Cancel Status": "Written Off" }
         }[outcome];
         if (!fields["Item Condition"]) fields["Item Condition"] = conditionWith(note, text(unit.fields["Item Condition"]));
@@ -690,15 +764,25 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
         if (outcome === "return" && owner === "partner") partnerStockId = await holdPartnerPair(unit, `${orderId}, ${buyer}`);
       } else if (held === "lost") {
         // Ours to lose: the seller is owed as if it sold, and it is off stock.
-        await airtable.update(UNITS, unit.id, { "Availability Status": "Lost", "Cancel Status": "Lost", "Item Condition": conditionWith(note, text(unit.fields["Item Condition"])) }, { typecast: true });
+        await airtable.update(UNITS, unit.id, { "Availability Status": "Lost", "Cancel Status": "Lost", "Verification Status": "Lost", "Item Condition": conditionWith(note, text(unit.fields["Item Condition"])) }, { typecast: true });
         log.push(`${text(unit.fields["Item ID"])}: Lost here; ${owner === "own" ? "off stock" : "the seller is still paid"}.`);
-        todos.push(todo(`${orderId}: ${text(unit.fields["Item ID"])} is lost in our warehouse. Book it off stock (Voorraadverschillen) at the year end.`, "journal_by_hand"));
-      } else if (held === "warehouse") {
+      } else if (held === "warehouse" && then === "keep") {
         await airtable.update(UNITS, unit.id, { ...onSale(unit, note), "Cancel Status": "Return" });
         log.push(`${text(unit.fields["Item ID"])} back on sale.`);
+      } else if (held === "warehouse" && then === "troubled") {
+        await airtable.update(UNITS, unit.id, { "Availability Status": "Troubled", "Cancel Status": "Return", "Item Condition": conditionWith(note, text(unit.fields["Item Condition"])) }, { typecast: true });
+        log.push(`${text(unit.fields["Item ID"])}: Troubled Stock${owner === "own" ? "" : "; the seller is paid as normal"}.`);
+      } else if (held === "warehouse" && then === "send_back") {
+        sellerReturn = await sendBack(unit, { owner, note, label: orderId, log });
+        await undoPurchase(order, unit, { reason: "sent back to the seller", log, todos });
       } else {
-        const why = held === "partner" ? "back on the partner's shelf" : held === "consignor_has" ? "the seller keeps it" : "the seller no longer has it";
-        await airtable.update(UNITS, unit.id, { "Availability Status": "Void", "Cancel Status": "Return", "Item Condition": conditionWith(note, text(unit.fields["Item Condition"])) });
+        const why = held === "partner" ? "back on the partner's shelf" : held === "consignor_has" ? "the seller keeps it" : held === "flawed" ? "the pair is flawed, the seller keeps it" : "the seller no longer has it";
+        await airtable.update(UNITS, unit.id, {
+          "Availability Status": "Void",
+          "Cancel Status": "Return",
+          "Verification Status": held === "flawed" ? "Rejected" : "Cancelled",
+          "Item Condition": conditionWith(note, text(unit.fields["Item Condition"]))
+        }, { typecast: true });
         if (held === "partner") {
           partnerStockId = await partnerShelf(unit, { note: `Back from ${orderId}: not shipped` });
           log.push(`Back on ${text(first(unit.fields["Seller ID (Lookup)"]))}'s shelf.`);
@@ -708,19 +792,25 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       }
     }
 
-    // 3. The order.
-    const orderStatus = shipped && outcome === "return" && table === "store" ? "Returned" : "Cancelled";
-    await airtable.update(table === "mwtb" ? WTBS : ORDERS, order.id, { "Fulfillment Status": orderStatus }, { typecast: true });
-    log.push(`${orderId}: ${orderStatus}.`);
+    // 3. The order: ended, or open again for another pair.
+    if (keep) {
+      await reopenOrder(order, log);
+    } else {
+      const orderStatus = shipped && outcome === "return" && table === "store" ? "Returned" : "Cancelled";
+      await airtable.update(table === "mwtb" ? WTBS : ORDERS, order.id, { "Fulfillment Status": orderStatus }, { typecast: true });
+      log.push(`${orderId}: ${orderStatus}.`);
+    }
 
+    const pairResult = shipped ? OUTCOMES[outcome] : then ? `${HELD[held]}: ${IN_WAREHOUSE[then]}` : HELD[held];
     const row = await recordReturn({
       source: table === "mwtb" ? "member_wtb" : "store_order",
       status,
       shipped,
       ...snapshot(order, unit, merchant),
       partner_stock_id: partnerStockId,
+      ...(sellerReturn ? { seller_return_status: "label_requested", seller_return_at: new Date().toISOString() } : {}),
       reason: reason || null,
-      result: shipped ? OUTCOMES[outcome] : HELD[held],
+      result: keep ? `Order kept, back to Outsource. ${pairResult}` : pairResult,
       processed_at: status === "done" ? new Date().toISOString() : null,
       todo: todos,
       log: log.map((line) => ({ at: new Date().toISOString(), by, line })),
@@ -730,10 +820,106 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     return {
       return_id: row?.id,
       return_number: row?.return_number,
-      message: [`${orderId} cancelled.`, ...log, ...todos.map((t) => `To do: ${t.text}`)].join(" "),
+      message: [keep ? `${orderId} is back in Outsource.` : `${orderId} cancelled.`, ...log, ...todos.map((t) => `To do: ${t.text}`)].join(" "),
       log,
       todos
     };
+  }
+
+  /*
+   * Keep the order: it goes back to Outsource for another pair. Everything
+   * of the old pair comes off it - the unit, the shipment and the invoice -
+   * and Retry Invoice makes the engine invoice the new pair, at its own
+   * price, once it is allocated. Fulfillment Sent? stays: that is Shopify's
+   * step, done once. The old invoice numbers stay in the return's log.
+   */
+  async function reopenOrder(order, log) {
+    const orderId = orderLabel(order);
+
+    if (order.table === "mwtb") {
+      await airtable.update(WTBS, order.id, {
+        "Fulfillment Status": "Outsource",
+        "Linked Inventory Unit": [],
+        "Shipping Status": null,
+        "Tracking Number": "",
+        "Tracking URL": null,
+        "Shipping Label": [],
+        "Shipping Label Permanent URL": null,
+        "Label Sent To Discord?": false,
+        "Label Uploaded At": null,
+        "Label Requested At": null
+      }, { typecast: true });
+      log.push(`${orderId}: open again (Outsource), without its pair.`);
+      return;
+    }
+
+    await airtable.update(ORDERS, order.id, {
+      "Fulfillment Status": "Outsource",
+      "Linked Inventory Unit": [],
+      "Shipping Status": null,
+      "Tracking Number": "",
+      "Tracking URL": "",
+      "Shipping Label": [],
+      "Shipping Label URL (Permanent)": "",
+      "Label Sent To Discord?": false,
+      "Label Error Message": "",
+      "Inbound Tracking Number": "",
+      "Inbound Label URL": null,
+      "Rompslomp Invoice ID": "",
+      "Rompslomp Invoice Number": "",
+      "Rompslomp Journal Entry ID": "",
+      "Rompslomp Credit Invoice Number": "",
+      "Invoice Sent At": null,
+      "Invoice Error": "",
+      "Invoice Status": null,
+      "Bookkeeping Status": null,
+      "Retry Invoice": true
+    }, { typecast: true });
+    log.push(`${orderId}: back to Outsource without its pair; the next pair gets a new invoice.`);
+  }
+
+  /*
+   * A pair that goes back to its seller from our warehouse. He sends the
+   * label and pays for it; until it ships the unit is Inactive, so it is
+   * neither sold nor counted, and Rejected says why.
+   */
+  async function sendBack(unit, { owner, note, label, log, held = "" }) {
+    await airtable.update(UNITS, unit.id, {
+      "Availability Status": "Inactive",
+      "Cancel Status": "Return",
+      "Verification Status": "Rejected",
+      "Item Condition": conditionWith(`${note}; goes back to the seller`, text(unit.fields["Item Condition"]))
+    }, { typecast: true });
+    if (owner === "partner") await partnerShelf(unit, { status: "removed", note: `Sent back to the partner from ${label}`, held });
+    log.push(`${text(unit.fields["Item ID"])} goes back to ${text(first(unit.fields["Seller ID (Lookup)"])) || "the seller"}: waiting for his label.`);
+    return true;
+  }
+
+  /*
+   * The return to the seller, a step at a time. Shipped is when the pair is
+   * really gone from us: then the unit is Void.
+   */
+  async function sellerReturnStep(id, { step, tracking = "", by = "" } = {}) {
+    const row = await getReturn(id);
+    const order = Object.keys(SELLER_RETURN);
+    if (!row.seller_return_status) throw new ReturnsError("This pair is not going back to its seller.");
+    if (!SELLER_RETURN[step]) throw new ReturnsError("Unknown step.", 400);
+    if (order.indexOf(step) <= order.indexOf(row.seller_return_status)) throw new ReturnsError(`Already ${SELLER_RETURN[row.seller_return_status]}.`);
+
+    if (step === "shipped" && row.inventory_unit_record_id) {
+      const unit = (await airtable.byIds(UNITS, [row.inventory_unit_record_id], ["Item Condition"])).get(row.inventory_unit_record_id) || {};
+      await airtable.update(UNITS, row.inventory_unit_record_id, {
+        "Availability Status": "Void",
+        "Item Condition": conditionWith(`Sent back to the seller${text(tracking) ? ` (${text(tracking)})` : ""} (RET-${row.return_number}, ${ddmmyyyy()})`, text(unit["Item Condition"]))
+      });
+    }
+
+    return saveReturn(row.id, {
+      seller_return_status: step,
+      seller_return_at: new Date().toISOString(),
+      ...(text(tracking) ? { seller_return_tracking: text(tracking).slice(0, 80) } : {}),
+      log: [...(row.log || []), { at: new Date().toISOString(), by, line: `Back to the seller: ${SELLER_RETURN[step]}${text(tracking) ? ` (${text(tracking)})` : ""}.` }]
+    });
   }
 
   /* ---------------- from the marketplaces ---------------- */
@@ -856,21 +1042,23 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
    * A return waiting for a decision (the sale ended before it shipped):
    * the same choice as the Cancel dialog's "not shipped".
    */
-  async function decide(id, { held, note = "", by = "" } = {}) {
+  async function decide(id, { held, then = "", orderAction = "", note = "", by = "" } = {}) {
     const row = await getReturn(id);
     if (row.status !== "to_decide") throw new ReturnsError("This return is not waiting for a decision.");
     if (!row.order_record_id) throw new ReturnsError("This return has no order to work from.");
 
-    const result = await cancelOrderFromReturn(row, { held, note, by });
+    const result = await cancelOrderFromReturn(row, { held, then, orderAction, note, by });
     return result;
   }
 
-  async function cancelOrderFromReturn(row, { held, note = "", by }) {
+  async function cancelOrderFromReturn(row, { held, then = "", orderAction = "", note = "", by }) {
     // Clear the waiting row first, so the cancel does not refuse on it.
     await saveReturn(row.id, { status: "cancelled", result: "Replaced by the decision" });
     try {
       // It did leave after all: then it is an ordinary return, on its way back.
-      const input = held === "coming_back" ? { shipped: "shipped", outcome: "return" } : { shipped: "not_shipped", held, reason: note };
+      const input = held === "coming_back"
+        ? { shipped: "shipped", outcome: "return" }
+        : { shipped: "not_shipped", held, warehouse: then, order_action: orderAction, reason: note };
       const out = await cancelOrder({ table: row.order_table || "store", recordId: row.order_record_id, input, by });
       // The new row takes over the marketplace's facts and the RET number.
       if (out.return_id) {
@@ -1008,7 +1196,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
    * The box is in hand: OK or flaw. Everything that follows from that is
    * done here, so the person at the scanner only answers that one question.
    */
-  async function receive(id, { verdict, note = "", by = "", barcode = "" } = {}) {
+  async function receive(id, { verdict, then = "", note = "", by = "", barcode = "" } = {}) {
     let row = await getReturn(id);
     // Scanned while still waiting for a decision: it did ship and came back.
     if (row.status === "to_decide") {
@@ -1026,6 +1214,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const todos = [...(row.todo || [])];
     const label = `RET-${row.return_number}`;
     let result = "";
+    let sellerReturn = false;
 
     const unit = row.inventory_unit_record_id
       ? (await airtable.byIds(UNITS, [row.inventory_unit_record_id], UNIT_FIELDS)).get(row.inventory_unit_record_id)
@@ -1070,23 +1259,26 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
             await releasePartnerHold(row.partner_stock_id, `${label}, ours now`);
             result = "Ours now: back on sale (the partner was paid and has no other pair to settle it with)";
           }
+        } else if (owner === "seller" && then === "send_back") {
+          // OK, but we do not want it: it goes back and the purchase with it.
+          sellerReturn = await sendBack(u, { owner, note: stamp, label, log });
+          await undoPurchase(orderForBooks, u, { reason: "returned OK, sent back to the seller", log, todos });
+          result = "Back to the seller (not owed)";
         } else {
           await airtable.update(UNITS, u.id, { ...onSale(u, stamp), "Cancel Status": "Return" });
           result = owner === "seller" ? "Back on sale; the seller is paid as normal" : "Back on sale";
         }
-      } else if (owner === "own" || paid) {
+      } else if (owner === "own" || then === "troubled") {
+        // Ours, or a seller's we keep as it is: Troubled, and he is paid.
         await airtable.update(UNITS, u.id, { "Availability Status": "Troubled", "Item Condition": conditionWith(stamp, text(unit["Item Condition"])) }, { typecast: true });
-        result = "Troubled Stock";
-        if (owner === "partner") await releasePartnerHold(row.partner_stock_id, `${label}, flawed, ours now`);
-        if (owner !== "own") {
-          todos.push(todo(`${row.seller_name || row.seller_id} was already paid € ${round2(unit["Purchase Price"]).toFixed(2)} for this flawed pair: claim it back, then send the pair back (see Troubled Stock).`, "claim_seller"));
-        }
+        result = owner === "own" ? "Troubled Stock" : "Troubled Stock; the seller is paid as normal";
+        if (owner === "partner") await releasePartnerHold(row.partner_stock_id, `${label}, flawed, kept by us`);
       } else {
-        await airtable.update(UNITS, u.id, { "Availability Status": "Void", "Item Condition": conditionWith(stamp, text(unit["Item Condition"])) });
-        if (owner === "partner") await partnerShelf(u, { status: "removed", note: `Returned with a flaw from ${row.order_id} (${label}): ${text(note)} - back to the partner`, held: row.partner_stock_id });
+        // A seller's or partner's flawed pair goes back to him, not owed; one
+        // already paid gets a refund to claim (undoPurchase says so).
+        sellerReturn = await sendBack(u, { owner, note: stamp, label, log, held: row.partner_stock_id });
         await undoPurchase(orderForBooks, u, { reason: "returned with a flaw, goes back to the seller", log, todos });
-        todos.push(todo(`Send ${row.sku} ${row.size} back to ${row.seller_name || row.seller_id} (${row.seller_id}): ${text(note)}.`, "send_back"));
-        result = "Back to the seller (not owed)";
+        result = paid ? "Back to the seller; he was paid, the refund is to claim" : "Back to the seller (not owed)";
       }
     }
 
@@ -1096,6 +1288,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     return saveReturn(row.id, {
       status: "done",
       verdict,
+      ...(sellerReturn ? { seller_return_status: "label_requested", seller_return_at: new Date().toISOString() } : {}),
       condition_note: text(note) || null,
       received_at: new Date().toISOString(),
       received_by: by || null,
@@ -1126,23 +1319,40 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
   /*
    * An expected return that is not coming: the buyer kept it, or it got lost.
-   * The invoice was credited and the stock put back when it was cancelled,
-   * so the stock has to come out again - that is left to do by hand.
+   * The cancel put the stock back as if the pair were here, so it comes out
+   * again, onto Voorraadverschillen - by the amount the cancel put back,
+   * which its log says. The seller is paid as if it sold.
    */
   async function notComing(id, { note = "", by = "" } = {}) {
     const row = await getReturn(id);
     if (row.status !== "expected") throw new ReturnsError("Only an expected return can be closed as not coming.");
     if (row.inventory_unit_record_id) {
-      await airtable.update(UNITS, row.inventory_unit_record_id, { "Availability Status": "Lost", "Cancel Status": "Lost" }, { typecast: true });
+      await airtable.update(UNITS, row.inventory_unit_record_id, { "Availability Status": "Lost", "Cancel Status": "Lost", "Verification Status": "Lost" }, { typecast: true });
     }
     await releasePartnerHold(row.partner_stock_id, `RET-${row.return_number}`);
-    const todos = [...(row.todo || []), todo(`${row.order_id}: the pair never came back. Book it off stock again (Voorraadcorrectie) and settle the payout of ${row.seller_id || "the seller"} if he was owed.`, "journal_by_hand")];
+
+    const log = [`Closed as not coming back${text(note) ? `: ${text(note)}` : ""}.`];
+    const todos = [...(row.todo || [])];
+    const putBack = (row.log || []).map((l) => /^Voorraadcorrectie (\S+): € ([\d.]+) back into stock/.exec(text(l.line))).find(Boolean);
+
+    if (putBack && rompslomp?.configured) {
+      const description = `Voorraadverschillen ${putBack[1]}`;
+      try {
+        await journalOnce({ description, amount: round2(putBack[2]), debit: SHRINK_ACCOUNT, credit: STOCK_ACCOUNT });
+        log.push(`${description}: € ${round2(putBack[2]).toFixed(2)} off stock again, the pair never came back.`);
+      } catch (err) {
+        todos.push(todo(`${row.order_id}: book € ${round2(putBack[2]).toFixed(2)} from Voorraad Scout to Voorraadverschillen by hand (${err.message}).`, "journal_by_hand"));
+      }
+    } else if (putBack) {
+      todos.push(todo(`${row.order_id}: book € ${round2(putBack[2]).toFixed(2)} from Voorraad Scout to Voorraadverschillen by hand.`, "journal_by_hand"));
+    }
+
     return saveReturn(row.id, {
       status: "cancelled",
       result: `Not coming back${text(note) ? `: ${text(note)}` : ""}`,
       processed_at: new Date().toISOString(),
       todo: todos,
-      log: [...(row.log || []), { at: new Date().toISOString(), by, line: `Closed as not coming back${text(note) ? `: ${text(note)}` : ""}.` }]
+      log: [...(row.log || []), ...log.map((line) => ({ at: new Date().toISOString(), by, line }))]
     });
   }
 
@@ -1165,7 +1375,22 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
   async function tick(id, todoId, done = true, by = "") {
     const row = await getReturn(id);
+    const item = (row.todo || []).find((t) => t.id === todoId);
     const list = (row.todo || []).map((t) => (t.id === todoId ? { ...t, done: Boolean(done), done_by: by, done_at: new Date().toISOString() } : t));
+
+    /*
+      A seller's refund received: we are not owed anything any more and
+      neither is he, so Payment Status goes empty. Payment Note stays - it
+      is the code of the bank payment that paid him.
+    */
+    if (item?.kind === "claim_seller" && done && !item.done && row.inventory_unit_record_id) {
+      const unit = (await airtable.byIds(UNITS, [row.inventory_unit_record_id], ["Item Condition"])).get(row.inventory_unit_record_id) || {};
+      await airtable.update(UNITS, row.inventory_unit_record_id, {
+        "Payment Status": null,
+        "Item Condition": conditionWith(`Refund from the seller received (RET-${row.return_number}, ${ddmmyyyy()})`, text(unit["Item Condition"]))
+      });
+    }
+
     return saveReturn(row.id, { todo: list });
   }
 
@@ -1176,6 +1401,10 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     to_decide: "to_decide",
     expected: "expected",
     todo: "",
+    refunds_buyers: "",
+    refunds_sellers: "",
+    returns_sellers: "",
+    rompslomp: "",
     done: "done,cancelled",
     all: ""
   };
@@ -1184,6 +1413,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const set = STATUS_SETS[view] ?? STATUS_SETS.open;
     let rows = await db.get(`returns?select=*${set ? `&status=in.(${set})` : ""}&order=created_at.desc&limit=1000`);
     if (view === "todo") rows = rows.filter((r) => (r.todo || []).some((t) => !t.done));
+    if (TODO_LISTS[view]) rows = rows.filter((r) => (r.todo || []).some((t) => !t.done && TODO_LISTS[view].includes(t.kind)));
+    if (view === "returns_sellers") rows = rows.filter((r) => r.seller_return_status && r.seller_return_status !== "delivered");
     const term = text(q).toLowerCase();
     if (term) {
       rows = rows.filter((r) => [r.return_number && `ret-${r.return_number}`, r.order_id, r.marketplace_order_id, r.shopify_order_number, r.sku, r.item_id, r.seller_id, r.seller_name, r.store_name, r.tracking_code]
@@ -1266,6 +1497,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     receive,
     notComing,
     creditInvoice,
+    sellerReturnStep,
     tick,
     list,
     get: getReturn,

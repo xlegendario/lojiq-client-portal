@@ -97,10 +97,10 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
 
       switch (req.params.step) {
         case "receive":
-          row = await returns.receive(id, { verdict: text(body.verdict), note: text(body.note), by: who(req) });
+          row = await returns.receive(id, { verdict: text(body.verdict), then: text(body.then), note: text(body.note), by: who(req) });
           break;
         case "decide": {
-          const out = await returns.decide(id, { held: text(body.held), note: text(body.note), by: who(req) });
+          const out = await returns.decide(id, { held: text(body.held), then: text(body.then), orderAction: text(body.order_action), note: text(body.note), by: who(req) });
           row = out.return_id ? await returns.get(out.return_id) : null;
           break;
         }
@@ -109,6 +109,9 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
           break;
         case "credit-invoice":
           row = await returns.creditInvoice(id, { by: who(req) });
+          break;
+        case "seller-return":
+          row = await returns.sellerReturnStep(id, { step: text(body.step), tracking: text(body.tracking), by: who(req) });
           break;
         case "tick":
           row = await returns.tick(id, text(body.todo), body.done !== false, who(req));
@@ -160,6 +163,7 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
     try {
       const row = await returns.receive(text(req.body?.id), {
         verdict: text(req.body?.verdict),
+        then: text(req.body?.then),
         note: text(req.body?.note),
         by: text(req.body?.by) || "WMS",
         barcode: text(req.body?.barcode)
@@ -180,12 +184,14 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
     try {
       let row;
       if (req.params.step === "decide") {
-        const out = await returns.decide(id, { held: text(body.held), note: text(body.note), by });
+        const out = await returns.decide(id, { held: text(body.held), then: text(body.then), orderAction: text(body.order_action), note: text(body.note), by });
         row = out.return_id ? await returns.get(out.return_id) : null;
       } else if (req.params.step === "not-coming") {
         row = await returns.notComing(id, { note: text(body.note), by });
       } else if (req.params.step === "tick") {
         row = await returns.tick(id, text(body.todo), body.done !== false, by);
+      } else if (req.params.step === "seller-return") {
+        row = await returns.sellerReturnStep(id, { step: text(body.step), tracking: text(body.tracking), by });
       } else {
         return res.status(404).json({ ok: false, error: "Unknown step." });
       }
