@@ -2636,9 +2636,13 @@ app.get("/api/orders/counts", async (req, res) => {
             return;
           }
 
+          // Narrowed on Store Name the way /api/returns lists them, instead
+          // of reading the whole table on every count; the Client check below
+          // still decides, as it does there.
           const records = await airtable(AIRTABLE_RETURNS_TABLE)
             .select({
-              fields: ["Shopify Order Number", "Client"]
+              fields: ["Shopify Order Number", "Client"],
+              filterByFormula: `TRIM({Store Name} & '') = '${safeStoreName}'`
             })
             .all();
     
