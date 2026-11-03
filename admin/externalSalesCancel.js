@@ -413,6 +413,46 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     }]).catch(() => {});
   }
 
+  /*
+   * Undo the purchase of a pair we are not buying after all, the way the
+   * returns flow does it (admin/returns.js): a credit expense, and - since
+   * no money moved for either - a pair of payments on Kruisposten that
+   * settles the two. Linking those is Rompslomp UI work, so it becomes a
+   * note on the deal. Nothing here throws: what fails is a note too, never
+   * a line in a log nobody reads.
+   */
+  async function undoPurchase(sale, pair, { paid = false } = {}) {
+    const deal = dealId(sale);
+    const what = `${text(pair.item_id) || "the pair"} (${deal})`;
+
+    if (text(pair.purchase_credit_expense_id)) return [];
+    if (!purchases || !text(pair.purchase_expense_id)) {
+      return [`Rompslomp (Payout): credit the purchase of ${what} by hand.`];
+    }
+
+    let credit;
+    try {
+      credit = await purchases.credit({ expenseId: text(pair.purchase_expense_id), deal });
+    } catch (err) {
+      return [`Rompslomp (Payout): credit the purchase of ${what} by hand (${err.message}).`];
+    }
+
+    await db.patch(`external_sale_pairs?id=eq.${pair.id}`, { purchase_credit_expense_id: credit.expense_id }).catch(() => {});
+
+    const original = credit.original_number || `Purchase Order ${deal}`;
+    const against = credit.expense_number || `Credit Purchase Order ${deal}`;
+
+    if (paid) return [`Rompslomp (Payout): the purchase of ${what} was already paid; once the money is back, link it to credit ${against}.`];
+    if (!credit.amount) return [`Rompslomp (Payout): settle purchase ${original} of ${what} against its credit ${against}.`];
+
+    try {
+      await purchases.kruispost({ amount: credit.amount, original, credit: against, deal });
+      return [`Rompslomp (Payout): link the two Kruisposten payments "Kruispost ${deal}" to purchase ${original} and credit ${against} (${what}).`];
+    } catch (err) {
+      return [`Rompslomp (Payout): settle purchase ${original} of ${what} against its credit ${against} (${err.message}).`];
+    }
+  }
+
   async function load(id) {
     if (!UUID.test(text(id))) throw new ExternalSalesError("Unknown deal.");
     const [sale] = await db.get(`external_sales?select=*&id=eq.${text(id)}`);
@@ -444,6 +484,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
     const found = await airtable.byIds("Inventory Units", ids, ["Item Condition", "Payment Status"]).catch(() => new Map());
     const failed = [];
+    const todos = [];
 
     for (const pair of pairs) {
       const outcome = outcomes.get(pair.id);
@@ -468,11 +509,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
        * from the post he puts it back himself.
        */
       if (rule.toConsignor && text(pair.consignor_fulfillment_status) && !paidToPartner) {
-        if (purchases && text(pair.purchase_expense_id)) {
-          await purchases
-            .credit({ expenseId: text(pair.purchase_expense_id), deal: dealId(sale) })
-            .catch((err) => console.error(`[external sales] the purchase of ${pair.item_id} was not credited:`, err.message));
-        }
+        todos.push(...await undoPurchase(sale, pair));
 
         const [line] = await db.get(`deal_lines?select=id&external_sale_pair_id=eq.${pair.id}`).catch(() => []);
 
@@ -502,11 +539,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
       }
 
       if (pair.partner_stock_id && rule.toPartner && !paidToPartner) {
-        if (purchases && text(pair.purchase_expense_id)) {
-          await purchases
-            .credit({ expenseId: text(pair.purchase_expense_id), deal: dealId(sale) })
-            .catch((err) => console.error(`[external sales] the purchase of ${pair.item_id} was not credited:`, err.message));
-        }
+        todos.push(...await undoPurchase(sale, pair));
 
         await db.patch(`partner_stock?id=eq.${pair.partner_stock_id}`, {
           status: "in_stock",
@@ -548,7 +581,33 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
       }
     }
 
+    await noteTodo(sale, todos, "");
     return failed;
+  }
+
+  /*
+   * The same undo for a pair cancelled before it existed, or cancelled with
+   * the wrong outcome and corrected afterwards (CS-008267, 03-11-2026).
+   * Once per pair: the credit it made is written on it.
+   */
+  async function undoPurchaseOf(pairId) {
+    if (!UUID.test(text(pairId))) throw new ExternalSalesError("Unknown pair.");
+    const [pair] = await db.get(`external_sale_pairs?select=*&id=eq.${text(pairId)}`);
+    if (!pair) throw new ExternalSalesError("That pair no longer exists.", 404);
+    if (!pair.cancelled_at || !["to_consignor", "return"].includes(text(pair.cancel_outcome))) {
+      throw new ExternalSalesError("Only a cancelled pair that went back to its consignor or partner is undone.");
+    }
+    if (text(pair.purchase_credit_expense_id)) {
+      return { already: true, credit_expense_id: pair.purchase_credit_expense_id, todos: [] };
+    }
+
+    const [sale] = await db.get(`external_sales?select=*&id=eq.${pair.sale_id}`);
+    const unitId = text(pair.inventory_unit_record_id);
+    const unit = unitId ? (await airtable.byIds("Inventory Units", [unitId], ["Payment Status"]).catch(() => new Map())).get(unitId) || {} : {};
+
+    const todos = await undoPurchase(sale, pair, { paid: text(unit["Payment Status"]) === "Paid" });
+    await noteTodo(sale, todos, "");
+    return { already: false, todos };
   }
 
   /*
@@ -959,5 +1018,5 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     };
   }
 
-  return { plan, cancelPairs, discountPairs, repricePairs, registerRefund };
+  return { plan, cancelPairs, discountPairs, repricePairs, registerRefund, undoPurchaseOf };
 }

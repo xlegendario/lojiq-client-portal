@@ -612,3 +612,40 @@ test("back to the consignor takes the pair off the payout list and leaves the ba
   assert.equal(unit["Payment Status"], null);
   assert.equal("Payment Note" in unit, false, "the bank payment code is never written over");
 });
+
+test("back to the consignor credits the purchase, settles it on Kruisposten and leaves a note to link them", async () => {
+  const pairs = [{ ...PAIRS[0], consignor_fulfillment_status: "Ready to Ship", consignor_shipping_status: "Pending", purchase_expense_id: "707970579" }, PAIRS[1]];
+  const db = fakeDb({
+    external_sales: [{ ...SALE }],
+    external_sale_pairs: pairs.map((pair) => ({ ...pair })),
+    external_sale_invoices: INVOICES.map((invoice) => ({ ...invoice })),
+    external_sale_invoice_deals: INVOICES.map((invoice) => ({ invoice_id: invoice.id, sale_id: SALE.id })),
+    partner_stock: []
+  });
+  const calls = [];
+  const purchases = {
+    credit: async ({ expenseId }) => { calls.push(["credit", expenseId]); return { expense_id: "900", expense_number: "IN-0900", original_number: "IN-0707", amount: 110 }; },
+    kruispost: async (input) => { calls.push(["kruispost", input.original, input.credit, input.amount]); return ["p1", "p2"]; }
+  };
+  const airtable = {
+    byIds: async (_table, ids) => new Map(ids.map((id) => [id, id === "recA" ? { "Payment Status": "To Pay" } : {}])),
+    update: async () => ({})
+  };
+  const invoicing = {
+    credit: async () => ({ credit: "KC202609-2101", of: "KC202609-2100" }),
+    invoice: async () => ({ invoices: [] }),
+    mailInvoices: async () => ({})
+  };
+  const cancel = createExternalSalesCancel({ db, airtable, invoicing, purchases });
+
+  await cancel.cancelPairs(S1, { pair_ids: [P1], reason: "Cancelled before he shipped", outcome: "to_consignor", by: "Dario" });
+
+  assert.deepEqual(calls, [["credit", "707970579"], ["kruispost", "IN-0707", "IN-0900", 110]]);
+  assert.equal(db.tables.external_sale_pairs.find((p) => p.id === P1).purchase_credit_expense_id, "900");
+  assert.ok(db.tables.external_sale_notes.some((n) => /link the two Kruisposten payments/.test(n.body)));
+
+  // Once per pair: asking again credits nothing.
+  const again = await cancel.undoPurchaseOf(P1);
+  assert.equal(again.already, true);
+  assert.equal(calls.length, 2);
+});

@@ -1049,6 +1049,7 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
     discountPairs: (id, input) => cancelling.discountPairs(id, input),
     repricePairs: (id, input) => cancelling.repricePairs(id, input),
     registerRefund: (id, input) => cancelling.registerRefund(id, input),
+    undoPurchaseOf: (pairId) => cancelling.undoPurchaseOf(pairId),
     openParcels: (options) => tracking.openParcels(options),
     applyTracking: (updates) => tracking.applyUpdates(updates),
     markParcelRegistered: (id, aftershipId, note) => tracking.markRegistered(id, aftershipId, note),
@@ -1332,6 +1333,17 @@ export function mountExternalSales(router, { store, audit, pageFile, internalSec
     if (!fromWms(req, res)) return;
     try {
       res.json({ ok: true, supplier: await store.ensureSupplier(text(req.body?.seller_record_id)) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // A cancelled pair's purchase credited and settled on Kruisposten, for a
+  // cancel that was booked with the wrong outcome and put right afterwards.
+  router.post("/api/internal/external-sales/undo-purchase", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!fromWms(req, res)) return;
+    try {
+      res.json({ ok: true, ...await store.undoPurchaseOf(text(req.body?.pair_id)) });
     } catch (err) {
       send(res, err);
     }

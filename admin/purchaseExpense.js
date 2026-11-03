@@ -338,7 +338,12 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
       credit: true
     }));
 
-    return { expense_id: String(expense.id), expense_number: text(expense.invoice_number) };
+    return {
+      expense_id: String(expense.id),
+      expense_number: text(expense.invoice_number),
+      original_number: text(original.invoice_number),
+      amount: round2(line.price_with_vat ?? line.price_per_unit)
+    };
   }
 
   /*
