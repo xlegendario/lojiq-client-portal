@@ -25,7 +25,7 @@
 // exactly as it was - the shoe did leave.
 
 import { ExternalSalesError, dealId, round2 } from "./externalSalesSync.js";
-import { invoicePlanFor } from "./externalSalesInvoicing.js";
+import { invoicePlanFor, ROUTES } from "./externalSalesInvoicing.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -74,7 +74,20 @@ export const CANCEL_OUTCOMES = {
     toPartner: false,
     toConsignor: true,
     say: (buyer) => `Back to the consignor (${buyer} cancelled)`
-  }
+  },
+  /*
+   * The rest of the returns flow's choices (admin/returns.js
+   * EXTERNAL_OUTCOMES, 03-11-2026). What they do to the unit, the seller and
+   * the purchase is the returns flow's; here only whether the credit puts the
+   * stock back.
+   */
+  seller_gone: { status: "Return", available: false, stockBack: true, toPartner: false, say: (buyer) => `The seller no longer has it (${buyer} cancelled)` },
+  flawed: { status: "Return", available: false, stockBack: true, toPartner: false, say: (buyer) => `Flawed, the seller keeps it (${buyer} cancelled)` },
+  in_warehouse: { status: "Return", available: true, stockBack: true, toPartner: false, say: (buyer) => `In our warehouse (${buyer} cancelled)` },
+  send_back: { status: "Return", available: false, stockBack: true, toPartner: false, say: (buyer) => `Back to the seller (${buyer} cancelled)` },
+  troubled: { status: "Return", available: false, stockBack: true, toPartner: false, say: (buyer) => `Troubled Stock (${buyer} cancelled)` },
+  partner_shelf: { status: "Return", available: false, stockBack: true, toPartner: true, say: (buyer) => `Back on the partner's shelf (${buyer} cancelled)` },
+  lost_here: { status: "Lost", available: false, stockBack: false, toPartner: false, say: (buyer) => `Lost here (${buyer} cancelled)` }
 };
 
 export const buyerOf = (sale) => text(sale.buyer_company) || text(sale.buyer_name) || "the buyer";
@@ -397,7 +410,7 @@ export function repricePlan({ sale, pairs, wanted = [], invoices = [] }) {
  *   invoicing   credit, invoice (admin/externalSalesInvoicing.js)
  *   purchases   createPurchaseExpense - the purchase of a partner pair
  */
-export function createExternalSalesCancel({ db, airtable, invoicing, purchases = null, returnToConsignor = null }) {
+export function createExternalSalesCancel({ db, airtable, invoicing, purchases = null, returnToConsignor = null, returnsFlow = null }) {
   /*
    * Something that is left for a person to do goes in the deal's own notes as
    * well as the log. The log under the panel is gone the moment it is closed,
@@ -451,6 +464,46 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     } catch (err) {
       return [`Rompslomp (Payout): settle purchase ${original} of ${what} against its credit ${against} (${err.message}).`];
     }
+  }
+
+  /*
+   * The buyer's side of a cancel, as the returns flow does it for an order:
+   * nothing paid -> each credited invoice and its credit settle each other on
+   * Kruisposten; paid in full -> the credit settles the new invoice, and what
+   * is left is a refund. Anything else is a to-do, never a guess. What is left
+   * for Dario comes back as to-dos for the RET line.
+   */
+  async function settleBuyer(sale, { credited, made, refund, log }) {
+    const deal = dealId(sale);
+    const todos = [];
+    const item = (textValue, kind) => ({ id: Math.random().toString(36).slice(2, 10), kind, text: textValue, done: false });
+    const paid = round2(sale.paid_amount);
+
+    try {
+      if (!paid && sale.payment_status !== "paid") {
+        for (const c of credited) {
+          if (!c.amount) continue;
+          await invoicing.settle({ deal, plus: c.of, minus: c.credit, amount: c.amount });
+          log.push(`Two payments of € ${c.amount.toFixed(2)} on Kruisposten for ${c.of} and ${c.credit}.`);
+          todos.push(item(`In Rompslomp, link the two Kruisposten payments "Kruispost ${deal}" to ${c.of} and ${c.credit}.`, "link_kruispost"));
+        }
+      } else if (sale.payment_status === "paid" && credited.length === 1 && made.length <= 1) {
+        const [c] = credited;
+        const next = made[0];
+        if (next && round2(next.amount_incl_vat) > 0) {
+          await invoicing.settle({ deal, plus: next.invoice_number, minus: c.credit, amount: round2(next.amount_incl_vat) });
+          log.push(`Two payments of € ${round2(next.amount_incl_vat).toFixed(2)} on Kruisposten for ${next.invoice_number} and ${c.credit}.`);
+          todos.push(item(`In Rompslomp, link the two Kruisposten payments "Kruispost ${deal}" to ${next.invoice_number} and ${c.credit}.`, "link_kruispost"));
+        }
+        if (refund > 0) todos.push(item(`${buyerOf(sale)} paid ${deal} in full: refund € ${refund.toFixed(2)}, register it on the deal and link that bank line to ${c.credit}.`, "refund_store"));
+      } else if (credited.length) {
+        todos.push(item(`In Rompslomp, settle ${credited.map((c) => c.credit).join(", ")} against ${[...credited.map((c) => c.of), ...made.map((i) => i.invoice_number)].join(", ")}${refund > 0 ? ` and refund € ${refund.toFixed(2)}` : ""}: ${deal} was partly paid.`, refund > 0 ? "refund_store" : "link_kruispost"));
+      }
+    } catch (err) {
+      todos.push(item(`In Rompslomp, settle the credit of ${deal} by hand (${err.message}).`, "link_kruispost"));
+    }
+
+    return todos;
   }
 
   async function load(id) {
@@ -636,9 +689,7 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
     const outcomes = new Map();
     for (const row of asked) {
       if (!CANCEL_OUTCOMES[row.outcome]) {
-        throw new ExternalSalesError(
-          `"${row.outcome || "nothing"}" is not one of Return, Store Consign, Lost, Written Off or Back to the consignor.`
-        );
+        throw new ExternalSalesError(`"${row.outcome || "nothing"}" is not a way to cancel a pair: choose what happens to it.`);
       }
       outcomes.set(row.id, row.outcome);
     }
@@ -655,10 +706,12 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
       .map((pair) => pair.id);
 
     const creditNotes = [];
+    const credited = [];
 
     for (const invoice of invoices.filter((i) => i.kind === "sale" && !invoices.some((c) => c.credits_invoice_id === i.id))) {
       const out = await invoicing.credit(sale.id, invoice.id, { keepStockOut });
       creditNotes.push(out.credit);
+      credited.push({ route: invoice.vat_route, credit: out.credit, of: out.of, amount: round2(invoice.amount_incl_vat), journaled: Boolean(invoice.journal_entry_id) });
       log.push(`${out.credit} credits ${out.of}`);
     }
 
@@ -701,22 +754,56 @@ export function createExternalSalesCancel({ db, airtable, invoicing, purchases =
 
     await db.patch(`external_sales?id=eq.${sale.id}`, fields);
 
-    // 3. The units, wherever the pairs now are.
-    const failed = await releaseUnits(sale, result.pairs, outcomes);
-    if (failed.length) log.push(`Could not update ${failed.length} Inventory Unit(s): ${failed.join("; ")}`);
-
-    // 4. What is left of the deal gets its own invoice, as any deal does.
+    // 3. What is left of the deal gets its own invoice, as any deal does.
+    let made = [];
     if (result.reinvoice) {
       try {
         const out = await invoicing.invoice(sale.id, { mail: true });
-        const made = out.invoices.map((i) => i.invoice_number);
-        log.push(`New invoice ${made.join(", ")}`);
-
-        const todo = settleInRompslomp(creditNotes, made);
-        log.push(...todo);
-        await noteTodo(sale, todo, by);
+        made = out.invoices;
+        log.push(`New invoice ${made.map((i) => i.invoice_number).join(", ")}`);
       } catch (err) {
         log.push(`The new invoice was not made: ${err.message}. Open the deal and click Create invoice.`);
+      }
+    }
+
+    // 4. The buyer's money: the documents settled on Kruisposten, or a refund.
+    const dealTodos = returnsFlow ? await settleBuyer(sale, { credited, made, refund: result.refund, log }) : [];
+
+    // 5. The pairs, wherever they now are: the returns flow, one RET line each.
+    if (returnsFlow) {
+      const flow = returnsFlow();
+      for (const [i, pair] of result.pairs.entries()) {
+        const outcomeOf = outcomes.get(pair.id);
+        const route = ROUTES[pair.selling_vat_type] ? pair.selling_vat_type : credited[0]?.route;
+        const books = credited.find((c) => c.route === route) || credited[0] || null;
+        try {
+          const out = await flow.cancelExternalPair({
+            sale,
+            pair,
+            outcome: outcomeOf,
+            reason,
+            by,
+            deal: dealId(sale),
+            buyer: buyerOf(sale),
+            books: {
+              credit: books?.credit || "",
+              stockBack: Boolean(books?.journaled) && CANCEL_OUTCOMES[outcomeOf].stockBack,
+              costAccount: books?.journaled && ROUTES[route] ? { id: ROUTES[route].costAccountId, path: ROUTES[route].costAccountPath } : null,
+              todos: i === 0 ? dealTodos : []
+            }
+          });
+          log.push(`${pair.item_id || pair.sku}: RET-${out.row?.return_number}`);
+        } catch (err) {
+          log.push(`${pair.item_id || pair.sku} was cancelled on the deal, but its unit was not updated: ${err.message}`);
+        }
+      }
+    } else {
+      const failed = await releaseUnits(sale, result.pairs, outcomes);
+      if (failed.length) log.push(`Could not update ${failed.length} Inventory Unit(s): ${failed.join("; ")}`);
+      if (made.length) {
+        const todo = settleInRompslomp(creditNotes, made.map((i) => i.invoice_number));
+        log.push(...todo);
+        await noteTodo(sale, todo, by);
       }
     }
 

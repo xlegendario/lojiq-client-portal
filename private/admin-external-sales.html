@@ -401,6 +401,11 @@
     .select.slim, .input.slim { padding: 4px 6px; font-size: 12px; height: auto; }
     .input.slim { width: 76px; text-align: right; }
     .pick input { accent-color: var(--primary); width: 15px; height: 15px; }
+    /* Cancel pairs: the choice says what happens, so it gets its own line. */
+    #cancelPairs .label-item { flex-wrap: wrap; }
+    #cancelPairs .label-item > .pick:first-child { flex: 1 1 260px; min-width: 0; }
+    #cancelPairs .label-item > .pick:last-child { flex: 1 1 100%; justify-content: flex-end; }
+    #cancelPairs select.slim { max-width: 100%; min-width: 0; flex: 1 1 auto; }
     .pairs { display: flex; flex-direction: column; }
     .pair-row, .pair-total { display: grid; grid-template-columns: minmax(0, 1fr) 84px 92px 84px; gap: 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .pair-row.clickable { cursor: pointer; }
@@ -709,15 +714,15 @@
   <dialog id="cancelDialog">
     <div class="dialog-body">
       <h2>Cancel pairs</h2>
-      <p class="hint" style="margin:0">What was invoiced is credited in full and what is left is invoiced again, the way you would do it by hand.</p>
+      <p class="hint" style="margin:0">What was invoiced is credited in full and what is left is invoiced again. Each pair then goes the way of any cancelled order: a RET line on Returns, the scan when it comes back, and every booking made for you.</p>
       <div class="field">
-        <label>Which pairs, and where each one is</label>
+        <label>Which pairs, and what happens to each one</label>
         <div class="label-list" id="cancelPairs"></div>
-        <span class="hint">Return and Store Consign put the stock back; Lost and Written Off leave it written off.</span>
+        <span class="hint">"Not shipped yet": the pair never left us or the seller. "Shipped": it reached the buyer or is on its way.</span>
       </div>
       <div class="field">
-        <label for="cancelReason">Why (optional)</label>
-        <input class="input" id="cancelReason" type="text" placeholder="Wrong size sent, buyer refused, ...">
+        <label for="cancelReason">Reason or flaw (needed for a flaw, Troubled, sending back, lost here and written off)</label>
+        <input class="input" id="cancelReason" type="text" placeholder="Wrong size sent, buyer refused, creased toe box, ...">
       </div>
       <div class="plan" id="cancelPlan"></div>
       <p class="field-error" id="cancelError"></p>
@@ -2995,7 +3000,30 @@
       "remember to always send proof of payments \u26a0\ufe0f"
     ].join("\n");
 
-    const CANCEL_OUTCOMES = [["return", "Return"], ["store_consign", "Store Consign"], ["lost", "Lost"], ["written_off", "Written Off"]];
+    /*
+     * The returns flow's choices (admin/returns.js EXTERNAL_OUTCOMES), per
+     * pair: "who" says whose pair may take it.
+     */
+    const CANCEL_GROUPS = [
+      ["Not shipped yet", [
+        ["to_consignor", "Consignor has the pair, add back to consignment", "consignor"],
+        ["seller_gone", "Seller doesn't have it, void pair", "consignor"],
+        ["flawed", "Pair is flawed, void pair", "consignor"],
+        ["in_warehouse", "In our warehouse - keep it, back on sale", "any"],
+        ["send_back", "In our warehouse - send it back to the seller", "theirs"],
+        ["troubled", "In our warehouse - it has a flaw, Troubled Stock", "any"],
+        ["partner_shelf", "Partner pair, here - back on the partner's shelf", "partner"],
+        ["lost_here", "Lost here - the seller is still paid", "any"]
+      ]],
+      ["Shipped", [
+        ["return", "It comes back to us - scan it when it arrives", "any"],
+        ["store_consign", "The buyer keeps it to sell for us (Store Consign)", "any"],
+        ["lost", "Lost by the carrier", "any"],
+        ["written_off", "The buyer keeps it - write it off", "any"]
+      ]]
+    ];
+    const pairOwner = (p) => (p.partner_stock_id ? "partner" : p.consignor_fulfillment_status ? "consignor" : "own");
+    const offered = (who, owner) => who === "any" || who === owner || (who === "theirs" && owner !== "own");
 
     const CANCEL_OUTCOME_TEXT = {
       return: "return",
@@ -3003,6 +3031,13 @@
       lost: "lost",
       written_off: "written off",
       to_consignor: "back to the consignor",
+      seller_gone: "seller no longer has it",
+      flawed: "flawed, seller keeps it",
+      in_warehouse: "back on sale",
+      send_back: "back to the seller",
+      troubled: "troubled stock",
+      partner_shelf: "back on the partner's shelf",
+      lost_here: "lost here",
       never_shipped: "cancelled",
       return_expected: "return expected",
       stays_with_buyer: "stays with buyer"
@@ -3034,6 +3069,7 @@
 
     function openCancelDialog() {
       const { sale: s, pairs } = state.detail;
+      const dealShipped = ["shipped", "delivered"].includes(String(s.shipping_status || "").toLowerCase());
 
       /*
        * A pair and where it is, on one line: one can come back while another
@@ -3048,12 +3084,17 @@
           <span class="pick">
             <span class="sub money">${esc(pairPrice(p))}</span>
             <select class="select slim" data-outcome="${esc(p.id)}">
-              ${[
-                ...CANCEL_OUTCOMES,
-                /* Only his pair can go back to him, and only while he has not
-                   been paid - after that it is ours like any other. */
-                ...(p.consignor_fulfillment_status ? [["to_consignor", "Back to the consignor"]] : [])
-              ].map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}
+              ${(() => {
+                // The likeliest first: shipped -> it comes back; otherwise
+                // where the pair usually is - with the consignor, on the
+                // partner's shelf, or in our warehouse.
+                const owner = pairOwner(p);
+                const shippedPair = dealShipped || String(p.consignor_shipping_status || "") === "Shipped";
+                const pick = shippedPair ? "return" : owner === "consignor" ? "to_consignor" : owner === "partner" ? "partner_shelf" : "in_warehouse";
+                return CANCEL_GROUPS.map(([group, options]) => `<optgroup label="${esc(group)}">${options
+                  .filter(([, , who]) => offered(who, owner))
+                  .map(([value, label]) => `<option value="${value}"${value === pick ? " selected" : ""}>${esc(label)}</option>`).join("")}</optgroup>`).join("");
+              })()}
             </select>
           </span>
         </label>`).join("");

@@ -120,6 +120,26 @@ export const OUTCOMES = {
   written_off: "The buyer keeps it - write it off"
 };
 
+/*
+ * An External Sales pair, one choice per pair (a deal has several): the same
+ * two questions as a Cancel, flattened. Which ones a pair is offered depends
+ * on whose it is (admin-external-sales.html).
+ */
+export const EXTERNAL_OUTCOMES = {
+  to_consignor: { shipped: false, held: "consignor_has", label: "Consignor has the pair, add back to consignment" },
+  seller_gone: { shipped: false, held: "consignor_gone", label: "Seller doesn't have it, void pair" },
+  flawed: { shipped: false, held: "flawed", label: "Pair is flawed, void pair" },
+  in_warehouse: { shipped: false, held: "warehouse", then: "keep", label: "In our warehouse - keep it, back on sale" },
+  send_back: { shipped: false, held: "warehouse", then: "send_back", label: "In our warehouse - send it back to the seller" },
+  troubled: { shipped: false, held: "warehouse", then: "troubled", label: "In our warehouse - it has a flaw, Troubled Stock" },
+  partner_shelf: { shipped: false, held: "partner", label: "Partner pair, here - back on the partner's shelf" },
+  lost_here: { shipped: false, held: "lost", label: "Lost here - the seller is still paid" },
+  return: { shipped: true, outcome: "return", label: "It comes back to us - scan it when it arrives" },
+  store_consign: { shipped: true, outcome: "store_consign", label: "The buyer keeps it to sell for us (Store Consign)" },
+  lost: { shipped: true, outcome: "lost", label: "Lost by the carrier" },
+  written_off: { shipped: true, outcome: "written_off", label: "The buyer keeps it - write it off" }
+};
+
 // A pair on its way back to its seller, who sends the label and pays for it.
 export const SELLER_RETURN = {
   label_requested: "Label requested",
@@ -163,7 +183,7 @@ const todo = (textValue, kind = "") => ({ id: Math.random().toString(36).slice(2
  *   purchases   createPurchaseExpense, the company the purchases are in
  *   meta        () -> Location choices (optional)
  */
-export function createReturns({ db, airtable, rompslomp = null, purchases = null, locations = null }) {
+export function createReturns({ db, airtable, rompslomp = null, purchases = null, locations = null, returnToConsignor = null }) {
   /* ---------------- reading ---------------- */
 
   async function orderOf(table, id) {
@@ -469,7 +489,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
    * The purchase undone: the seller or partner is not owed for this pair any
    * more. Off Seller Payouts, and its expense credited in Rompslomp.
    */
-  async function undoPurchase(order, unit, { reason, log, todos }) {
+  async function undoPurchase(order, unit, { reason, log, todos, externalPair = order.externalPair || null }) {
     const orderId = orderLabel(order);
     const u = unit.fields;
     const wasPaid = text(u["Payment Status"]) === "Paid";
@@ -490,6 +510,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       });
       log.push(`${text(u["Item ID"])} off Seller Payouts (not owed).`);
     }
+
+    if (externalPair) return undoExternalPurchase(externalPair, orderId, { wasPaid, log, todos });
 
     if (!purchases) {
       todos.push(todo(`Credit the purchase of ${orderId} in Rompslomp by hand.`, "credit_purchase"));
@@ -521,6 +543,42 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       }
     } catch (err) {
       todos.push(todo(`Credit the purchase of ${orderId} in Rompslomp by hand (${err.message}).`, "credit_purchase"));
+    }
+  }
+
+  /*
+   * An External pair's purchase is an expense of its own, by id, on the pair:
+   * a deal has several under the same "Purchase Order EXTD-…", so it is never
+   * looked up by name. The credit is written on the pair, so it is made once.
+   */
+  async function undoExternalPurchase(pair, deal, { wasPaid, log, todos }) {
+    const what = `${text(pair.item_id) || "the pair"} (${deal})`;
+    const [fresh] = await db.get(`external_sale_pairs?select=id,purchase_expense_id,purchase_credit_expense_id&id=eq.${enc(pair.id)}`).catch(() => []);
+    if (text(fresh?.purchase_credit_expense_id)) {
+      log.push(`The purchase of ${what} was already credited.`);
+      return;
+    }
+    const expenseId = text(fresh?.purchase_expense_id || pair.purchase_expense_id);
+    if (!purchases || !expenseId) {
+      todos.push(todo(`Rompslomp (Payout): credit the purchase of ${what} by hand.`, "credit_purchase"));
+      return;
+    }
+
+    try {
+      const credit = await purchases.credit({ expenseId, deal });
+      await db.patch(`external_sale_pairs?id=eq.${enc(pair.id)}`, { purchase_credit_expense_id: credit.expense_id }).catch(() => {});
+      log.push(`Purchase of ${what} credited.`);
+      const original = credit.original_number || `Purchase Order ${deal}`;
+      const against = credit.expense_number || `Credit Purchase Order ${deal}`;
+
+      if (wasPaid) {
+        todos.push(todo(`Rompslomp (Payout): ${what} was already paid; once the refund is in, link it to credit ${against}.`, "link_kruispost"));
+      } else if (credit.amount) {
+        await purchases.kruispost({ amount: credit.amount, original, credit: against, deal });
+        todos.push(todo(`Rompslomp (Payout): link the two Kruisposten payments "Kruispost ${deal}" to purchase ${original} and credit ${against} (${what}).`, "link_kruispost"));
+      }
+    } catch (err) {
+      todos.push(todo(`Rompslomp (Payout): credit the purchase of ${what} by hand (${err.message}).`, "credit_purchase"));
     }
   }
 
@@ -922,6 +980,147 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     });
   }
 
+  /* ---------------- External Sales ---------------- */
+
+  /*
+   * One pair off an External deal, through the same road as a Cancel: the
+   * unit, the seller or partner, the purchase and a RET line. The deal's own
+   * invoices are credited by the deal (admin/externalSalesCancel.js), which
+   * passes what that did:
+   *   books.credit       the credit invoice number
+   *   books.stockBack    whether that credit put this pair's stock back
+   *   books.costAccount  the cost account its stock correction booked to
+   */
+  async function cancelExternalPair({ sale, pair, outcome, reason = "", by = "", deal, buyer = "the buyer", books = {} }) {
+    const rule = EXTERNAL_OUTCOMES[outcome];
+    if (!rule) throw new ReturnsError(`"${outcome}" is not a way to cancel a pair.`, 400);
+
+    const unitId = text(pair.inventory_unit_record_id);
+    const found = unitId ? await airtable.byIds(UNITS, [unitId], UNIT_FIELDS).catch(() => new Map()) : new Map();
+    const unit = found.has(unitId) ? { id: unitId, fields: found.get(unitId) } : null;
+    const owner = unit ? ownerOf(unit.fields) : "own";
+    const consignor = Boolean(text(pair.consignor_fulfillment_status)) || owner === "seller";
+    const partner = Boolean(pair.partner_stock_id) || owner === "partner";
+    const note = `${rule.label.split(" - ")[0]} (${deal}, ${buyer}, ${ddmmyyyy()})${text(reason) ? `: ${text(reason).slice(0, 300)}` : ""}`;
+
+    if (["to_consignor", "seller_gone", "flawed"].includes(outcome) && !consignor) throw new ReturnsError(`${text(pair.item_id)} has no seller to give it back to.`, 400);
+    if (outcome === "partner_shelf" && !partner) throw new ReturnsError(`${text(pair.item_id)} is not a partner pair.`, 400);
+    if (outcome === "send_back" && !consignor && !partner) throw new ReturnsError(`${text(pair.item_id)} is our own pair: there is no seller to send it back to.`, 400);
+    if (["flawed", "send_back", "troubled", "lost_here", "written_off"].includes(outcome) && !text(reason)) throw new ReturnsError("Give a reason or describe the flaw: it goes on the unit.", 400);
+
+    const log = [];
+    const todos = [];
+    const asOrder = { id: sale.id, table: "external", fields: { "Order ID": deal }, externalPair: pair };
+    const condition = () => conditionWith(note, text(unit?.fields["Item Condition"]));
+    let status = "done";
+    let sellerReturn = false;
+    let partnerStockId = pair.partner_stock_id || null;
+    const gone = ["lost_here", "lost", "written_off"].includes(outcome);
+
+    if (unit) {
+      if (outcome === "to_consignor" || outcome === "seller_gone" || outcome === "flawed") {
+        await airtable.update(UNITS, unit.id, { "Availability Status": "Void", "Cancel Status": "Return", "Verification Status": outcome === "flawed" ? "Rejected" : "Cancelled", "Item Condition": condition() }, { typecast: true });
+        const [line] = await db.get(`deal_lines?select=id&external_sale_pair_id=eq.${enc(pair.id)}`).catch(() => []);
+        if (outcome === "to_consignor") {
+          // His stock back, and he is told not to ship (Kickz Caviar portal).
+          if (returnToConsignor && line?.id) {
+            await returnToConsignor({ deal_line_id: line.id, deal_id: deal, shipped: text(pair.consignor_shipping_status) === "Shipped" })
+              .then(() => log.push(`Back in ${text(first(unit.fields["Seller ID (Lookup)"])) || "the consignor"}'s stock.`))
+              .catch((err) => todos.push(todo(`Put ${text(pair.sku)} ${text(pair.size)} back in the consignor's stock by hand (${err.message}).`, "stock_by_hand")));
+          } else if (text(unit.fields.Type) === "Consignment") {
+            await consignorStock(unit, log, todos);
+          }
+        } else if (line?.id) {
+          await db.patch(`deal_lines?id=eq.${line.id}`, { status: "cancelled", updated_at: new Date().toISOString() }).catch(() => {});
+        }
+        await undoPurchase(asOrder, unit, { reason: outcome === "flawed" ? "the pair is flawed" : outcome === "to_consignor" ? "back to the consignor" : "the seller no longer has it", log, todos });
+      } else if (outcome === "partner_shelf") {
+        await airtable.update(UNITS, unit.id, { "Availability Status": "Void", "Cancel Status": "Return", "Verification Status": "Cancelled", "Item Condition": condition() }, { typecast: true });
+        partnerStockId = await partnerShelf(unit, { note: `Back from ${deal}: not shipped`, held: pair.partner_stock_id });
+        log.push(`Back on ${text(first(unit.fields["Seller ID (Lookup)"]))}'s shelf.`);
+        await undoPurchase(asOrder, unit, { reason: "back on the partner's shelf", log, todos });
+      } else if (outcome === "in_warehouse") {
+        await airtable.update(UNITS, unit.id, { ...onSale(unit, note), "Cancel Status": "Return" });
+        log.push(`${text(unit.fields["Item ID"])} back on sale.`);
+      } else if (outcome === "troubled") {
+        await airtable.update(UNITS, unit.id, { "Availability Status": "Troubled", "Cancel Status": "Return", "Item Condition": condition() }, { typecast: true });
+        log.push(`${text(unit.fields["Item ID"])}: Troubled Stock.`);
+      } else if (outcome === "send_back") {
+        sellerReturn = await sendBack(unit, { owner, note, label: deal, log, held: pair.partner_stock_id });
+        await undoPurchase(asOrder, unit, { reason: "sent back to the seller", log, todos });
+      } else if (outcome === "return") {
+        await airtable.update(UNITS, unit.id, { "Availability Status": "Returning", "Cancel Status": "Return", "Item Condition": condition() }, { typecast: true });
+        if (partner && pair.partner_stock_id) {
+          await db.patch(`partner_stock?id=eq.${enc(pair.partner_stock_id)}&status=eq.sold`, { status: "reserved", updated_at: new Date().toISOString() }).catch(() => {});
+        }
+        status = "expected";
+        log.push(`${text(unit.fields["Item ID"])} is on its way back: scan it in the WMS.`);
+      } else if (outcome === "store_consign") {
+        await airtable.update(UNITS, unit.id, { ...onSale(unit, note), "Cancel Status": "Store Consign", Location: buyer }, { typecast: true });
+        log.push(`${text(unit.fields["Item ID"])} stays at ${buyer}, for sale.`);
+      } else {
+        const fields = outcome === "written_off"
+          ? { "Availability Status": "Void", "Cancel Status": "Written Off" }
+          : { "Availability Status": "Lost", "Cancel Status": "Lost", "Verification Status": "Lost" };
+        await airtable.update(UNITS, unit.id, { ...fields, "Item Condition": condition() }, { typecast: true });
+        log.push(`${text(unit.fields["Item ID"])}: ${fields["Availability Status"]}; the seller is paid as normal.`);
+      }
+    } else {
+      todos.push(todo(`${text(pair.item_id) || "A pair"} of ${deal} has no Inventory Unit: put it where it now is by hand.`, "stock_by_hand"));
+    }
+
+    // The stock: the deal's credit put it back unless the pair is gone; a
+    // gone pair's cost moves from the cost of sales to Voorraadverschillen.
+    const amount = round2(pair.purchase_price_ex_vat);
+    if (books.credit && books.stockBack && amount > 0) {
+      log.push(`Voorraadcorrectie ${books.credit}: € ${amount.toFixed(2)} back into stock.`);
+    } else if (gone && books.credit && books.costAccount && amount > 0 && rompslomp?.configured) {
+      const description = `Voorraadverschillen ${books.credit} ${text(pair.item_id)}`.trim();
+      try {
+        await journalOnce({ description, amount, debit: SHRINK_ACCOUNT, credit: books.costAccount });
+        log.push(`${description}: € ${amount.toFixed(2)} from the cost of sales to Voorraadverschillen, the pair is gone.`);
+      } catch (err) {
+        todos.push(todo(`${deal}: book € ${amount.toFixed(2)} of ${text(pair.item_id)} to Voorraadverschillen by hand (${err.message}).`, "journal_by_hand"));
+      }
+    } else if (gone && amount > 0) {
+      todos.push(todo(`${deal}: book € ${amount.toFixed(2)} of ${text(pair.item_id)} to Voorraadverschillen by hand.`, "journal_by_hand"));
+    }
+
+    const u = unit?.fields || {};
+    const picture = Array.isArray(u.Picture) && u.Picture[0] ? u.Picture[0].thumbnails?.small?.url || u.Picture[0].url : "";
+    const row = await recordReturn({
+      source: "external",
+      status,
+      shipped: rule.shipped,
+      order_table: "external",
+      order_record_id: null,
+      order_id: deal,
+      store_name: buyer,
+      external_sale_id: sale.id,
+      external_sale_pair_id: pair.id,
+      inventory_unit_record_id: unit?.id || null,
+      item_id: text(pair.item_id) || text(u["Item ID"]) || null,
+      sku: text(pair.sku) || text(first(u.SKU)) || null,
+      size: text(pair.size) || text(u.Size) || null,
+      product_name: text(pair.product_name) || text(u["Product Name"]) || null,
+      image_url: picture || null,
+      seller_id: text(first(u["Seller ID (Lookup)"])) || null,
+      seller_name: text(first(u["Seller Name"])) || null,
+      unit_type: text(u.Type) || null,
+      purchase_price: Number.isFinite(Number(u["Purchase Price"])) ? round2(u["Purchase Price"]) : null,
+      partner_stock_id: partnerStockId,
+      ...(sellerReturn ? { seller_return_status: "label_requested", seller_return_at: new Date().toISOString() } : {}),
+      reason: text(reason) || null,
+      result: rule.label,
+      processed_at: status === "done" ? new Date().toISOString() : null,
+      todo: [...(books.todos || []), ...todos],
+      log: log.map((line) => ({ at: new Date().toISOString(), by, line })),
+      created_by: by || null
+    });
+
+    return { row, log, todos };
+  }
+
   /* ---------------- from the marketplaces ---------------- */
 
   /*
@@ -1156,6 +1355,11 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
   async function swapBooks({ returnedOrder, swap, log, todos }) {
     const returnedId = orderLabel(returnedOrder);
 
+    if (returnedOrder.externalPair) {
+      todos.push(todo(`In Rompslomp (Payout): credit the purchase of ${text(returnedOrder.externalPair.item_id)} (${returnedId}) and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
+      return;
+    }
+
     if (!purchases) {
       todos.push(todo(`In Rompslomp (Payout): credit the purchase of ${returnedId} and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
       return;
@@ -1229,10 +1433,14 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       const paid = text(unit["Payment Status"]) === "Paid";
       const stamp = `Returned ${verdict === "ok" ? "OK" : `with a flaw: ${text(note)}`} (${row.order_id}, ${label}, ${ddmmyyyy()})`;
       // The order itself, for the date its purchase was booked from.
-      const order = row.order_record_id
+      const order = row.order_record_id && row.order_table !== "external"
         ? await orderOf(row.order_table || "store", row.order_record_id).catch(() => null)
         : null;
       const orderForBooks = order || { id: row.order_record_id, table: row.order_table || "store", fields: { "Order ID": row.order_id } };
+      if (row.external_sale_pair_id) {
+        const [pair] = await db.get(`external_sale_pairs?select=*&id=eq.${enc(row.external_sale_pair_id)}`).catch(() => []);
+        if (pair) orderForBooks.externalPair = pair;
+      }
 
       if (verdict === "ok") {
         if (owner === "partner" && !paid) {
@@ -1491,6 +1699,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
   return {
     describeCancel,
     cancelOrder,
+    cancelExternalPair,
     announce,
     decide,
     match,

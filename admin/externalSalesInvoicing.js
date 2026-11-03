@@ -1203,5 +1203,26 @@ export function createExternalSalesInvoicing({ db, airtable, rompslomp, sendMail
     return { filename: `Invoice ${row.invoice_number || row.rompslomp_invoice_id}.pdf`, pdf: await rompslomp.pdf(row.rompslomp_invoice_id) };
   }
 
-  return { configured: rompslomp.configured, preview, invoice, mailInvoices, amend, credit, link, invoicePdf, rawInvoice, rompslompGet };
+  /*
+   * Two documents that settle each other without money moving (an invoice
+   * and its credit): a matching pair of payments on Kruisposten, each saying
+   * which document it is for. Their API cannot tie a payment to a document,
+   * so Dario links them from Rompslomp's suggestions; Kruisposten ends at 0.
+   */
+  async function settle({ deal, plus, minus, amount }) {
+    const value = Math.round(Math.abs(Number(amount || 0)) * 100) / 100;
+    if (!value) return;
+    const paidAt = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date());
+    for (const [sign, document] of [[1, plus], [-1, minus]]) {
+      await rompslomp.createPayment({
+        amount: sign * value,
+        description: `Kruispost ${deal}: ${document} (factuur ${plus} tegen credit ${minus})`,
+        accountId: 950141831,
+        accountPath: "activa.liquid_assets.kruisposten_custom",
+        paidAt
+      });
+    }
+  }
+
+  return { configured: rompslomp.configured, preview, invoice, mailInvoices, amend, credit, settle, link, invoicePdf, rawInvoice, rompslompGet };
 }

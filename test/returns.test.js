@@ -616,3 +616,73 @@ test("a seller's refund ticked as received: Payment Status empty, Payment Note u
   assert.equal(unit["Payment Note"], "110");
   assert.equal((await w.returns.list({ view: "refunds_sellers" })).length, 0);
 });
+
+/* ---------------- External Sales pairs ---------------- */
+
+const SALE_ID = "11111111-1111-1111-1111-111111111111";
+const PAIR_ID = "22222222-2222-2222-2222-222222222222";
+
+function externalWorld(unit = {}, pair = {}) {
+  const w = world({ unit });
+  w.db.data.external_sale_pairs = [{ id: PAIR_ID, sale_id: SALE_ID, item_id: "CS-009001", sku: "DD1391-100", size: "42", inventory_unit_record_id: UNIT, purchase_expense_id: "707", purchase_price_ex_vat: 100, consignor_fulfillment_status: "Ready to Ship", consignor_shipping_status: "Pending", ...pair }];
+  w.db.data.deal_lines = [{ id: "33333333-3333-3333-3333-333333333333", external_sale_pair_id: PAIR_ID, status: "confirmed" }];
+  w.purchases.credit = async (args) => { w.purchases.calls.credit.push(args); return { expense_id: "708", expense_number: "IN-708", original_number: "IN-707", amount: 100 }; };
+  const told = [];
+  w.returns = createReturns({ db: w.db, airtable: w.airtable, rompslomp: w.rompslomp, purchases: w.purchases, returnToConsignor: async (body) => { told.push(body); return { ok: true }; } });
+  w.told = told;
+  return w;
+}
+
+const extArgs = (w, outcome, extra = {}) => ({ sale: { id: SALE_ID, deal_number: 129 }, pair: w.db.data.external_sale_pairs[0], outcome, deal: "EXTD-000129", buyer: "OVERCEZ", by: "Dario", ...extra });
+
+test("External: back to the consignor - Void, not owed, his purchase credited by its own expense and settled, one RET line (CS-008267)", async () => {
+  const w = externalWorld({ "Payment Note": "€ 110" });
+  const { row } = await w.returns.cancelExternalPair(extArgs(w, "to_consignor", { books: { credit: "KC-C1", stockBack: true } }));
+  const unit = w.tables["Inventory Units"][UNIT];
+  assert.equal(unit["Availability Status"], "Void");
+  assert.equal(unit["Verification Status"], "Cancelled");
+  assert.equal(unit["Payment Status"], null);
+  assert.equal(unit["Payment Note"], "€ 110");
+  assert.equal(w.purchases.calls.credit[0].expenseId, "707", "the pair's own expense, not one found by name");
+  assert.equal(w.purchases.calls.kruispost.length, 1);
+  assert.equal(w.db.data.external_sale_pairs[0].purchase_credit_expense_id, "708");
+  assert.equal(w.told[0].shipped, false);
+  assert.equal(row.source, "external");
+  assert.equal(row.order_id, "EXTD-000129");
+  assert.equal(row.status, "done");
+  assert.ok(row.todo.some((t) => t.kind === "link_kruispost"));
+});
+
+test("External: it comes back - Returning and expected; the scan sends the seller's pair back and credits its own purchase", async () => {
+  const w = externalWorld();
+  const { row } = await w.returns.cancelExternalPair(extArgs(w, "return", { books: { credit: "KC-C1", stockBack: true } }));
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Returning");
+  assert.equal(row.status, "expected");
+  const done = await w.returns.receive(row.id, { verdict: "flaw", then: "send_back", note: "Wrong pair" });
+  assert.equal(done.seller_return_status, "label_requested");
+  assert.equal(w.purchases.calls.credit[0].expenseId, "707");
+
+  // Not coming back would have booked the stock off again by the amount put back.
+  const w2 = externalWorld();
+  const { row: r2 } = await w2.returns.cancelExternalPair(extArgs(w2, "return", { books: { credit: "KC-C1", stockBack: true } }));
+  await w2.returns.notComing(r2.id, { note: "kept" });
+  assert.equal(w2.rompslomp.made.journals.at(-1).lines[0].account_id, 2146917640);
+  assert.equal(w2.rompslomp.made.journals.at(-1).lines[0].debit_amount, "100");
+});
+
+test("External: lost by the carrier - Lost, the seller still paid, the cost to Voorraadverschillen", async () => {
+  const w = externalWorld();
+  await w.returns.cancelExternalPair(extArgs(w, "lost", { books: { credit: "KC-C1", stockBack: false, costAccount: { id: 1537847149, path: "profit.costs.sneakers_marge_custom" } } }));
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Lost");
+  assert.equal(w.tables["Inventory Units"][UNIT]["Payment Status"], "To Pay");
+  const [debit, credit] = w.rompslomp.made.journals[0].lines;
+  assert.equal(debit.account_id, 2146917640);
+  assert.equal(credit.account_id, 1537847149);
+  assert.equal(w.purchases.calls.credit.length, 0);
+});
+
+test("External: our own pair cannot go back to a seller, and a flaw needs words", async () => {
+  const w = externalWorld({ Type: "Custom", "Item ID": "KC-1", "Seller ID (Lookup)": [] }, { consignor_fulfillment_status: null });
+  await assert.rejects(w.returns.cancelExternalPair(extArgs(w, "to_consignor")), /no seller/);
+  await assert.rejects(w.returns.cancelExternalPair(extArgs(w, "troubled")), /reason/);
+});

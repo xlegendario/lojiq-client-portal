@@ -50,7 +50,16 @@ test("only a pair that comes back to us is sellable again and puts its stock bac
       ["written_off", false, false, false],
       // The fifth undoes the buying instead of keeping the pair: only for a
       // consignor, and only while he was not paid.
-      ["to_consignor", false, true, false]
+      ["to_consignor", false, true, false],
+      // The rest of the returns flow's choices (03-11-2026): only a lost pair
+      // keeps its stock out.
+      ["seller_gone", false, true, false],
+      ["flawed", false, true, false],
+      ["in_warehouse", true, true, false],
+      ["send_back", false, true, false],
+      ["troubled", false, true, false],
+      ["partner_shelf", false, true, true],
+      ["lost_here", false, false, false]
     ]
   );
 });
@@ -648,4 +657,31 @@ test("back to the consignor credits the purchase, settles it on Kruisposten and 
   const again = await cancel.undoPurchaseOf(P1);
   assert.equal(again.already, true);
   assert.equal(calls.length, 2);
+});
+
+test("through the returns flow: an unpaid deal settles invoice and credit on Kruisposten, and every pair gets its RET line", async () => {
+  const { db, cancel } = fakes({ invoices: [{ ...INVOICES[0], amount_incl_vat: 600 }] });
+  const settled = [];
+  const handed = [];
+  const flow = { cancelExternalPair: async (args) => { handed.push(args); return { row: { return_number: 60 + handed.length } }; } };
+  const withFlow = createExternalSalesCancel({
+    db,
+    airtable: { byIds: async () => new Map(), update: async () => ({}) },
+    invoicing: {
+      credit: async () => ({ credit: "KC202609-2101", of: "KC202609-2100" }),
+      invoice: async () => ({ invoices: [{ invoice_number: "KC202609-2102", amount_incl_vat: 350 }] }),
+      mailInvoices: async () => ({}),
+      settle: async (args) => { settled.push(args); }
+    },
+    returnsFlow: () => flow
+  });
+  void cancel;
+
+  const out = await withFlow.cancelPairs(S1, { pairs: [{ id: P1, outcome: "return" }], reason: "Wrong size", by: "Dario" });
+  assert.deepEqual(settled.map((s) => [s.plus, s.minus]), [["KC202609-2100", "KC202609-2101"]]);
+  assert.equal(handed.length, 1);
+  assert.equal(handed[0].outcome, "return");
+  assert.equal(handed[0].books.credit, "KC202609-2101");
+  assert.ok(handed[0].books.todos.some((t) => t.kind === "link_kruispost"));
+  assert.ok(out.log.some((line) => /RET-61/.test(line)));
 });

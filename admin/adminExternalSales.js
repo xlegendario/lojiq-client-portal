@@ -204,7 +204,7 @@ export function externalSalesChecks({ sales, pairsBySale, parcelsBySale, invoice
   return checks;
 }
 
-export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", selfBilling = null, tellKickz = null, fetchImpl = fetch }) {
+export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, callWms, rompslompToken = "", rompslompCompanyId = "1296508534", sendMail = null, mailFrom = "noreply@kickzcaviar.nl", replyTo = "info@kickzcaviar.nl", mollieApiKey = "", paymentRedirectUrl = "https://kickzcaviar.com", paymentWebhookUrl = "", selfBilling = null, tellKickz = null, returnsFlow = null, fetchImpl = fetch }) {
   const db = createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl });
   const rompslomp = createRompslomp({ token: rompslompToken, companyId: rompslompCompanyId, fetchImpl });
 
@@ -680,7 +680,11 @@ export function createExternalSalesStore({ airtable, supabaseUrl, serviceKey, ca
      */
     returnToConsignor: tellKickz
       ? (body) => tellKickz("/api/internal/broker/pair-returned", body)
-      : null
+      : null,
+
+    // Every pair through the returns flow (admin/returns.js): one RET line,
+    // the scan, the same statuses and bookings as a store order.
+    returnsFlow
   });
 
   /*

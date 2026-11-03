@@ -448,6 +448,8 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     paymentWebhookUrl: services.mollieWebhookUrl,
     paymentRedirectUrl: services.externalPaymentRedirectUrl,
     selfBilling,
+    // Created further down; only called once a pair is cancelled.
+    returnsFlow: () => returns,
     fetchImpl
   });
 
@@ -520,7 +522,9 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
         forCompany: (companyId) => createRompslomp({ token: services.rompslompToken, companyId, fetchImpl })
       })
       : null,
-    locations: () => locationOptions()
+    locations: () => locationOptions(),
+    // A consignor's pair back in his stock, and him told not to ship it.
+    returnToConsignor: (body) => tellKickz("/api/internal/broker/pair-returned", body)
   });
 
   // The Location choices, from the schema; empty when the token may not read it.
