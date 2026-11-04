@@ -149,6 +149,16 @@ export function mountReturns(router, { returns, audit, internalSecret = "", page
     }
   });
 
+  // The daily check by hand: purchases Make booked late, credited. dry only looks.
+  router.post("/api/internal/returns/settle-late-purchases", express.json({ limit: "2kb" }), async (req, res) => {
+    if (!guard(req, res)) return;
+    try {
+      res.json({ ok: true, ...(await returns.settleLatePurchases({ dry: Boolean(req.body?.dry), by: text(req.body?.by) || "Script" })) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
   router.post("/api/internal/returns/open", express.json({ limit: "10kb" }), async (req, res) => {
     if (!guard(req, res)) return;
     try {

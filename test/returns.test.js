@@ -686,3 +686,68 @@ test("External: our own pair cannot go back to a seller, and a flaw needs words"
   await assert.rejects(w.returns.cancelExternalPair(extArgs(w, "to_consignor")), /no seller/);
   await assert.rejects(w.returns.cancelExternalPair(extArgs(w, "troubled")), /reason/);
 });
+
+/* ---------------- the daily check: purchases Make booked late ---------------- */
+
+test("a purchase not booked yet waits off the Rompslomp list, and the daily check credits it on its own date", async () => {
+  const w = world();
+  w.purchases.findPurchase = async () => ({ expense_id: "", credited: false });
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "consignor_gone" } });
+  const row = w.db.data.returns[0];
+  const waiting = row.todo.find((t) => t.kind === "awaiting_purchase");
+  assert.ok(waiting, "written down as waiting");
+  assert.deepEqual(waiting.retry, { type: "purchase", deal: "ORD-030001", from: "2026-10-01", paid: false });
+  assert.ok(!row.todo.some((t) => !t.done && t.kind === "credit_purchase"), "no crediting by hand for Dario");
+
+  // Still not booked: nothing happens.
+  let out = await w.returns.settleLatePurchases();
+  assert.equal(out.waiting.length, 1);
+  assert.equal(w.purchases.calls.credit.length, 0);
+
+  // Make booked it.
+  w.purchases.findPurchase = async () => ({ expense_id: "81", expense_number: "IN-81", date: "2026-10-02", amount: 100, credited: false });
+  out = await w.returns.settleLatePurchases({ dry: true });
+  assert.equal(out.would.length, 1);
+  assert.equal(w.purchases.calls.credit.length, 0, "dry only looks");
+
+  out = await w.returns.settleLatePurchases();
+  assert.equal(out.settled.length, 1);
+  assert.deepEqual(w.purchases.calls.credit[0], { expenseId: "81", deal: "ORD-030001", date: "2026-10-02" });
+  assert.equal(w.purchases.calls.kruispost.length, 1, "unpaid: the purchase and its credit on Kruisposten");
+  const after = w.db.data.returns[0];
+  assert.ok(after.todo.find((t) => t.id === waiting.id).done);
+  assert.ok(after.todo.some((t) => !t.done && t.kind === "link_kruispost"));
+  assert.match(after.log.at(-1).line, /Daily check/);
+
+  // Run again: nothing twice.
+  out = await w.returns.settleLatePurchases();
+  assert.equal(out.checked, 0);
+  assert.equal(w.purchases.calls.credit.length, 1);
+});
+
+test("an old todo in words is read too: still missing, it becomes a waiting one", async () => {
+  const w = world();
+  w.db.data.returns.push({ id: "00000000-0000-0000-0000-000000000022", return_number: 22, status: "done", log: [], todo: [
+    { id: "ruutmbky", kind: "credit_purchase", done: false, text: 'No "Purchase Order ORD-029293" in Rompslomp yet. If Make books it later, credit it then.' }
+  ] });
+  w.purchases.findPurchase = async () => ({ expense_id: "", credited: false });
+  const out = await w.returns.settleLatePurchases();
+  assert.equal(out.waiting.length, 1);
+  const t = w.db.data.returns[0].todo[0];
+  assert.equal(t.kind, "awaiting_purchase");
+  assert.equal(t.retry.deal, "ORD-029293");
+});
+
+test("a swap whose pair's purchase came late: settled against the credit on Kruisposten", async () => {
+  const w = world();
+  w.db.data.returns.push({ id: "00000000-0000-0000-0000-000000000010", return_number: 10, status: "done", log: [], todo: [
+    { id: "w38k9qzl", kind: "link_kruispost", done: false, text: "In Rompslomp (Payout): settle the credit of the purchase of ORD-028684 against the purchase of ORD-028075 (not booked yet)." }
+  ] });
+  w.purchases.findPurchase = async ({ deal }) => (deal === "ORD-028684"
+    ? { expense_id: "60", expense_number: "IN-60", date: "2026-09-20", amount: 120, credited: true, credit_number: "IN-61" }
+    : { expense_id: "90", expense_number: "IN-90", date: "2026-10-25", amount: 120, credited: false });
+  const out = await w.returns.settleLatePurchases();
+  assert.equal(out.settled.length, 1);
+  assert.equal(w.purchases.calls.credit.length, 0, "the returned pair's purchase was already credited");
+  assert.deepEqual(w.purchases.calls.kruispost[0], { amount: 120, original: "IN-90", credit: "IN-61", deal: "ORD-028075/ORD-028684" });
+});

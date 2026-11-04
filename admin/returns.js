@@ -155,6 +155,19 @@ export const TODO_LISTS = {
   rompslomp: ["link_kruispost", "credit_by_hand", "journal_by_hand", "credit_purchase", "move_payment", "credit_invoice"]
 };
 
+/*
+ * A purchase that has to be undone but is not in Rompslomp yet: Make books
+ * it later, sometimes days later (Phase 9.1 was off from 24-10 to 04-11-2026
+ * with 171 orders queued). Such a todo carries `retry` and is not a task for
+ * anyone: the daily check (settleLatePurchases) credits the purchase the day
+ * it shows up, on the purchase's own date, and puts the pair on Kruisposten.
+ *
+ *   purchase   { deal, from, paid }     credit "Purchase Order <deal>"
+ *   swap       { returned, swap, ... }  credit the returned pair's purchase
+ *                                       and settle it against the swap's
+ */
+export const AWAITING_PURCHASE = "awaiting_purchase";
+
 // Kickz Caviar B.V.'s stock and the account a pair that is gone moves to.
 const STOCK_ACCOUNT = { id: 1981496874, path: "activa.current_assets.voorraad_scout_custom" };
 const SHRINK_ACCOUNT = { id: 2146917640, path: "profit.costs.voorraad_mutatie_custom" };
@@ -173,7 +186,28 @@ export function ownerOf(unit = {}) {
 const ddmmyyyy = (when = new Date()) => when.toISOString().slice(0, 10).split("-").reverse().join("-");
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date());
 
-const todo = (textValue, kind = "") => ({ id: Math.random().toString(36).slice(2, 10), kind, text: textValue, done: false });
+const todo = (textValue, kind = "", extra = {}) => ({ id: Math.random().toString(36).slice(2, 10), kind, text: textValue, done: false, ...extra });
+
+const waitingText = (deal) => `"Purchase Order ${deal}" is not in Rompslomp yet. Nothing to do: the daily check credits it once Make has booked it.`;
+
+/*
+ * The retry a todo stands for. Todos written before the daily check existed
+ * only say it in words, so those are read from their text.
+ */
+export function retryOf(item, row = {}) {
+  if (!item || item.done) return null;
+  if (item.retry?.type) return item.retry;
+  const said = text(item.text);
+  const paid = (row.todo || []).some((t) => t.kind === "claim_seller");
+
+  let m = /^No "Purchase Order (\S+)" in Rompslomp yet\b/.exec(said);
+  if (item.kind === "credit_purchase" && m) return { type: "purchase", deal: m[1], from: "", paid };
+
+  m = /settle the credit of the purchase of (\S+) against the purchase of (\S+) \(not booked yet\)/.exec(said);
+  if (item.kind === "link_kruispost" && m) return { type: "swap", returned: m[1], swap: m[2] };
+
+  return null;
+}
 
 /*
  * deps:
@@ -525,7 +559,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       if (found.credited) {
         log.push(`The purchase of ${orderId} was already credited.`);
       } else if (!found.expense_id) {
-        todos.push(todo(`No "Purchase Order ${orderId}" in Rompslomp yet. If Make books it later, credit it then.`, "credit_purchase"));
+        todos.push(todo(waitingText(orderId), AWAITING_PURCHASE, { retry: { type: "purchase", deal: orderId, from, paid: wasPaid } }));
       } else {
         const credit = await purchases.credit({ expenseId: found.expense_id, deal: orderId });
         log.push(`Purchase ${found.expense_number || found.expense_id} credited${credit.expense_number ? ` (${credit.expense_number})` : ""}.`);
@@ -1366,18 +1400,29 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     }
 
     try {
-      const back = await purchases.findPurchase({ deal: returnedId, from: text(returnedOrder.fields?.["Created Time"]).slice(0, 10) });
+      const returnedFrom = text(returnedOrder.fields?.["Created Time"]).slice(0, 10);
+      const swapOrder = swap.order_record_id ? await orderOf("store", swap.order_record_id).catch(() => null) : null;
+      const swapId = swapOrder ? orderLabel(swapOrder) : "";
+      const swapFrom = swapOrder ? text(swapOrder.fields["Created Time"]).slice(0, 10) : "";
+      // Either purchase not booked yet: the daily check does all of it later.
+      const later = { type: "swap", returned: returnedId, returned_from: returnedFrom, swap: swapId, swap_from: swapFrom };
+
+      const back = await purchases.findPurchase({ deal: returnedId, from: returnedFrom });
       if (!back.expense_id) {
-        todos.push(todo(`No "Purchase Order ${returnedId}" found in Rompslomp: credit it by hand once it is there, and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
+        if (swapId) todos.push(todo(`${waitingText(returnedId)} It is then settled against the purchase of ${swapId}.`, AWAITING_PURCHASE, { retry: later }));
+        else todos.push(todo(`No "Purchase Order ${returnedId}" found in Rompslomp: credit it by hand once it is there, and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
         return;
       }
 
       const credit = back.credited ? null : await purchases.credit({ expenseId: back.expense_id, deal: returnedId });
       if (credit) log.push(`Purchase ${back.expense_number || back.expense_id} of ${returnedId} credited (${credit.expense_number}).`);
 
-      const swapOrder = swap.order_record_id ? await orderOf("store", swap.order_record_id).catch(() => null) : null;
-      const swapId = swapOrder ? orderLabel(swapOrder) : "";
-      const theirs = swapId ? await purchases.findPurchase({ deal: swapId, from: text(swapOrder.fields["Created Time"]).slice(0, 10) }) : { expense_id: "" };
+      const theirs = swapId ? await purchases.findPurchase({ deal: swapId, from: swapFrom }) : { expense_id: "" };
+
+      if (swapId && !theirs.expense_id) {
+        todos.push(todo(`${waitingText(swapId)} It is then settled against the credit of the purchase of ${returnedId}.`, AWAITING_PURCHASE, { retry: later }));
+        return;
+      }
 
       if (!credit || !theirs.expense_id) {
         todos.push(todo(`In Rompslomp (Payout): settle the credit of the purchase of ${returnedId} against the purchase of ${swapId || swap.item_id}${theirs.expense_id ? "" : " (not booked yet)"}.`, "link_kruispost"));
@@ -1581,6 +1626,129 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     });
   }
 
+  /* ---------------- the daily check: purchases booked late ---------------- */
+
+  // When an order was made, by its Order ID: where to start looking for its purchase.
+  async function createdOn(orderId) {
+    if (!text(orderId)) return "";
+    const page = await airtable.select(ORDERS, { formula: `{Order ID} = '${quote(orderId)}'`, fields: ["Order ID", "Created Time"], pageSize: 5 });
+    const hit = (page.records || []).find((r) => text(r.fields?.["Order ID"]) === text(orderId));
+    return text(hit?.fields?.["Created Time"]).slice(0, 10);
+  }
+
+  // Sixty days back, for an order whose date could not be read.
+  const fallbackFrom = () => new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10);
+
+  /*
+   * One retry. { waiting } while Make has not booked it; otherwise what was
+   * done, and what is left for a person (only linking payments).
+   */
+  async function settleOne(job, { dry }) {
+    const log = [];
+    const todos = [];
+
+    if (job.type === "purchase") {
+      const found = await purchases.findPurchase({ deal: job.deal, from: text(job.from) || (await createdOn(job.deal)) || fallbackFrom() });
+      if (found.credited) return { log: [`The purchase of ${job.deal} was already credited${found.credit_number ? ` (${found.credit_number})` : ""}.`], todos };
+      if (!found.expense_id) return { waiting: true };
+      if (dry) return { would: `credit ${found.expense_number || found.expense_id} (€ ${round2(found.amount).toFixed(2)}, ${found.date})${job.paid ? "" : " and put it on Kruisposten"}` };
+
+      const credit = await purchases.credit({ expenseId: found.expense_id, deal: job.deal, date: found.date });
+      log.push(`Daily check: purchase ${found.expense_number || found.expense_id} of ${job.deal} credited${credit.expense_number ? ` (${credit.expense_number})` : ""}, dated ${found.date || "today"}.`);
+      if (job.paid) {
+        todos.push(todo(`The purchase of ${job.deal} was paid: once the seller's money is back, link it to its credit${credit.expense_number ? ` ${credit.expense_number}` : ""}.`, "link_kruispost"));
+      } else if (found.amount) {
+        await purchases.kruispost({ amount: found.amount, original: found.expense_number || `Purchase Order ${job.deal}`, credit: credit.expense_number || `Credit Purchase Order ${job.deal}`, deal: job.deal });
+        todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${job.deal}" to the purchase and its credit.`, "link_kruispost"));
+      }
+      return { log, todos };
+    }
+
+    if (job.type === "swap") {
+      const back = await purchases.findPurchase({ deal: job.returned, from: text(job.returned_from) || (await createdOn(job.returned)) || fallbackFrom() });
+      if (!back.expense_id) return { waiting: true };
+      const theirs = await purchases.findPurchase({ deal: job.swap, from: text(job.swap_from) || (await createdOn(job.swap)) || fallbackFrom() });
+      if (dry) {
+        return theirs.expense_id || !back.credited
+          ? { would: `${back.credited ? "" : `credit ${back.expense_number} of ${job.returned}, `}${theirs.expense_id ? `settle against ${theirs.expense_number} of ${job.swap} on Kruisposten` : `wait for ${job.swap}`}` }
+          : { waiting: true };
+      }
+
+      let creditNumber = back.credit_number;
+      if (!back.credited) {
+        const credit = await purchases.credit({ expenseId: back.expense_id, deal: job.returned, date: back.date });
+        creditNumber = credit.expense_number;
+        log.push(`Daily check: purchase ${back.expense_number || back.expense_id} of ${job.returned} credited (${creditNumber}), dated ${back.date || "today"}.`);
+      }
+      // Credited now, but the swap's purchase is still to come: wait for that half.
+      if (!theirs.expense_id) return { waiting: true, log };
+
+      await purchases.kruispost({
+        amount: back.amount,
+        original: theirs.expense_number || `Purchase Order ${job.swap}`,
+        credit: creditNumber || `Credit Purchase Order ${job.returned}`,
+        deal: `${job.swap}/${job.returned}`
+      });
+      log.push(`Daily check: credit of ${job.returned} settled against purchase ${theirs.expense_number} of ${job.swap} on Kruisposten.`);
+      todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${job.swap}/${job.returned}" to the purchase of ${job.swap} and the credit of ${job.returned}.`, "link_kruispost"));
+      return { log, todos };
+    }
+
+    return { waiting: true };
+  }
+
+  /*
+   * Every return with a purchase still waiting for Make, tried once. Run
+   * daily (admin/adminRouter.js) and by hand through
+   * /api/internal/returns/settle-late-purchases; dry only looks.
+   *
+   * An old todo that only said it in words becomes a waiting one first, so
+   * it leaves the Rompslomp to do list: it is no work for Dario.
+   */
+  async function settleLatePurchases({ dry = false, by = "daily check" } = {}) {
+    const out = { checked: 0, settled: [], waiting: [], errors: [], would: [] };
+    if (!purchases) return out;
+
+    const rows = await db.get("returns?select=id,return_number,todo,log&order=created_at.desc&limit=1000");
+    for (const row of rows) {
+      const jobs = (row.todo || []).map((t) => ({ t, job: retryOf(t, row) })).filter((x) => x.job);
+      if (!jobs.length) continue;
+
+      let list = [...(row.todo || [])];
+      const log = [];
+      const label = `RET-${row.return_number}`;
+
+      for (const { t, job } of jobs) {
+        out.checked++;
+        const what = job.type === "swap" ? `${job.returned} → ${job.swap}` : job.deal;
+        try {
+          const done = await settleOne(job, { dry });
+          if (done.would) { out.would.push({ return: label, what, would: done.would }); continue; }
+          log.push(...(done.log || []));
+          if (done.waiting) {
+            out.waiting.push({ return: label, what });
+            // An old one in words: written as a waiting one, off Dario's list.
+            if (!dry && !t.retry) list = list.map((x) => (x.id === t.id ? { ...x, kind: AWAITING_PURCHASE, retry: job } : x));
+            continue;
+          }
+          list = list.map((x) => (x.id === t.id ? { ...x, done: true, done_by: by, done_at: new Date().toISOString() } : x));
+          list.push(...done.todos);
+          out.settled.push({ return: label, what, log: done.log });
+        } catch (err) {
+          out.errors.push({ return: label, what, error: err.message });
+        }
+      }
+
+      if (!dry && (log.length || JSON.stringify(list) !== JSON.stringify(row.todo || []))) {
+        await saveReturn(row.id, {
+          todo: list,
+          log: [...(row.log || []), ...log.map((line) => ({ at: new Date().toISOString(), by, line }))]
+        });
+      }
+    }
+    return out;
+  }
+
   async function tick(id, todoId, done = true, by = "") {
     const row = await getReturn(id);
     const item = (row.todo || []).find((t) => t.id === todoId);
@@ -1707,6 +1875,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     notComing,
     creditInvoice,
     sellerReturnStep,
+    settleLatePurchases,
     tick,
     list,
     get: getReturn,

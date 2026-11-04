@@ -359,6 +359,7 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     const wanted = `purchase order ${like(deal)}`;
     let found = null;
     let credited = false;
+    let creditNumber = "";
 
     for (let page = 1; page <= 20; page++) {
       const rows = await client.listExpenses({ from, page });
@@ -367,20 +368,26 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
         for (const line of row.invoice_lines || []) {
           const said = like(line.description);
           if (said === wanted && !found) found = { row, line };
-          if (said === `credit ${wanted}`) credited = true;
+          if (said === `credit ${wanted}`) {
+            credited = true;
+            creditNumber = creditNumber || text(row.invoice_number);
+          }
         }
       }
 
       if (rows.length < 100) break;
     }
 
-    if (!found) return { expense_id: "", credited };
+    if (!found) return { expense_id: "", credited, credit_number: creditNumber };
 
     return {
       expense_id: String(found.row.id),
       expense_number: text(found.row.invoice_number),
+      // The date it was booked on, so a credit made later lands beside it.
+      date: text(found.row.date).slice(0, 10),
       amount: round2(found.line.price_with_vat ?? found.line.price_per_unit),
-      credited
+      credited,
+      credit_number: creditNumber
     };
   }
 

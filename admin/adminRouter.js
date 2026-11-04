@@ -694,6 +694,25 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   }
 
   /*
+   * Once a day, from 07:00 Amsterdam time: purchases Make booked after the
+   * pair's return had already said it was not owed are credited
+   * (returns.settleLatePurchases). Checked hourly so a restart cannot skip a day.
+   */
+  if (enabled && returnsRompslomp.configured && externalSalesSyncMs > 0) {
+    let lastDay = "";
+    const lateTick = () => {
+      const [day, hour] = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Amsterdam", dateStyle: "short", timeStyle: "short" }).format(new Date()).split(" ");
+      if (day === lastDay || Number(hour.slice(0, 2)) < 7) return;
+      lastDay = day;
+      returns.settleLatePurchases()
+        .then((out) => console.log("[returns late purchases]", JSON.stringify({ checked: out.checked, settled: out.settled, waiting: out.waiting.length, errors: out.errors })))
+        .catch((err) => console.error("[returns late purchases]", err.message));
+    };
+    setTimeout(lateTick, 90_000).unref?.();
+    setInterval(lateTick, 60 * 60_000).unref?.();
+  }
+
+  /*
    * Counts for the sidebar, every tab at once.
    *
    * Measured on 17-09-2026: counting a tab costs one Airtable call per 100
