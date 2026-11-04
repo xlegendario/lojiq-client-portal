@@ -228,6 +228,9 @@
 
     dialog { width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 0; box-shadow: 0 30px 80px var(--shadow); }
     dialog::backdrop { background: var(--backdrop); }
+    .rates { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+    .rates .filters { align-items: center; gap: 10px; }
+    .rates-table { max-width: 420px; max-height: 420px; }
     .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
     .dialog-body h2 { margin: 0; font-size: 17px; }
     .field { display: flex; flex-direction: column; gap: 6px; }
@@ -838,6 +841,53 @@
     const BOOKS = { to_invoice: ["To invoice", "wait"], invoiced: ["Invoiced", "good"], credited: ["Credited", ""], not_invoiced: ["Not invoiced", ""] };
     const SEVERITY = { error: ["Error", "bad"], warning: ["To do", "wait"], info: ["Info", ""] };
 
+    /*
+     * What a parcel costs us to send, from the DPD quote of 6 March 2026
+     * (Payout by Kickz Caviar B.V. / 94370451).
+     *
+     * The regular-parcel column throughout. DPD prices a small parcel
+     * lower in four countries and the same everywhere else, so quoting
+     * the regular rate is never short - which is the point of having it
+     * in front of you while you price a deal.
+     *
+     * Excluding VAT, as the quote is.
+     */
+    const DPD_RATES = [
+      ["Austria", 10.32],
+      ["Belgium", 6.69],
+      ["Bosnia and Herzegovina", 21.00],
+      ["Bulgaria", 14.27],
+      ["Croatia", 11.05],
+      ["Czechia", 10.99],
+      ["Denmark", 11.17],
+      ["Estonia", 12.62],
+      ["Finland", 17.94],
+      ["France", 10.49],
+      ["Germany", 7.04],
+      ["Greece", 23.62],
+      ["Hungary", 11.02],
+      ["Iceland", 50.42],
+      ["Ireland", 9.54],
+      ["Italy", 10.82],
+      ["Latvia", 13.02],
+      ["Liechtenstein", 21.91],
+      ["Lithuania", 10.57],
+      ["Luxembourg", 9.47],
+      ["Monaco", 12.60],
+      ["Netherlands", 5.44],
+      ["Norway", 15.87],
+      ["Poland", 11.02],
+      ["Portugal", 10.69],
+      ["Romania", 12.62],
+      ["Serbia", 30.66],
+      ["Slovakia", 11.04],
+      ["Slovenia", 11.02],
+      ["Spain", 10.67],
+      ["Sweden", 13.24],
+      ["Switzerland", 14.42],
+      ["United Kingdom", 10.12],
+    ];
+
     const pill = (map, key) => { const [label, cls] = map[key] || [key || "—", ""]; return `<span class="pill ${cls}">${esc(label)}</span>`; };
 
     const params = new URLSearchParams(location.search);
@@ -1199,7 +1249,7 @@
         </div>`;
 
       if (!deals.length) {
-        $("draftView").innerHTML = `${top}<p class="empty">No deals being made right now.</p>`;
+        $("draftView").innerHTML = `${top}<p class="empty">No deals being made right now.</p>${rateCard()}`;
         return;
       }
 
@@ -1225,7 +1275,43 @@
                 </tr>`).join("")}
             </tbody>
           </table>
-        </div>`;
+        </div>
+        ${rateCard()}`;
+    }
+
+    /*
+     * What shipping costs, under the drafts.
+     *
+     * It belongs here and not behind a button somewhere else: the number
+     * is wanted while a deal is being priced, which is what this tab is
+     * for, and a carrier nobody has a contract with yet is worth showing
+     * greyed out rather than leaving out.
+     */
+    let ratesOpen = "";
+
+    function rateCard() {
+      const open = ratesOpen === "dpd";
+
+      return `
+        <section class="rates">
+          <div class="filters">
+            <button class="btn${open ? " primary" : ""}" type="button" data-rates="dpd" aria-expanded="${open}">
+              ${open ? "▾" : "▸"} DPD
+            </button>
+            <button class="btn" type="button" disabled title="No UPS contract yet">UPS</button>
+            <span class="sub">What one parcel costs us to send. Excluding VAT.</span>
+          </div>
+          ${open ? `
+            <div class="table-wrap rates-table">
+              <table>
+                <thead><tr><th>Country</th><th class="money">Regular parcel</th></tr></thead>
+                <tbody>
+                  ${DPD_RATES.map(([country, price]) => `
+                    <tr><td>${esc(country)}</td><td class="money">${esc(euro(price))}</td></tr>`).join("")}
+                </tbody>
+              </table>
+            </div>` : ""}
+        </section>`;
     }
 
     function drawDraftDeal() {
@@ -2047,6 +2133,15 @@
     });
 
     $("draftView").addEventListener("click", async (event) => {
+      const rates = event.target.closest("[data-rates]");
+
+      if (rates) {
+        // Kept outside the draw, so refreshing the list while you read it
+        // does not fold it shut again.
+        ratesOpen = ratesOpen === rates.dataset.rates ? "" : rates.dataset.rates;
+        return drawDraftList();
+      }
+
       const el = event.target.closest("[data-draft]");
       if (!el) return;
 
