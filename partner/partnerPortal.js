@@ -40,6 +40,7 @@ import { DocumentError, createSaleDocuments, partnerView as documentView, seller
 import { saleDocumentPdf } from "./saleDocumentPdf.js";
 import { airtableSelect, createCatalogSearch } from "./catalogSearch.js";
 import { termsView } from "./sellerTerms.js";
+import { createPartnerSales } from "./partnerSales.js";
 
 export const PARTNER_COOKIE = "lojiq_partner";
 
@@ -473,6 +474,20 @@ export function createPartnerPortal({ adminSecret, supabaseUrl, serviceKey, page
       res.send(Buffer.from(await file.arrayBuffer()));
     } catch (err) {
       labelSend(res, err, req.partner.sellerId);
+    }
+  });
+
+  /* ----- sales: what we sold of his, and what we paid him ----- */
+
+  const sales = services.airtable ? createPartnerSales({ airtable: services.airtable, db }) : null;
+
+  router.get("/api/partner/sales", async (req, res) => {
+    if (!sales) return res.json({ sold: 0, paid: 0, to_pay: 0, to_pay_amount: 0, models: [], payments: [] });
+    try {
+      res.json(await sales.load(req.partner.sellerId));
+    } catch (err) {
+      console.error(`[partner] sales for ${req.partner.sellerId} failed:`, err.message);
+      res.status(502).json({ error: "try_again" });
     }
   });
 

@@ -69,9 +69,9 @@ export function buyerView(row, invoice, sale, buyerOf) {
 
   const buyer = sale ? buyerOf.get(text(sale.buyer_id)) : null;
   return {
-    // Only a buyer from his own list: an older forward made by us may carry
-    // one of our buyers in forwarding_log, which is not his to see.
-    name: buyer ? text(buyer.company_name) || text(buyer.full_name) : "",
+    // The name he typed, or a buyer from his own list. Never forwarding_log's
+    // buyer: an older forward made by us may carry one of ours there.
+    name: text(sale?.buyer_name) || (buyer ? text(buyer.company_name) || text(buyer.full_name) : ""),
     paid: Boolean(sale?.buyer_paid_at),
     editable: text(row.shipping_status) !== "cancelled"
   };
@@ -157,7 +157,10 @@ export async function loadForwards(db, sellerRecordId) {
     `forward_invoices?select=kind,forwarding_log_id,buyer_id,status,invoice_id,invoice_number,price_per_pair,total,fee_total,purchase_total,buyer_payment_status,partner_payout_status,partner_paid_at&seller_record_id=eq.${seller}`
   ).catch(() => []);
   // Missing until its table exists; the tab works without it.
-  const sales = await db.get(`partner_forward_sales?select=forwarding_log_id,buyer_id,buyer_paid_at&seller_record_id=eq.${seller}`).catch(() => []);
+  // buyer_name since 04-11-2026; read without it while that column is not there yet.
+  const sales = await db.get(`partner_forward_sales?select=forwarding_log_id,buyer_id,buyer_name,buyer_paid_at&seller_record_id=eq.${seller}`)
+    .catch(() => db.get(`partner_forward_sales?select=forwarding_log_id,buyer_id,buyer_paid_at&seller_record_id=eq.${seller}`))
+    .catch(() => []);
 
   const buyerIds = [...new Set([...(invoices || []), ...(sales || [])].map((row) => row.buyer_id).filter(Boolean))];
   const buyers = buyerIds.length

@@ -135,6 +135,15 @@ test("a forward is made through the Kickz Caviar portal with the picked pairs an
   assert.deepEqual(d.inserted, [{ table: "partner_forward_sales", rows: [{ forwarding_log_id: "f1", seller_record_id: "recJIMMY00000001", buyer_id: BUYER.id }] }], "without an invoice the buyer is written down for him");
 });
 
+test("the buyer can be just a name he types: no buyer list, no invoice", async () => {
+  const d = deps([pair("p1")]);
+  await createPartnerForward(d, partner, { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], labels: [label()], buyer_name: "  Rarus   Shop ", invoice: { price_per_pair: 120 } });
+
+  const made = d.calls.find((c) => c.to === "kc").body;
+  assert.deepEqual(made.buyer, { record_id: null, buyer_id: null, name: "Rarus Shop", country: null });
+  assert.deepEqual(d.inserted, [{ table: "partner_forward_sales", rows: [{ forwarding_log_id: "f1", seller_record_id: "recJIMMY00000001", buyer_id: null, buyer_name: "Rarus Shop" }] }]);
+});
+
 test("every forward needs a buyer from his own list, with or without an invoice", async () => {
   const d = deps([pair("p1")]);
   const base = { lines: [{ sku: "A05FW702", size: "44", qty: 1 }], labels: [label()] };

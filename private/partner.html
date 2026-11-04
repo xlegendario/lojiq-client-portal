@@ -323,6 +323,19 @@
     .lbl-download { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 8px; border-radius: 10px; background: var(--primary-tint); color: var(--primary-soft); text-decoration: none; font-weight: 600; }
     .lbl-download small { color: var(--muted); font-weight: 400; word-break: break-all; }
     .bal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+    .bal-grid.one { grid-template-columns: 1fr; }
+    .view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .view-head h2 { margin-right: auto; }
+    .btn.small { min-height: 40px; padding: 0 16px; font-size: 15px; width: auto; }
+    .back-link { background: none; border: 0; padding: 4px 0; margin-bottom: 6px; color: var(--primary-soft); font-size: 15px; font-weight: 600; cursor: pointer; }
+    .sale-stats { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+    .sale-stats span { font-size: 13px; padding: 3px 8px; border-radius: 8px; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+    .sale-stats span.due { background: rgba(245, 158, 11, 0.16); color: #FBBF4C; font-weight: 600; }
+    .sale-line { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 15px; }
+    .sale-line + .sale-line { border-top: 1px solid var(--border); }
+    .sale-line .muted { color: var(--muted); }
+    .sale-line.cancelled span { color: var(--muted); text-decoration: line-through; }
+    .sale-line.cancelled .pill { text-decoration: none; }
     .bal-tile { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .bal-title { color: var(--muted); font-size: 13px; }
     .bal-tile b { font-size: 20px; color: var(--strong); white-space: nowrap; }
@@ -473,12 +486,17 @@
         <div id="sendBody"><div class="note" data-t="loading">Loading…</div></div>
       </section>
       <section id="view-sent" data-view hidden>
-        <h2 data-t="tab_sent">Forwards</h2>
+        <div class="view-head"><h2 data-t="tab_sent">Forwards</h2><button class="btn small" type="button" data-open-labels data-t="tab_labels">Labels</button></div>
         <div id="sentList"><div class="note" data-t="loading">Loading…</div></div>
       </section>
       <section id="view-labels" data-view hidden>
+        <button class="back-link" type="button" data-open-forwards data-t="back_forwards">← Forwards</button>
         <h2 data-t="tab_labels">Labels</h2>
         <div id="labelsBody"><div class="note" data-t="loading">Loading…</div></div>
+      </section>
+      <section id="view-sales" data-view hidden>
+        <h2 data-t="tab_sales">Sales</h2>
+        <div id="salesBody"><div class="note" data-t="loading">Loading…</div></div>
       </section>
       <section id="view-docs" data-view hidden>
         <h2 data-t="tab_docs">Invoices</h2>
@@ -505,13 +523,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h13"/><path d="M12 6l6 6-6 6"/><path d="M21 5v14"/></svg>
           <span data-t="tab_sent">Forwards</span>
         </button>
-        <button class="tab" role="tab" type="button" data-tab="labels" aria-selected="false">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-          <span data-t="tab_labels">Labels</span>
-        </button>
-        <button class="tab" role="tab" type="button" data-tab="docs" aria-selected="false">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>
-          <span data-t="tab_docs">Invoices</span>
+        <button class="tab" role="tab" type="button" data-tab="sales" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20"/><path d="M17 6.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 10 12 10s5 1.6 5 3.5S14.8 17 12 17s-5-1.6-5-3.5"/></svg>
+          <span data-t="tab_sales">Sales</span>
         </button>
       </div>
     </nav>
@@ -763,11 +777,25 @@
         same_no: "No, someone else",
         sale_total: "Buyer pays",
         you_receive: "You receive",
-        inv_need_buyer: "Choose the buyer.",
+        inv_need_buyer: "Fill in the buyer's name.",
         inv_need_price: "Fill in the price per pair.",
         invoice_no_price: "Fill in the price per pair.",
         invoice_no_buyer: "Choose the buyer.",
         need_buyer: "Choose the buyer.",
+        buyer_name_hint: "Buyer name",
+        no_sales: "We did not sell any of your pairs yet.",
+        sales_to_pay: "We still pay you",
+        sales_all_paid: "All paid",
+        sales_sold: "Sold",
+        sales_paid: "Paid",
+        sales_to_pay_short: "To pay",
+        sales_cancelled: "Cancelled",
+        sales_models: "Per model",
+        sales_payments: "Payments to you",
+        sales_payment: "Payment",
+        sales_for_pairs: "For these pairs",
+        tab_sales: "Sales",
+        back_forwards: "← Forwards",
         seg_forwards: "Forwards",
         seg_invoices: "Invoices",
         fees_settled: "Your fees settled",
@@ -1034,11 +1062,25 @@
         same_no: "不是，是另一个买家",
         sale_total: "买家支付",
         you_receive: "您收到",
-        inv_need_buyer: "请选择买家。",
+        inv_need_buyer: "请填写买家名字。",
         inv_need_price: "请填写每双价格。",
         invoice_no_price: "请填写每双价格。",
         invoice_no_buyer: "请选择买家。",
         need_buyer: "请选择买家。",
+        buyer_name_hint: "买家名字",
+        no_sales: "我们还没有卖出您的鞋。",
+        sales_to_pay: "我们还要付给您",
+        sales_all_paid: "已全部付清",
+        sales_sold: "已卖",
+        sales_paid: "已付",
+        sales_to_pay_short: "待付",
+        sales_cancelled: "已取消",
+        sales_models: "按款式",
+        sales_payments: "付给您的款",
+        sales_payment: "付款",
+        sales_for_pairs: "其中这些鞋",
+        tab_sales: "销售",
+        back_forwards: "← 转运",
         seg_forwards: "转运",
         seg_invoices: "发票",
         fees_settled: "已抵扣的费用",
@@ -1089,6 +1131,7 @@
       if (typeof send !== "undefined") renderSend();
       if (typeof sent !== "undefined") renderSent();
       if (typeof lbl !== "undefined") renderLabels();
+      if (typeof sales !== "undefined") renderSales();
       // The button names the other language, in that language.
       document.querySelectorAll("[data-lang-toggle]").forEach((el) => { el.textContent = lang === "zh" ? "English" : "中文"; });
     }
@@ -1137,9 +1180,12 @@
     }
 
     function openTab(name) {
-      if (!["stock", "new", "sent", "labels", "docs"].includes(name)) name = "stock";
+      // Invoices are gone from his dashboard (Dario, 04-11-2026); Labels is a
+      // button in Forwards, so that tab stays lit while it is open.
+      if (!["stock", "new", "sent", "labels", "sales"].includes(name)) name = "stock";
+      const lit = name === "labels" ? "sent" : name;
 
-      document.querySelectorAll("[data-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === name)));
+      document.querySelectorAll("[data-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.tab === lit)));
       document.querySelectorAll("[data-view]").forEach((view) => { view.hidden = view.id !== `view-${name}`; });
       if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
       window.scrollTo(0, 0);
@@ -1147,11 +1193,15 @@
       if (name === "new") loadSend();
       if (name === "sent") loadSent(true);
       if (name === "labels") loadLabels();
-      if (name === "docs") loadDocs();
+      if (name === "sales") loadSales();
       if (typeof send !== "undefined") renderSendBar();
     }
 
     document.querySelectorAll("[data-tab]").forEach((tab) => tab.addEventListener("click", () => openTab(tab.dataset.tab)));
+    document.addEventListener("click", (event) => {
+      if (event.target.closest("[data-open-labels]")) openTab("labels");
+      if (event.target.closest("[data-open-forwards]")) openTab("sent");
+    });
 
     $("loginForm").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1584,12 +1634,12 @@
           body: {
             lines,
             labels: send.labels.map((l) => ({ data_url: l.dataUrl, name: l.name, tracking: labelNumbers(l) })),
-            buyer_id: inv.buyerId,
-            invoice: inv.on ? { buyer_id: inv.buyerId, price_per_pair: parsePrice(inv.price) } : undefined
+            buyer_name: String(inv.name || "").trim()
           }
         });
 
-        send.result = { ...data.forward, buyer: inv.buyers?.find((b) => b.id === inv.buyerId)?.label || "" };
+        send.result = { ...data.forward, buyer: String(inv.name || "").trim() };
+        inv.names = [...new Set([String(inv.name || "").trim(), ...(inv.names || [])])];
         resetInvoice();
         send.step = "done";
         send.picked.clear();
@@ -1720,6 +1770,11 @@
     });
 
     $("view-new").addEventListener("input", (event) => {
+      if (event.target.id === "buyerName") {
+        inv.name = event.target.value;
+        if (inv.error) { inv.error = ""; const err = event.target.parentElement.querySelector(".error"); if (err) err.remove(); }
+        return;
+      }
       if (event.target.id === "invPrice") {
         inv.price = event.target.value;
         inv.error = "";
@@ -1908,33 +1963,20 @@
 
     // The buyer always (Dario, 16-10-2026: he keeps track of who paid him);
     // the invoice is a tick under it, with the price when ticked.
+    // The buyer is a name, nothing more (Dario, 04-11-2026: no invoices, no
+    // addresses). Names he used before come up as he types.
     function invoiceBlock() {
-      const tick = `
-        <label class="check">
-          <input type="checkbox" id="invOn"${inv.on ? " checked" : ""}>
-          <span><b>${esc(t("inv_generate"))}</b><small>${esc(t("inv_generate_hint"))}</small></span>
-        </label>`;
-
-      const invoicePart = !inv.on
-        ? ""
-        : pickedSkus().size > 1
-          ? `<div class="error">${esc(t("invoice_one_product"))}</div>`
-          : `
-            <div class="inv-step"><span class="step-n">2</span>${esc(t("inv_price"))}</div>
-            <div class="price-field">
-              <span>€</span>
-              <input id="invPrice" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(inv.price)}">
-              <span class="per">${esc(t("per_pair"))}</span>
-            </div>`;
+      if (inv.buyers === null) loadBuyers();
+      const names = [...new Set([...(inv.names || []), ...((typeof sent !== "undefined" && sent.data ? sent.data : []).map((f) => f.buyer?.name)), ...((inv.buyers || []).map((b) => b.label))].filter(Boolean))];
 
       return `
         <div class="card invoice">
           <div class="card-body">
-            <div class="inv-step"><span class="step-n">1</span>${esc(t("inv_buyer"))} *</div>
-            ${buyerSection()}
+            <div class="inv-step">${esc(t("inv_buyer"))} *</div>
+            <input class="buyer-select" id="buyerName" list="buyerNames" autocomplete="off" maxlength="80" placeholder="${esc(t("buyer_name_hint"))}" value="${esc(inv.name || "")}">
+            <datalist id="buyerNames">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist>
+            ${inv.error ? `<div class="error">${esc(inv.error)}</div>` : ""}
           </div>
-          ${tick}
-          ${invoicePart || inv.error ? `<div class="card-body">${invoicePart}${inv.error ? `<div class="error">${esc(inv.error)}</div>` : ""}</div>` : ""}
         </div>`;
     }
 
@@ -2060,7 +2102,7 @@
 
     // What has to be right before sending, said in his words.
     function invoiceProblem() {
-      if (!inv.buyerId || inv.view !== "pick") return t("inv_need_buyer");
+      if (!String(inv.name || "").trim()) return t("inv_need_buyer");
       if (!inv.on) return "";
       if (pickedSkus().size > 1) return t("invoice_one_product");
       const price = parsePrice(inv.price);
@@ -2070,7 +2112,7 @@
     }
 
     function resetInvoice() {
-      Object.assign(inv, { on: false, buyerId: "", price: "", view: "pick", query: "", form: {}, bad: [], same: null, error: "" });
+      Object.assign(inv, { on: false, buyerId: "", name: "", price: "", view: "pick", query: "", form: {}, bad: [], same: null, error: "" });
     }
 
     /* ---------- sent ---------- */
@@ -2153,32 +2195,18 @@
           <b class="${amount ? tone : "ok-text"}">${esc(money(amount))}${amount ? "" : " ✓"}</b>
           <small>${sub}</small>
         </div>`;
+      // Only what he owes us for forwarding sits here; what we owe him for
+      // the pairs we sold is the Sales tab (no invoices any more, 04-11-2026).
       const summary = `
-        <h3 class="section">${esc(t("bal_title"))}</h3>
-        <div class="bal-grid">
+        <div class="bal-grid one">
           ${tile(t("bal_fees"), owedTotal, owedTotal ? `${esc(t("bal_fees_sub"))}${feeParts ? ` · ${feeParts}` : ""}` : esc(t("bal_all_paid")), "due")}
-          ${tile(t("bal_invoices"), oursTotal, oursTotal ? `${esc(t("bal_invoices_sub"))} · ${ours.length} ${esc(t(ours.length === 1 ? "invoice_one" : "invoice_many"))}` : esc(t("bal_all_received")), "in")}
         </div>`;
 
       const section = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(sentCard).join("")}</div>` : "");
-
-      // Forwards | Invoices, only once he has an invoice of his own (JXT).
-      const switcher = sent.invoices.length ? `
-        <div class="seg" role="group">
-          <button type="button" data-sent-view="forwards" aria-pressed="${sent.view === "forwards"}">${esc(t("seg_forwards"))} (${sent.data.length})</button>
-          <button type="button" data-sent-view="invoices" aria-pressed="${sent.view === "invoices"}">${esc(t("seg_invoices"))} (${sent.invoices.length})</button>
-        </div>` : "";
-
-      // His invoices by the same sections: not paid to him yet, done, cancelled.
-      const invoiceSection = (title, list) => (list.length ? `<h3 class="section">${esc(title)}</h3><div class="list">${list.map(invoiceCard).join("")}</div>` : "");
-      const liveInvoices = sent.invoices.filter((inv) => !inv.cancelled);
-      const body = sent.view === "invoices"
-        ? invoiceSection(t("sec_fee"), liveInvoices.filter((inv) => inv.stage !== "paid")) +
-          invoiceSection(t("sec_done"), liveInvoices.filter((inv) => inv.stage === "paid")) +
-          invoiceSection(t("sec_cancelled"), sent.invoices.filter((inv) => inv.cancelled))
-        : sent.data.length
-          ? section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done) + section(t("sec_cancelled"), cancelled)
-          : `<div class="note">${esc(t("no_sent"))}</div>`;
+      const switcher = "";
+      const body = sent.data.length
+        ? section(t("sec_open"), pending) + section(t("sec_fee"), feeToPay) + section(t("sec_done"), done) + section(t("sec_cancelled"), cancelled)
+        : `<div class="note">${esc(t("no_sent"))}</div>`;
 
       $("sentList").innerHTML = summary + switcher + body;
     }
@@ -2217,15 +2245,7 @@
             ${f.invoice ? "" : `<div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span class="fee-line">${esc(money(f.fee))} <span class="pill ${f.fee_paid ? "good" : "bad"}">${esc(t(f.fee_paid ? "fee_paid" : "fee_open"))}</span></span></div>`}
           </div>
           ${f.invoice ? "" : buyerPaidBlock(f)}
-          ${f.invoice ? `
-            <div class="detail">
-              <div class="detail-row"><span class="muted">${esc(t("buyer"))}</span><span>${esc(f.invoice.buyer)}</span></div>
-              <div class="detail-row"><span class="muted">${esc(t("sale_total"))}</span><span>${esc(money(f.invoice.total))} (${f.pairs} × ${esc(money(f.invoice.price_per_pair))})</span></div>
-              <div class="detail-row"><span class="muted">${esc(t("fee_total"))}</span><span>− ${esc(money(f.invoice.fee))}</span></div>
-              <div class="detail-row"><span class="muted">${esc(t("you_receive"))}</span><b>${esc(money(f.invoice.you_receive))}</b></div>
-              <div class="detail-row"><span class="muted">${esc(t("invoice"))}</span><span>${esc(f.invoice.number || t("st_inv_preparing"))}</span></div>
-            </div>
-            ${f.invoice.has_pdf ? `<a class="btn file-btn" href="/api/partner/forwards/${encodeURIComponent(f.id)}/invoice" target="_blank" rel="noopener">${esc(t("download"))} ${esc(f.invoice.number)}</a>` : ""}` : ""}
+          ${""/* no invoice details for him any more (04-11-2026) */}
         </div>` : "";
 
       return `
@@ -2604,6 +2624,113 @@
         holder: sd.payment?.holder || ""
       };
     }
+
+    /* ----- Sales: what we sold of his pairs and what we paid him -----
+       An account, never pair by pair (Dario, 04-11-2026): per model Sold ·
+       Paid · To pay, and per bank payment how many pairs of each model. */
+
+    const sales = { data: null, at: 0, loading: false, open: new Set() };
+
+    async function loadSales(force = false) {
+      if (sales.loading) return;
+      if (!force && sales.data && Date.now() - sales.at < 60_000) return renderSales();
+      sales.loading = true;
+      if (!sales.data) $("salesBody").innerHTML = `<div class="note">${esc(t("loading"))}</div>`;
+      try {
+        sales.data = await api("/api/partner/sales");
+        sales.at = Date.now();
+      } catch (err) {
+        if (err.message === "not_signed_in") return;
+        if (!sales.data) $("salesBody").innerHTML = `<div class="note">${esc(t("try_again"))}<br><button class="btn retry" type="button" data-sales-reload>${esc(t("retry"))}</button></div>`;
+        return;
+      } finally {
+        sales.loading = false;
+      }
+      renderSales();
+    }
+
+    const pairsText = (n) => `${n} ${t(n === 1 ? "pair" : "pairs")}`;
+
+    function renderSales() {
+      const d = sales.data;
+      if (!d) return;
+      if (!d.models?.length) {
+        $("salesBody").innerHTML = `<div class="note">${esc(t("no_sales"))}</div>`;
+        return;
+      }
+
+      const toPay = Number(d.to_pay_amount || 0);
+      const summary = `
+        <div class="bal-grid one">
+          <div class="bal-tile">
+            <span class="bal-title">${esc(t("sales_to_pay"))}</span>
+            <b class="${toPay ? "due" : "ok-text"}">${esc(money(toPay))}${toPay ? "" : " ✓"}</b>
+            <small>${esc(toPay ? pairsText(d.to_pay) : t("sales_all_paid"))} · ${esc(t("sales_sold"))} ${d.sold} · ${esc(t("sales_paid"))} ${d.paid}</small>
+          </div>
+        </div>`;
+
+      const modelCard = (m) => {
+        const id = `m:${m.sku}`;
+        const isOpen = sales.open.has(id);
+        const lines = [
+          ...m.sales.map((x) => `<div class="sale-line"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="nowrap">${esc(money(x.price))}</span></div>`),
+          ...m.cancelled.map((x) => `<div class="sale-line cancelled"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="pill off">${esc(t("sales_cancelled"))}</span></div>`)
+        ].join("");
+        return `
+          <div class="card${isOpen ? " open" : ""}">
+            <button class="card-head" type="button" data-sales-open="${esc(id)}" aria-expanded="${isOpen}">
+              ${thumb(m.image)}
+              <div class="card-text">
+                <div class="card-title">${esc(m.name)}</div>
+                <div class="sale-stats">
+                  <span>${esc(t("sales_sold"))} ${m.sold}</span>
+                  <span>${esc(t("sales_paid"))} ${m.paid}</span>
+                  <span class="${m.to_pay ? "due" : ""}">${esc(t("sales_to_pay_short"))} ${m.to_pay}${m.to_pay ? ` · ${esc(money(m.to_pay_amount))}` : ""}</span>
+                </div>
+              </div>
+              ${CHEV}
+            </button>
+            ${isOpen ? `<div class="card-body">${lines}</div>` : ""}
+          </div>`;
+      };
+
+      const paymentCard = (pay, i) => {
+        const id = `p:${i}:${pay.note}`;
+        const isOpen = sales.open.has(id);
+        const title = pay.date ? niceDate(pay.date) : pay.code || t("sales_payment");
+        const lines = pay.models.map((m) => `<div class="sale-line"><span>${esc(m.name)} · ${esc(pairsText(m.pairs))}</span><span class="nowrap">${esc(money(m.amount))}</span></div>`).join("");
+        // The bank payment can hold more than these pairs (older deals): then
+        // say how much of it was for them.
+        const part = pay.total !== null && Math.abs(Number(pay.total) - Number(pay.amount)) > 0.009
+          ? `<div class="sale-line"><span class="muted">${esc(t("sales_for_pairs"))}</span><span class="nowrap">${esc(money(pay.amount))}</span></div>` : "";
+        return `
+          <div class="card${isOpen ? " open" : ""}">
+            <button class="card-head" type="button" data-sales-open="${esc(id)}" aria-expanded="${isOpen}">
+              <div class="card-text">
+                <div class="card-title">${esc(title)}</div>
+                <div class="card-sub">${esc(pairsText(pay.pairs))}${pay.code && pay.date ? ` · ${esc(pay.code)}` : ""}</div>
+              </div>
+              <div class="count"><b>${esc(money(pay.total ?? pay.amount))}</b></div>
+              ${CHEV}
+            </button>
+            ${isOpen ? `<div class="card-body">${lines}${part}</div>` : ""}
+          </div>`;
+      };
+
+      $("salesBody").innerHTML = summary
+        + `<h3 class="section">${esc(t("sales_models"))}</h3><div class="list">${d.models.map(modelCard).join("")}</div>`
+        + (d.payments?.length ? `<h3 class="section">${esc(t("sales_payments"))}</h3><div class="list">${d.payments.map(paymentCard).join("")}</div>` : "");
+    }
+
+    $("view-sales").addEventListener("click", (event) => {
+      if (event.target.closest("[data-sales-reload]")) return loadSales(true);
+      const head = event.target.closest("[data-sales-open]");
+      if (!head) return;
+      const id = head.dataset.salesOpen;
+      if (sales.open.has(id)) sales.open.delete(id);
+      else sales.open.add(id);
+      renderSales();
+    });
 
     async function loadDocs(force = false) {
       if (sd.loading || (!force && sd.data)) return renderDocs();
