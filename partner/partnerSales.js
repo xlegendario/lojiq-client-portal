@@ -85,8 +85,10 @@ const saleDay = (unit) => text(first(unit.fields?.["Sales Date"])) || text(unit.
  *      already in on the sales day, the oldest that still has sold rows
  *      nobody matched, else the oldest; sold before any intake: the first.
  * Returns unit id -> shipment day (yyyy-mm-dd), with .sizes: per model and
- * shipment how many pairs came in (his rows, plus a pair sold before the
- * intake was booked), so he sees "the batch of 240", not a date.
+ * shipment how many pairs came in, so he sees "the batch of 240", not a
+ * date. Counted as the pairs we sold from it plus the ones still there or
+ * sent by him: a pair sold before its row was booked (or whose row went
+ * missing) still counts, which a count of rows alone would not.
  */
 export function assignShipments(units = [], stockRows = []) {
   const shipments = new Map();
@@ -105,12 +107,14 @@ export function assignShipments(units = [], stockRows = []) {
   }
 
   const result = new Map();
-  result.sizes = new Map();
+  const rowsIn = new Map();
+  const notSold = new Map();
   for (const row of stockRows) {
     const came = amsDay(row.received_at);
     if (!came || text(row.sku).toUpperCase() === "BOX") continue;
     const k = `${text(row.sku).toUpperCase()}|${came}`;
-    result.sizes.set(k, (result.sizes.get(k) || 0) + 1);
+    rowsIn.set(k, (rowsIn.get(k) || 0) + 1);
+    if (row.status !== "sold" && row.status !== "reserved") notSold.set(k, (notSold.get(k) || 0) + 1);
   }
   const ordered = [...units].sort((a, b) => saleDay(a).localeCompare(saleDay(b)));
   const rest = [];
@@ -129,16 +133,20 @@ export function assignShipments(units = [], stockRows = []) {
     const all = [...(shipments.get(sku) || [])].sort();
     if (!all.length) continue;
     const before = all.filter((day) => day <= saleDay(unit));
-    if (!before.length) {
-      result.set(unit.id, all[0]);
-      if (saleKind(unit.fields) === "sale") result.sizes.set(`${sku}|${all[0]}`, (result.sizes.get(`${sku}|${all[0]}`) || 0) + 1);
-      continue;
-    }
+    if (!before.length) { result.set(unit.id, all[0]); continue; }
     const open = before.find((day) => (left.get(`${sku}|${day}`) || 0) > 0);
     const pick = open || before[0];
     if (open) left.set(`${sku}|${open}`, left.get(`${sku}|${open}`) - 1);
     result.set(unit.id, pick);
   }
+
+  const soldFrom = new Map();
+  for (const unit of units) {
+    if (!result.has(unit.id) || saleKind(unit.fields) !== "sale") continue;
+    const k = `${text(first(unit.fields?.SKU)).toUpperCase()}|${result.get(unit.id)}`;
+    soldFrom.set(k, (soldFrom.get(k) || 0) + 1);
+  }
+  result.sizes = new Map([...rowsIn].map(([k, rows]) => [k, Math.max(rows, (notSold.get(k) || 0) + (soldFrom.get(k) || 0))]));
   return result;
 }
 
