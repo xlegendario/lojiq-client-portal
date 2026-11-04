@@ -801,6 +801,8 @@
         sales_for_pairs: "For these pairs",
         shipment_of: "Shipment {date}",
         shipment_other: "Other",
+        batch_of: "Batch of {n} pairs ({date})",
+        from_batch: "from",
         tab_sales: "Sales",
         back_forwards: "← Forwards",
         seg_forwards: "Forwards",
@@ -1088,6 +1090,8 @@
         sales_for_pairs: "其中这些鞋",
         shipment_of: "{date} 到货",
         shipment_other: "其他",
+        batch_of: "{n} 双的批次（{date}）",
+        from_batch: "来自",
         tab_sales: "销售",
         back_forwards: "← 转运",
         seg_forwards: "转运",
@@ -2659,7 +2663,11 @@
     }
 
     const pairsText = (n) => `${n} ${t(n === 1 ? "pair" : "pairs")}`;
-    const shipLabel = (day) => (day ? t("shipment_of").replace("{date}", niceDate(day)) : t("shipment_other"));
+    // A shipment by its size, as he thinks of it ("the batch of 240"); the
+    // date only to tell two of the same size apart.
+    const shipLabel = (day, pairs) => (!day ? t("shipment_other")
+      : pairs ? t("batch_of").replace("{n}", pairs).replace("{date}", niceDate(day))
+      : t("shipment_of").replace("{date}", niceDate(day)));
 
     function renderSales() {
       const d = sales.data;
@@ -2689,7 +2697,7 @@
         const groups = (m.shipments?.length ? m.shipments : [{ date: "", sold: m.sold, paid: m.paid, to_pay: m.to_pay, to_pay_amount: m.to_pay_amount }]);
         const lines = groups.map((g) => `
           <div class="ship-head">
-            <b>${esc(shipLabel(g.date))}</b>
+            <b>${esc(shipLabel(g.date, g.pairs))}</b>
             <div class="sale-stats">
               <span>${esc(t("sales_sold"))} ${g.sold}</span>
               <span>${esc(t("sales_paid"))} ${g.paid}</span>
@@ -2721,7 +2729,7 @@
         const isOpen = sales.open.has(id);
         const title = pay.date ? niceDate(pay.date) : pay.code || t("sales_payment");
         const lines = pay.models.map((m) => `
-          <div class="sale-line"><span>${esc(m.name)} · ${esc(pairsText(m.pairs))}${m.shipments?.length ? `<small class="ship-split">${m.shipments.map((x) => `${esc(shipLabel(x.date))}: ${x.pairs}`).join("<br>")}</small>` : ""}</span><span class="nowrap">${esc(money(m.amount))}</span></div>`).join("");
+          <div class="sale-line"><span>${esc(m.name)} · ${esc(pairsText(m.pairs))}${m.shipments?.length ? `<small class="ship-split">${m.shipments.map((x) => `${esc(pairsText(x.pairs))} ${esc(t("from_batch"))} ${esc(shipLabel(x.date, x.batch))}`).join("<br>")}</small>` : ""}</span><span class="nowrap">${esc(money(m.amount))}</span></div>`).join("");
         // The bank payment can hold more than these pairs (older deals): then
         // say how much of it was for them.
         const part = pay.total !== null && Math.abs(Number(pay.total) - Number(pay.amount)) > 0.009

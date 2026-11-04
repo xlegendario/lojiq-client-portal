@@ -84,7 +84,9 @@ const saleDay = (unit) => text(first(unit.fields?.["Sales Date"])) || text(unit.
  *   2. otherwise (a returned pair sold again, a day off): of the shipments
  *      already in on the sales day, the oldest that still has sold rows
  *      nobody matched, else the oldest; sold before any intake: the first.
- * Returns unit id -> shipment day (yyyy-mm-dd).
+ * Returns unit id -> shipment day (yyyy-mm-dd), with .sizes: per model and
+ * shipment how many pairs came in (his rows, plus a pair sold before the
+ * intake was booked), so he sees "the batch of 240", not a date.
  */
 export function assignShipments(units = [], stockRows = []) {
   const shipments = new Map();
@@ -103,6 +105,13 @@ export function assignShipments(units = [], stockRows = []) {
   }
 
   const result = new Map();
+  result.sizes = new Map();
+  for (const row of stockRows) {
+    const came = amsDay(row.received_at);
+    if (!came || text(row.sku).toUpperCase() === "BOX") continue;
+    const k = `${text(row.sku).toUpperCase()}|${came}`;
+    result.sizes.set(k, (result.sizes.get(k) || 0) + 1);
+  }
   const ordered = [...units].sort((a, b) => saleDay(a).localeCompare(saleDay(b)));
   const rest = [];
   for (const unit of ordered) {
@@ -120,7 +129,11 @@ export function assignShipments(units = [], stockRows = []) {
     const all = [...(shipments.get(sku) || [])].sort();
     if (!all.length) continue;
     const before = all.filter((day) => day <= saleDay(unit));
-    if (!before.length) { result.set(unit.id, all[0]); continue; }
+    if (!before.length) {
+      result.set(unit.id, all[0]);
+      if (saleKind(unit.fields) === "sale") result.sizes.set(`${sku}|${all[0]}`, (result.sizes.get(`${sku}|${all[0]}`) || 0) + 1);
+      continue;
+    }
     const open = before.find((day) => (left.get(`${sku}|${day}`) || 0) > 0);
     const pick = open || before[0];
     if (open) left.set(`${sku}|${open}`, left.get(`${sku}|${open}`) - 1);
@@ -193,7 +206,7 @@ export function summarizeSales(units = [], images = new Map(), { since = PARTNER
   const modelList = [...models.values()]
     .map(({ byShipment, ...model }) => ({
       ...model,
-      shipments: [...byShipment.values()].sort((a, b) => a.date.localeCompare(b.date)),
+      shipments: [...byShipment.values()].map((x) => ({ ...x, pairs: shipments.sizes?.get(`${model.sku}|${x.date}`) || null })).sort((a, b) => a.date.localeCompare(b.date)),
       to_pay: model.sold - model.paid,
       to_pay_amount: round2(model.sold_amount - model.paid_amount),
       sales: model.sales.sort((a, b) => b.date.localeCompare(a.date)),
@@ -203,7 +216,7 @@ export function summarizeSales(units = [], images = new Map(), { since = PARTNER
 
   // Newest first: by the payment's own date, else by its newest sale.
   const paymentList = [...payments.values()]
-    .map(({ models: perModel, last, ...payment }) => ({ ...payment, sort: payment.date || last, models: [...perModel.values()].sort((a, b) => b.pairs - a.pairs).map(({ byShipment, ...line }) => ({ ...line, shipments: [...byShipment].map(([date, pairs]) => ({ date, pairs })).sort((a, b) => a.date.localeCompare(b.date)) })) }))
+    .map(({ models: perModel, last, ...payment }) => ({ ...payment, sort: payment.date || last, models: [...perModel.values()].sort((a, b) => b.pairs - a.pairs).map(({ byShipment, ...line }) => ({ ...line, shipments: [...byShipment].map(([date, pairs]) => ({ date, pairs, batch: shipments.sizes?.get(`${line.sku}|${date}`) || null })).sort((a, b) => a.date.localeCompare(b.date)) })) }))
     .sort((a, b) => text(b.sort).localeCompare(text(a.sort)))
     .map(({ sort, ...payment }) => payment);
 

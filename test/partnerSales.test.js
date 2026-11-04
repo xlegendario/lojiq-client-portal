@@ -99,5 +99,6 @@ test("each sale gets the shipment it came from, and payments count pairs per shi
   const s = summarizeSales(units, new Map(), { shipments: map });
   assert.deepEqual(s.models[0].shipments.map((x) => [x.date, x.sold, x.paid, x.to_pay]), [["2026-09-17", 3, 2, 1], ["2026-10-28", 1, 1, 0]]);
   const big = s.payments.find((p) => p.code === "MON20260211");
-  assert.deepEqual(big.models[0].shipments, [{ date: "2026-09-17", pairs: 1 }, { date: "2026-10-28", pairs: 1 }]);
+  assert.deepEqual(big.models[0].shipments, [{ date: "2026-09-17", pairs: 1, batch: 3 }, { date: "2026-10-28", pairs: 1, batch: 1 }], "with the size of each batch");
+  assert.equal(s.models[0].shipments[0].pairs, 3, "2 rows on his shelf + 1 sold before the intake was booked");
 });
