@@ -68,14 +68,75 @@ export function readPaymentNote(note) {
   return { note: raw, total: Number.isFinite(total) ? total : null, code: text(code), date };
 }
 
-export function summarizeSales(units = [], images = new Map(), { since = PARTNER_SINCE } = {}) {
+const amsDay = (stamp) => {
+  const date = new Date(stamp);
+  if (!stamp || Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+};
+const saleDay = (unit) => text(first(unit.fields?.["Sales Date"])) || text(unit.createdTime).slice(0, 10);
+
+/*
+ * Which shipment (the day his pairs were scanned in) each sale came from, so
+ * he can check a payment against his own list per shipment (Dario,
+ * 04-11-2026). Airtable's unit does not say; his shelf (partner_stock) does:
+ * a sold row there has its size, the day it sold and the day it came in.
+ *   1. same model, size and sales day as a sold row: that row's shipment
+ *   2. otherwise (a returned pair sold again, a day off): of the shipments
+ *      already in on the sales day, the oldest that still has sold rows
+ *      nobody matched, else the oldest; sold before any intake: the first.
+ * Returns unit id -> shipment day (yyyy-mm-dd).
+ */
+export function assignShipments(units = [], stockRows = []) {
+  const shipments = new Map();
+  const pool = new Map();
+  const left = new Map();
+  for (const row of stockRows) {
+    const sku = text(row.sku).toUpperCase();
+    const came = amsDay(row.received_at);
+    if (!came) continue;
+    if (!shipments.has(sku)) shipments.set(sku, new Set());
+    shipments.get(sku).add(came);
+    if (row.status !== "sold" && row.status !== "reserved") continue;
+    const key = `${sku}|${text(row.size)}|${amsDay(row.sold_at)}`;
+    if (!pool.has(key)) pool.set(key, []);
+    pool.get(key).push(came);
+  }
+
+  const result = new Map();
+  const ordered = [...units].sort((a, b) => saleDay(a).localeCompare(saleDay(b)));
+  const rest = [];
+  for (const unit of ordered) {
+    const sku = text(first(unit.fields?.SKU)).toUpperCase();
+    const hit = pool.get(`${sku}|${text(unit.fields?.Size)}|${saleDay(unit)}`);
+    if (hit?.length) result.set(unit.id, hit.shift());
+    else rest.push(unit);
+  }
+  for (const [key, list] of pool) for (const came of list) {
+    const k = `${key.split("|")[0]}|${came}`;
+    left.set(k, (left.get(k) || 0) + 1);
+  }
+  for (const unit of rest) {
+    const sku = text(first(unit.fields?.SKU)).toUpperCase();
+    const all = [...(shipments.get(sku) || [])].sort();
+    if (!all.length) continue;
+    const before = all.filter((day) => day <= saleDay(unit));
+    if (!before.length) { result.set(unit.id, all[0]); continue; }
+    const open = before.find((day) => (left.get(`${sku}|${day}`) || 0) > 0);
+    const pick = open || before[0];
+    if (open) left.set(`${sku}|${open}`, left.get(`${sku}|${open}`) - 1);
+    result.set(unit.id, pick);
+  }
+  return result;
+}
+
+export function summarizeSales(units = [], images = new Map(), { since = PARTNER_SINCE, shipments = new Map() } = {}) {
   const models = new Map();
   const payments = new Map();
 
   const modelOf = (fields) => {
     const sku = text(first(fields.SKU)).toUpperCase();
     if (!models.has(sku)) {
-      models.set(sku, { sku, name: text(first(fields["Product Name"])) || sku, image: images.get(sku) || "", sold: 0, paid: 0, sold_amount: 0, paid_amount: 0, sales: [], cancelled: [], last: "" });
+      models.set(sku, { sku, name: text(first(fields["Product Name"])) || sku, image: images.get(sku) || "", sold: 0, paid: 0, sold_amount: 0, paid_amount: 0, sales: [], cancelled: [], last: "", byShipment: new Map() });
     }
     return models.get(sku);
   };
@@ -88,17 +149,23 @@ export function summarizeSales(units = [], images = new Map(), { since = PARTNER
 
     const model = modelOf(fields);
     const price = round2(fields["Purchase Price"]);
-    const day = text(fields["Sales Date"]) || text(unit.createdTime).slice(0, 10);
+    const day = saleDay(unit);
     const paid = text(fields["Payment Status"]) === "Paid";
+    const shipment = shipments.get(unit.id) || "";
 
     if (kind === "cancelled") {
-      model.cancelled.push({ date: day, size: text(fields.Size) });
+      model.cancelled.push({ date: day, size: text(fields.Size), shipment });
       continue;
     }
 
     model.sold += 1;
     model.sold_amount = round2(model.sold_amount + price);
-    model.sales.push({ date: day, size: text(fields.Size), price });
+    model.sales.push({ date: day, size: text(fields.Size), price, shipment });
+    const perShipment = model.byShipment.get(shipment) || { date: shipment, sold: 0, paid: 0, to_pay: 0, to_pay_amount: 0 };
+    perShipment.sold += 1;
+    if (paid) perShipment.paid += 1;
+    else { perShipment.to_pay += 1; perShipment.to_pay_amount = round2(perShipment.to_pay_amount + price); }
+    model.byShipment.set(shipment, perShipment);
     if (day > model.last) model.last = day;
 
     if (paid) {
@@ -115,16 +182,18 @@ export function summarizeSales(units = [], images = new Map(), { since = PARTNER
       payment.pairs += 1;
       payment.amount = round2(payment.amount + price);
       if (day > payment.last) payment.last = day;
-      const line = payment.models.get(model.sku) || { sku: model.sku, name: model.name, pairs: 0, amount: 0 };
+      const line = payment.models.get(model.sku) || { sku: model.sku, name: model.name, pairs: 0, amount: 0, byShipment: new Map() };
       line.pairs += 1;
       line.amount = round2(line.amount + price);
+      line.byShipment.set(shipment, (line.byShipment.get(shipment) || 0) + 1);
       payment.models.set(model.sku, line);
     }
   }
 
   const modelList = [...models.values()]
-    .map((model) => ({
+    .map(({ byShipment, ...model }) => ({
       ...model,
+      shipments: [...byShipment.values()].sort((a, b) => a.date.localeCompare(b.date)),
       to_pay: model.sold - model.paid,
       to_pay_amount: round2(model.sold_amount - model.paid_amount),
       sales: model.sales.sort((a, b) => b.date.localeCompare(a.date)),
@@ -134,7 +203,7 @@ export function summarizeSales(units = [], images = new Map(), { since = PARTNER
 
   // Newest first: by the payment's own date, else by its newest sale.
   const paymentList = [...payments.values()]
-    .map(({ models: perModel, last, ...payment }) => ({ ...payment, sort: payment.date || last, models: [...perModel.values()].sort((a, b) => b.pairs - a.pairs) }))
+    .map(({ models: perModel, last, ...payment }) => ({ ...payment, sort: payment.date || last, models: [...perModel.values()].sort((a, b) => b.pairs - a.pairs).map(({ byShipment, ...line }) => ({ ...line, shipments: [...byShipment].map(([date, pairs]) => ({ date, pairs })).sort((a, b) => a.date.localeCompare(b.date)) })) }))
     .sort((a, b) => text(b.sort).localeCompare(text(a.sort)))
     .map(({ sort, ...payment }) => payment);
 
@@ -167,6 +236,16 @@ export function createPartnerSales({ airtable, db, table = "Inventory Units", ca
     }
   }
 
+  // His whole shelf, for the shipment each sale came from.
+  async function shelf(sellerId) {
+    const rows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = (await db.get(`partner_stock?select=sku,size,status,sold_at,received_at&seller_id=eq.${encodeURIComponent(sellerId)}&order=id.asc&limit=1000&offset=${offset}`)) || [];
+      rows.push(...page);
+      if (page.length < 1000) return rows;
+    }
+  }
+
   async function load(sellerId) {
     const hit = cache.get(sellerId);
     if (hit && now() - hit.at < cacheMs) return hit.value;
@@ -177,7 +256,9 @@ export function createPartnerSales({ airtable, db, table = "Inventory Units", ca
       fields: UNIT_FIELDS
     }).all();
 
-    const value = summarizeSales(units.map((u) => ({ id: u.id, fields: u.fields, createdTime: u._rawJson?.createdTime || u.createdTime })), await images(sellerId).catch(() => new Map()));
+    const list = units.map((u) => ({ id: u.id, fields: u.fields, createdTime: u._rawJson?.createdTime || u.createdTime }));
+    const [pictures, rows] = await Promise.all([images(sellerId).catch(() => new Map()), shelf(sellerId).catch(() => [])]);
+    const value = summarizeSales(list, pictures, { shipments: assignShipments(list, rows) });
     cache.set(sellerId, { at: now(), value });
     return value;
   }

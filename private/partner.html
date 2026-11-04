@@ -337,6 +337,10 @@
     .sale-line .muted { color: var(--muted); }
     .sale-line.cancelled span { color: var(--muted); text-decoration: line-through; }
     .sale-line.cancelled .pill { text-decoration: none; }
+    .ship-head { padding: 12px 0 6px; border-top: 1px solid var(--border); }
+    .ship-head:first-child { border-top: 0; padding-top: 0; }
+    .ship-head b { color: var(--strong); font-size: 14px; }
+    .ship-split { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
     .bal-tile { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .bal-title { color: var(--muted); font-size: 13px; }
     .bal-tile b { font-size: 20px; color: var(--strong); white-space: nowrap; }
@@ -795,6 +799,8 @@
         sales_payments: "Payments to you",
         sales_payment: "Payment",
         sales_for_pairs: "For these pairs",
+        shipment_of: "Shipment {date}",
+        shipment_other: "Other",
         tab_sales: "Sales",
         back_forwards: "← Forwards",
         seg_forwards: "Forwards",
@@ -1080,6 +1086,8 @@
         sales_payments: "付给您的款",
         sales_payment: "付款",
         sales_for_pairs: "其中这些鞋",
+        shipment_of: "{date} 到货",
+        shipment_other: "其他",
         tab_sales: "销售",
         back_forwards: "← 转运",
         seg_forwards: "转运",
@@ -2651,6 +2659,7 @@
     }
 
     const pairsText = (n) => `${n} ${t(n === 1 ? "pair" : "pairs")}`;
+    const shipLabel = (day) => (day ? t("shipment_of").replace("{date}", niceDate(day)) : t("shipment_other"));
 
     function renderSales() {
       const d = sales.data;
@@ -2673,10 +2682,22 @@
       const modelCard = (m) => {
         const id = `m:${m.sku}`;
         const isOpen = sales.open.has(id);
-        const lines = [
-          ...m.sales.map((x) => `<div class="sale-line"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="nowrap">${esc(money(x.price))}</span></div>`),
-          ...m.cancelled.map((x) => `<div class="sale-line cancelled"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="pill off">${esc(t("sales_cancelled"))}</span></div>`)
-        ].join("");
+        // Per shipment (the day his pairs came in): its counts, then its sales,
+        // so he can hold each one against his own list.
+        const saleLine = (x) => `<div class="sale-line"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="nowrap">${esc(money(x.price))}</span></div>`;
+        const cancelLine = (x) => `<div class="sale-line cancelled"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="pill off">${esc(t("sales_cancelled"))}</span></div>`;
+        const groups = (m.shipments?.length ? m.shipments : [{ date: "", sold: m.sold, paid: m.paid, to_pay: m.to_pay, to_pay_amount: m.to_pay_amount }]);
+        const lines = groups.map((g) => `
+          <div class="ship-head">
+            <b>${esc(shipLabel(g.date))}</b>
+            <div class="sale-stats">
+              <span>${esc(t("sales_sold"))} ${g.sold}</span>
+              <span>${esc(t("sales_paid"))} ${g.paid}</span>
+              <span class="${g.to_pay ? "due" : ""}">${esc(t("sales_to_pay_short"))} ${g.to_pay}${g.to_pay ? ` · ${esc(money(g.to_pay_amount))}` : ""}</span>
+            </div>
+          </div>
+          ${m.sales.filter((x) => (x.shipment || "") === g.date || groups.length === 1).map(saleLine).join("")}
+          ${m.cancelled.filter((x) => (x.shipment || "") === g.date || groups.length === 1).map(cancelLine).join("")}`).join("");
         return `
           <div class="card${isOpen ? " open" : ""}">
             <button class="card-head" type="button" data-sales-open="${esc(id)}" aria-expanded="${isOpen}">
@@ -2699,7 +2720,8 @@
         const id = `p:${i}:${pay.note}`;
         const isOpen = sales.open.has(id);
         const title = pay.date ? niceDate(pay.date) : pay.code || t("sales_payment");
-        const lines = pay.models.map((m) => `<div class="sale-line"><span>${esc(m.name)} · ${esc(pairsText(m.pairs))}</span><span class="nowrap">${esc(money(m.amount))}</span></div>`).join("");
+        const lines = pay.models.map((m) => `
+          <div class="sale-line"><span>${esc(m.name)} · ${esc(pairsText(m.pairs))}${m.shipments?.length ? `<small class="ship-split">${m.shipments.map((x) => `${esc(shipLabel(x.date))}: ${x.pairs}`).join("<br>")}</small>` : ""}</span><span class="nowrap">${esc(money(m.amount))}</span></div>`).join("");
         // The bank payment can hold more than these pairs (older deals): then
         // say how much of it was for them.
         const part = pay.total !== null && Math.abs(Number(pay.total) - Number(pay.amount)) > 0.009

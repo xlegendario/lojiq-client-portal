@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { readPaymentNote, saleKind, summarizeSales } from "../partner/partnerSales.js";
+import { assignShipments, readPaymentNote, saleKind, summarizeSales } from "../partner/partnerSales.js";
 
 const unit = (id, fields, createdTime = "2026-10-01T10:00:00.000Z") => ({
   id,
@@ -57,7 +57,7 @@ test("a paid pair that comes back and is swapped: his numbers per model and per 
   assert.deepEqual([after.models[0].paid, after.payments[0].pairs, after.payments[0].amount], [1, 1, 100], "the payment did not change");
   assert.equal(after.models[0].sold, 1);
   assert.equal(after.models[0].to_pay, 0);
-  assert.deepEqual(after.models[0].cancelled, [{ date: "2026-10-16", size: "38" }], "only a cancelled line appears");
+  assert.deepEqual(after.models[0].cancelled, [{ date: "2026-10-16", size: "38", shipment: "" }], "only a cancelled line appears");
 });
 
 test("units from before the partner consignment (the old deals) never show", () => {
@@ -76,4 +76,28 @@ test("a note without a bank code is each pair's own payment, not one big one", (
   ]);
   assert.equal(s.payments.length, 2);
   assert.deepEqual(s.payments.map((p) => [p.total, p.pairs]), [[100, 1], [100, 1]]);
+});
+
+test("each sale gets the shipment it came from, and payments count pairs per shipment", () => {
+  const stock = [
+    { sku: "A05FW702", size: "40", status: "sold", received_at: "2026-09-17T10:00:00Z", sold_at: "2026-09-19T10:00:00Z" },
+    { sku: "A05FW702", size: "41", status: "in_stock", received_at: "2026-09-17T10:00:00Z", sold_at: null },
+    { sku: "A05FW702", size: "42", status: "sold", received_at: "2026-10-28T10:00:00Z", sold_at: "2026-10-29T22:30:00Z" }
+  ];
+  const units = [
+    unit("early", { Size: "39", "Sales Date": "2026-09-16", "Payment Status": "Paid", "Payment Note": "100" }),
+    unit("a", { Size: "40", "Sales Date": "2026-09-19", "Payment Status": "Paid", "Payment Note": "4380 (MON20260211)" }),
+    unit("b", { Size: "42", "Sales Date": "2026-10-29", "Payment Status": "Paid", "Payment Note": "4380 (MON20260211)" }),
+    unit("c", { Size: "43", "Sales Date": "2026-11-02", "Payment Status": "To Pay" })
+  ];
+  const map = assignShipments(units, stock);
+  assert.equal(map.get("early"), "2026-09-17", "sold before the intake was booked: the first shipment");
+  assert.equal(map.get("a"), "2026-09-17", "same size and day as a sold row");
+  assert.equal(map.get("b"), "2026-10-28", "the day is Amsterdam's, not UTC's");
+  assert.equal(map.get("c"), "2026-09-17", "no row to match: the oldest shipment already in");
+
+  const s = summarizeSales(units, new Map(), { shipments: map });
+  assert.deepEqual(s.models[0].shipments.map((x) => [x.date, x.sold, x.paid, x.to_pay]), [["2026-09-17", 3, 2, 1], ["2026-10-28", 1, 1, 0]]);
+  const big = s.payments.find((p) => p.code === "MON20260211");
+  assert.deepEqual(big.models[0].shipments, [{ date: "2026-09-17", pairs: 1 }, { date: "2026-10-28", pairs: 1 }]);
 });
