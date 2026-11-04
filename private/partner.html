@@ -324,6 +324,7 @@
     .lbl-download small { color: var(--muted); font-weight: 400; word-break: break-all; }
     .bal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
     .bal-grid.one { grid-template-columns: 1fr; }
+    .bal-tile b .bal-pairs { font-size: 15px; font-weight: 500; color: var(--muted); }
     .view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .view-head h2 { margin-right: auto; }
     .btn.small { min-height: 40px; padding: 0 16px; font-size: 15px; width: auto; }
@@ -784,7 +785,7 @@
         need_buyer: "Choose the buyer.",
         buyer_name_hint: "Buyer name",
         no_sales: "We did not sell any of your pairs yet.",
-        sales_to_pay: "We still pay you",
+        sales_to_pay: "Open amount",
         sales_all_paid: "All paid",
         sales_sold: "Sold",
         sales_paid: "Paid",
@@ -1069,7 +1070,7 @@
         need_buyer: "请选择买家。",
         buyer_name_hint: "买家名字",
         no_sales: "我们还没有卖出您的鞋。",
-        sales_to_pay: "我们还要付给您",
+        sales_to_pay: "待付金额",
         sales_all_paid: "已全部付清",
         sales_sold: "已卖",
         sales_paid: "已付",
@@ -2664,8 +2665,8 @@
         <div class="bal-grid one">
           <div class="bal-tile">
             <span class="bal-title">${esc(t("sales_to_pay"))}</span>
-            <b class="${toPay ? "due" : "ok-text"}">${esc(money(toPay))}${toPay ? "" : " ✓"}</b>
-            <small>${esc(toPay ? pairsText(d.to_pay) : t("sales_all_paid"))} · ${esc(t("sales_sold"))} ${d.sold} · ${esc(t("sales_paid"))} ${d.paid}</small>
+            <b class="${toPay ? "due" : "ok-text"}">${esc(money(toPay))}${toPay ? ` <span class="bal-pairs">(${esc(pairsText(d.to_pay))})</span>` : " ✓"}</b>
+            <small>${esc(t("sales_sold"))} ${d.sold} · ${esc(t("sales_paid"))} ${d.paid}</small>
           </div>
         </div>`;
 
