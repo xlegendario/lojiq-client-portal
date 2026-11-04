@@ -2693,7 +2693,9 @@
         // Per shipment (the day his pairs came in): its counts, then its sales,
         // so he can hold each one against his own list.
         const saleLine = (x) => `<div class="sale-line"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="nowrap">${esc(money(x.price))}</span></div>`;
-        const cancelLine = (x) => `<div class="sale-line cancelled"><span>${esc(niceDate(x.date))} · ${esc(t("size"))} ${esc(x.size)}</span><span class="pill off">${esc(t("sales_cancelled"))}</span></div>`;
+        // No "cancelled" lines (Dario, 04-11-2026): a pair that came back and
+        // sold again would stand in the list twice, and the lines would no
+        // longer add up to Sold. A return just leaves the list.
         const groups = (m.shipments?.length ? m.shipments : [{ date: "", sold: m.sold, paid: m.paid, to_pay: m.to_pay, to_pay_amount: m.to_pay_amount }]);
         const lines = groups.map((g) => `
           <div class="ship-head">
@@ -2705,7 +2707,7 @@
             </div>
           </div>
           ${m.sales.filter((x) => (x.shipment || "") === g.date || groups.length === 1).map(saleLine).join("")}
-          ${m.cancelled.filter((x) => (x.shipment || "") === g.date || groups.length === 1).map(cancelLine).join("")}`).join("");
+`).join("");
         return `
           <div class="card${isOpen ? " open" : ""}">
             <button class="card-head" type="button" data-sales-open="${esc(id)}" aria-expanded="${isOpen}">
