@@ -1407,7 +1407,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
   async function shipmentsOf(sellerId, sku) {
     const rows = [];
     for (let offset = 0; ; offset += 1000) {
-      const page = await db.get(`partner_stock?select=id,sku,size,status,sold_at,received_at&seller_id=eq.${enc(sellerId)}&sku=ilike.${enc(sku)}&order=id.asc&limit=1000&offset=${offset}`);
+      const page = await db.get(`partner_stock?select=id,sku,size,status,sold_at,received_at,batch_day&seller_id=eq.${enc(sellerId)}&sku=ilike.${enc(sku)}&order=id.asc&limit=1000&offset=${offset}`);
       rows.push(...page);
       if (page.length < 1000) break;
     }
@@ -1456,7 +1456,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const shelf = await shipmentsOf(text(first(u["Seller ID (Lookup)"])), sku);
     const held = heldId ? shelf.rows.find((r) => r.id === heldId) : null;
     const dayOf = (iso) => (iso ? new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)) : "");
-    const shipment = dayOf(held?.received_at) || shelf.map.get(unit.id) || "";
+    const shipment = text(held?.batch_day) || dayOf(held?.received_at) || shelf.map.get(unit.id) || "";
     if (shipment) candidates = candidates.filter((r) => shelf.map.get(r.id) === shipment);
     if (!candidates.length) return null;
 

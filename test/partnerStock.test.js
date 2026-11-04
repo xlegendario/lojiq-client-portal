@@ -46,6 +46,15 @@ test("a sold pair on its way back counts as sold until it is back; one promised 
   assert.deepEqual([arrivals[0].received, arrivals[0].sold, arrivals[0].left], [3, 1, 2]);
 });
 
+test("boxes of one batch scanned on two days are one batch, with both scan days", () => {
+  const { arrivals } = summarizeStock([
+    pair({ received_at: "2026-10-28T10:00:00Z" }),
+    pair({ received_at: "2026-11-05T10:00:00Z", batch_day: "2026-10-28" }),
+    pair({ received_at: "2026-11-05T10:00:00Z" })
+  ]);
+  assert.deepEqual(arrivals.map((a) => [a.date, a.received, a.scanned]), [["2026-11-05", 1, ["2026-11-05"]], ["2026-10-28", 2, ["2026-10-28", "2026-11-05"]]]);
+});
+
 test("by arrival: every pair that came in, newest day first, with what became of it", () => {
   const { arrivals } = summarizeStock([
     pair({}),

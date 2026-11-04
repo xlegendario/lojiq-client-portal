@@ -637,6 +637,7 @@
         on_hold: "On hold for a sale",
         nothing_left: "All gone",
         left_of: "left of",
+        scanned_on: "One batch, scanned on",
         left_of_hint: "Left / came in, per size.",
         and_more: "& {n} more",
         no_stock: "No pairs here right now.",
@@ -926,6 +927,7 @@
         on_hold: "已预留待售",
         nothing_left: "已全部出库",
         left_of: "剩余 / 共",
+        scanned_on: "同一批次，扫描日期：",
         left_of_hint: "每个尺码：剩余 / 到货。",
         and_more: "等另外 {n} 处",
         no_stock: "目前没有库存。",
@@ -1386,6 +1388,7 @@
             <span>${esc(niceDate(a.date))} · ${esc(whName(a.warehouse))}</span>
             <span>${a.left ? `${a.left} ${esc(t("left_of"))} ${a.received}` : esc(t("nothing_left"))}</span>
           </div>
+          ${a.scanned?.length > 1 ? `<p class="hint scanned-days">${esc(t("scanned_on"))} ${a.scanned.map((d) => esc(niceDate(d))).join(" + ")}</p>` : ""}
           <div class="list">${a.products.map((p) => arrivalProductCard(a, p)).join("")}</div>
         </div>`).join("");
     }

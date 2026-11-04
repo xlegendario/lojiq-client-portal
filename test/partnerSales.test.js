@@ -102,3 +102,14 @@ test("each sale gets the shipment it came from, and payments count pairs per shi
   assert.deepEqual(big.models[0].shipments, [{ date: "2026-09-17", pairs: 1, batch: 4 }, { date: "2026-10-28", pairs: 1, batch: 1 }], "with the size of each batch");
   assert.equal(s.models[0].shipments[0].pairs, 4, "3 sold from it + 1 still on his shelf, though only 2 rows were booked");
 });
+
+test("a pair put with an earlier batch counts in that batch", () => {
+  const stock = [
+    { sku: "A05FW702", size: "40", status: "sold", received_at: "2026-11-05T10:00:00Z", batch_day: "2026-10-28", sold_at: "2026-11-06T10:00:00Z" },
+    { sku: "A05FW702", size: "41", status: "in_stock", received_at: "2026-10-28T10:00:00Z", sold_at: null }
+  ];
+  const units = [unit("a", { Size: "40", "Sales Date": "2026-11-06", "Payment Status": "To Pay" })];
+  const map = assignShipments(units, stock);
+  assert.equal(map.get("a"), "2026-10-28");
+  assert.equal(map.sizes.get("A05FW702|2026-10-28"), 2);
+});

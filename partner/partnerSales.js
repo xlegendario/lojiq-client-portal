@@ -100,7 +100,7 @@ export function assignShipments(units = [], stockRows = []) {
   const left = new Map();
   for (const row of stockRows) {
     const sku = text(row.sku).toUpperCase();
-    const came = amsDay(row.received_at);
+    const came = text(row.batch_day) || amsDay(row.received_at);
     if (!came) continue;
     if (!shipments.has(sku)) shipments.set(sku, new Set());
     shipments.get(sku).add(came);
@@ -114,7 +114,7 @@ export function assignShipments(units = [], stockRows = []) {
   const rowsIn = new Map();
   const notSold = new Map();
   for (const row of stockRows) {
-    const came = amsDay(row.received_at);
+    const came = text(row.batch_day) || amsDay(row.received_at);
     if (!came || text(row.sku).toUpperCase() === "BOX") continue;
     const k = `${text(row.sku).toUpperCase()}|${came}`;
     rowsIn.set(k, (rowsIn.get(k) || 0) + 1);
@@ -265,7 +265,7 @@ export function createPartnerSales({ airtable, db, table = "Inventory Units", ca
   async function shelf(sellerId) {
     const rows = [];
     for (let offset = 0; ; offset += 1000) {
-      const page = (await db.get(`partner_stock?select=sku,size,status,sold_at,received_at&seller_id=eq.${encodeURIComponent(sellerId)}&order=id.asc&limit=1000&offset=${offset}`)) || [];
+      const page = (await db.get(`partner_stock?select=sku,size,status,sold_at,received_at,batch_day&seller_id=eq.${encodeURIComponent(sellerId)}&order=id.asc&limit=1000&offset=${offset}`)) || [];
       rows.push(...page);
       if (page.length < 1000) return rows;
     }

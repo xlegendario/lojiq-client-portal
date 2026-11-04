@@ -22,7 +22,7 @@ const ON_SHELF = new Set(["in_stock", "reserved"]);
 const LEFT = new Set(["in_stock", "reserved", "sold", "forwarded"]);
 
 const PAGE = 1000;
-const COLUMNS = "id,sku,size,product_name,brand,image_url,status,received_at,warehouse,sold_at";
+const COLUMNS = "id,sku,size,product_name,brand,image_url,status,received_at,warehouse,sold_at,batch_day";
 
 /*
  * A reserved pair is one of two things. Promised to a deal (never sold, no
@@ -70,7 +70,11 @@ export function summarizeStock(rows) {
 
     const sku = text(row.sku).toUpperCase();
     const size = text(row.size);
-    const day = dayOf(row.received_at);
+    // His batch: the day it was scanned in, unless it was put with an
+    // earlier batch it belongs to (batch_day, Dario 04-11-2026: boxes of
+    // one delivery scanned on two days are still one batch to him).
+    const scanned = dayOf(row.received_at);
+    const day = text(row.batch_day) || scanned;
     const warehouse = text(row.warehouse) || "lojiq";
     const here = ON_SHELF.has(status);
 
@@ -82,10 +86,12 @@ export function summarizeStock(rows) {
       left: 0,
       sold: 0,
       forwarded: 0,
+      scanned: new Set(),
       products: new Map()
     }));
 
     arrival.received += 1;
+    if (scanned) arrival.scanned.add(scanned);
     if (here) arrival.left += 1;
     if (status === "sold") arrival.sold += 1;
     if (status === "forwarded") arrival.forwarded += 1;
@@ -169,6 +175,7 @@ export function summarizeStock(rows) {
     arrivals: [...arrivals.values()]
       .map((arrival) => ({
         ...arrival,
+        scanned: [...arrival.scanned].sort(),
         products: [...arrival.products.values()]
           .map((product) => ({ ...product, sizes: [...product.sizes.values()].sort((a, b) => compareSizes(a.size, b.size)) }))
           .sort((a, b) => b.left - a.left || b.received - a.received || a.name.localeCompare(b.name))
