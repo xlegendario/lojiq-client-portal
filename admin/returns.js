@@ -98,6 +98,7 @@ export const ORDER_ACTIONS = {
 // Not shipped yet: what happens to this pair? (wording Dario's, 03-11-2026)
 export const HELD = {
   consignor_has: "Consignor has the pair, add back to consignment",
+  take_in: "Consignor has the pair, we take it in - he ships it to us",
   consignor_gone: "Seller doesn't have it, void pair",
   flawed: "Pair is flawed, void pair",
   warehouse: "In our warehouse",
@@ -217,7 +218,7 @@ export function retryOf(item, row = {}) {
  *   purchases   createPurchaseExpense, the company the purchases are in
  *   meta        () -> Location choices (optional)
  */
-export function createReturns({ db, airtable, rompslomp = null, purchases = null, locations = null, returnToConsignor = null }) {
+export function createReturns({ db, airtable, rompslomp = null, purchases = null, locations = null, returnToConsignor = null, orderNotice = null }) {
   /* ---------------- reading ---------------- */
 
   async function orderOf(table, id) {
@@ -776,6 +777,43 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
   /* ---------------- cancelling ---------------- */
 
+  /*
+   * The consignor and the labels, after a cancel that did not ship (the WMS,
+   * /api/internal/order-decision):
+   *   cancelled   the seller keeps it - he is told the order is off
+   *   take_in     we take it - "you can now ship" or a fresh label to us
+   *   void        the pair is not with him - nobody told
+   * Every one of our Sendcloud labels the pair will not travel on is
+   * cancelled there, so it is not paid for. What fails is a todo, never a
+   * failed cancel: the books and the pair are already done.
+   */
+  async function tellConsignor(order, decision, { log, todos }) {
+    const orderId = orderLabel(order);
+
+    if (!orderNotice) {
+      if (decision !== "void") todos.push(todo(`${orderId}: tell the consignor by hand (${decision === "take_in" ? "he ships the pair to us, label still to make" : "order cancelled, he keeps the pair"}) and cancel the Sendcloud label.`, "by_hand"));
+      return null;
+    }
+
+    try {
+      const out = await orderNotice({ recordId: order.id, decision });
+
+      for (const label of out.sendcloud || []) {
+        if (label.cancelled) log.push(`Sendcloud label ${label.tracking} cancelled${label.already ? " (already was)" : ""}.`);
+        else if (label.error) todos.push(todo(`${orderId}: cancel Sendcloud label ${label.tracking} by hand - Sendcloud said: ${label.error}`, "by_hand"));
+      }
+
+      if (out.label?.tracking_number) log.push(`New ${out.label.carrier || ""} label to us: ${out.label.tracking_number}.`);
+      if (out.told) log.push(`Consignor told (${decision === "take_in" ? "ship it to us" : "order cancelled"}).`);
+      else if (decision !== "void" && out.skipped) log.push(`Nobody to tell: ${out.skipped}.`);
+
+      return out;
+    } catch (err) {
+      todos.push(todo(`${orderId}: the consignor could not be told (${err.message}). Tell him by hand${decision === "take_in" ? ", make him a label to us" : ""} and cancel the Sendcloud label.`, "by_hand"));
+      return null;
+    }
+  }
+
   async function recordReturn(fields) {
     const [row] = await db.insert("returns", [fields]);
     return row;
@@ -821,6 +859,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     if (!shipped && ["consignor_has", "consignor_gone", "flawed"].includes(held) && owner === "own") throw new ReturnsError("This pair has no seller to give it back to.", 400);
     if (then === "send_back" && owner === "own") throw new ReturnsError("This is our own pair: there is no seller to send it back to.", 400);
     if (!shipped && held === "lost" && !reason) throw new ReturnsError("Say what happened to the pair: it goes on the unit.", 400);
+    if (!shipped && held === "take_in" && (owner !== "seller" || table !== "store")) throw new ReturnsError("Only a seller's pair on a store or marketplace order can be taken in from him.", 400);
 
     const log = [];
     const todos = [];
@@ -858,6 +897,16 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
         // Ours to lose: the seller is owed as if it sold, and it is off stock.
         await airtable.update(UNITS, unit.id, { "Availability Status": "Lost", "Cancel Status": "Lost", "Verification Status": "Lost", "Item Condition": conditionWith(note, text(unit.fields["Item Condition"])) }, { typecast: true });
         log.push(`${text(unit.fields["Item ID"])}: Lost here; ${owner === "own" ? "off stock" : "the seller is still paid"}.`);
+      } else if (held === "take_in") {
+        // We keep the deal: the pair comes to us and the scan closes it, like
+        // any return - an OK pair goes on sale and the seller is paid.
+        await airtable.update(UNITS, unit.id, {
+          "Availability Status": "Returning",
+          "Cancel Status": "Return",
+          "Item Condition": conditionWith(`${note}; the seller ships it to us`, text(unit.fields["Item Condition"]))
+        }, { typecast: true });
+        log.push(`${text(unit.fields["Item ID"])}: Returning, ${text(first(unit.fields["Seller ID (Lookup)"])) || "the seller"} ships it to us.`);
+        status = "expected";
       } else if (held === "warehouse" && then === "keep") {
         await airtable.update(UNITS, unit.id, { ...onSale(unit, note), "Cancel Status": "Return" });
         log.push(`${text(unit.fields["Item ID"])} back on sale.`);
@@ -884,6 +933,13 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       }
     }
 
+    // 2b. Whoever holds the label, and the labels themselves (the WMS, which
+    // knows where the label went). Before the order changes, because keeping
+    // it clears the tracking the WMS needs to find our Sendcloud labels.
+    const notice = !shipped && unit && table === "store"
+      ? await tellConsignor(order, held === "take_in" ? "take_in" : ["consignor_has", "consignor_gone", "flawed"].includes(held) ? "cancelled" : "void", { log, todos })
+      : null;
+
     // 3. The order: ended, or open again for another pair.
     if (keep) {
       await reopenOrder(order, log);
@@ -901,6 +957,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       ...snapshot(order, unit, merchant),
       partner_stock_id: partnerStockId,
       ...(sellerReturn ? { seller_return_status: "label_requested", seller_return_at: new Date().toISOString() } : {}),
+      ...(notice?.label?.tracking_number ? { tracking_code: notice.label.tracking_number, carrier: notice.label.carrier || null } : {}),
       reason: reason || null,
       result: keep ? `Order kept, back to Outsource. ${pairResult}` : pairResult,
       processed_at: status === "done" ? new Date().toISOString() : null,
@@ -1303,8 +1360,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
           marketplace_status: row.marketplace_status,
           reason: row.reason,
           customer_comment: row.customer_comment,
-          tracking_code: row.tracking_code,
-          carrier: row.carrier
+          // A label we made to take the pair in wins over an empty one.
+          ...(row.tracking_code ? { tracking_code: row.tracking_code, carrier: row.carrier } : {})
         });
         out.return_number = row.return_number;
       }

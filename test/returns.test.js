@@ -135,7 +135,7 @@ const ORDER = "recORDER000000001";
 const UNIT = "recUNIT0000000001";
 const MERCHANT = "recMERCH000000001";
 
-function world({ unit = {}, order = {}, invoice } = {}) {
+function world({ unit = {}, order = {}, invoice, orderNotice = null } = {}) {
   const tables = {
     "Unfulfilled Orders Log": {
       [ORDER]: {
@@ -166,7 +166,7 @@ function world({ unit = {}, order = {}, invoice } = {}) {
   const airtable = fakeAirtable(tables);
   const rompslomp = fakeRompslomp({ invoice: inv });
   const purchases = fakePurchases();
-  const returns = createReturns({ db, airtable, rompslomp, purchases, locations: async () => ["APLUG.PL", "Emilio"] });
+  const returns = createReturns({ db, airtable, rompslomp, purchases, locations: async () => ["APLUG.PL", "Emilio"], orderNotice });
   return { db, airtable, rompslomp, purchases, returns, tables };
 }
 
@@ -479,6 +479,64 @@ test("a marketplace sale that ended before shipping waits for a decision", async
   assert.equal(w.db.data.returns.length, 1);
   assert.equal(w.db.data.returns[0].source, "woovin");
   assert.equal(w.db.data.returns[0].status, "done");
+});
+
+/* ---------------- the consignor of a cancelled order ---------------- */
+
+const UNSHIPPED_BOL = { "Marketplace Sale ID": "4016893747", "Shipping Status": "Pending", "Fulfillment Status": "Cancelled", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" };
+
+test("we take the pair in: Returning, expected at the scan, a fresh label to us, the order stays Cancelled", async () => {
+  const calls = [];
+  const w = world({
+    order: UNSHIPPED_BOL,
+    orderNotice: async (body) => { calls.push(body); return { told: true, sendcloud: [{ tracking: "05112949678070", cancelled: true }], label: { tracking_number: "1Z999", carrier: "UPS" } }; }
+  });
+  const out = await w.returns.announce({ source: "bol", marketplace_order_id: "4016893747", external_return_id: "bol-cancel-4016893747", shipped: false });
+  await w.returns.decide(out.return.id, { held: "take_in", orderAction: "cancel" });
+
+  assert.deepEqual(calls, [{ recordId: ORDER, decision: "take_in" }]);
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Returning");
+  assert.equal(w.tables["Unfulfilled Orders Log"][ORDER]["Fulfillment Status"], "Cancelled");
+  assert.equal(w.purchases.calls.credit.length, 0, "we keep the deal: the seller is still owed");
+  const row = w.db.data.returns[0];
+  assert.equal(row.status, "expected");
+  assert.equal(row.tracking_code, "1Z999");
+  assert.equal(row.external_return_id, "bol-cancel-4016893747");
+  assert.ok(row.log.some((l) => /05112949678070 cancelled/.test(l.line)));
+});
+
+test("the seller keeps it: he is told the order is off, a label Sendcloud refuses is a todo", async () => {
+  const calls = [];
+  const w = world({
+    order: UNSHIPPED_BOL,
+    orderNotice: async (body) => { calls.push(body); return { told: true, sendcloud: [{ tracking: "05112949678070", cancelled: false, error: "Parcel already shipped" }] }; }
+  });
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "consignor_has" } });
+
+  assert.equal(calls[0].decision, "cancelled");
+  assert.ok(w.db.data.returns[0].todo.some((t) => t.kind === "by_hand" && /05112949678070/.test(t.text)));
+});
+
+test("a pair in our warehouse: only the labels are cancelled; a shipped one: nothing", async () => {
+  const calls = [];
+  const notice = async (body) => { calls.push(body); return { told: false, sendcloud: [] }; };
+  const w = world({ order: UNSHIPPED_BOL, orderNotice: notice });
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "warehouse", warehouse: "keep" } });
+  assert.equal(calls[0].decision, "void");
+
+  const shipped = world({ orderNotice: notice });
+  await shipped.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "shipped", outcome: "return" } });
+  assert.equal(calls.length, 1, "a pair that left needs no notice and keeps its label");
+});
+
+test("taking in is only for a seller's pair, and a WMS that fails leaves a todo, not a failed cancel", async () => {
+  const own = world({ order: UNSHIPPED_BOL, unit: { Type: "Direct", "Item ID": "KC-000001", "Seller ID (Lookup)": [] } });
+  await assert.rejects(own.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "take_in" } }), /seller's pair/);
+
+  const w = world({ order: UNSHIPPED_BOL, orderNotice: async () => { throw new Error("WMS down"); } });
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "take_in" } });
+  assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Returning");
+  assert.ok(w.db.data.returns[0].todo.some((t) => /WMS down/.test(t.text)));
 });
 
 /* ---------------- Seller Payouts ---------------- */

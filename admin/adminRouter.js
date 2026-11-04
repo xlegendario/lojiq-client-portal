@@ -524,7 +524,12 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       : null,
     locations: () => locationOptions(),
     // A consignor's pair back in his stock, and him told not to ship it.
-    returnToConsignor: (body) => tellKickz("/api/internal/broker/pair-returned", body)
+    returnToConsignor: (body) => tellKickz("/api/internal/broker/pair-returned", body),
+    // A cancelled order's consignor and Sendcloud labels, through the WMS.
+    orderNotice: (body) => {
+      if (!service(services.wmsBaseUrl) || !text(services.counterOffersSecret)) throw new Error("The WMS is not configured on this service.");
+      return post(`${service(services.wmsBaseUrl)}/api/internal/order-decision`, body, { "x-kc-secret": services.counterOffersSecret });
+    }
   });
 
   // The Location choices, from the schema; empty when the token may not read it.
