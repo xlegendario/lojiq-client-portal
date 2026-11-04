@@ -18,8 +18,9 @@ function fakeDeps({ privates = [], lookup = { found: true, source: "sku_master",
     airtable: {
       byIds: async (table, ids) => {
         calls.push({ kind: "byIds", table, ids });
-        if (table === "Merchants") return new Map([[MERCHANT, { id: MERCHANT, fields: { "Store Name": "Tienne Milano" } }]]);
-        return new Map(ids.map((id) => [id, { id, fields: { "Order ID": "ORD-031000", "Fulfillment Status": "Pending" } }]));
+        // As the router's byIds: the fields themselves, keyed by record id.
+        if (table === "Merchants") return new Map(ids.includes(MERCHANT) ? [[MERCHANT, { "Store Name": "Tienne Milano" }]] : []);
+        return new Map(ids.map((id) => [id, { "Order ID": "ORD-031000", "Fulfillment Status": "Pending" }]));
       },
       select: async (table, options) => {
         calls.push({ kind: "select", table, options });

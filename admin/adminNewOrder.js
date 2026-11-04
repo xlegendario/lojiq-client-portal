@@ -147,8 +147,9 @@ export async function createNewOrder({ input, deps, now = new Date() }) {
 
   const withDeal = Boolean(text(input.seller) || text(input.payout));
 
-  const merchant = (await deps.airtable.byIds(TABLES.merchants, [merchantId], ["Store Name"])).get(merchantId);
-  const storeName = text(merchant?.fields?.["Store Name"]);
+  // byIds answers the fields themselves, keyed by record id.
+  const merchantFields = (await deps.airtable.byIds(TABLES.merchants, [merchantId], ["Store Name"])).get(merchantId);
+  const storeName = text(merchantFields?.["Store Name"]);
   if (!storeName) throw new NewOrderError("That store was not found.", 404);
 
   // Name and brand as typed win; otherwise the lookup fills them.
@@ -169,8 +170,12 @@ export async function createNewOrder({ input, deps, now = new Date() }) {
   if (withDeal) fields.auto_allocate_attempted_at = now.toISOString();
 
   const created = await deps.airtable.create(TABLES.store, fields);
-  const fresh = (await deps.airtable.byIds(TABLES.store, [created.id], ["Order ID", "Fulfillment Status", "Custom Offer", "Offer Accepted?"])).get(created.id) || created;
-  const orderId = text(fresh.fields?.["Order ID"]) || created.id;
+  const freshFields =
+    (await deps.airtable.byIds(TABLES.store, [created.id], ["Order ID", "Fulfillment Status", "Custom Offer", "Offer Accepted?"])).get(created.id) ||
+    created.fields ||
+    {};
+  const fresh = { id: created.id, fields: freshFields };
+  const orderId = text(freshFields["Order ID"]) || created.id;
 
   let dealNote = "";
 
