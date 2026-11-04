@@ -773,6 +773,7 @@
           <input class="input" id="buyerFilter" type="search" placeholder="Buyer" aria-label="Buyer" hidden>
           <input class="input" id="listSearch" type="search" placeholder="Search this list" aria-label="Search this list">
           <button class="btn" id="refreshButton" type="button">Refresh</button>
+          <button class="btn primary" id="newOrderButton" type="button" hidden>New Order</button>
           <button class="btn" id="saveFilterButton" type="button" hidden>Save filter</button>
           <button class="btn ghost" id="deleteFilterButton" type="button" hidden>Delete filter</button>
           <span class="count" id="rowCount"></span>
@@ -817,6 +818,35 @@
         <div class="dialog-foot">
           <button class="btn ghost" id="actionCancel" type="button">Cancel</button>
           <button class="btn primary" id="actionConfirm" type="submit">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- New Order: a store order made by hand, see admin/adminNewOrder.js. -->
+    <dialog class="action-dialog" id="newOrderDialog">
+      <form class="action-form" id="newOrderForm" method="dialog" novalidate>
+        <h2>New Order</h2>
+        <p class="action-note">For a sale outside the store's Shopify. The next Private number is given by itself, and the engine looks for a pair as for any new order.</p>
+        <div class="action-inputs">
+          <div class="field"><label for="no-store">Store</label><select class="select" id="no-store"></select></div>
+          <div class="field"><label for="no-sku">SKU</label><input class="input" id="no-sku" type="text" autocomplete="off" maxlength="40"></div>
+          <div class="field"><label for="no-size">Size</label><input class="input" id="no-size" type="text" autocomplete="off" maxlength="20"></div>
+          <div class="field" id="no-product" hidden></div>
+          <div class="field"><label for="no-name">Product name</label><input class="input" id="no-name" type="text" autocomplete="off" maxlength="200" placeholder="Filled in from the SKU"></div>
+          <div class="field"><label for="no-brand">Brand</label><input class="input" id="no-brand" type="text" autocomplete="off" maxlength="80" placeholder="Filled in from the SKU"></div>
+          <div class="field"><label for="no-selling">Selling price (€)</label><input class="input" id="no-selling" type="text" inputmode="decimal" autocomplete="off"></div>
+          <div class="field"><label for="no-store-price">The store pays (€)</label><input class="input" id="no-store-price" type="text" inputmode="decimal" autocomplete="off"></div>
+          <details>
+            <summary>Already know whose pair it is? (optional)</summary>
+            <div class="field"><label for="no-seller">Seller ID (e.g. SE-00035)</label><input class="input" id="no-seller" type="text" autocomplete="off" maxlength="20"></div>
+            <div class="field"><label for="no-payout">Payout (€)</label><input class="input" id="no-payout" type="text" inputmode="decimal" autocomplete="off"></div>
+            <div class="field"><label for="no-vat">VAT Type</label><select class="select" id="no-vat"><option>Margin</option><option>VAT0</option><option>VAT21</option></select></div>
+          </details>
+        </div>
+        <div class="error" id="newOrderError" role="alert"></div>
+        <div class="dialog-foot">
+          <button class="btn ghost" id="newOrderCancel" type="button">Cancel</button>
+          <button class="btn primary" id="newOrderConfirm" type="submit">Make order</button>
         </div>
       </form>
     </dialog>
@@ -1150,6 +1180,7 @@
     $("typeFilter").value = state.unitType;
     $("kindFilter").value = state.kind;
     $("refreshButton").hidden = false;
+    $("newOrderButton").hidden = state.section !== "store";
     $("storeButton").textContent = storeLabel();
     $("storeButton").classList.toggle("active", isStore && state.stores.length > 0);
     $("storeModeInclude").checked = state.storeMode !== "exclude";
@@ -2225,6 +2256,106 @@
       $("actionError").textContent = err.message;
     }
   }
+
+  /* ---------------- New Order ---------------- */
+
+  let newOrderStores = null;
+  let lookedUpSku = "";
+
+  $("newOrderButton").addEventListener("click", async () => {
+    $("newOrderForm").reset();
+    $("newOrderError").textContent = "";
+    $("no-product").hidden = true;
+    $("no-product").innerHTML = "";
+    $("newOrderConfirm").disabled = false;
+    lookedUpSku = "";
+    $("newOrderDialog").showModal();
+
+    try {
+      if (!newOrderStores) newOrderStores = (await api("/api/admin/new-order/stores")).stores || [];
+      const chosen = state.stores.length === 1 ? state.stores[0] : "";
+      $("no-store").innerHTML = '<option value="">Choose the store</option>' + newOrderStores
+        .map((store) => `<option value="${esc(store.id)}"${store.name === chosen ? " selected" : ""}>${esc(store.name)}</option>`)
+        .join("");
+      $("no-sku").focus();
+    } catch (err) {
+      $("newOrderError").textContent = err.message;
+    }
+  });
+
+  // Name, brand and picture from SKU Master, or StockX for a SKU we never had.
+  async function lookUpNewOrderSku() {
+    const sku = $("no-sku").value.trim().toUpperCase();
+    if (!sku || sku === lookedUpSku) return;
+    lookedUpSku = sku;
+
+    $("no-product").hidden = false;
+    $("no-product").textContent = "Looking up " + sku + "…";
+
+    try {
+      const product = await api("/api/admin/new-order/lookup", { method: "POST", body: JSON.stringify({ sku }) });
+      if ($("no-sku").value.trim().toUpperCase() !== sku) return;
+
+      if (!product.found) {
+        $("no-product").textContent = "Not in SKU Master or on StockX: type the name and brand yourself.";
+        return;
+      }
+
+      $("no-name").value = product.product_name || "";
+      $("no-brand").value = product.brand || "";
+      $("no-product").innerHTML =
+        (product.image ? `<img src="${esc(product.image)}" alt="" style="max-height:72px;max-width:120px;display:block;margin-bottom:4px">` : "") +
+        `<span>${esc(product.product_name)} · ${esc(product.brand)} (${product.source === "stockx" ? "from StockX, now in SKU Master" : "SKU Master"})</span>`;
+    } catch (err) {
+      $("no-product").textContent = err.message;
+    }
+  }
+
+  $("no-sku").addEventListener("change", lookUpNewOrderSku);
+  $("no-sku").addEventListener("blur", lookUpNewOrderSku);
+
+  $("newOrderCancel").addEventListener("click", () => $("newOrderDialog").close());
+
+  $("newOrderForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const value = (id) => $(id).value.trim();
+    const body = {
+      store_id: value("no-store"),
+      sku: value("no-sku"),
+      size: value("no-size"),
+      product_name: value("no-name"),
+      brand: value("no-brand"),
+      selling_price: value("no-selling"),
+      store_price: value("no-store-price"),
+      seller: value("no-seller"),
+      payout: value("no-payout"),
+      vat: value("no-vat")
+    };
+
+    if (!body.store_id || !body.sku || !body.size || !body.selling_price || !body.store_price) {
+      $("newOrderError").textContent = "Fill in the store, SKU, size and both prices.";
+      return;
+    }
+
+    if ((body.seller || body.payout) && !(body.seller && body.payout)) {
+      $("newOrderError").textContent = "For a known pair, fill in both the seller and the payout.";
+      return;
+    }
+
+    $("newOrderConfirm").disabled = true;
+    $("newOrderError").textContent = "";
+
+    try {
+      const result = await api("/api/admin/new-order", { method: "POST", body: JSON.stringify(body) });
+      $("newOrderDialog").close();
+      toast(result.message || "Order made.");
+      loadList({ fresh: true });
+    } catch (err) {
+      $("newOrderError").textContent = err.message;
+      $("newOrderConfirm").disabled = false;
+    }
+  });
 
   $("actionInputs").addEventListener("change", applyShowIf);
 

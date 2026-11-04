@@ -72,6 +72,7 @@ import { createRompslomp } from "./externalSalesInvoicing.js";
 import { createPurchaseExpense } from "./purchaseExpense.js";
 import { createReturns } from "./returns.js";
 import { mountReturns } from "./adminReturns.js";
+import { NewOrderError, createNewOrder, listMerchants, lookupProduct } from "./adminNewOrder.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -1278,6 +1279,50 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       input: { tracking: text(req.query.tracking) },
       file: req.body
     });
+  });
+
+  /* ----- New Order: a store order made by hand (admin/adminNewOrder.js) ----- */
+
+  const newOrderError = (res, err) => {
+    const status = err instanceof NewOrderError || err?.status ? Number(err.status) || 400 : 502;
+    if (status >= 500) console.error("[admin] new order failed:", err.message);
+    res.status(status).json({ error: err.message || "That did not work." });
+  };
+
+  router.get("/api/admin/new-order/stores", async (req, res) => {
+    try {
+      res.json({ stores: await listMerchants(deps) });
+    } catch (err) {
+      newOrderError(res, err);
+    }
+  });
+
+  router.post("/api/admin/new-order/lookup", async (req, res) => {
+    try {
+      res.json(await lookupProduct({ sku: req.body?.sku, deps }));
+    } catch (err) {
+      newOrderError(res, err);
+    }
+  });
+
+  router.post("/api/admin/new-order", async (req, res) => {
+    try {
+      const result = await createNewOrder({ input: req.body || {}, deps });
+
+      cache.clear();
+      audit.record({
+        actor: req.admin,
+        action: "New Order",
+        source: "store",
+        recordId: result.id,
+        label: result.order_id,
+        details: { changed: result.changed, note: result.message }
+      });
+
+      res.json({ ok: true, message: result.message, id: result.id, order_id: result.order_id });
+    } catch (err) {
+      newOrderError(res, err);
+    }
   });
 
   /* ----- Open Payments ----- */
