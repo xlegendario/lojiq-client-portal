@@ -36,6 +36,16 @@ test("by product: only what is on the shelf, sizes in size order, arrivals per s
   assert.deepEqual(size44.arrivals.map((a) => [a.date, a.count]), [["2026-09-17", 1], ["2026-10-02", 2]]);
 });
 
+test("a sold pair on its way back counts as sold until it is back; one promised to a deal stays on the shelf", () => {
+  const { totals, arrivals } = summarizeStock([
+    pair({ status: "reserved", sold_at: "2026-10-16T17:05:33Z" }),
+    pair({ status: "reserved", sold_at: null }),
+    pair({})
+  ]);
+  assert.equal(totals.on_shelf, 2);
+  assert.deepEqual([arrivals[0].received, arrivals[0].sold, arrivals[0].left], [3, 1, 2]);
+});
+
 test("by arrival: every pair that came in, newest day first, with what became of it", () => {
   const { arrivals } = summarizeStock([
     pair({}),

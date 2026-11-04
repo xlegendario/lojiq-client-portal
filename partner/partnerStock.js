@@ -22,7 +22,19 @@ const ON_SHELF = new Set(["in_stock", "reserved"]);
 const LEFT = new Set(["in_stock", "reserved", "sold", "forwarded"]);
 
 const PAGE = 1000;
-const COLUMNS = "id,sku,size,product_name,brand,image_url,status,received_at,warehouse";
+const COLUMNS = "id,sku,size,product_name,brand,image_url,status,received_at,warehouse,sold_at";
+
+/*
+ * A reserved pair is one of two things. Promised to a deal (never sold, no
+ * sold_at): still on the shelf. Or sold and on its way back from the buyer
+ * (sold_at kept, admin/returns.js holdPartnerPair): for him it is sold until
+ * it is really back, exactly as the Sales tab counts it, so the two tabs
+ * never disagree (Dario, 04-11-2026).
+ */
+const statusOf = (row) => {
+  const status = text(row.status);
+  return status === "reserved" && text(row.sold_at) ? "sold" : status;
+};
 
 // The calendar day a pair came in, on the clock of the warehouse.
 const dayOf = (() => {
@@ -52,7 +64,7 @@ export function summarizeStock(rows) {
   let onShelf = 0;
 
   for (const row of rows || []) {
-    const status = text(row.status);
+    const status = statusOf(row);
 
     if (!LEFT.has(status)) continue;
 

@@ -90,6 +90,10 @@ const saleDay = (unit) => text(first(unit.fields?.["Sales Date"])) || text(unit.
  * sent by him: a pair sold before its row was booked (or whose row went
  * missing) still counts, which a count of rows alone would not.
  */
+// Sold, or sold and on its way back (reserved with its sold_at); a pair
+// reserved for a deal was never sold.
+const soldRow = (row) => row.status === "sold" || (row.status === "reserved" && Boolean(text(row.sold_at)));
+
 export function assignShipments(units = [], stockRows = []) {
   const shipments = new Map();
   const pool = new Map();
@@ -100,7 +104,7 @@ export function assignShipments(units = [], stockRows = []) {
     if (!came) continue;
     if (!shipments.has(sku)) shipments.set(sku, new Set());
     shipments.get(sku).add(came);
-    if (row.status !== "sold" && row.status !== "reserved") continue;
+    if (!soldRow(row)) continue;
     const key = `${sku}|${text(row.size)}|${amsDay(row.sold_at)}`;
     if (!pool.has(key)) pool.set(key, []);
     pool.get(key).push(came);
@@ -114,7 +118,7 @@ export function assignShipments(units = [], stockRows = []) {
     if (!came || text(row.sku).toUpperCase() === "BOX") continue;
     const k = `${text(row.sku).toUpperCase()}|${came}`;
     rowsIn.set(k, (rowsIn.get(k) || 0) + 1);
-    if (row.status !== "sold" && row.status !== "reserved") notSold.set(k, (notSold.get(k) || 0) + 1);
+    if (!soldRow(row)) notSold.set(k, (notSold.get(k) || 0) + 1);
   }
   const ordered = [...units].sort((a, b) => saleDay(a).localeCompare(saleDay(b)));
   const rest = [];

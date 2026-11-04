@@ -46,6 +46,7 @@
 import { creditInvoiceBody } from "./externalSalesInvoicing.js";
 import { invoicePlan, pickContact } from "./adminCollectiveInvoices.js";
 import { conditionWith } from "./externalSalesCancel.js";
+import { assignShipments } from "../partner/partnerSales.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -1394,8 +1395,38 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
    * already paid for the returned pair pays for that one. The same SKU,
    * because Dario tells the partner per payment how many of which SKU it
    * covered (02-11-2026).
+   *
+   * And from the same shipment (the day his pairs came in): his dashboard
+   * splits every payment per shipment, and he checks it against his own list
+   * per shipment. Settled from another shipment, a payment he already saw
+   * would change; from the same one, nothing he sees moves (Dario,
+   * 04-11-2026). Nothing open in that shipment: none, and the pair is ours.
+   * Which shipment a sale came from is worked out as the Sales tab does it
+   * (partner/partnerSales.js assignShipments), so the two always agree.
    */
-  async function partnerSwap(unit, returnedLabel, paymentNote) {
+  async function shipmentsOf(sellerId, sku) {
+    const rows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = await db.get(`partner_stock?select=id,sku,size,status,sold_at,received_at&seller_id=eq.${enc(sellerId)}&sku=ilike.${enc(sku)}&order=id.asc&limit=1000&offset=${offset}`);
+      rows.push(...page);
+      if (page.length < 1000) break;
+    }
+    const units = [];
+    let offset = "";
+    do {
+      const page = await airtable.select(UNITS, {
+        formula: `AND(FIND('${quote(sellerId)}', ARRAYJOIN({Seller ID (Lookup)})), FIND('${quote(sku)}', UPPER({SKU} & '')))`,
+        fields: ["SKU", "Size", "Sales Date", "Availability Status", "Payment Status", "Cancel Status"],
+        pageSize: 100,
+        offset
+      });
+      units.push(...page.records);
+      offset = page.offset;
+    } while (offset && units.length < 5000);
+    return { rows, map: assignShipments(units.map((r) => ({ id: r.id, fields: r.fields })), rows) };
+  }
+
+  async function partnerSwap(unit, returnedLabel, paymentNote, heldId = "") {
     const u = unit.fields;
     const sellerId = quote(first(u["Seller ID (Lookup)"]));
     const sku = text(first(u.SKU)).toUpperCase();
@@ -1417,7 +1448,16 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     // already paid settles what is owed soonest (Dario, 02-11-2026).
     const when = (r) => text(r.fields?.["Purchase Date"]) || "9999";
     const sameSku = (r) => text(first(r.fields?.SKU)).toUpperCase() === sku;
-    const candidates = records.filter((r) => r.id !== unit.id && sameSku(r)).sort((a, b) => when(a).localeCompare(when(b)));
+    let candidates = records.filter((r) => r.id !== unit.id && sameSku(r)).sort((a, b) => when(a).localeCompare(when(b)));
+    if (!candidates.length) return null;
+
+    // Only from the shipment the returned pair came from: the row held for
+    // this return says so; failing that, the sale itself.
+    const shelf = await shipmentsOf(text(first(u["Seller ID (Lookup)"])), sku);
+    const held = heldId ? shelf.rows.find((r) => r.id === heldId) : null;
+    const dayOf = (iso) => (iso ? new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)) : "");
+    const shipment = dayOf(held?.received_at) || shelf.map.get(unit.id) || "";
+    if (shipment) candidates = candidates.filter((r) => shelf.map.get(r.id) === shipment);
     if (!candidates.length) return null;
 
     const busy = await db.get(`returns?select=inventory_unit_record_id&status=in.(to_decide,expected,received)&inventory_unit_record_id=in.(${candidates.map((r) => `"${r.id}"`).join(",")})`);
@@ -1551,7 +1591,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
           await undoPurchase(orderForBooks, u, { reason: "back on the partner's shelf", log, todos });
           result = "Back on the partner's shelf";
         } else if (owner === "partner" && paid) {
-          const swap = await partnerSwap(u, `${text(unit["Item ID"])} (${row.order_id})`, text(unit["Payment Note"]));
+          const swap = await partnerSwap(u, `${text(unit["Item ID"])} (${row.order_id})`, text(unit["Payment Note"]), text(row.partner_stock_id));
           if (swap) {
             // Its payment now belongs to the other pair: Status and Note go
             // with it, and only Item Condition says where.

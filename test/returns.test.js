@@ -28,7 +28,7 @@ function fakeDb(tables = {}) {
     for (const part of query.split("&").filter(Boolean)) {
       const [key, ...v] = part.split("=");
       const cond = v.join("=");
-      if (["select", "order"].includes(key)) continue;
+      if (["select", "order", "offset"].includes(key)) continue;
       if (key === "limit") { limit = Number(cond); continue; }
       if (key === "or") {
         const alts = cond.replace(/^\(|\)$/g, "").split(",").map((c) => { const [k, ...r] = c.split("."); return [k, r.join(".")]; });
@@ -429,6 +429,39 @@ test("OK at the scan, a partner pair already paid: another To Pay pair is settle
   assert.match(done.result, /PCS-009002/, "the oldest sale is settled first");
   assert.equal(w.tables["Inventory Units"].recUNIT0000000003["Payment Status"], "To Pay");
   assert.equal(w.tables["Inventory Units"].recUNIT0000000004["Payment Status"], "To Pay", "another SKU is never settled");
+});
+
+test("OK at the scan, a partner pair already paid: only a pair from the same shipment settles it", async () => {
+  const w = world({ unit: { Type: "Partner Consignment", "Item ID": "PCS-009001", "Seller ID (Lookup)": ["SE-00781"], SKU: ["DD1391-100"], Size: "42", "Sales Date": "2026-10-01", "Availability Status": "Sold", "Payment Status": "Paid", "Payment Note": "2400 (MO20261509)" } });
+  // The older open pair came in on 28 Oct; the newer one on 17 Sep, like the returned pair.
+  w.tables["Inventory Units"].recUNIT0000000002 = { "Item ID": "PCS-009002", SKU: ["DD1391-100"], Size: "43", "Sales Date": "2026-10-29", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-29" };
+  w.tables["Inventory Units"].recUNIT0000000003 = { "Item ID": "PCS-009003", SKU: ["DD1391-100"], Size: "44", "Sales Date": "2026-11-01", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-11-01" };
+  w.db.data.partner_stock.push(
+    { id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100, received_at: "2026-09-17T10:00:00Z", sold_at: "2026-10-01T10:00:00Z" },
+    { id: "p2", seller_id: "SE-00781", sku: "DD1391-100", size: "43", status: "sold", partner_price: 100, received_at: "2026-10-28T10:00:00Z", sold_at: "2026-10-29T10:00:00Z" },
+    { id: "p3", seller_id: "SE-00781", sku: "DD1391-100", size: "44", status: "sold", partner_price: 100, received_at: "2026-09-17T10:00:00Z", sold_at: "2026-11-01T10:00:00Z" }
+  );
+  const row = await expected(w);
+  const done = await w.returns.receive(row.id, { verdict: "ok" });
+
+  assert.match(done.result, /PCS-009003/, "the pair from the same shipment, though it is not the oldest");
+  assert.equal(w.tables["Inventory Units"].recUNIT0000000003["Payment Status"], "Paid");
+  assert.equal(w.tables["Inventory Units"].recUNIT0000000002["Payment Status"], "To Pay", "another shipment is never settled");
+});
+
+test("OK at the scan, a partner pair already paid, open pairs only in another shipment: ours", async () => {
+  const w = world({ unit: { Type: "Partner Consignment", "Item ID": "PCS-009001", "Seller ID (Lookup)": ["SE-00781"], SKU: ["DD1391-100"], Size: "42", "Sales Date": "2026-10-01", "Availability Status": "Sold", "Payment Status": "Paid", "Payment Note": "2400 (MO20261509)" } });
+  w.tables["Inventory Units"].recUNIT0000000002 = { "Item ID": "PCS-009002", SKU: ["DD1391-100"], Size: "43", "Sales Date": "2026-10-29", "Payment Status": "To Pay", "Availability Status": "Sold", "Purchase Price": 100, "Purchase Date": "2026-10-29" };
+  w.db.data.partner_stock.push(
+    { id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100, received_at: "2026-09-17T10:00:00Z", sold_at: "2026-10-01T10:00:00Z" },
+    { id: "p2", seller_id: "SE-00781", sku: "DD1391-100", size: "43", status: "sold", partner_price: 100, received_at: "2026-10-28T10:00:00Z", sold_at: "2026-10-29T10:00:00Z" }
+  );
+  const row = await expected(w);
+  const done = await w.returns.receive(row.id, { verdict: "ok" });
+
+  assert.match(done.result, /Ours now/);
+  assert.equal(w.tables["Inventory Units"].recUNIT0000000002["Payment Status"], "To Pay");
+  assert.equal(w.tables["Inventory Units"][UNIT]["Payment Status"], "Paid", "he keeps the money, nothing he sees moves");
 });
 
 test("OK at the scan, a partner pair already paid and nothing to settle: ours", async () => {
