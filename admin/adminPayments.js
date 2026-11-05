@@ -200,7 +200,7 @@ export async function loadOpenPayments(airtable, { stores = [], storeMode = "inc
  * deps: airtable (select, byIds, update, create), tellKickzPaid(memberWtbIds),
  *       archiveMollieLink(linkId) -> "" or a sentence when it could not.
  */
-export async function markPaidByBankTransfer({ targets, deps }) {
+export async function markPaidByBankTransfer({ targets, deps, paidAt: when = "" }) {
   const clean = (Array.isArray(targets) ? targets : [])
     .map((target) => ({ source: text(target?.source), id: text(target?.id) }))
     .filter((target) => PAYMENT_TABLES[target.source] && /^rec[A-Za-z0-9]{14}$/.test(target.id));
@@ -270,7 +270,8 @@ export async function markPaidByBankTransfer({ targets, deps }) {
     toCancel.push({ id: batchId, label, linkId: text(batch["Mollie Payment Link ID"]) });
   }
 
-  const paidAt = new Date().toISOString();
+  // The day the money came in, when the caller knows it (Rompslomp's bank line).
+  const paidAt = when && Number.isFinite(Date.parse(when)) ? new Date(when).toISOString() : new Date().toISOString();
   const total = Math.round(records.reduce((sum, item) => sum + item.row.amount, 0) * 100) / 100;
   const merchantId = records.map((item) => item.row.merchant_id).find(Boolean);
   const buyers = [...new Set(records.filter((item) => item.source === "mwtb").map((item) => first(item.fields["Buyer Seller ID"])).filter(Boolean))];
@@ -334,6 +335,190 @@ export async function markPaidByBankTransfer({ targets, deps }) {
     targets: records.map((item) => ({ source: item.source, id: item.id, label: item.row.label })),
     notes
   };
+}
+
+/*
+ * Following Rompslomp for store orders paid by bank transfer.
+ *
+ * Stores that do not pay through the dashboard's Mollie link transfer the
+ * money, and Dario links the bank line to the invoice in Rompslomp. This
+ * finds those invoices and marks their orders paid here, the same way Mark
+ * paid does, on the day the money came in.
+ *
+ * Rompslomp's invoice only says paid or unpaid, not when. The day comes from
+ * the booked bank line: the one naming the invoice number, or else the one
+ * with exactly the invoice's amount from the customer's name. Neither found,
+ * it is the day this saw it paid - checked every half hour, that is the day
+ * Dario booked it.
+ *
+ * An invoice settled by a credit note is "paid" too, without any money; one
+ * a credit note refers to is left alone.
+ */
+
+const SETTLED = ["paid", "overpaid"];
+const PAGE = 100;
+const MAX_PAGES = 30;
+
+const normRef = (value) => text(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+const dayOf = (value) => text(value).slice(0, 10);
+
+// Does this bank text name this invoice? KC202609-208 is not in KC202609-2089.
+export function mentionsInvoice(description, invoiceNumber) {
+  const haystack = normRef(description);
+  const needle = normRef(invoiceNumber);
+  if (needle.length < 5) return false;
+
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
+    if (!/[0-9]/.test(haystack[at + needle.length] || "")) return true;
+  }
+  return false;
+}
+
+// The invoice numbers credit notes were made for ("Creditfactuur voor factuur: KC...").
+export function creditedNumbers(creditInvoices) {
+  const out = new Set();
+  for (const credit of creditInvoices || []) {
+    const found = /factuur:\s*([A-Z0-9-]*[0-9][A-Z0-9-]*)/i.exec(text(credit.description));
+    if (found) out.add(normRef(found[1]));
+  }
+  return out;
+}
+
+/*
+ * The day an invoice was paid, from Rompslomp's booked bank lines, or null.
+ * Returns { date: "YYYY-MM-DD", how }.
+ */
+export function paymentDateFor(invoice, payments) {
+  const from = dayOf(invoice.date);
+  const after = (payments || []).filter((p) => dayOf(p.paid_at) && dayOf(p.paid_at) >= from);
+
+  // A transfer that names the invoice. When there are several (paid in
+  // parts), the last one made it paid.
+  const named = after.filter((p) => mentionsInvoice(p.description, invoice.invoice_number));
+  if (named.length) {
+    return { date: named.map((p) => dayOf(p.paid_at)).sort().at(-1), how: "invoice number" };
+  }
+
+  const amount = Number(invoice.price_with_vat);
+  const name = normRef(invoice.cached_contact?.name);
+  if (name.length >= 4 && Number.isFinite(amount)) {
+    const exact = after
+      .filter((p) => Math.abs(Number(p.amount) - amount) < 0.005 && normRef(p.description).includes(name))
+      .map((p) => dayOf(p.paid_at))
+      .sort();
+    if (exact.length) return { date: exact[0], how: "amount and name" };
+  }
+
+  return null;
+}
+
+async function readPages(rompslomp, path, key, { stopBefore = "" } = {}) {
+  const out = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const join = path.includes("?") ? "&" : "?";
+    const rows = (await rompslomp.read(`${path}${join}per_page=${PAGE}&page=${page}`))?.[key] || [];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+    // Bank lines come newest first: once past the oldest day needed, stop.
+    if (stopBefore && dayOf(rows.at(-1)?.paid_at) < stopBefore) break;
+  }
+  return out;
+}
+
+/*
+ * deps:
+ *   airtable   select (main base)
+ *   rompslomp  createRompslomp (read, getInvoice)
+ *   markPaid   (targets, paidAt) -> markPaidByBankTransfer's result
+ */
+export async function followRompslompPayments({ deps, now = new Date(), limit = 40 }) {
+  const formula = `AND(${openPaymentFormula("store")}, {Rompslomp Invoice ID} != '', {Rompslomp Credit Invoice Number} = '')`;
+  const records = await selectAll(deps.airtable, PAYMENT_TABLES.store.table, {
+    formula,
+    fields: ["Order ID", "Store Name", "Rompslomp Invoice ID", "Rompslomp Invoice Number"]
+  });
+
+  const orders = records.map((record) => ({
+    id: record.id,
+    label: text(record.fields?.["Order ID"]) || record.id,
+    store: text(first(record.fields?.["Store Name"])),
+    invoiceId: text(record.fields?.["Rompslomp Invoice ID"]),
+    invoiceNumber: text(record.fields?.["Rompslomp Invoice Number"])
+  }));
+
+  const result = { checked: orders.length, marked: [], skipped: [], errors: [] };
+  if (!orders.length) return result;
+
+  // One list of what is still open there; only what falls out of it is read.
+  const unpaid = new Set((await readPages(deps.rompslomp, "/sales_invoices?selection=unpaid", "sales_invoices")).map((i) => text(i.id)));
+  const candidates = orders.filter((order) => !unpaid.has(order.invoiceId)).slice(0, limit);
+  if (!candidates.length) return result;
+
+  const paid = [];
+  for (const order of candidates) {
+    try {
+      const invoice = await deps.rompslomp.getInvoice(order.invoiceId);
+      if (!invoice) {
+        result.skipped.push({ label: order.label, invoice: order.invoiceNumber, reason: "invoice not found in Rompslomp" });
+      } else if (invoice.status === "published" && SETTLED.includes(text(invoice.payment_status))) {
+        paid.push({ order, invoice });
+      }
+    } catch (err) {
+      result.errors.push({ labels: [order.label], message: err.message });
+    }
+  }
+  if (!paid.length) return result;
+
+  const oldest = paid.map((p) => dayOf(p.invoice.date)).filter(Boolean).sort()[0] || dayOf(now.toISOString());
+
+  const credits = await readPages(deps.rompslomp, `/sales_invoices?selection=credit_invoices&search[from]=${oldest}`, "sales_invoices");
+  const credited = creditedNumbers(credits);
+
+  const payments = await readPages(deps.rompslomp, "/payments?selection=booked", "payments", { stopBefore: oldest });
+
+  // Per store and per day: one Payment Batch for what one transfer paid.
+  const groups = new Map();
+  for (const { order, invoice } of paid) {
+    const number = text(invoice.invoice_number) || order.invoiceNumber;
+    if (credited.has(normRef(number))) {
+      result.skipped.push({ label: order.label, invoice: number, reason: "a credit note refers to this invoice" });
+      continue;
+    }
+
+    const found = paymentDateFor(invoice, payments);
+    const date = found?.date || dayOf(now.toISOString());
+    const key = `${order.store}|${date}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ order, number, date, how: found?.how || "date not found, today" });
+  }
+
+  for (const items of groups.values()) {
+    // Noon, so the day stays the day in every timezone.
+    const paidAt = `${items[0].date}T12:00:00.000Z`;
+    const tries = [items];
+    let whole = true;
+
+    while (tries.length) {
+      const batch = tries.shift();
+      try {
+        const out = await deps.markPaid(batch.map((item) => ({ source: "store", id: item.order.id })), paidAt);
+        for (const item of batch) {
+          result.marked.push({ id: item.order.id, label: item.order.label, store: item.order.store, invoice: item.number, date: item.date, how: item.how, batch_record_id: out?.batch_record_id || "", notes: out?.notes || [] });
+        }
+      } catch (err) {
+        // One order that cannot be settled (a Mollie payment in progress,
+        // a link shared with other orders) does not stop the rest.
+        if (whole && batch.length > 1) {
+          tries.push(...batch.map((item) => [item]));
+        } else {
+          result.errors.push({ labels: batch.map((item) => item.order.label), message: err.message });
+        }
+      }
+      whole = false;
+    }
+  }
+
+  return result;
 }
 
 export { PaymentError };

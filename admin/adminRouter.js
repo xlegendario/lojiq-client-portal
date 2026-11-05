@@ -49,7 +49,7 @@ import {
   rowLinks,
   runAction
 } from "./adminActions.js";
-import { PaymentError, loadOpenPayments, markPaidByBankTransfer } from "./adminPayments.js";
+import { PaymentError, followRompslompPayments, loadOpenPayments, markPaidByBankTransfer } from "./adminPayments.js";
 import { PayoutError, SHIPPING_FILTERS, loadPayouts, markUnitsPaid } from "./adminPayouts.js";
 import { createForwardingStore, mountForwarding } from "./adminForwarding.js";
 import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
@@ -1425,6 +1425,79 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
       res.status(502).json({ error: "Something went wrong while marking this paid. Check the records before trying again." });
     }
   });
+
+  /*
+   * Store orders whose invoice Rompslomp has as paid: the bank transfers
+   * Dario linked there. Every half hour, and on the button in Open Payments.
+   */
+  const paymentsRompslomp = createRompslomp({ token: services.rompslompToken, companyId: services.rompslompCompanyId || undefined, fetchImpl });
+  let rompslompFollowing = null;
+
+  function followRompslomp(actor) {
+    if (rompslompFollowing) return rompslompFollowing;
+
+    rompslompFollowing = followRompslompPayments({
+      deps: {
+        airtable,
+        rompslomp: paymentsRompslomp,
+        markPaid: (targets, paidAt) => markPaidByBankTransfer({ targets, deps: paymentDeps, paidAt })
+      }
+    }).then((result) => {
+      if (result.marked.length) cache.clear();
+      for (const item of result.marked) {
+        audit.record({
+          actor,
+          action: "Mark paid (Rompslomp)",
+          source: "store",
+          recordId: item.id,
+          label: item.label,
+          details: { store: item.store, invoice: item.invoice, paid_on: item.date, date_from: item.how, batch_record_id: item.batch_record_id }
+        });
+      }
+      return result;
+    }).finally(() => {
+      rompslompFollowing = null;
+    });
+
+    return rompslompFollowing;
+  }
+
+  router.post("/api/admin/payments/check-rompslomp", async (req, res) => {
+    if (!paymentsRompslomp.configured) return res.status(503).json({ error: "This service has no ROMPSLOMP_API_TOKEN." });
+
+    try {
+      const result = await followRompslomp(req.admin);
+      const lines = [];
+
+      if (!result.marked.length) lines.push(`Rompslomp has none of the ${result.checked} open invoiced store orders as paid.`);
+
+      const byStore = new Map();
+      for (const item of result.marked) {
+        const key = `${item.store} on ${item.date.split("-").reverse().join("-")}`;
+        byStore.set(key, [...(byStore.get(key) || []), item.label]);
+      }
+      for (const [key, labels] of byStore) lines.push(`Paid: ${labels.join(", ")} (${key}).`);
+
+      const guessed = result.marked.filter((item) => item.how.startsWith("date not found"));
+      if (guessed.length) lines.push(`No bank line found for ${guessed.map((item) => item.invoice).join(", ")}, so today is the paid date.`);
+      for (const item of result.skipped) lines.push(`Left open: ${item.label} (${item.invoice}): ${item.reason}.`);
+      for (const item of result.errors) lines.push(`Not marked: ${item.labels.join(", ")}: ${item.message}`);
+      lines.push(...new Set(result.marked.flatMap((item) => item.notes)));
+
+      res.json({ ok: true, ...result, message: lines.join(" ") });
+    } catch (err) {
+      console.error("[admin] rompslomp payments failed:", err.message);
+      res.status(502).json({ error: `Could not check Rompslomp: ${err.message}` });
+    }
+  });
+
+  if (enabled && paymentsRompslomp.configured && externalSalesSyncMs > 0) {
+    const tick = () => followRompslomp({ name: "Rompslomp sync", email: "" })
+      .then((out) => { if (out.marked.length || out.skipped.length || out.errors.length) console.log("[open payments rompslomp]", JSON.stringify(out)); })
+      .catch((err) => console.error("[open payments rompslomp]", err.message));
+    setTimeout(tick, 120_000).unref?.();
+    setInterval(tick, 30 * 60_000).unref?.();
+  }
 
   /* ----- Payouts ----- */
 

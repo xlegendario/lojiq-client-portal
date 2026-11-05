@@ -1750,7 +1750,10 @@
           <button class="act" type="button" data-clear-selected="${kind}">Clear</button></span>`
       : "";
 
-    $("paymentSummary").innerHTML = listed + selected;
+    // Bank transfers Dario linked in Rompslomp: also checked every half hour.
+    const follow = kind === "payments" ? `<button class="act" type="button" data-check-rompslomp title="Mark store orders paid that Rompslomp has as paid, on the day of the bank transfer">Check Rompslomp</button>` : "";
+
+    $("paymentSummary").innerHTML = listed + follow + selected;
   }
 
   async function loadMoney(kind, ticket, fresh) {
@@ -2004,6 +2007,21 @@
     if (box.checked) input.focus();
   });
 
+  async function checkRompslomp(button) {
+    button.disabled = true;
+    button.textContent = "Checking Rompslomp…";
+    try {
+      const result = await api("/api/admin/payments/check-rompslomp", { method: "POST", body: "{}" });
+      toast(result.message || "Rompslomp checked.");
+      if (result.marked?.length) loadList({ fresh: true });
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Check Rompslomp";
+    }
+  }
+
   async function submitMoneyPaid() {
     const { kind, batches } = pending.money;
     const m = MONEY[kind];
@@ -2047,6 +2065,9 @@
   }
 
   $("paymentSummary").addEventListener("click", (event) => {
+    const check = event.target.closest("button[data-check-rompslomp]");
+    if (check) return checkRompslomp(check);
+
     const paid = event.target.closest("button[data-paid-selected]");
     if (paid) return openMoneyPaid(paid.dataset.paidSelected, pickedRows(paid.dataset.paidSelected));
 
