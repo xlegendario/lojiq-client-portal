@@ -43,6 +43,24 @@ export const kindFor = (createdTime) => (text(createdTime) && amsterdamDay(new D
 const sha256 = (buffer) => crypto.createHash("sha256").update(buffer).digest("hex");
 
 /*
+ * Why a new document cannot be made yet, or "" when it can.
+ *
+ * The VAT number decides who a seller is (Dario, 05-11-2026): with one he is
+ * a business, without one a private individual. A seller with a company name
+ * and no number would be called a private individual on a document we issue
+ * in his name - so it waits until the number is in the Sellers Database.
+ * VAT0 and VAT21 are a business's invoice and need the number too. Copies of
+ * older documents keep the wording of then and never wait.
+ */
+export function missingVatId(document = {}) {
+  const seller = document.seller || {};
+  if (text(seller.vat_id)) return "";
+  if (["VAT0", "VAT21"].includes(text(document.vat_type))) return "missing_vat_id";
+  if (text(document.vat_type) === "Margin" && text(seller.company_name)) return "missing_vat_id";
+  return "";
+}
+
+/*
  * Supabase Storage, private: files go in and come out with the service key
  * only. The seller never gets an address of his own; his dashboard asks the
  * Kickz Caviar portal, which asks here.
@@ -130,11 +148,39 @@ export function createSelfBillingDocuments({ db, storage, selfBilling, airtable,
     const probe = await selfBilling.forUnit(unitId, {});
     const kind = kindFor(probe.unit?.["Created Time"]);
     const today = amsterdamDay(now());
+
+    const waiting = kind === "issued" ? missingVatId(probe.document) : "";
+    if (waiting) {
+      await hold(unitId, probe, waiting);
+      throw new SelfBillingError("The seller has no VAT number on file yet.", 409);
+    }
     const made = kind === "reproduced"
       ? await selfBilling.forUnit(unitId, { date: text(probe.unit?.["Purchase Date"]) || today, copy: { reproduced_at: today } })
       : await selfBilling.forUnit(unitId, { date: today });
 
-    return save({ unitId, document: made.document, unit: made.unit, pdf: made.pdf, kind });
+    const saved = await save({ unitId, document: made.document, unit: made.unit, pdf: made.pdf, kind });
+    await db.remove(`self_billing_holds?unit_record_id=eq.${unitId}`).catch(() => {});
+    return saved;
+  }
+
+  async function hold(unitId, probe, reason) {
+    const row = {
+      unit_record_id: unitId,
+      item_id: text(probe.document?.document_number),
+      seller_record_id: text(first(probe.unit?.["Seller ID"])),
+      seller_id: text(probe.document?.seller?.seller_id),
+      seller_name: text(probe.document?.seller?.name),
+      vat_type: text(probe.document?.vat_type),
+      reason,
+      checked_at: now().toISOString()
+    };
+    const [existing] = await db.get(`self_billing_holds?select=unit_record_id&unit_record_id=eq.${unitId}`);
+    if (existing) await db.patch(`self_billing_holds?unit_record_id=eq.${unitId}`, { checked_at: row.checked_at, seller_name: row.seller_name });
+    else await db.insert("self_billing_holds", [row]);
+  }
+
+  async function holds() {
+    return (await db.get("self_billing_holds?select=*&order=created_at.desc&limit=500")) || [];
   }
 
   // An older document as it was issued, from a file we hold.
@@ -178,6 +224,11 @@ export function createSelfBillingDocuments({ db, storage, selfBilling, airtable,
       offset = result.offset || "";
       if (!offset) break;
     }
+
+    // Every waiting unit is tried again, however old: the number may be in now.
+    const waiting = await holds().catch(() => []);
+    for (const row of waiting) if (!ids.includes(row.unit_record_id)) ids.push(row.unit_record_id);
+
     if (!ids.length) return { checked: 0, made: 0, failed: 0 };
 
     const have = new Set();
@@ -193,20 +244,20 @@ export function createSelfBillingDocuments({ db, storage, selfBilling, airtable,
       // A unit that cannot have a document (no seller yet, an unknown VAT
       // type) is tried again an hour later, not every five minutes.
       const last = failed.get(id);
-      if (last && now() - last < 60 * 60_000) continue;
+      if (last && now() - last < 60 * 60_000 && !waiting.some((row) => row.unit_record_id === id)) continue;
       try {
         await ensure(id);
         made += 1;
       } catch (err) {
         failed.set(id, now());
         bad += 1;
-        console.warn(`[self-billing] no document for ${id}: ${err.message}`);
+        if (err.status !== 409) console.warn(`[self-billing] no document for ${id}: ${err.message}`);
       }
     }
     return { checked: ids.length, made, failed: bad };
   }
 
-  return { configured, get, ensure, importOriginal, pdf, list, sweep };
+  return { configured, get, ensure, importOriginal, pdf, list, holds, sweep };
 }
 
 /*
@@ -239,6 +290,15 @@ export function mountSelfBillingDocuments(router, { store, pageFile = "", intern
   router.get("/api/admin/self-billing/documents", async (req, res) => {
     try {
       res.json({ documents: await store.list({ search: req.query.search, kind: text(req.query.kind), limit: req.query.limit, offset: req.query.offset }) });
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // Units waiting for something, such as the seller's VAT number.
+  router.get("/api/admin/self-billing/holds", async (req, res) => {
+    try {
+      res.json({ holds: await store.holds() });
     } catch (err) {
       send(res, err);
     }

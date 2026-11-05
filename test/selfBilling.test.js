@@ -129,15 +129,15 @@ test("margin from a private seller: no scheme of his own, and his purchase decla
   assert.ok(!drawn.includes("Margin scheme"), "a private seller applies no scheme");
 });
 
-test("a company without a VAT number on file is still no private individual", async () => {
+test("the VAT number decides the margin wording, not the company name", async () => {
   const company = { ...SELLER, "VAT ID": "", "Company Name": "AVH Company B.V." };
   const airtable = {
     byIds: async (table, ids) => new Map([[ids[0], table === "Inventory Units" ? UNIT : company]])
   };
 
   const drawn = (await createSelfBilling({ airtable }).forUnit("recUNIT0000000001")).pdf.toString("latin1");
-  assert.ok(drawn.includes("Margin scheme"));
-  assert.ok(!drawn.includes("private individual"));
+  // selfBillingDocuments.js never issues this one: it waits for the number.
+  assert.ok(!drawn.includes("Margin scheme"));
 });
 
 test("a reproduction is marked as a copy and keeps the wording of then", async () => {

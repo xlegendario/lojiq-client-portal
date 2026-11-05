@@ -41,7 +41,7 @@ function setup() {
     upload: async (name, buffer) => { files.set(name, buffer); return `self-billing/${name}`; },
     download: async (name) => { if (!files.has(name)) throw new Error("missing"); return files.get(name); }
   };
-  const db = fakeDb({ self_billing_documents: [] });
+  const db = fakeDb({ self_billing_documents: [], self_billing_holds: [] });
   const docs = createSelfBillingDocuments({ db, storage, selfBilling: createSelfBilling({ airtable }), airtable, now: () => new Date("2026-11-05T12:00:00Z") });
   return { db, files, docs };
 }
@@ -87,6 +87,25 @@ test("an original we hold is kept as it was, and not replaced afterwards", async
   assert.equal(imported.row.kind, "imported");
   assert.ok((await docs.pdf(OLD_ID)).pdf.equals(original));
   assert.equal((await docs.importOriginal(OLD_ID, Buffer.from("other"), "x")).skipped, true);
+});
+
+test("a company without a VAT number waits on the Missing VAT ID list until the number is in", async () => {
+  const { db, docs } = setup();
+  SELLER["Company Name"] = "AVH Company B.V.";
+  try {
+    await assert.rejects(docs.ensure(UNIT_ID), (e) => e.status === 409);
+    assert.equal(db.tables.self_billing_holds.length, 1);
+    assert.equal(db.tables.self_billing_holds[0].reason, "missing_vat_id");
+    assert.equal(db.tables.self_billing_documents.length, 0);
+
+    SELLER["VAT ID"] = "NL123456789B01";
+    const row = await docs.ensure(UNIT_ID);
+    assert.equal(row.kind, "issued");
+    assert.equal(db.tables.self_billing_holds.length, 0, "the hold goes once the document is made");
+  } finally {
+    delete SELLER["Company Name"];
+    delete SELLER["VAT ID"];
+  }
 });
 
 test("the sweep makes what is missing and leaves the rest", async () => {

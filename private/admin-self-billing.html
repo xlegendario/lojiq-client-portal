@@ -208,6 +208,9 @@
     .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
     .sidebar-foot strong { color: var(--text); }
     .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+    .hold-list { border: 1px solid var(--warning); border-radius: 10px; padding: 12px 14px; margin: 0 0 14px; background: var(--wait-bg); }
+    .hold-list h3 { margin: 0 0 4px; font-size: 14px; color: var(--strong); }
+    .hold-list table { width: 100%; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -299,6 +302,8 @@
         <span class="count" id="count"></span>
         <button class="btn" id="sweepBtn" type="button">Check new units now</button>
       </div>
+
+      <div id="holdsBox" class="hold-list" hidden></div>
 
       <div class="table-wrap">
         <table>
@@ -465,7 +470,22 @@
       }).join("");
     }
 
+    // Units whose document waits for the seller's VAT number.
+    async function loadHolds() {
+      try {
+        const { holds = [] } = await api("/api/admin/self-billing/holds");
+        $("holdsBox").hidden = !holds.length;
+        $("holdsBox").innerHTML = holds.length ? `
+          <h3>Missing VAT ID (${holds.length})</h3>
+          <p class="sub">These sellers have a company name or sold under VAT0/VAT21, but no VAT number in the Sellers Database. Their document is made as soon as the number is filled in (within five minutes, or press Check new units now).</p>
+          <table><thead><tr><th>Document</th><th>Seller</th><th>VAT</th><th>Waiting since</th></tr></thead><tbody>
+          ${holds.map((h) => `<tr><td class="id">${esc(h.item_id)}</td><td>${esc(h.seller_name || "")}<div class="sub">${esc(h.seller_id || "")}</div></td><td>${esc(h.vat_type || "")}</td><td>${esc(dateFmt.format(new Date(h.created_at)))}</td></tr>`).join("")}
+          </tbody></table>` : "";
+      } catch {}
+    }
+
     async function load(append = false) {
+      if (!append) loadHolds();
       if (!append) $("rows").innerHTML = `<tr><td class="empty" colspan="9">Loading…</td></tr>`;
       const query = new URLSearchParams({ kind: $("kindFilter").value, search: $("searchInput").value.trim(), limit: String(PAGE), offset: String(append ? state.rows.length : 0) });
 
