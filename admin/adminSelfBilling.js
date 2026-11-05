@@ -41,6 +41,7 @@ export function sellerFrom(fields = {}) {
   return {
     seller_id: text(fields["Seller ID"]),
     name: text(fields["Company Name"]) || text(fields["Full Name"]),
+    company_name: text(fields["Company Name"]),
     address: text(fields["Address"]),
     zipcode: text(fields["Zipcode"]),
     city: text(fields["City"]),

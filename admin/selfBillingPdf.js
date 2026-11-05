@@ -59,7 +59,7 @@ export const VAT_NOTES = {
  * applies no scheme, we do when we sell the pair on. So his document says he
  * charged no VAT because he is not a taxable person, and carries his purchase
  * declaration. A dealer with a VAT number who sells to us under the margin
- * scheme gets the wording the law gives that scheme instead. (Dario, 05-11-2026)
+ * scheme, or any company, gets the wording the law gives that scheme instead. (Dario, 05-11-2026)
  *
  * Copies of documents made before this flow keep the old wording: they are
  * reproductions of what was issued then, not new statements.
@@ -70,7 +70,9 @@ export const PURCHASE_DECLARATION = "Purchase declaration: the supplier declares
 
 export function marginWording(seller = {}, { legacy = false } = {}) {
   if (legacy) return { note: VAT_NOTES.Margin.note, declaration: "" };
-  if (text(seller.vat_id)) return { note: MARGIN_DEALER_NOTE, declaration: "" };
+  // A company is never a private individual, whether or not we have its
+  // VAT number on file (AVH Company B.V., CS-008698).
+  if (text(seller.vat_id) || text(seller.company_name)) return { note: MARGIN_DEALER_NOTE, declaration: "" };
   return { note: MARGIN_PRIVATE_NOTE, declaration: PURCHASE_DECLARATION };
 }
 

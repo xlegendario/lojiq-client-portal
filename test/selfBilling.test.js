@@ -75,6 +75,7 @@ test("the document is filled from the unit and its seller", () => {
   assert.deepEqual(sellerFrom(SELLER), {
     seller_id: "SE-00781",
     name: "Zhuoyi",
+    company_name: "Zhuoyi",
     address: "Calle remodelacion 5",
     zipcode: "28041",
     city: "Madrid",
@@ -126,6 +127,17 @@ test("margin from a private seller: no scheme of his own, and his purchase decla
   assert.ok(drawn.includes("private individual who is not a taxable person"));
   assert.ok(drawn.includes("no VAT has been deducted as input tax"));
   assert.ok(!drawn.includes("Margin scheme"), "a private seller applies no scheme");
+});
+
+test("a company without a VAT number on file is still no private individual", async () => {
+  const company = { ...SELLER, "VAT ID": "", "Company Name": "AVH Company B.V." };
+  const airtable = {
+    byIds: async (table, ids) => new Map([[ids[0], table === "Inventory Units" ? UNIT : company]])
+  };
+
+  const drawn = (await createSelfBilling({ airtable }).forUnit("recUNIT0000000001")).pdf.toString("latin1");
+  assert.ok(drawn.includes("Margin scheme"));
+  assert.ok(!drawn.includes("private individual"));
 });
 
 test("a reproduction is marked as a copy and keeps the wording of then", async () => {
