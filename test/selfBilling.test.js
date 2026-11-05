@@ -68,7 +68,8 @@ test("the document is filled from the unit and its seller", () => {
 
   assert.equal(doc.document_number, "PCS-007999");
   assert.equal(doc.order_number, "EXTD-000078");
-  assert.equal(doc.date, "2026-09-23");
+  assert.equal(doc.delivery_date, "2026-09-23", "the purchase date is the delivery date");
+  assert.match(doc.date, /^\d{4}-\d{2}-\d{2}$/, "the date is the day it is issued");
   assert.equal(doc.vat_type, "Margin");
   assert.equal(doc.product.price, 100);
   assert.deepEqual(sellerFrom(SELLER), {
@@ -108,7 +109,34 @@ test("the PDF is a PDF, and carries what the document says", async () => {
   assert.match(pdf.toString("latin1"), /%%EOF/);
 
   const drawn = pdf.toString("latin1");
-  for (const line of ["SELF-BILLING PURCHASE INVOICE", "PCS-007999", "EXTD-000078", "SE-00781", "Zhuoyi", "A01FW702-BLK", "Margin VAT Scheme"]) {
+  for (const line of ["SELF-BILLING PURCHASE INVOICE", "PCS-007999", "EXTD-000078", "SE-00781", "Zhuoyi", "A01FW702-BLK", "Margin scheme", "Delivery Date:", "2026-09-23"]) {
     assert.ok(drawn.includes(line), `the document says ${line}`);
   }
+});
+
+test("margin from a private seller: no scheme of his own, and his purchase declaration", async () => {
+  const privateSeller = { ...SELLER, "VAT ID": "", "Company Name": "" };
+  const airtable = {
+    byIds: async (table, ids) => new Map([[ids[0], table === "Inventory Units" ? UNIT : privateSeller]])
+  };
+
+  const { pdf } = await createSelfBilling({ airtable }).forUnit("recUNIT0000000001");
+  const drawn = pdf.toString("latin1");
+
+  assert.ok(drawn.includes("private individual who is not a taxable person"));
+  assert.ok(drawn.includes("no VAT has been deducted as input tax"));
+  assert.ok(!drawn.includes("Margin scheme"), "a private seller applies no scheme");
+});
+
+test("a reproduction is marked as a copy and keeps the wording of then", async () => {
+  const airtable = {
+    byIds: async (table, ids) => new Map([[ids[0], table === "Inventory Units" ? UNIT : { ...SELLER, "VAT ID": "" }]])
+  };
+
+  const { pdf } = await createSelfBilling({ airtable }).forUnit("recUNIT0000000001", { copy: { reproduced_at: "2026-11-05" } });
+  const drawn = pdf.toString("latin1");
+
+  assert.ok(drawn.includes("reproduced from our records on 2026-11-05"));
+  assert.ok(drawn.includes("Margin VAT Scheme"), "the old margin wording");
+  assert.ok(!drawn.includes("no VAT has been deducted"), "no declaration added afterwards");
 });

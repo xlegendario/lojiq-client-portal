@@ -23,7 +23,7 @@ const first = (value) => (Array.isArray(value) ? value[0] : value);
 
 const UNIT_FIELDS = [
   "Item ID", "Product Name", "SKU", "Size", "VAT Type", "Purchase Price", "Final Purchase Price",
-  "Ticket Number", "Purchase Date", "Seller ID"
+  "Ticket Number", "Purchase Date", "Seller ID", "Created Time"
 ];
 
 const SELLER_FIELDS = ["Seller ID", "Full Name", "Company Name", "VAT ID", "Email", "Address", "Zipcode", "City", "Country", "Payout Info"];
@@ -69,7 +69,10 @@ export function documentFrom({ unit = {}, seller = {}, overrides = {} }) {
   return {
     document_number: text(overrides.document_number) || text(unit["Item ID"]),
     order_number: text(overrides.order_number) || text(unit["Ticket Number"]),
-    date: text(overrides.date) || text(unit["Purchase Date"]) || new Date().toISOString().slice(0, 10),
+    // The day it is issued; the day the pair was bought is its delivery date.
+    date: text(overrides.date) || new Date().toISOString().slice(0, 10),
+    delivery_date: text(overrides.delivery_date) || text(unit["Purchase Date"]),
+    copy: overrides.copy || null,
     vat_type: vatType,
     seller: { ...sellerFrom(seller), ...(overrides.seller || {}) },
     product: {
@@ -100,7 +103,8 @@ export function createSelfBilling({ airtable }) {
 
     if (!text(seller["Seller ID"])) throw new SelfBillingError("The unit has no seller, so there is no one to invoice on behalf of.");
 
-    return selfBillingPdf(documentFrom({ unit, seller, overrides }));
+    const document = documentFrom({ unit, seller, overrides });
+    return { ...selfBillingPdf(document), document, unit };
   }
 
   return { forUnit, render: (input) => selfBillingPdf(input) };

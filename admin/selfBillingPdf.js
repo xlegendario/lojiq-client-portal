@@ -54,6 +54,26 @@ export const VAT_NOTES = {
   }
 };
 
+/*
+ * A margin purchase from a private individual is not a margin invoice: he
+ * applies no scheme, we do when we sell the pair on. So his document says he
+ * charged no VAT because he is not a taxable person, and carries his purchase
+ * declaration. A dealer with a VAT number who sells to us under the margin
+ * scheme gets the wording the law gives that scheme instead. (Dario, 05-11-2026)
+ *
+ * Copies of documents made before this flow keep the old wording: they are
+ * reproductions of what was issued then, not new statements.
+ */
+export const MARGIN_PRIVATE_NOTE = "* No VAT charged – the goods are supplied by a private individual who is not a taxable person.";
+export const MARGIN_DEALER_NOTE = "* Margin scheme – Second-hand goods. No VAT is charged and VAT may not be itemized.";
+export const PURCHASE_DECLARATION = "Purchase declaration: the supplier declares that no VAT has been deducted as input tax on the goods listed in this document.";
+
+export function marginWording(seller = {}, { legacy = false } = {}) {
+  if (legacy) return { note: VAT_NOTES.Margin.note, declaration: "" };
+  if (text(seller.vat_id)) return { note: MARGIN_DEALER_NOTE, declaration: "" };
+  return { note: MARGIN_PRIVATE_NOTE, declaration: PURCHASE_DECLARATION };
+}
+
 export const ISSUER = {
   name: "Payout by Kickz Caviar B.V.",
   lines: ["Havenstraat 74D", "1271AG Huizen", "The Netherlands", "KVK: 94370451", "VAT ID: NL866752845B01", "Email: info@kickzcaviar.nl"],
@@ -208,8 +228,11 @@ function buildPdf(page) {
  * input:
  *   document_number  the Inventory Unit's Item ID (OUT-007996, PCS-007999)
  *   order_number     what it was bought for (ORD-025689, EXTD-000078, MWTB-…)
- *   date             ISO date; today when left out
+ *   date             ISO date of issue; today when left out
+ *   delivery_date    ISO date the pair was bought (Purchase Date)
  *   vat_type         Margin | VAT0 | VAT21
+ *   copy             { reproduced_at } for a reproduction of an older
+ *                    document: marked as a copy, with the wording of then
  *   seller           { seller_id, name, address, zipcode, city, country, email, iban, vat_id }
  *   product          { name, size, sku, price }
  */
@@ -227,6 +250,11 @@ export function selfBillingPdf(input = {}) {
   let y = A4.height - MARGIN;
 
   page.write("SELF-BILLING PURCHASE INVOICE", MARGIN, y, { size: 15, bold: true, color: GOLD });
+  const copy = input.copy && text(input.copy.reproduced_at);
+  if (copy) {
+    y -= 15;
+    page.write(`COPY – reproduced from our records on ${copy}`, MARGIN, y, { size: 9, bold: true, color: GREY });
+  }
   y -= 34;
 
   // Who issues it, and the three numbers that identify it.
@@ -244,6 +272,7 @@ export function selfBillingPdf(input = {}) {
   for (const [label, value] of [
     ["Invoice Number:", documentNumber],
     ["Date:", text(input.date) || new Date().toISOString().slice(0, 10)],
+    ["Delivery Date:", text(input.delivery_date)],
     ["Order Number:", text(input.order_number)]
   ]) {
     if (!value) continue;
@@ -346,9 +375,20 @@ export function selfBillingPdf(input = {}) {
 
   y -= 16;
 
-  if (money.note) {
-    page.write(money.note, MARGIN, y, { size: 8.5, color: GREY });
-    y -= 18;
+  const wording = vatType === "Margin" ? marginWording(seller, { legacy: Boolean(copy) }) : { note: money.note, declaration: "" };
+
+  for (const part of wrap(wording.note, 8.5, right - MARGIN)) {
+    page.write(part, MARGIN, y, { size: 8.5, color: GREY });
+    y -= 11;
+  }
+  if (wording.note) y -= 7;
+
+  if (wording.declaration) {
+    for (const part of wrap(wording.declaration, 9, right - MARGIN)) {
+      page.write(part, MARGIN, y, { size: 9 });
+      y -= 12;
+    }
+    y -= 8;
   }
 
   page.write(ISSUER.footer, MARGIN, y, { size: 8.5, color: GREY });

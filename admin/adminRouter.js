@@ -67,6 +67,7 @@ import { mountStockExport } from "./stockExport.js";
 import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.js";
 import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
+import { createPrivateStorage, createSelfBillingDocuments, mountSelfBillingDocuments } from "./selfBillingDocuments.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 import { createRompslomp } from "./externalSalesInvoicing.js";
 import { createPurchaseExpense } from "./purchaseExpense.js";
@@ -271,7 +272,7 @@ function createAirtableReader({ token, baseId, fetchImpl }) {
  *   pageFile        private/admin.html
  *   supabaseUrl, serviceKey  for Forward Service (forwarding_log)
  */
-export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch, externalSalesSyncMs = 5 * 60_000, forwardInvoices = null }) {
+export function createAdminPortal({ usersJson, sessionSecret, airtableToken, airtableBaseId, audit, savedFilters, services = {}, pageFile, supabaseUrl = "", serviceKey = "", fetchImpl = fetch, externalSalesSyncMs = 5 * 60_000, selfBillingSweepMs = 5 * 60_000, forwardInvoices = null }) {
   const router = express.Router();
   const users = parseUsers(usersJson);
   const enabled = Boolean(text(sessionSecret) && users.length);
@@ -419,6 +420,28 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   const selfBilling = createSelfBilling({ airtable });
 
   mountSelfBilling(router, { store: selfBilling, internalSecret: services.counterOffersSecret });
+
+  // Every purchase's document, made once and kept in Supabase; a sweep makes
+  // it for each new unit, whichever flow made the unit
+  // (admin/selfBillingDocuments.js, private/admin-self-billing.html).
+  const selfBillingDocuments = createSelfBillingDocuments({
+    db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+    storage: createPrivateStorage({ supabaseUrl, serviceKey, fetchImpl }),
+    selfBilling,
+    airtable
+  });
+
+  mountSelfBillingDocuments(router, {
+    store: selfBillingDocuments,
+    internalSecret: services.counterOffersSecret,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-self-billing.html") : ""
+  });
+
+  if (selfBillingDocuments.configured && selfBillingSweepMs > 0) {
+    setInterval(() => selfBillingDocuments.sweep()
+      .then((r) => { if (r.made || r.failed) console.log(`[self-billing] sweep: ${r.made} made, ${r.failed} failed of ${r.checked} recent units`); })
+      .catch((err) => console.error("[self-billing] sweep failed:", err.message)), selfBillingSweepMs).unref();
+  }
 
   // External Sales: deals, parcels, money and checks, in Supabase
   // (admin/adminExternalSales.js, admin/externalSalesSync.js,
