@@ -12,6 +12,8 @@
 //                   /api/member-wtb/send-current-offer-to-buyer.
 //   Custom Price    Custom Offer, which Offer To Store / Offer To Buyer read first.
 //                   An offer already sent is refreshed the same way as above.
+//                   On a claimed deal (Processing) only the price changes: the
+//                   store or buyer gets no new offer.
 //   Edit Offer      a store offer already sent, at a new price of ours: the old
 //                   offer embeds are deleted by the Discord updates bot first,
 //                   so the store never sees the lower number it replaces.
@@ -30,7 +32,7 @@
 // Every action reads the record fresh, checks it may still run, and goes into
 // the action log with what it changed.
 
-import { TABLES } from "./adminViews.js";
+import { MWTB_PROCESSING, PROCESSING, TABLES } from "./adminViews.js";
 import { CANCELLABLE, HELD, IN_WAREHOUSE, ORDER_ACTIONS, OUTCOMES } from "./returns.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
@@ -40,6 +42,7 @@ const first = (value) => (Array.isArray(value) ? value[0] : value);
 const KC_DISCORD_SERVER = "922818998163361792";
 
 const OPEN = ["Pending", "Outsource"];
+const CLAIMED = { store: PROCESSING, mwtb: MWTB_PROCESSING };
 const SHIPPABLE = ["Ready to Ship", "Fulfilled"];
 
 class ActionError extends Error {
@@ -92,6 +95,13 @@ export function rowLinks(source, f) {
 
 /* ---------------- the actions ---------------- */
 
+// The key sendOfferRequestWebhook in the automation engine stores after it
+// posts an offer: VAT type | Offer To Store | Estimated Time. Same key, no post.
+export function offerWebhookKey(f, offerToStore) {
+  const estimated = text(first(f["Estimated Time"]?.name ?? f["Estimated Time"]));
+  return [text(first(f["Offer VAT Type"]?.name ?? f["Offer VAT Type"])), String(offerToStore), estimated].join("|");
+}
+
 const status = (f) => text(f["Fulfillment Status"]);
 const shipping = (f) => text(f["Shipping Status"]);
 
@@ -137,17 +147,24 @@ export const ACTIONS = {
   custom_price: {
     label: "Custom Price",
     sources: ["store", "mwtb"],
-    needs: { store: ["Fulfillment Status", "Custom Offer", "Offer Sent?", "Offer VAT Type", "Offer Accepted?", "Store Name"], mwtb: ["Fulfillment Status", "Custom Offer", "Offer Sent?"] },
+    needs: { store: ["Fulfillment Status", "Custom Offer", "Offer Sent?", "Offer VAT Type", "Offer Accepted?", "Store Name", "Estimated Time"], mwtb: ["Fulfillment Status", "Custom Offer", "Offer Sent?"] },
     inputs: [
       { name: "price", label: "Offer price (€), empty to remove the custom price", type: "money", required: false, prefill: "Custom Offer" },
       // For orders where we set the price ourselves: the Order Processing Form then always uses it.
       { name: "accepted", label: "Also tick Offer Accepted? (we set this price ourselves)", type: "checkbox", required: false, sources: ["store"] }
     ],
     note: "An offer that was already sent is sent again at this price, unless you tick Offer Accepted?. Not sent yet? Press Send Offer afterwards.",
-    why: (source, f) => (OPEN.includes(status(f)) ? "" : "Only open orders (Pending or Outsource) can get a custom price."),
+    why: (source, f) =>
+      OPEN.includes(status(f)) || CLAIMED[source]?.includes(status(f))
+        ? ""
+        : "Only open orders (Pending or Outsource) and claimed deals (Processing) can get a custom price.",
+    describe: async ({ source, record }) =>
+      CLAIMED[source].includes(status(record.fields))
+        ? { note: `This deal is already claimed: only the price changes, the ${source === "store" ? "store" : "buyer"} gets no new offer. Offer Accepted? is left as it is.` }
+        : {},
     async run({ source, record, input, deps }) {
       const raw = text(input.price).replace(",", ".");
-      const price = raw === "" ? null : Number(raw);
+      const price = raw === "" ? null : Math.round(Number(raw) * 100) / 100;
 
       if (price !== null && !(Number.isFinite(price) && price > 0 && price < 100000)) {
         throw new ActionError("Enter a price above € 0, or leave it empty to remove the custom price.", 400);
@@ -155,6 +172,29 @@ export const ACTIONS = {
 
       const before = record.fields["Custom Offer"] ?? null;
       const wasSent = Boolean(record.fields["Offer Sent?"]);
+
+      // A claimed deal: the price is all that changes. Removing it is not
+      // offered, since the price it would fall back to is not ours to know here.
+      if (CLAIMED[source].includes(status(record.fields))) {
+        if (price === null) throw new ActionError("This deal is already claimed: enter a price. Removing the custom price is only possible on an open order.", 400);
+
+        const fields = { "Custom Offer": price };
+
+        // The engine posts a fresh offer embed whenever Offer To Store changes
+        // while Offer Sent? is on (sendOfferRequestWebhook), whatever the
+        // status. Offer To Store is Custom Offer as it is, so writing the key it
+        // would build in the same update tells it this price was already sent.
+        if (source === "store" && wasSent && text(first(record.fields["Offer VAT Type"]))) {
+          fields.offer_request_webhook_key = offerWebhookKey(record.fields, price);
+        }
+
+        await deps.airtable.update(source === "store" ? TABLES.store : TABLES.mwtb, record.id, fields);
+
+        return {
+          message: `Custom price set to € ${price} on the claimed deal. No new offer was sent.`,
+          changed: { "Custom Offer": { from: before, to: price } }
+        };
+      }
 
       if (source === "store" && input.accepted === true) {
         if (price === null) throw new ActionError("Enter the price you agreed before ticking Offer Accepted?.", 400);

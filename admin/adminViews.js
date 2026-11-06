@@ -128,10 +128,13 @@ const MWTB = {
 /* ---------------- statuses ---------------- */
 
 const OPEN = ["Pending", "Outsource"];
-const PROCESSING = ["Confirmed", "Claim Processing", "Need Confirmation", "StockX Processing", "GOAT Processing", "SneakerAsk Processing", "Woovin Processing", "bol Processing"];
+export const PROCESSING = ["Confirmed", "Claim Processing", "Need Confirmation", "StockX Processing", "GOAT Processing", "SneakerAsk Processing", "Woovin Processing", "bol Processing"];
 
 // "Fulfilled" to Dario and his partner means: we have a unit for it. From
 // Allocated on, whatever happens after.
+// A want-to-buy has only the first two of these.
+export const MWTB_PROCESSING = ["Confirmed", "Claim Processing"];
+
 const STORE_FULFILLED = ["Allocated", "Awaiting Label", "Requested Label", "Label Error", "Ready to Ship", "Fulfilled"];
 const MWTB_FULFILLED = ["Allocated", "Requested Label", "Ready to Ship", "Fulfilled"];
 
@@ -262,7 +265,7 @@ const TABS = [
   {
     key: "processing", section: "mwtb", source: "mwtb", label: "Processing",
     // Same stage for a want-to-buy, as the Manual Orders Processing tab.
-    formula: anyOf("Fulfillment Status", ["Confirmed", "Claim Processing"]),
+    formula: anyOf("Fulfillment Status", MWTB_PROCESSING),
     columns: [...mwtbBase, MWTB.fulfillment, MWTB.offer, MWTB.offerVat]
   },
   {
@@ -311,8 +314,8 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 const TAB_ACTIONS = {
   "store/general": ["cancel_order"],
   "store/open": ["send_offer", "edit_offer", "custom_price", "above_max", "manual_deal"],
-  "store/processing": ["discord"],
-  "mwtb/processing": ["discord"],
+  "store/processing": ["custom_price", "discord"],
+  "mwtb/processing": ["custom_price", "discord"],
   "store/offers": ["accept", "counter"],
   "store/fulfilled": ["track", "discord", "cancel_order"],
   "store/allocated": ["request_label", "discord", "cancel_order"],

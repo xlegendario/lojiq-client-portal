@@ -107,6 +107,35 @@ test("Custom Price: validated, and an offer already sent goes out again", async 
   );
 });
 
+test("Custom Price on a claimed deal: only the price, no new offer", async () => {
+  const deps = fakeDeps();
+  const claimed = record({ "Fulfillment Status": "Claim Processing", "Offer Sent?": true, "Offer VAT Type": "Margin", "Estimated Time": "2-4 days", "Custom Offer": 200, "Store Name": ["Genky"] });
+
+  assert.deepEqual(availableActions("store", ["custom_price"], claimed.fields), ["custom_price"]);
+  assert.deepEqual(availableActions("store", ["custom_price"], { "Fulfillment Status": "StockX Processing" }), ["custom_price"]);
+  assert.deepEqual(availableActions("mwtb", ["custom_price"], { "Fulfillment Status": "Confirmed" }), ["custom_price"]);
+  assert.deepEqual(availableActions("mwtb", ["custom_price"], { "Fulfillment Status": "StockX Processing" }), []);
+
+  const described = await describeAction("custom_price", "store", claimed, deps);
+  assert.match(described.confirm, /already claimed/);
+
+  await assert.rejects(runAction({ key: "custom_price", source: "store", record: claimed, input: { price: "" }, deps }), /enter a price/);
+
+  // Offer Accepted? is not touched, and the key matches what the engine would build, so no embed.
+  const result = await runAction({ key: "custom_price", source: "store", record: claimed, input: { price: "212,5", accepted: true }, deps });
+  assert.deepEqual(deps.calls, [{ kind: "airtable", table: "Unfulfilled Orders Log", id: "recAAAAAAAAAAAAAA", fields: { "Custom Offer": 212.5, offer_request_webhook_key: "Margin|212.5|2-4 days" } }]);
+  assert.match(result.message, /No new offer/);
+
+  // Never sent: nothing for the engine to post, so no key.
+  await runAction({ key: "custom_price", source: "store", record: record({ "Fulfillment Status": "Confirmed" }), input: { price: "150" }, deps });
+  assert.deepEqual(deps.calls.at(-1).fields, { "Custom Offer": 150 });
+
+  // A want-to-buy: not sent to the buyer again.
+  await runAction({ key: "custom_price", source: "mwtb", record: record({ "Fulfillment Status": "Claim Processing", "Offer Sent?": true }), input: { price: "99" }, deps });
+  assert.deepEqual(deps.calls.at(-1), { kind: "airtable", table: "Member WTBs", id: "recAAAAAAAAAAAAAA", fields: { "Custom Offer": 99 } });
+  assert.equal(deps.calls.filter((c) => c.kind !== "airtable").length, 0);
+});
+
 test("Upload sends the PDF to the WMS the label page uses", async () => {
   const deps = fakeDeps();
   const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(200, 32)]);
