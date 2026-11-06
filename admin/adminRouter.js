@@ -1545,7 +1545,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
   router.post("/api/admin/payouts/mark-paid", async (req, res) => {
     try {
-      const result = await markUnitsPaid({ ids: req.body?.ids, note: req.body?.note, airtable, openReturns: returns.openByUnit });
+      const result = await markUnitsPaid({ ids: req.body?.ids, note: req.body?.note, payAnyway: req.body?.pay_anyway === true, airtable, openReturns: returns.openByUnit });
 
       cache.clear();
 

@@ -1858,7 +1858,7 @@
           return `<tr data-unit="${esc(row.id)}">
             ${box}
             <td class="image">${render("image", { value: row.picture })}</td>
-            <td class="id">${render("id", { value: row.item })}${row.return ? ` <a class="return-badge" href="/admin/returns?q=${encodeURIComponent(row.return.number)}" title="A return is running: pay once it is scanned back in">↩ ${esc(row.return.number)}</a>` : ""}</td>
+            <td class="id">${render("id", { value: row.item })}${row.return ? ` <a class="return-badge" href="/admin/returns?q=${encodeURIComponent(row.return.number)}" title="A return is running: paying it asks for a second confirmation">↩ ${esc(row.return.number)}</a>` : ""}</td>
             <td>${render("text", { value: row.type })}</td>
             <td>${render("text", { value: row.product })}</td>
             <td>${render("text", { value: row.size })}</td>
@@ -1962,6 +1962,14 @@
         : "";
       return `<p class="note"><strong>${esc(batch.label)}</strong> · ${batch.rows.length} · ${esc(money.format(sum))}<br>${esc(ids)}</p>${note}`;
     }).join("");
+
+    // A unit with a return still running can be paid, but only on purpose.
+    const returning = kind === "payouts" ? rows.filter((row) => row.return) : [];
+    if (returning.length) {
+      $("actionInputs").innerHTML +=
+        `<p class="note" style="color:var(--warn, #e0a030)">⚠ A return is still running for ${esc(returning.map((row) => `${row.item} (${row.return.number})`).join(", "))}. Whether the seller is owed is only sure once it is scanned back in.</p>` +
+        `<label class="note" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="payAnyway"> Pay anyway</label>`;
+    }
     $("actionError").textContent = "";
     $("actionConfirm").textContent = "Mark paid";
     $("actionConfirm").disabled = false;
@@ -2036,7 +2044,7 @@
         const i = batches.indexOf(batch);
         const note = kind === "payouts" && $(`payNoteOn${i}`)?.checked ? ($(`payNote${i}`)?.value || "").trim() : "";
         const body = kind === "payouts"
-          ? { ids: batch.rows.map((row) => row.id), note }
+          ? { ids: batch.rows.map((row) => row.id), note, pay_anyway: Boolean($("payAnyway")?.checked) }
           : { targets: batch.rows.map((row) => ({ source: row.source, id: row.id })) };
 
         const result = await api(kind === "payouts" ? "/api/admin/payouts/mark-paid" : "/api/admin/payments/mark-paid", { method: "POST", body: JSON.stringify(body) });

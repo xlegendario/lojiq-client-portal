@@ -158,8 +158,9 @@ async function loadOrderIds(airtable, ids) {
  */
 /*
  * openReturns: (unitIds) -> Map of the units with a return still running.
- * Such a unit shows its return and cannot be marked paid: whether the seller
- * is owed is only known once the pair is scanned back in.
+ * Such a unit shows its return. Whether the seller is owed is only known once
+ * the pair is scanned back in, so paying it asks for a second confirmation
+ * (payAnyway) - but it can be paid: the seller may be owed regardless.
  */
 export async function loadPayouts(airtable, { shipping = "all", type = "", search = "" } = {}, { openReturns = null } = {}) {
   const records = await selectAll(airtable, UNIT_TABLE, {
@@ -213,7 +214,7 @@ export async function loadPayouts(airtable, { shipping = "all", type = "", searc
 
 // Mark these units Paid: the seller has been paid by hand in the bank.
 // note: the Payment Note, the bank payment's total and code ("15490 (MON20260211)").
-export async function markUnitsPaid({ ids, airtable, openReturns = null, note = "" }) {
+export async function markUnitsPaid({ ids, airtable, openReturns = null, note = "", payAnyway = false }) {
   const clean = [...new Set((Array.isArray(ids) ? ids : []).map(text).filter((id) => /^rec[A-Za-z0-9]{14}$/.test(id)))];
   const paymentNote = text(note);
 
@@ -238,8 +239,8 @@ export async function markUnitsPaid({ ids, airtable, openReturns = null, note = 
       return new Map();
     });
     const blocked = clean.filter((id) => running.has(id));
-    if (blocked.length) {
-      throw new PayoutError(`${blocked.map((id) => `${text(found.get(id)["Item ID"])} (RET-${running.get(id).return_number})`).join(", ")}: a return is still running. Pay once it is scanned back in.`);
+    if (blocked.length && !payAnyway) {
+      throw new PayoutError(`${blocked.map((id) => `${text(found.get(id)["Item ID"])} (RET-${running.get(id).return_number})`).join(", ")}: a return is still running. Tick "Pay anyway" to pay it regardless.`, 409);
     }
   }
 

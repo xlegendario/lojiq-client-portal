@@ -574,7 +574,7 @@ test("taking in is only for a seller's pair, and a WMS that fails leaves a todo,
 
 /* ---------------- Seller Payouts ---------------- */
 
-test("Seller Payouts shows a running return and will not pay it", async () => {
+test("Seller Payouts shows a running return and pays it only when confirmed", async () => {
   const airtable = {
     async select() {
       return { records: [{ id: UNIT, fields: { "Item ID": "CS-009001", "Payment Status": "To Pay", "Final Purchase Price": 100, "Seller ID": ["recS"] } }] };
@@ -588,7 +588,11 @@ test("Seller Payouts shows a running return and will not pay it", async () => {
 
   const data = await loadPayouts(airtable, {}, { openReturns });
   assert.equal(data.groups[0].rows[0].return.number, "RET-7");
-  await assert.rejects(markUnitsPaid({ ids: [UNIT], airtable, openReturns }), /RET-7/);
+  await assert.rejects(markUnitsPaid({ ids: [UNIT], airtable, openReturns }), /RET-7.*Pay anyway/);
+
+  // Paid on purpose, after the second confirmation.
+  const paid = await markUnitsPaid({ ids: [UNIT], airtable, openReturns, payAnyway: true });
+  assert.equal(paid.count, 1);
 });
 
 test("a sale that ended unshipped can still turn out to be a return", async () => {
