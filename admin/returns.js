@@ -170,6 +170,18 @@ export const TODO_LISTS = {
  */
 export const AWAITING_PURCHASE = "awaiting_purchase";
 
+/*
+ * A marketplace that pays out per payout rather than per invoice (Woovin,
+ * bol, Shade): its "<name> Consignment" sales. SneakerAsk is a store that
+ * sells our consignment too, but pays each invoice by bank transfer, so its
+ * credit is settled on Kruisposten like any store's (ORD-031576, 09-11-2026).
+ */
+export const PAID_PER_INVOICE = new Set(["SneakerAsk Consignment"]);
+export const paidPerPayout = (source) => {
+  const value = text(source);
+  return /Consignment$/.test(value) && !PAID_PER_INVOICE.has(value);
+};
+
 // Kickz Caviar B.V.'s stock and the account a pair that is gone moves to.
 const STOCK_ACCOUNT = { id: 1981496874, path: "activa.current_assets.voorraad_scout_custom" };
 const SHRINK_ACCOUNT = { id: 2146917640, path: "profit.costs.voorraad_mutatie_custom" };
@@ -405,7 +417,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
    * run twice: the credit is found back by its api_reference, the journals by
    * their description.
    */
-  async function creditSale(order, unit, merchant, { stockBack, gone = false, log, todos }) {
+  async function creditSale(order, unit, merchant, { stockBack, gone = false, shipped = true, log, todos }) {
     const o = order.fields;
     const orderId = orderLabel(order);
 
@@ -505,7 +517,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       so the credit waits for that payout instead (Woovin payout #7289 paid
       ORD-026411 out before the return, 02-11-2026).
     */
-    if (/Consignment$/.test(text(o["Order Source"])) && text(o["Order Source"]) !== "Shopify") {
+    if (shipped && paidPerPayout(o["Order Source"])) {
       const market = text(o["Order Source"]).replace(/ Consignment$/, "");
       todos.push(todo(`${market} paid ${found.invoice.invoice_number} out in a payout and takes € ${amount.toFixed(2)} back as a correction on a later one. Link ${credit.invoice_number} to that payout's bank line, with the sales on it; the payout of the sale itself pays ${found.invoice.invoice_number}.`, "marketplace_settle"));
     } else if (text(o["Invoice Status"]) === "Paid") {
@@ -869,7 +881,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     let sellerReturn = null;
 
     // 1. The books.
-    await creditSale(order, unit, merchant, { stockBack, gone, log, todos });
+    await creditSale(order, unit, merchant, { stockBack, gone, shipped, log, todos });
 
     // 2. The pair.
     const buyer = text(first(order.fields["Store Name"])) || text(merchant?.["Store Name"]) || "the buyer";

@@ -628,6 +628,18 @@ test("a marketplace invoice is settled through its payouts, not on Kruisposten",
   assert.ok(out.todos.some((t) => t.kind === "marketplace_settle" && /Woovin/.test(t.text)));
 });
 
+test("SneakerAsk pays per invoice, and an unshipped marketplace sale was never paid out: both on Kruisposten (ORD-031576)", async () => {
+  for (const source of ["SneakerAsk Consignment", "Woovin Consignment"]) {
+    const w = world({ order: { "Order Source": source, "Shipping Status": "Pending", "Invoice Status": "Pending" } });
+    const out = await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "not_shipped", held: "consignor_has" } });
+    assert.equal(w.rompslomp.made.payments.length, 2, `${source}: a pair on Kruisposten`);
+    assert.ok(!out.todos.some((t) => t.kind === "marketplace_settle"), `${source}: no payout to wait for`);
+  }
+  const w = world({ order: { "Order Source": "SneakerAsk Consignment" } });
+  await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { shipped: "shipped", outcome: "return" } });
+  assert.equal(w.rompslomp.made.payments.length, 2, "shipped too: SneakerAsk still pays the invoice itself");
+});
+
 test("a partner's pair coming back shows as reserved, not sold, until it is scanned", async () => {
   const w = world({ unit: { "Item ID": "PCS-009001", Type: "Partner Consignment", "Seller ID (Lookup)": ["SE-00781"] }, order: { "Marketplace Sale ID": "W-20", "Rompslomp Invoice ID": "", "Bookkeeping Status": "To book – marketplace" } });
   w.db.data.partner_stock.push({ id: "p1", seller_id: "SE-00781", sku: "DD1391-100", size: "42", status: "sold", partner_price: 100 });
