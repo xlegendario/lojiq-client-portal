@@ -292,6 +292,51 @@ test("router: login, guard, list, logout", async () => {
   });
 });
 
+test("router: Labels Requested shows the preferred courier from the seller's country", async () => {
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    const table = decodeURIComponent(u.pathname.split("/").pop());
+    const order = (id, unit) => ({ id, fields: { "Order ID": id, "Linked Inventory Unit": [unit] } });
+
+    if (table === "Unfulfilled Orders Log") {
+      return Response.json({ records: [order("recAAAAAAAAAAAAA1", "recUUUUUUUUUUUUU1"), order("recAAAAAAAAAAAAA2", "recUUUUUUUUUUUUU2"), order("recAAAAAAAAAAAAA3", "recUUUUUUUUUUUUU3")] });
+    }
+
+    if (table === "Inventory Units") {
+      return Response.json({ records: [
+        { id: "recUUUUUUUUUUUUU1", fields: { "Seller ID (Lookup)": ["SE-00100"] } },
+        // Ships from our warehouse: routes as NL whatever the record says.
+        { id: "recUUUUUUUUUUUUU2", fields: { "Seller ID (Lookup)": ["SE-00455"] } },
+        { id: "recUUUUUUUUUUUUU3", fields: { "Seller ID (Lookup)": ["SE-00200"] } }
+      ] });
+    }
+
+    if (table === "Sellers Database") {
+      assert.doesNotMatch(u.searchParams.get("filterByFormula"), /SE-00455/);
+      return Response.json({ records: [
+        { id: "recS1", fields: { "Seller ID": "SE-00100", "Country Code": "DE" } },
+        { id: "recS2", fields: { "Seller ID": "SE-00200", "Country Code": "XX" } }
+      ] });
+    }
+
+    if (table === "Label Request Routing") {
+      return Response.json({ records: [
+        { id: "recR1", fields: { "Country Code": "DE", "Preferred Courier": "DHL" } },
+        { id: "recR2", fields: { "Country Code": "NL", "Preferred Courier": "PostNL" } }
+      ] });
+    }
+
+    return Response.json({ records: [] });
+  };
+
+  await withServer({ fetchImpl }, async (base) => {
+    const { cookie } = await login(base);
+    const data = await (await fetch(`${base}/api/admin/list?section=store&view=labels`, { headers: { cookie } })).json();
+
+    assert.deepEqual(data.rows.map((row) => row.cells.courier.value), ["DHL", "PostNL", ""]);
+  });
+});
+
 test("router: saved filters are shared, only the owner deletes", async () => {
   const rows = [];
   const savedFilters = {

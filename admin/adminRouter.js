@@ -129,8 +129,14 @@ function sellerLabel(unit, fields) {
   return name || id;
 }
 
+// The Seller ID (SE-...) behind a row: the unit filling it, else the order.
+export function rowSellerId(fields, unit) {
+  return text(flat(unit?.["Seller ID (Lookup)"])) || text(flat(fields?.["Seller ID (Lookup)"]));
+}
+
 // One field, made ready for the page: { value, href? }.
-export function cellValue(spec, fields, unit) {
+// `couriers` maps a Seller ID to its preferred courier, for the courier column.
+export function cellValue(spec, fields, unit, couriers) {
   switch (spec.type) {
     case "money":
     case "hours":
@@ -149,6 +155,9 @@ export function cellValue(spec, fields, unit) {
 
     case "seller":
       return { value: sellerLabel(unit, fields) };
+
+    case "courier":
+      return { value: couriers?.get(rowSellerId(fields, unit)) || "" };
 
     case "unit":
       return { value: spec.unitType === "money" ? number(unit?.[spec.unitField]) : flat(unit?.[spec.unitField]) };
@@ -944,6 +953,66 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }
   }
 
+  // These four ship out of our own warehouse and route as Dutch whatever their
+  // record says - the same list the label request embed and client portal keep.
+  const FORCED_NL_SELLERS = ["SE-00455", "SE-00781", "SE-00309", "SE-00537"];
+  const routingCache = { at: 0, byCountry: new Map() };
+
+  // Seller ID -> Preferred Courier, read the way the label request embed does:
+  // seller, country, Label Request Routing. Only for a tab with the column.
+  // Non-fatal: a failed read leaves the column on a dash, never the tab empty.
+  async function couriersFor(view, records, units) {
+    const out = new Map();
+
+    if (!view.columns.some((column) => column.type === "courier")) return out;
+
+    try {
+      const sellerIds = [...new Set(records.map((record) => {
+        const fields = record.fields || {};
+        return rowSellerId(fields, units.get((fields["Linked Inventory Unit"] || [])[0]));
+      }).filter((id) => /^SE-\d{3,6}$/.test(id)))];
+
+      if (!sellerIds.length) return out;
+
+      if (Date.now() - routingCache.at > 10 * 60_000) {
+        const { records: routes } = await airtable.select("Label Request Routing", {
+          fields: ["Country Code", "Preferred Courier"],
+          pageSize: 100
+        });
+
+        routingCache.byCountry = new Map(routes.map((route) => [
+          text(flat(route.fields?.["Country Code"])).trim(),
+          text(flat(route.fields?.["Preferred Courier"]))
+        ]));
+        routingCache.at = Date.now();
+      }
+
+      const countryBySeller = new Map(FORCED_NL_SELLERS.map((id) => [id, "NL"]));
+      const toRead = sellerIds.filter((id) => !countryBySeller.has(id));
+
+      for (let i = 0; i < toRead.length; i += 50) {
+        const { records: sellers } = await airtable.select("Sellers Database", {
+          formula: `OR(${toRead.slice(i, i + 50).map((id) => `TRIM({Seller ID} & '') = ${formulaString(id)}`).join(",")})`,
+          fields: ["Seller ID", "Country Code"],
+          pageSize: 100
+        });
+
+        for (const seller of sellers) {
+          countryBySeller.set(text(flat(seller.fields?.["Seller ID"])), text(flat(seller.fields?.["Country Code"])).trim());
+        }
+      }
+
+      for (const id of sellerIds) {
+        const courier = routingCache.byCountry.get(countryBySeller.get(id));
+        if (courier) out.set(id, courier);
+      }
+    } catch (err) {
+      console.error("[admin] couriers failed:", err.message);
+    }
+
+    return out;
+  }
+
   router.get("/api/admin/list", async (req, res) => {
     const view = findView(text(req.query.section), text(req.query.view));
 
@@ -973,6 +1042,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
         if (view.exclude) page.records = page.records.filter((record) => !view.exclude(record.fields || {}));
 
         const units = view.source === "queue" ? new Map() : await unitsFor(page.records);
+        const couriers = await couriersFor(view, page.records, units);
 
         return {
           rows: page.records.map((record) => {
@@ -980,7 +1050,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
             const unit = units.get((fields["Linked Inventory Unit"] || [])[0]);
             const cells = {};
 
-            for (const column of view.columns) cells[column.key] = cellValue(column, fields, unit);
+            for (const column of view.columns) cells[column.key] = cellValue(column, fields, unit, couriers);
 
             return {
               id: record.id,

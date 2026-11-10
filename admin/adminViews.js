@@ -76,6 +76,9 @@ const STORE = {
   purchase: col("purchase", "Purchase Price", "Purchase Price (Lookup)", "money"),
   vat: col("vat", "VAT Type", "VAT Type"),
   seller: col("seller", "Seller", "Seller ID (Lookup)", "seller"),
+  // The carrier the store is asked to buy the label from, as the label
+  // request embed shows it: the seller's country in Label Request Routing.
+  courier: col("courier", "Preferred Courier", "Seller ID (Lookup)", "courier"),
 
   invoice: col("invoice", "Invoice Status", "Invoice Status", "status"),
 
@@ -117,6 +120,8 @@ const MWTB = {
   purchase: col("purchase", "Purchase Price", "", "unit", { unitField: "Purchase Price", unitType: "money" }),
   vat: col("vat", "VAT Type", "VAT Type"),
   seller: col("seller", "Seller", "", "seller"),
+  // A want-to-buy has its seller only on the unit filling it.
+  courier: col("courier", "Preferred Courier", "", "courier"),
 
   payment: col("payment", "Payment Status", "Payment Status", "status"),
 
@@ -207,7 +212,7 @@ const TABS = [
   {
     key: "labels", section: "store", source: "store", label: "Labels Requested",
     formula: `{Fulfillment Status} = 'Requested Label'`,
-    columns: [...storeBase, ...storeDeal]
+    columns: [...storeBase, ...storeDeal, STORE.courier]
   },
   {
     key: "ready", section: "store", source: "store", label: "Ready To Ship",
@@ -281,7 +286,7 @@ const TABS = [
   {
     key: "labels", section: "mwtb", source: "mwtb", label: "Labels Requested",
     formula: `{Fulfillment Status} = 'Requested Label'`,
-    columns: [...mwtbBase, ...mwtbDeal]
+    columns: [...mwtbBase, ...mwtbDeal, MWTB.courier]
   },
   {
     key: "ready", section: "mwtb", source: "mwtb", label: "Ready To Ship",
