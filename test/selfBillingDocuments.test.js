@@ -43,7 +43,7 @@ function setup() {
   };
   const db = fakeDb({ self_billing_documents: [], self_billing_holds: [] });
   const docs = createSelfBillingDocuments({ db, storage, selfBilling: createSelfBilling({ airtable }), airtable, now: () => new Date("2026-11-05T12:00:00Z") });
-  return { db, files, docs };
+  return { db, files, docs, units };
 }
 
 test("a unit from the day the flow went live gets an issued document, an older one a copy", () => {
@@ -89,18 +89,24 @@ test("an original we hold is kept as it was, and not replaced afterwards", async
   assert.equal((await docs.importOriginal(OLD_ID, Buffer.from("other"), "x")).skipped, true);
 });
 
-test("a company without a VAT number waits on the Missing VAT ID list until the number is in", async () => {
-  const { db, docs } = setup();
-  SELLER["Company Name"] = "AVH Company B.V.";
+test("a company without a VAT number gets the neutral wording; VAT0 without one waits", async () => {
+  const { db, docs, units } = setup();
+  SELLER["Company Name"] = "Shanghai Panyao Trading Company";
   try {
-    await assert.rejects(docs.ensure(UNIT_ID), (e) => e.status === 409);
-    assert.equal(db.tables.self_billing_holds.length, 1);
-    assert.equal(db.tables.self_billing_holds[0].reason, "missing_vat_id");
-    assert.equal(db.tables.self_billing_documents.length, 0);
+    const { pdf } = await docs.pdf(UNIT_ID);
+    const drawn = pdf.toString("latin1");
+    assert.ok(drawn.includes("no EU VAT number on file"));
+    assert.ok(!drawn.includes("private individual"), "a company is not called a private individual");
+    assert.ok(!drawn.includes("Margin scheme"), "nor a dealer under the scheme");
+    assert.equal(db.tables.self_billing_holds.length, 0);
 
-    SELLER["VAT ID"] = "NL123456789B01";
-    const row = await docs.ensure(UNIT_ID);
-    assert.equal(row.kind, "issued");
+    units[OLD_ID]["VAT Type"] = "VAT0";
+    units[OLD_ID]["Created Time"] = "2026-11-06T10:00:00.000Z";
+    await assert.rejects(docs.ensure(OLD_ID), (e) => e.status === 409);
+    assert.equal(db.tables.self_billing_holds[0].reason, "missing_vat_id");
+
+    SELLER["VAT ID"] = "ESB12345678";
+    assert.equal((await docs.ensure(OLD_ID)).kind, "issued");
     assert.equal(db.tables.self_billing_holds.length, 0, "the hold goes once the document is made");
   } finally {
     delete SELLER["Company Name"];

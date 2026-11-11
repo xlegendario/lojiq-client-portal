@@ -45,18 +45,16 @@ const sha256 = (buffer) => crypto.createHash("sha256").update(buffer).digest("he
 /*
  * Why a new document cannot be made yet, or "" when it can.
  *
- * The VAT number decides who a seller is (Dario, 05-11-2026): with one he is
- * a business, without one a private individual. A seller with a company name
- * and no number would be called a private individual on a document we issue
- * in his name - so it waits until the number is in the Sellers Database.
- * VAT0 and VAT21 are a business's invoice and need the number too. Copies of
- * older documents keep the wording of then and never wait.
+ * VAT0 and VAT21 are a business's invoice and wait for its VAT number.
+ * Margin never waits: a company without a number gets the neutral wording.
+ * Copies of older documents keep the wording of then and never wait.
  */
 export function missingVatId(document = {}) {
   const seller = document.seller || {};
   if (text(seller.vat_id)) return "";
   if (["VAT0", "VAT21"].includes(text(document.vat_type))) return "missing_vat_id";
-  if (text(document.vat_type) === "Margin" && text(seller.company_name)) return "missing_vat_id";
+  // A Margin purchase from a company without a number is made with the
+  // neutral wording (marginWording in selfBillingPdf.js); it no longer waits.
   return "";
 }
 

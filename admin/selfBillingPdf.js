@@ -66,14 +66,17 @@ export const VAT_NOTES = {
  */
 export const MARGIN_PRIVATE_NOTE = "* No VAT charged – the goods are supplied by a private individual who is not a taxable person.";
 export const MARGIN_DEALER_NOTE = "* Margin scheme – Second-hand goods. No VAT is charged and VAT may not be itemized.";
+export const MARGIN_NO_VAT_ID_NOTE = "* No VAT charged by the supplier. The supplier has no EU VAT number on file with us.";
 export const PURCHASE_DECLARATION = "Purchase declaration: the supplier declares that no VAT has been deducted as input tax on the goods listed in this document.";
 
 export function marginWording(seller = {}, { legacy = false } = {}) {
   if (legacy) return { note: VAT_NOTES.Margin.note, declaration: "" };
-  // The VAT number decides (Dario, 05-11-2026). A company without one on
-  // file never gets this far: its document waits for the number
-  // (missingVatId in selfBillingDocuments.js).
+  // The VAT number decides (Dario, 05-11-2026). A company without one is
+  // neither a dealer under the scheme nor a private individual as far as we
+  // can show, so its document says only what is true: no VAT charged, no
+  // number on file (Dario, 11-11-2026).
   if (text(seller.vat_id)) return { note: MARGIN_DEALER_NOTE, declaration: "" };
+  if (text(seller.company_name)) return { note: MARGIN_NO_VAT_ID_NOTE, declaration: "" };
   return { note: MARGIN_PRIVATE_NOTE, declaration: PURCHASE_DECLARATION };
 }
 
