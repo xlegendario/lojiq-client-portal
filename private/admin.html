@@ -467,6 +467,8 @@
       box-shadow: -12px 0 14px -12px var(--shadow);
     }
     th.actions { z-index: 5; background: var(--strip-head); color: var(--strip-head-text); }
+    /* Every button fits: the 280px cap on a data cell cut off the fourth one. */
+    td.actions { max-width: none; overflow: visible; }
     tbody tr:hover td.actions { background: var(--strip-hover); }
     tbody tr.selected td.actions { background: var(--strip-selected); }
     .row-actions { display: inline-flex; gap: 6px; }
