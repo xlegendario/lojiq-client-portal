@@ -332,16 +332,29 @@ test("Custom Price with Offer Accepted?: price, accepted, not sent again, old of
   assert.deepEqual(plain.calls[0].fields, { "Custom Offer": 250, offer_request_webhook_key: "" });
 });
 
-test("Manual Deal creates an approved Order Processing Form for the order and the seller", async () => {
+test("Manual Deal makes the deal right away: form, unit, booking, label request", async () => {
   const deps = fakeDeps();
+  const seller = {
+    "Seller ID": "SE-00035", "Company Name": "Dominicks", "Full Name": "Dom", "Email": "dom@example.com",
+    "Country Code": "NL", "VAT ID": "123456789B01", "Discord ID": "4242"
+  };
   deps.airtable.select = async (table, { formula }) => {
     deps.calls.push({ kind: "select", table, formula });
-    return { records: /SE-00035/.test(formula) ? [{ id: "recSELLER00000035", fields: { "Company Name": "Dominicks" } }] : [] };
+    if (table === "Label Request Routing") return { records: [{ id: "recROUTE", fields: { "Preferred Courier": "DHL", "Instruction Text": "Drop at DHL" } }] };
+    return { records: /SE-00035/.test(formula) ? [{ id: "recSELLER00000035", fields: seller }] : [] };
   };
   deps.airtable.create = async (table, fields) => {
     deps.calls.push({ kind: "create", table, fields });
-    return { id: "recOPF00000000001" };
+    return { id: table === "Order Processing Form" ? "recOPF00000000001" : "recUNIT0000000001" };
   };
+  deps.airtable.byIds = async (table, ids) => new Map([[ids[0], {
+    "Order ID": "ORD-1", "Product Name": "Nike Dunk", "Brand": "Nike", "SKU": "DD1391-100", "Size": "42",
+    "Shopify Order Number": "1001", "Shopify Product Name": "Dunk", "Store Name": ["Store"], "Client Label Request Channel ID": ["123"]
+  }]]);
+  deps.purchases = { book: async (args) => { deps.calls.push({ kind: "book", args }); return { expense_id: "9", expense_number: "IN-9" }; } };
+  deps.sendMail = async (m) => deps.calls.push({ kind: "mail", m });
+  deps.postJson = async (url, body) => deps.calls.push({ kind: "post", url, body });
+  deps.discordUpdatesUrl = "https://updates.test/";
 
   const order = record({ "Fulfillment Status": "Outsource", "Order ID": "ORD-1" });
 
@@ -351,13 +364,69 @@ test("Manual Deal creates an approved Order Processing Form for the order and th
 
   const result = await runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "se-00035", payout: "150,5", vat: "VAT0" }, deps });
 
-  const create = deps.calls.find((c) => c.kind === "create");
-  assert.equal(create.table, "Order Processing Form");
-  assert.deepEqual(create.fields, { "Linked Order ID": ["recAAAAAAAAAAAAAA"], "Linked Seller ID": ["recSELLER00000035"], "Payout (€)": 150.5, "VAT Type": "VAT0", Agreement: true });
-  assert.deepEqual(deps.calls.at(-1), { kind: "airtable", table: "Order Processing Form", id: "recOPF00000000001", fields: { "Approved?": true } });
-  assert.match(result.message, /Dominicks \(SE-00035\), € 150.5 VAT0, approved/);
+  const [form, unit] = deps.calls.filter((c) => c.kind === "create");
+  assert.equal(form.table, "Order Processing Form");
+  assert.deepEqual(form.fields, { "Linked Order ID": ["recAAAAAAAAAAAAAA"], "Linked Seller ID": ["recSELLER00000035"], "Payout (€)": 150.5, "VAT Type": "VAT0", Agreement: true, "Approved?": true });
+
+  assert.equal(unit.table, "Inventory Units");
+  assert.equal(unit.fields["Purchase Price"], 150.5);
+  assert.equal(unit.fields["Payment Note"], "150.5");
+  assert.equal(unit.fields["Ticket Number"], "ORD-1");
+  assert.deepEqual(unit.fields["Seller ID"], ["recSELLER00000035"]);
+  assert.deepEqual(unit.fields["Unfulfilled Orders Log"], ["recAAAAAAAAAAAAAA"]);
+  assert.equal(unit.fields["Availability Status"], "Reserved");
+  assert.equal(unit.fields["Payment Status"], "To Pay");
+  assert.equal(unit.fields["Margin %"], "10%");
+
+  const book = deps.calls.find((c) => c.kind === "book").args;
+  assert.equal(book.deal, "ORD-1");
+  assert.equal(book.unit.vat_type, "VAT0");
+  assert.equal(book.unit.price, 150.5);
+  assert.equal(book.seller.vat_id, "NL123456789B01");
+
+  // On Discord: no mail.
+  assert.equal(deps.calls.filter((c) => c.kind === "mail").length, 0);
+
+  const label = deps.calls.find((c) => c.kind === "post");
+  assert.equal(label.url, "https://updates.test/post-label-request");
+  assert.equal(label.body.channel_id, "123");
+  assert.equal(label.body.preferred_courier, "DHL");
+  assert.equal(label.body.seller_country_code, "NL");
+
+  assert.match(result.message, /Deal made for ORD-1: Dominicks \(SE-00035\), € 150.5 VAT0\. Inventory Unit made\. Booked in Rompslomp \(IN-9\)\. Label request posted\./);
 
   await assert.rejects(runAction({ key: "manual_deal", source: "store", record: record({ "Fulfillment Status": "Allocated" }), input: { seller: "SE-00035", payout: "1", vat: "Margin" }, deps }), /open order/);
+});
+
+test("Manual Deal: a seller without Discord is mailed; a marketplace seller gets no label request", async () => {
+  const { completeManualDeal } = await import("../admin/manualDeal.js");
+  const calls = [];
+  const deps = {
+    airtable: {
+      byIds: async (t, ids) => new Map([[ids[0], { "Order ID": "ORD-2", SKU: "X", Size: "40" }]]),
+      create: async (t, f) => ({ id: "recUNIT" }),
+      select: async () => ({ records: [] })
+    },
+    purchases: { book: async () => { throw new Error("Rompslomp down."); } },
+    sendMail: async (m) => calls.push(m),
+    postJson: async () => calls.push("post"),
+    discordUpdatesUrl: "https://updates.test/"
+  };
+
+  const out = await completeManualDeal({
+    orderRecordId: "recORDER",
+    seller: { id: "recS", fields: { "Seller ID": "SE-00537", "Full Name": "GOAT", Email: "g@example.com" } },
+    payout: 99, vat: "Margin", deps
+  });
+
+  assert.equal(out.unitId, "recUNIT");
+  assert.equal(out.booking, null);
+  assert.match(out.notes.join(" "), /Not booked in Rompslomp: Rompslomp down\./);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].to, "g@example.com");
+  assert.match(calls[0].html, /ORD-2/);
+  assert.doesNotMatch(calls[0].html, /\{\{/);
+  assert.match(out.notes.join(" "), /No label request/);
 });
 
 test("Request Label goes through the Kickz Caviar dashboard route", async () => {

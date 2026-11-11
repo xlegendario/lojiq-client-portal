@@ -34,6 +34,7 @@
 
 import { MWTB_PROCESSING, PROCESSING, TABLES } from "./adminViews.js";
 import { CANCELLABLE, HELD, IN_WAREHOUSE, ORDER_ACTIONS, OUTCOMES } from "./returns.js";
+import { completeManualDeal, SELLER_FIELDS } from "./manualDeal.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -609,7 +610,7 @@ export const ACTIONS = {
       { name: "payout", label: "Payout (€)", type: "money", required: true },
       { name: "vat", label: "VAT Type", type: "select", required: true, options: ["Margin", "VAT0", "VAT21"] }
     ],
-    note: "Creates an Order Processing Form record for this order, approved straight away, as when you fill it in yourself.",
+    note: "Makes the deal right away: the approved Order Processing Form, the Inventory Unit, the purchase in Rompslomp, the label request, and a mail for a seller without Discord.",
     why: (source, f) => (OPEN.includes(status(f)) ? "" : "A manual deal is made on an open order (Pending or Outsource)."),
     async run({ record, input, deps }) {
       const sellerCode = text(input.seller).toUpperCase().replace(/\s+/g, "");
@@ -624,7 +625,7 @@ export const ACTIONS = {
       // Seller ID is a formula, so the form links the seller's record.
       const { records } = await deps.airtable.select("Sellers Database", {
         formula: `TRIM({Seller ID} & '') = '${sellerCode}'`,
-        fields: ["Seller ID", "Full Name", "Company Name"],
+        fields: SELLER_FIELDS,
         pageSize: 2,
         maxRecords: 2
       });
@@ -634,20 +635,32 @@ export const ACTIONS = {
       const seller = records[0];
       const sellerName = text(seller.fields?.["Company Name"]) || text(seller.fields?.["Full Name"]) || sellerCode;
 
+      // The form stays the record of the deal. Make 10.1.2 used to pick it
+      // up from "Approved?"; the rest is now done here (admin/manualDeal.js).
       const created = await deps.airtable.create("Order Processing Form", {
         "Linked Order ID": [record.id],
         "Linked Seller ID": [seller.id],
         "Payout (€)": payout,
         "VAT Type": vat,
-        Agreement: true
+        Agreement: true,
+        "Approved?": true
       });
 
-      // Approved in its own write, so anything watching for the change sees one.
-      await deps.airtable.update("Order Processing Form", created.id, { "Approved?": true });
+      const deal = await completeManualDeal({ orderRecordId: record.id, seller, payout, vat, deps });
+      const booked = deal.booking ? ` Booked in Rompslomp${deal.booking.expense_number ? ` (${deal.booking.expense_number})` : ""}.` : "";
 
       return {
-        message: `Order Processing Form made for ${text(record.fields["Order ID"])}: ${sellerName} (${sellerCode}), € ${payout} ${vat}, approved.`,
-        changed: { order_processing_form: created.id, seller: sellerCode, payout, vat }
+        message:
+          `Deal made for ${text(record.fields["Order ID"])}: ${sellerName} (${sellerCode}), € ${payout} ${vat}. ` +
+          `Inventory Unit made.${booked}${deal.notes.length ? ` ${deal.notes.join(" ")}` : ""}`,
+        changed: {
+          order_processing_form: created.id,
+          inventory_unit: deal.unitId,
+          rompslomp_expense: deal.booking?.expense_id || null,
+          seller: sellerCode,
+          payout,
+          vat
+        }
       };
     }
   },

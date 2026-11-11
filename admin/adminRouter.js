@@ -1237,6 +1237,18 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     airtable,
     returns,
 
+    // Manual Deal books the purchase the way External Sales does
+    // (admin/manualDeal.js, admin/purchaseExpense.js).
+    purchases: returnsRompslomp.configured
+      ? createPurchaseExpense({
+        rompslomp: returnsRompslomp,
+        forCompany: (companyId) => createRompslomp({ token: services.rompslompToken, companyId, fetchImpl })
+      })
+      : null,
+    sendMail: services.sendInvoiceMail || null,
+    mailFrom: services.invoiceMailFrom || "",
+    postJson: (url, body) => post(url, body),
+
     // The lists behind the store's and buyer's own Offers tabs.
     async getKc(pathName, params) {
       if (!service(services.kickzBaseUrl) || !text(services.counterOffersSecret)) {

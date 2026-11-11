@@ -125,7 +125,7 @@ const {
 } = process.env;
 
 // One invoice mail through SendGrid's API, with the PDFs attached.
-async function sendInvoiceMail({ to, from, replyTo, subject, text, attachments }) {
+async function sendInvoiceMail({ to, from, replyTo, subject, text, html, attachments }) {
   const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
     headers: { Authorization: `Bearer ${SENDGRID_API_KEY}`, "Content-Type": "application/json" },
@@ -134,8 +134,11 @@ async function sendInvoiceMail({ to, from, replyTo, subject, text, attachments }
       from,
       ...(replyTo ? { reply_to: { email: replyTo } } : {}),
       subject,
-      content: [{ type: "text/plain", value: text }],
-      attachments
+      content: [
+        ...(text ? [{ type: "text/plain", value: text }] : []),
+        ...(html ? [{ type: "text/html", value: html }] : [])
+      ],
+      ...(attachments?.length ? { attachments } : {})
     }),
     signal: AbortSignal.timeout(30_000)
   });
