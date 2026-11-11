@@ -41,7 +41,7 @@ const signedStamp = (iso) => {
   return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
 };
 
-class Page {
+export class Page {
   constructor() {
     this.parts = [];
   }
@@ -73,7 +73,7 @@ class Page {
   }
 }
 
-function buildPdf(pages, image) {
+export function buildPdf(pages, image) {
   // 1 catalog, 2 pages, 3-4 fonts, 5 the signature, then a page and its
   // content stream for every page.
   const first = 6;

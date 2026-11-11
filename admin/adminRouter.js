@@ -68,6 +68,7 @@ import { createPartnerDealsStore, mountPartnerDeals } from "./adminPartnerDeals.
 import { createBrokerDealsStore, mountBrokerDeals } from "./adminBrokerDeals.js";
 import { createSelfBilling, mountSelfBilling } from "./adminSelfBilling.js";
 import { createPrivateStorage, createSelfBillingDocuments, mountSelfBillingDocuments } from "./selfBillingDocuments.js";
+import { BUCKET as AGREEMENT_BUCKET, createSellerAgreements, mountSellerAgreements } from "./sellerAgreement.js";
 import { createSupabaseRest } from "./externalSalesSync.js";
 import { createRompslomp } from "./externalSalesInvoicing.js";
 import { createPurchaseExpense } from "./purchaseExpense.js";
@@ -444,6 +445,17 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     store: selfBillingDocuments,
     internalSecret: services.counterOffersSecret,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-self-billing.html") : ""
+  });
+
+  // The Seller Registration Agreement, asked for by the Kickz Caviar portal
+  // once a new seller has linked Discord (admin/sellerAgreement.js).
+  mountSellerAgreements(router, {
+    store: createSellerAgreements({
+      airtable,
+      db: createSupabaseRest({ supabaseUrl, serviceKey, fetchImpl }),
+      storage: createPrivateStorage({ supabaseUrl, serviceKey, bucket: AGREEMENT_BUCKET, fetchImpl })
+    }),
+    internalSecret: services.counterOffersSecret
   });
 
   if (selfBillingDocuments.configured && selfBillingSweepMs > 0) {

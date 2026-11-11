@@ -88,7 +88,21 @@ export function createPrivateStorage({ supabaseUrl, serviceKey, bucket = BUCKET,
     return Buffer.from(await response.arrayBuffer());
   }
 
-  return { configured, upload, download };
+  // A short-lived address for one file, for a service that fetches it once
+  // (Airtable copying an attachment).
+  async function signedUrl(name, seconds = 3600) {
+    const response = await fetchImpl(`${base}/storage/v1/object/sign/${bucket}/${encodeURIComponent(name)}`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: seconds }),
+      signal: AbortSignal.timeout(30_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.signedURL) throw new Error(`Storage answered ${response.status} when signing ${name}`);
+    return `${base}/storage/v1${data.signedURL}`;
+  }
+
+  return { configured, upload, download, signedUrl };
 }
 
 /*
