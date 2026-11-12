@@ -1514,7 +1514,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       const swapId = swapOrder ? orderLabel(swapOrder) : "";
       const swapFrom = swapOrder ? text(swapOrder.fields["Created Time"]).slice(0, 10) : "";
       // Either purchase not booked yet: the daily check does all of it later.
-      const later = { type: "swap", returned: returnedId, returned_from: returnedFrom, swap: swapId, swap_from: swapFrom };
+      const later = { type: "swap", returned: returnedId, returned_from: returnedFrom, swap: swapId, swap_from: swapFrom, swap_unit: swap.id || "" };
 
       const back = await purchases.findPurchase({ deal: returnedId, from: returnedFrom });
       if (!back.expense_id) {
@@ -1526,7 +1526,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       const credit = back.credited ? null : await purchases.credit({ expenseId: back.expense_id, deal: returnedId });
       if (credit) log.push(`Purchase ${back.expense_number || back.expense_id} of ${returnedId} credited (${credit.expense_number}).`);
 
-      const theirs = swapId ? await purchases.findPurchase({ deal: swapId, from: swapFrom }) : { expense_id: "" };
+      const theirs = swapId ? await swapPurchase({ deal: swapId, from: swapFrom, unitId: swap.id }) : { expense_id: "" };
+      const theirsName = `Purchase Order ${theirs.deal || swapId}`;
 
       if (swapId && !theirs.expense_id) {
         todos.push(todo(`${waitingText(swapId)} It is then settled against the credit of the purchase of ${returnedId}.`, AWAITING_PURCHASE, { retry: later }));
@@ -1540,11 +1541,11 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
       await purchases.kruispost({
         amount: back.amount,
-        original: theirs.expense_number || `Purchase Order ${swapId}`,
+        original: theirs.expense_number || theirsName,
         credit: credit.expense_number || `Credit Purchase Order ${returnedId}`,
         deal: `${swapId}/${returnedId}`
       });
-      todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${swapId}/${returnedId}" to the purchase of ${swapId} and the credit of ${returnedId}.`, "link_kruispost"));
+      todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${swapId}/${returnedId}" to ${theirsName} and the credit of ${returnedId}.`, "link_kruispost"));
     } catch (err) {
       todos.push(todo(`In Rompslomp (Payout): credit the purchase of ${returnedId} and settle it against the purchase of ${swap.item_id} (${err.message}).`, "move_payment"));
     }
@@ -1745,6 +1746,36 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     return text(hit?.fields?.["Created Time"]).slice(0, 10);
   }
 
+  /*
+   * The purchase a swap's pair is paid against. Normally "Purchase Order
+   * <its order>"; a pair sold again by hand after a return was bought only
+   * once, under its first order, so then it is found by the unit itself.
+   */
+  async function swapPurchase({ deal, from, unitId = "" }) {
+    const found = await purchases.findPurchase({ deal, from });
+    if (found.expense_id || !purchases.findPurchaseOfPair) return found;
+
+    let id = text(unitId);
+    if (!id && text(deal)) {
+      const page = await airtable.select(ORDERS, { formula: `{Order ID} = '${quote(deal)}'`, fields: ["Order ID", "Linked Inventory Unit"], pageSize: 5 });
+      const hit = (page.records || []).find((r) => text(r.fields?.["Order ID"]) === text(deal));
+      id = text(first(hit?.fields?.["Linked Inventory Unit"]));
+    }
+    if (!id) return found;
+    const unit = (await airtable.byIds(UNITS, [id], UNIT_FIELDS)).get(id);
+    if (!unit) return found;
+
+    const earlier = await purchases.findPurchaseOfPair({
+      date: text(unit["Purchase Date"]),
+      amount: unit["Purchase Price"],
+      product: text(unit["Product Name"]),
+      size: text(unit.Size),
+      hint: text(unit["Item Condition"])
+    });
+    // Only a purchase of another order: its own would have been found above.
+    return earlier.expense_id && earlier.deal !== text(deal).toUpperCase() ? earlier : found;
+  }
+
   // Sixty days back, for an order whose date could not be read.
   const fallbackFrom = () => new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10);
 
@@ -1776,10 +1807,11 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     if (job.type === "swap") {
       const back = await purchases.findPurchase({ deal: job.returned, from: text(job.returned_from) || (await createdOn(job.returned)) || fallbackFrom() });
       if (!back.expense_id) return { waiting: true };
-      const theirs = await purchases.findPurchase({ deal: job.swap, from: text(job.swap_from) || (await createdOn(job.swap)) || fallbackFrom() });
+      const theirs = await swapPurchase({ deal: job.swap, from: text(job.swap_from) || (await createdOn(job.swap)) || fallbackFrom(), unitId: job.swap_unit });
+      const theirsName = `Purchase Order ${theirs.deal || job.swap}`;
       if (dry) {
         return theirs.expense_id || !back.credited
-          ? { would: `${back.credited ? "" : `credit ${back.expense_number} of ${job.returned}, `}${theirs.expense_id ? `settle against ${theirs.expense_number} of ${job.swap} on Kruisposten` : `wait for ${job.swap}`}` }
+          ? { would: `${back.credited ? "" : `credit ${back.expense_number || back.expense_id} of ${job.returned}, `}${theirs.expense_id ? `settle against ${theirs.expense_number || theirsName} (€ ${round2(theirs.amount).toFixed(2)}, ${theirs.date}) on Kruisposten` : `wait for ${job.swap}`}` }
           : { waiting: true };
       }
 
@@ -1794,12 +1826,12 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
       await purchases.kruispost({
         amount: back.amount,
-        original: theirs.expense_number || `Purchase Order ${job.swap}`,
+        original: theirs.expense_number || theirsName,
         credit: creditNumber || `Credit Purchase Order ${job.returned}`,
         deal: `${job.swap}/${job.returned}`
       });
-      log.push(`Daily check: credit of ${job.returned} settled against purchase ${theirs.expense_number} of ${job.swap} on Kruisposten.`);
-      todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${job.swap}/${job.returned}" to the purchase of ${job.swap} and the credit of ${job.returned}.`, "link_kruispost"));
+      log.push(`Daily check: credit of ${job.returned} settled against ${theirs.expense_number || theirsName}${theirs.deal && theirs.deal !== job.swap ? ` (the pair's first sale; ${job.swap} sold it again)` : ""} on Kruisposten.`);
+      todos.push(todo(`In Rompslomp (Payout), link the two Kruisposten payments "Kruispost ${job.swap}/${job.returned}" to ${theirsName} and the credit of ${job.returned}.`, "link_kruispost"));
       return { log, todos };
     }
 

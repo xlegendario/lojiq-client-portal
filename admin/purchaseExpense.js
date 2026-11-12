@@ -554,5 +554,58 @@ export function createPurchaseExpense({ rompslomp, forCompany, selfBilling = nul
     return out;
   }
 
-  return { book, credit, company, exists, ensureSupplier, linkSuppliers, findPurchase, kruispost };
+  /*
+   * The purchase of a pair that was sold again by hand after a return: it was
+   * bought once, so its "Purchase Order" carries the order it was first sold
+   * on, not the one it is on now (PCS-007968: bought for ORD-025205, sold
+   * again as ORD-028075). Found by what the unit still says - the purchase
+   * date, the price and "<product> - <size>" - and only when exactly one
+   * expense fits. Identical pairs bought the same day are told apart by
+   * `hint`, the unit's Item Condition, which names the order it came back
+   * from ("Retour Woovin van ORD-025205, hergebruikt voor ORD-028075").
+   */
+  async function findPurchaseOfPair({ date, amount, product = "", size = "", hint = "" }) {
+    const day = text(date).slice(0, 10);
+    const price = round2(amount);
+    if (!day || !price) return { expense_id: "" };
+    const { client } = await company();
+    const hits = [];
+    const credits = new Set();
+
+    for (let page = 1; page <= 20; page++) {
+      const rows = await client.listExpenses({ from: day, page });
+      for (const row of rows) {
+        for (const line of row.invoice_lines || []) {
+          const said = like(line.description);
+          const credit = /^credit purchase order (\S+)/.exec(said);
+          if (credit) credits.add(credit[1]);
+          const m = /^purchase order (\S+)/.exec(said);
+          if (!m || text(row.date).slice(0, 10) !== day) continue;
+          if (round2(line.price_with_vat ?? line.price_per_unit) !== price) continue;
+          hits.push({ row, line, deal: m[1].toUpperCase() });
+        }
+      }
+      if (rows.length < 100) break;
+    }
+
+    const named = like([product, size].filter(Boolean).join(" - "));
+    let pick = hits.length === 1 ? hits : hits.filter((h) => named && like(h.line.extended_description) === named);
+    if (pick.length > 1 && text(hint)) {
+      const said = text(hint).toUpperCase();
+      pick = pick.filter((h) => said.split(/[^A-Z0-9-]+/).includes(h.deal));
+    }
+    if (pick.length !== 1) return { expense_id: "", candidates: hits.length };
+
+    const [{ row, line, deal }] = pick;
+    return {
+      expense_id: String(row.id),
+      expense_number: text(row.invoice_number),
+      date: text(row.date).slice(0, 10),
+      amount: round2(line.price_with_vat ?? line.price_per_unit),
+      deal,
+      credited: credits.has(like(deal))
+    };
+  }
+
+  return { book, credit, company, exists, ensureSupplier, linkSuppliers, findPurchase, findPurchaseOfPair, kruispost };
 }

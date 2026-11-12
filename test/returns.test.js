@@ -858,3 +858,21 @@ test("a swap whose pair's purchase came late: settled against the credit on Krui
   assert.equal(w.purchases.calls.credit.length, 0, "the returned pair's purchase was already credited");
   assert.deepEqual(w.purchases.calls.kruispost[0], { amount: 120, original: "IN-90", credit: "IN-61", deal: "ORD-028075/ORD-028684" });
 });
+
+test("a swap onto a pair sold again by hand: settled against the purchase of its first sale", async () => {
+  const w = world();
+  w.tables["Inventory Units"][UNIT] = { ...w.tables["Inventory Units"][UNIT], "Purchase Date": "2026-09-18", "Purchase Price": 100, "Product Name": "Peterson OG", Size: "37" };
+  w.db.data.returns.push({ id: "00000000-0000-0000-0000-000000000010", return_number: 10, status: "done", log: [], todo: [
+    { id: "w38k9qzl", kind: "awaiting_purchase", done: false, text: "waiting", retry: { type: "swap", returned: "ORD-028684", swap: "ORD-030001", swap_unit: UNIT } }
+  ] });
+  w.purchases.findPurchase = async ({ deal }) => (deal === "ORD-028684"
+    ? { expense_id: "60", date: "2026-10-23", amount: 100, credited: true, credit_number: "" }
+    : { expense_id: "", credited: false });
+  const asked = [];
+  w.purchases.findPurchaseOfPair = async (args) => { asked.push(args); return { expense_id: "113", expense_number: "", date: "2026-09-18", amount: 100, deal: "ORD-025205", credited: false }; };
+  const out = await w.returns.settleLatePurchases();
+  assert.equal(out.settled.length, 1);
+  assert.deepEqual(asked[0], { date: "2026-09-18", amount: 100, product: "Peterson OG", size: "37", hint: "" });
+  assert.deepEqual(w.purchases.calls.kruispost[0], { amount: 100, original: "Purchase Order ORD-025205", credit: "Credit Purchase Order ORD-028684", deal: "ORD-030001/ORD-028684" });
+  assert.match(w.db.data.returns[0].log.at(-1).line, /first sale/);
+});
