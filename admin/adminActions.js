@@ -34,7 +34,7 @@
 
 import { MWTB_PROCESSING, PROCESSING, TABLES } from "./adminViews.js";
 import { CANCELLABLE, HELD, IN_WAREHOUSE, ORDER_ACTIONS, OUTCOMES } from "./returns.js";
-import { completeManualDeal, SELLER_FIELDS } from "./manualDeal.js";
+import { completeManualDeal, resendDealConfirmation, SELLER_FIELDS } from "./manualDeal.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -610,7 +610,7 @@ export const ACTIONS = {
       { name: "payout", label: "Payout (€)", type: "money", required: true },
       { name: "vat", label: "VAT Type", type: "select", required: true, options: ["Margin", "VAT0", "VAT21"] }
     ],
-    note: "Makes the deal right away: the approved Order Processing Form, the Inventory Unit, the purchase in Rompslomp, the label request, and a mail for a seller without Discord.",
+    note: "Makes the deal right away: the approved Order Processing Form, the Inventory Unit, the purchase in Rompslomp, the label request, and the Deal Confirmation mail to the seller.",
     why: (source, f) => (OPEN.includes(status(f)) ? "" : "A manual deal is made on an open order (Pending or Outsource)."),
     async run({ record, input, deps }) {
       const sellerCode = text(input.seller).toUpperCase().replace(/\s+/g, "");
@@ -662,6 +662,23 @@ export const ACTIONS = {
           vat
         }
       };
+    }
+  },
+
+  /*
+   * The Deal Confirmation mail again, for a deal already made: the seller
+   * and payout come from the order's Inventory Unit (admin/manualDeal.js).
+   */
+  deal_mail: {
+    label: "Resend deal mail",
+    sources: ["store"],
+    needs: { store: ["Fulfillment Status", "Order ID", "Linked Inventory Unit"] },
+    confirm: () => "Mail the Deal Confirmation to the seller of this pair again? A seller who already has it gets it twice.",
+    why: (source, f) => (first(f["Linked Inventory Unit"]) ? "" : "This order has no Inventory Unit, so there is no deal to confirm."),
+    async run({ record, deps }) {
+      const out = await resendDealConfirmation({ orderRecordId: record.id, unitRecordId: first(record.fields["Linked Inventory Unit"]), deps });
+      if (!out.sent) throw new ActionError(out.note);
+      return { message: `${text(record.fields["Order ID"])}: ${out.note}`, changed: { deal_mail: "sent" } };
     }
   },
 

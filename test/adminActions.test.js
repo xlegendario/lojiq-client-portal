@@ -384,8 +384,10 @@ test("Manual Deal makes the deal right away: form, unit, booking, label request"
   assert.equal(book.unit.price, 150.5);
   assert.equal(book.seller.vat_id, "NL123456789B01");
 
-  // On Discord: no mail.
-  assert.equal(deps.calls.filter((c) => c.kind === "mail").length, 0);
+  // On Discord or not, the seller is mailed.
+  const mails = deps.calls.filter((c) => c.kind === "mail");
+  assert.equal(mails.length, 1);
+  assert.equal(mails[0].m.to, "dom@example.com");
 
   const label = deps.calls.find((c) => c.kind === "post");
   assert.equal(label.url, "https://updates.test/post-label-request");
@@ -393,12 +395,12 @@ test("Manual Deal makes the deal right away: form, unit, booking, label request"
   assert.equal(label.body.preferred_courier, "DHL");
   assert.equal(label.body.seller_country_code, "NL");
 
-  assert.match(result.message, /Deal made for ORD-1: Dominicks \(SE-00035\), € 150.5 VAT0\. Inventory Unit made\. Booked in Rompslomp \(IN-9\)\. Label request posted\./);
+  assert.match(result.message, /Deal made for ORD-1: Dominicks \(SE-00035\), € 150.5 VAT0\. Inventory Unit made\. Booked in Rompslomp \(IN-9\)\. Deal confirmation mailed to dom@example\.com\. Label request posted\./);
 
   await assert.rejects(runAction({ key: "manual_deal", source: "store", record: record({ "Fulfillment Status": "Allocated" }), input: { seller: "SE-00035", payout: "1", vat: "Margin" }, deps }), /open order/);
 });
 
-test("Manual Deal: a seller without Discord is mailed; a marketplace seller gets no label request", async () => {
+test("Manual Deal: a seller without Discord is mailed too; a marketplace seller gets no label request", async () => {
   const { completeManualDeal } = await import("../admin/manualDeal.js");
   const calls = [];
   const deps = {
@@ -427,6 +429,33 @@ test("Manual Deal: a seller without Discord is mailed; a marketplace seller gets
   assert.match(calls[0].html, /ORD-2/);
   assert.doesNotMatch(calls[0].html, /\{\{/);
   assert.match(out.notes.join(" "), /No label request/);
+});
+
+test("Resend deal mail: seller and payout come from the order's unit", async () => {
+  const mails = [];
+  const tables = {
+    "Inventory Units": { recUNIT: { "Seller ID": ["recS"], "Purchase Price": 135, "Purchase Date": "2026-11-12" } },
+    "Sellers Database": { recS: { "Seller ID": "SE-00455", "Full Name": "Panyao", Email: "p@example.com", "Discord ID": "99" } },
+    "Unfulfilled Orders Log": { recAAAAAAAAAAAAAA: { "Order ID": "ORD-9", SKU: "U998GR", Size: "42" } }
+  };
+  const deps = {
+    ...fakeDeps(),
+    airtable: { byIds: async (t, ids) => new Map(ids.filter((id) => tables[t][id]).map((id) => [id, tables[t][id]])) },
+    sendMail: async (m) => mails.push(m)
+  };
+
+  assert.deepEqual(availableActions("store", ["deal_mail"], { "Fulfillment Status": "Allocated" }), []);
+  const order = record({ "Fulfillment Status": "Allocated", "Order ID": "ORD-9", "Linked Inventory Unit": ["recUNIT"] });
+
+  const out = await runAction({ key: "deal_mail", source: "store", record: order, deps });
+  assert.match(out.message, /ORD-9: Deal confirmation mailed to p@example\.com\./);
+  assert.equal(mails.length, 1);
+  assert.match(mails[0].html, /SE-00455/);
+  assert.match(mails[0].html, /135/);
+  assert.match(mails[0].html, /12-11-2026/);
+
+  tables["Sellers Database"].recS.Email = "";
+  await assert.rejects(runAction({ key: "deal_mail", source: "store", record: order, deps }), /no email/);
 });
 
 test("Request Label goes through the Kickz Caviar dashboard route", async () => {

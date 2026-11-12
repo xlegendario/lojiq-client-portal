@@ -9,7 +9,7 @@
 //   2. the purchase booked in Rompslomp, the way External Sales books one
 //      (admin/purchaseExpense.js: same company, Voorraad | Scout, supplier
 //      found by Seller ID or made)
-//   3. a seller without Discord gets the Deal Confirmation mail
+//   3. the seller gets the Deal Confirmation mail (Discord or not)
 //   4. the label request in the store's Discord channel (not for the
 //      marketplace sellers, whose label comes from the marketplace)
 //
@@ -97,6 +97,67 @@ export function labelRequestBody({ order, sellerCountry, route }) {
 }
 
 /*
+ * The Deal Confirmation mail for one deal. Says in one sentence what
+ * happened; never throws, so a mail never undoes a deal.
+ */
+export async function mailDealConfirmation({ seller, order, payout, date, deps }) {
+  const sf = seller.fields || {};
+  const orderId = text(order.fields?.["Order ID"]);
+
+  if (!text(sf.Email)) return "No deal confirmation mailed: the seller has no email.";
+  if (!deps.sendMail) return "No deal confirmation mailed: mail is not configured on this service.";
+
+  try {
+    await deps.sendMail({
+      to: text(sf.Email),
+      // The verified sender of this SendGrid account; Make sent from
+      // server@kickzcaviar.nl through its own connection.
+      from: { email: deps.mailFrom || "noreply@kickzcaviar.nl", name: "Payout by Kickz Caviar" },
+      subject: "💰 Deal Confirmation",
+      html: dealConfirmationHtml({
+        fullName: text(sf["Full Name"]) || text(sf["Company Name"]),
+        sellerId: text(sf["Seller ID"]),
+        orderId,
+        sku: text(order.fields?.SKU),
+        size: text(order.fields?.Size),
+        payout: String(payout),
+        date: text(date).split("-").reverse().join("-")
+      })
+    });
+    return `Deal confirmation mailed to ${text(sf.Email)}.`;
+  } catch (err) {
+    console.error("[manual-deal] mail failed", orderId, err.message);
+    return `The deal confirmation mail could not be sent: ${err.message}`;
+  }
+}
+
+/*
+ * Mail the Deal Confirmation again for a deal that is already made: the
+ * seller and the payout come from the order's Inventory Unit.
+ */
+export async function resendDealConfirmation({ orderRecordId, unitRecordId, deps }) {
+  const unit = (await deps.airtable.byIds("Inventory Units", [unitRecordId], ["Seller ID", "Purchase Price", "Purchase Date"])).get(unitRecordId);
+  if (!unit) return { sent: false, note: "The order's Inventory Unit was not found." };
+
+  const sellerRecordId = text(unit["Seller ID"]);
+  if (!sellerRecordId) return { sent: false, note: "The Inventory Unit has no seller." };
+
+  const sellerFields = (await deps.airtable.byIds("Sellers Database", [sellerRecordId], SELLER_FIELDS)).get(sellerRecordId);
+  if (!sellerFields) return { sent: false, note: "The unit's seller was not found." };
+
+  const orderFields = (await deps.airtable.byIds("Unfulfilled Orders Log", [orderRecordId], ORDER_FIELDS)).get(orderRecordId) || {};
+  const note = await mailDealConfirmation({
+    seller: { id: sellerRecordId, fields: sellerFields },
+    order: { id: orderRecordId, fields: orderFields },
+    payout: unit["Purchase Price"],
+    date: text(unit["Purchase Date"]) || amsterdamDate(),
+    deps
+  });
+
+  return { sent: /^Deal confirmation mailed/.test(note), note };
+}
+
+/*
  * deps:
  *   airtable     the admin's Airtable client (select/create/byIds)
  *   purchases    createPurchaseExpense, or null when Rompslomp is not set up
@@ -156,35 +217,10 @@ export async function completeManualDeal({ orderRecordId, seller, payout, vat, d
     }
   }
 
-  // 3. A seller who is not on Discord hears about the deal by mail.
-  if (!text(sf["Discord ID"])) {
-    if (!deps.sendMail || !text(sf.Email)) {
-      notes.push("No deal confirmation mailed: the seller has no Discord and no email we can send to.");
-    } else {
-      try {
-        await deps.sendMail({
-          to: text(sf.Email),
-          // The verified sender of this SendGrid account; Make sent from
-          // server@kickzcaviar.nl through its own connection.
-          from: { email: deps.mailFrom || "noreply@kickzcaviar.nl", name: "Payout by Kickz Caviar" },
-          subject: "💰 Deal Confirmation",
-          html: dealConfirmationHtml({
-            fullName: text(sf["Full Name"]) || text(sf["Company Name"]),
-            sellerId,
-            orderId,
-            sku: text(order.fields.SKU),
-            size: text(order.fields.Size),
-            payout: String(payout),
-            date: amsterdamDate(now).split("-").reverse().join("-")
-          })
-        });
-        notes.push(`Deal confirmation mailed to ${text(sf.Email)}.`);
-      } catch (err) {
-        console.error("[manual-deal] mail failed", orderId, err.message);
-        notes.push(`The deal confirmation mail could not be sent: ${err.message}`);
-      }
-    }
-  }
+  // 3. Every seller with an email gets the Deal Confirmation, on Discord or
+  // not. Make looked the seller up on Discord by ID and mailed when that
+  // failed - which it always did - so in practice everyone was mailed.
+  notes.push(await mailDealConfirmation({ seller, order, payout, date: amsterdamDate(now), deps }));
 
   // 4. The label request in the store's channel.
   if (NO_LABEL_REQUEST.has(sellerId)) {
