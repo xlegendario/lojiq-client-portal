@@ -1227,7 +1227,11 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
     if (!response.ok) {
       // The owning service's own sentence is the useful one ("This offer is no longer available.").
-      throw new ActionError(text(data.error || data.message || data.details) || `The service answered ${response.status}.`, response.status >= 500 ? 502 : 409);
+      // Its details too when they say more: "Failed to carry out the decision"
+      // alone hid why ORD-031106's consignor was never told (11-11-2026).
+      const said = text(data.error || data.message || data.details);
+      const why = text(data.details) && text(data.details) !== said ? `${said}: ${text(data.details)}` : said;
+      throw new ActionError(why || `The service answered ${response.status}.`, response.status >= 500 ? 502 : 409);
     }
 
     return data;
