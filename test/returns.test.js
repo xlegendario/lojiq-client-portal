@@ -876,3 +876,18 @@ test("a swap onto a pair sold again by hand: settled against the purchase of its
   assert.deepEqual(w.purchases.calls.kruispost[0], { amount: 100, original: "Purchase Order ORD-025205", credit: "Credit Purchase Order ORD-028684", deal: "ORD-030001/ORD-028684" });
   assert.match(w.db.data.returns[0].log.at(-1).line, /first sale/);
 });
+
+test("a swap whose purchase is for another price is not booked: a to-do instead (ORD-029826)", async () => {
+  const w = world();
+  w.db.data.returns.push({ id: "00000000-0000-0000-0000-000000000055", return_number: 55, status: "done", log: [], todo: [
+    { id: "x", kind: "awaiting_purchase", done: false, text: "waiting", retry: { type: "swap", returned: "ORD-029826", swap: "ORD-030786", price: 100 } }
+  ] });
+  w.purchases.findPurchase = async ({ deal }) => (deal === "ORD-029826"
+    ? { expense_id: "366", date: "2026-10-25", amount: 110, credited: false }
+    : { expense_id: "334", date: "2026-11-01", amount: 100, credited: false });
+  const out = await w.returns.settleLatePurchases();
+  assert.equal(out.errors.length, 1);
+  assert.match(out.errors[0].error, /€ 110\.00.*€ 100\.00/);
+  assert.equal(w.purchases.calls.credit.length, 0);
+  assert.equal(w.purchases.calls.kruispost.length, 0);
+});

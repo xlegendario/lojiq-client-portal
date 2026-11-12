@@ -1490,12 +1490,26 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
   }
 
   /*
+   * A swap is only booked when the purchase found under the returned order
+   * is the one that paid this pair: same price as the unit. ORD-029826
+   * (12-11-2026) had a € 110 purchase from someone else, made when the
+   * returned pair was sent again as a new unit; the pair was really paid
+   * under ORD-027339 at € 100, and the swap settled the wrong purchase.
+   */
+  function swapMismatch(found, price) {
+    if (price === null || price === undefined || price === "") return "";
+    const want = round2(price);
+    if (!want || round2(found.amount) === want) return "";
+    return `the purchase found under this order is € ${round2(found.amount).toFixed(2)}, but the pair was bought for € ${want.toFixed(2)}, so it is not the purchase that paid it.`;
+  }
+
+  /*
    * The books of a swap. The bank payment stays where it is, on the purchase
    * of the returned pair; that purchase is credited, and the credit and the
    * purchase of the pair it now pays get a matching pair on Kruisposten. All
    * three end up paid, without unlinking anything - which their API cannot.
    */
-  async function swapBooks({ returnedOrder, swap, log, todos }) {
+  async function swapBooks({ returnedOrder, swap, price = null, log, todos }) {
     const returnedId = orderLabel(returnedOrder);
 
     if (returnedOrder.externalPair) {
@@ -1514,12 +1528,18 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       const swapId = swapOrder ? orderLabel(swapOrder) : "";
       const swapFrom = swapOrder ? text(swapOrder.fields["Created Time"]).slice(0, 10) : "";
       // Either purchase not booked yet: the daily check does all of it later.
-      const later = { type: "swap", returned: returnedId, returned_from: returnedFrom, swap: swapId, swap_from: swapFrom, swap_unit: swap.id || "" };
+      const later = { type: "swap", returned: returnedId, returned_from: returnedFrom, swap: swapId, swap_from: swapFrom, swap_unit: swap.id || "", price: price === null ? null : round2(price) };
 
       const back = await purchases.findPurchase({ deal: returnedId, from: returnedFrom });
       if (!back.expense_id) {
         if (swapId) todos.push(todo(`${waitingText(returnedId)} It is then settled against the purchase of ${swapId}.`, AWAITING_PURCHASE, { retry: later }));
         else todos.push(todo(`No "Purchase Order ${returnedId}" found in Rompslomp: credit it by hand once it is there, and settle it against the purchase of ${swap.item_id}.`, "move_payment"));
+        return;
+      }
+
+      const mismatch = swapMismatch(back, price);
+      if (mismatch) {
+        todos.push(todo(`${returnedId}: ${mismatch} Nothing was booked: find the purchase that paid this pair, credit it, and settle it against the purchase of ${swapId || swap.item_id}.`, "move_payment"));
         return;
       }
 
@@ -1616,7 +1636,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
             });
             await partnerShelf(u, { note: `Returned OK from ${row.order_id} (${label}), its payment settles ${swap.item_id}`, held: row.partner_stock_id });
             result = `Back on the partner's shelf; ${swap.item_id} is settled with the money already paid`;
-            await swapBooks({ returnedOrder: orderForBooks, swap, log, todos });
+            await swapBooks({ returnedOrder: orderForBooks, swap, price: unit["Purchase Price"], log, todos });
           } else {
             await airtable.update(UNITS, u.id, { ...onSale(u, stamp), "Cancel Status": "Return" });
             await releasePartnerHold(row.partner_stock_id, `${label}, ours now`);
@@ -1807,6 +1827,8 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     if (job.type === "swap") {
       const back = await purchases.findPurchase({ deal: job.returned, from: text(job.returned_from) || (await createdOn(job.returned)) || fallbackFrom() });
       if (!back.expense_id) return { waiting: true };
+      const mismatch = swapMismatch(back, job.price);
+      if (mismatch) throw new ReturnsError(`${mismatch} Settle it by hand.`);
       const theirs = await swapPurchase({ deal: job.swap, from: text(job.swap_from) || (await createdOn(job.swap)) || fallbackFrom(), unitId: job.swap_unit });
       const theirsName = `Purchase Order ${theirs.deal || job.swap}`;
       if (dry) {
