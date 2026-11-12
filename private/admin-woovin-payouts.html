@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Woovin Payouts · Lojiq Admin</title>
+  <link rel="icon" href="/favicon.png">
+  <script>
+    try { if (localStorage.getItem("lojiq-admin-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}
+  </script>
+  <style>
+    /* Same palette and components as admin.html, so Forward Service reads as
+       part of the same portal. */
+    :root {
+      --bg: #08080A;
+      --panel: #121215;
+      --panel-2: #17171B;
+      --border: #26262B;
+      --text: #E9E9EE;
+      --muted: #8B8B95;
+      --nav-item: #A8A8AF;
+      --primary: #2F80ED;
+      --primary-soft: #66B3FF;
+      --primary-tint: rgba(102, 179, 255, 0.16);
+      --red: #F04438;
+      --warning: #F59E0B;
+      --strong: #FFFFFF;
+      --faint: #55555D;
+      --nav-title: #5F5F68;
+      --hover-border: #3A3A41;
+      --strip: #1B1C21;
+      --row-hover: rgba(102, 179, 255, 0.06);
+      --pill-bg: rgba(139, 139, 149, 0.16);
+      --pill-text: #CFCFD7;
+      --good-bg: rgba(22, 179, 100, 0.16);
+      --good-text: #4ADE9A;
+      --wait-bg: rgba(245, 158, 11, 0.16);
+      --wait-text: #FBBF4C;
+      --move-bg: rgba(47, 128, 237, 0.18);
+      --bad-bg: rgba(240, 68, 56, 0.16);
+      --bad-text: #FF7A70;
+      --toast-bg: #0F2A1E;
+      --toast-border: rgba(22, 179, 100, 0.5);
+      --toast-text: #D6F5E6;
+      --shadow: rgba(0, 0, 0, 0.5);
+      --backdrop: rgba(0, 0, 0, 0.6);
+      --logo-plate: transparent;
+      color-scheme: dark;
+    }
+
+    :root[data-theme="light"] {
+      --bg: #F3F5F8;
+      --panel: #FFFFFF;
+      --panel-2: #F0F2F6;
+      --border: #DCE0E7;
+      --text: #1A1D23;
+      --muted: #616875;
+      --nav-item: #3E4450;
+      --primary-soft: #1B64C8;
+      --primary-tint: rgba(47, 128, 237, 0.12);
+      --red: #D63B30;
+      --warning: #B86E00;
+      --strong: #0C0E13;
+      --faint: #A2A8B2;
+      --nav-title: #8A909B;
+      --hover-border: #C3C9D3;
+      --strip: #F1F3F7;
+      --row-hover: rgba(47, 128, 237, 0.05);
+      --pill-bg: rgba(97, 104, 117, 0.12);
+      --pill-text: #3E4450;
+      --good-bg: rgba(18, 151, 90, 0.12);
+      --good-text: #0C7446;
+      --wait-bg: rgba(214, 139, 0, 0.14);
+      --wait-text: #8F5500;
+      --move-bg: rgba(47, 128, 237, 0.12);
+      --bad-bg: rgba(214, 59, 48, 0.1);
+      --bad-text: #B42E24;
+      --toast-bg: #E6F5EC;
+      --toast-border: rgba(18, 151, 90, 0.45);
+      --toast-text: #0E4F31;
+      --shadow: rgba(20, 28, 40, 0.14);
+      --backdrop: rgba(20, 28, 40, 0.35);
+      --logo-plate: #121215;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    a { color: var(--primary-soft); }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--primary-soft); outline-offset: 2px; }
+
+    .input, .select { height: 36px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); min-width: 0; }
+    textarea.input { height: auto; min-height: 70px; padding: 9px 11px; resize: vertical; }
+    .input:focus, .select:focus { border-color: var(--primary); outline: none; }
+    .btn { height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); cursor: pointer; font-weight: 700; white-space: nowrap; }
+    .btn:hover { border-color: var(--hover-border); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+
+    .app { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { border-right: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    .logo { display: flex; align-items: baseline; gap: 8px; margin: 0 6px 14px; }
+    .logo img { width: 104px; height: auto; display: block; background: var(--logo-plate); border-radius: 6px; }
+    .logo span { font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary-soft); }
+    .nav-section { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 10px 0 2px; padding: 6px 8px; border: 0; border-radius: 7px; background: none; cursor: pointer; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nav-title); text-align: left; }
+    .nav-section::after { content: "▸"; font-size: 11px; letter-spacing: 0; transition: transform 0.15s ease; }
+    .nav-section[aria-expanded="true"]::after { transform: rotate(90deg); }
+    .nav-section:hover { color: var(--text); background: var(--primary-tint); }
+    .nav-section.current { color: var(--primary-soft); }
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    @media (prefers-reduced-motion: reduce) { .nav-section::after { transition: none; } }
+    .nav-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 30px; padding: 0 8px; border-radius: 7px; color: var(--nav-item); text-decoration: none; font-size: 12px; border: 0; background: none; cursor: pointer; text-align: left; width: 100%; }
+    .nav-item:hover, .nav-item.active { background: var(--primary-tint); color: var(--strong); }
+    .nav-item.active { font-weight: 700; }
+    .nav-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .content { padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .heading { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .heading h1 { margin: 0; font-size: 20px; }
+    .crumb { color: var(--muted); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    .totals { display: flex; flex-wrap: wrap; gap: 8px; }
+    .total { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-width: 130px; }
+    .total span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .total strong { font-size: 16px; color: var(--strong); font-variant-numeric: tabular-nums; }
+
+    .table-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto; background: var(--panel); max-height: calc(100vh - 260px); }
+    table { border-collapse: collapse; width: max-content; min-width: 100%; }
+    th { position: sticky; top: 0; z-index: 4; background: var(--panel-2); text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+    tbody tr:hover td { background: var(--row-hover); }
+    td.money, th.money { text-align: right; font-variant-numeric: tabular-nums; }
+    td.check, th.check { width: 34px; text-align: center; }
+    td.check input, th.check input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+    .id { font-weight: 700; color: var(--strong); }
+    .dash { color: var(--faint); }
+    .sub { color: var(--muted); font-size: 12px; }
+    tbody tr[data-id] { cursor: pointer; }
+    tbody tr.selected td { background: rgba(102, 179, 255, 0.12); }
+
+    /* Side panel, as on the Store Orders and Member WTBs tabs. */
+    .panel { position: fixed; top: 0; right: 0; width: min(480px, 100%); height: 100vh; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -20px 0 50px var(--shadow); z-index: 40; display: flex; flex-direction: column; }
+    .panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .panel-head h2 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+    .panel-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .panel-body { overflow-y: auto; padding: 14px 16px 30px; display: flex; flex-direction: column; gap: 18px; }
+    .group h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .group dl { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 12px; }
+    .group dt { color: var(--muted); }
+    .group dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .pair-list li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .pair-list img, .pair-list .no-img { width: 44px; height: 44px; object-fit: contain; background: #fff; border-radius: 6px; }
+    .pair-list .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
+    .pair-list strong { color: var(--strong); }
+    .link-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .timeline li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+    .timeline small { color: var(--muted); }
+    .pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--pill-bg); color: var(--pill-text); }
+    .pill.good { background: var(--good-bg); color: var(--good-text); }
+    .pill.wait { background: var(--wait-bg); color: var(--wait-text); }
+    .pill.move { background: var(--move-bg); color: var(--primary-soft); }
+    .pill.bad { background: var(--bad-bg); color: var(--bad-text); }
+    .row-actions { display: inline-flex; gap: 6px; }
+    .act { height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel-2); font-size: 12px; font-weight: 700; cursor: pointer; }
+    .act:hover { border-color: var(--primary); color: var(--strong); }
+    .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+
+    tr.group-row td { background: var(--strip); padding: 10px 12px; }
+    tbody tr.group-row:hover td { background: var(--strip); }
+    .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+    .group-head strong { color: var(--strong); font-variant-numeric: tabular-nums; }
+    .group-head .old { color: var(--warning); font-weight: 700; }
+    .actionbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .actionbar[hidden] { display: none !important; }
+
+    dialog { width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 0; box-shadow: 0 30px 80px var(--shadow); }
+    dialog::backdrop { background: var(--backdrop); }
+    .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+    .dialog-body h2 { margin: 0; font-size: 17px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .field .hint { color: var(--muted); font-size: 12px; }
+    .label-list { display: flex; flex-direction: column; gap: 6px; }
+    .label-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+    .label-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+    .label-add input[type=file] { color: var(--muted); min-width: 0; }
+    .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; max-width: min(560px, calc(100vw - 32px)); background: var(--toast-bg); border: 1px solid var(--toast-border); color: var(--toast-text); padding: 12px 16px; border-radius: 10px; box-shadow: 0 16px 40px var(--shadow); }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
+      .label-add { grid-template-columns: 1fr; }
+    }
+  </style>
+  <style>
+    /* Only this page: the drop zone, the checks and what booking made. */
+    .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 110px; border: 2px dashed var(--border); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: center; padding: 16px; }
+    .drop:hover, .drop.over, .drop:focus-visible { border-color: var(--primary); background: var(--primary-tint); }
+    .drop strong { color: var(--strong); font-size: 14px; }
+    .result.bad { border-color: var(--red); }
+    .result h3 { margin: 12px 0 0; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .result details { margin-top: 10px; }
+    .result summary { cursor: pointer; color: var(--muted); }
+    #plan { display: flex; flex-direction: column; gap: 14px; }
+    .messages { display: flex; flex-direction: column; gap: 6px; }
+    .messages:empty { display: none; }
+    .msg { padding: 9px 12px; border-radius: 8px; max-width: 980px; }
+    .msg.bad { background: var(--bad-bg); color: var(--bad-text); }
+    .msg.wait { background: var(--wait-bg); color: var(--wait-text); }
+    td.notes { white-space: normal; min-width: 260px; max-width: 420px; color: var(--muted); font-size: 12px; }
+    .bad-text { color: var(--bad-text); }
+    .thumb, .no-img { width: 40px; height: 40px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
+    .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
+    tbody tr[data-pair] { cursor: pointer; }
+    .result { background: var(--panel); border: 1px solid var(--toast-border); border-radius: 10px; padding: 12px 16px; }
+    .result ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+    .off { color: var(--warning); margin-top: 8px; }
+
+    /* Same foot as the main admin page: who is signed in, the theme switch
+       and Log out. Without it those two disappear the moment you open a tab
+       that has its own page. */
+    .sidebar-foot { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; color: var(--muted); }
+    .sidebar-foot strong { color: var(--text); }
+    .theme-switch { justify-content: flex-start; padding: 0; height: auto; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar" aria-label="Admin navigation">
+      <div class="logo"><img src="/logo.png" alt="Lojiq"><span>Admin</span></div>
+      <button class="nav-section" type="button" data-nav-section="store" aria-controls="navStore" aria-expanded="false">Store Orders</button>
+      <div class="nav-group" id="navStore" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="mwtb" aria-controls="navMwtb" aria-expanded="false">Member WTBs</button>
+      <div class="nav-group" id="navMwtb" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="money" aria-controls="navMoney" aria-expanded="false">Finance</button>
+      <div class="nav-group" id="navMoney" hidden></div>
+
+      <button class="nav-section" type="button" data-nav-section="earnings" aria-controls="navEarnings" aria-expanded="false">Earnings</button>
+      <div class="nav-group" id="navEarnings" hidden>
+        <a class="nav-item" href="/admin/earnings">General</a>
+        <a class="nav-item" href="/admin/earnings?channel=Store+orders">Store Orders</a>
+        <a class="nav-item" href="/admin/earnings?channel=Member+WTBs">Member WTBs</a>
+        <a class="nav-item" href="/admin/earnings?channel=External+sales">External Sales</a>
+        <a class="nav-item" href="/admin/earnings?channel=Forwarding">Forwarding</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="forwarding" aria-controls="navForwarding" aria-expanded="false">Forward Service</button>
+      <div class="nav-group" id="navForwarding" hidden>
+        <a class="nav-item" href="/admin/forwarding?tab=awaiting_label">Awaiting label <small data-nav-count="forwarding/awaiting_label"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=ready_to_ship">Ready to Ship <small data-nav-count="forwarding/ready_to_ship"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=shipped">Shipped <small data-nav-count="forwarding/shipped"></small></a>
+        <a class="nav-item" href="/admin/forwarding?tab=all">All forwards</a>
+        <a class="nav-item" href="/admin/forwarding?view=labels">Partner Labels</a>
+        <a class="nav-item" href="/admin/forwarding?view=invoices">Partner Invoices</a>
+        <a class="nav-item" href="/admin/forwarding?view=documents">Partner Documents</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="external" aria-controls="navExternal" aria-expanded="false">External Sales</button>
+      <div class="nav-group" id="navExternal" hidden>
+        <a class="nav-item" href="/admin/external-sales?tab=draft">Draft <small class="nav-count" data-nav-count="external/draft"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=pending">Pending <small class="nav-count" data-nav-count="external/pending"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=ready">Ready to Ship <small class="nav-count" data-nav-count="external/ready"></small></a>
+        <a class="nav-item" href="/admin/external-sales?tab=shipped">Shipped</a>
+        <a class="nav-item" href="/admin/external-sales?tab=all">All</a>
+        <a class="nav-item" href="/admin/external-sales?tab=checks">Checks <small class="nav-count" data-nav-count="external/checks"></small></a>
+        <a class="nav-item" href="/admin/wtb-match">WTB Match</a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="marketplaces" aria-controls="navMarketplaces" aria-expanded="false">Marketplaces</button>
+      <div class="nav-group" id="navMarketplaces" hidden>
+        <a class="nav-item" href="/admin/bol-pages">bol pages <small data-nav-count="marketplaces/bol_pages"></small></a>
+      </div>
+
+      <button class="nav-section" type="button" data-nav-section="warehouse" aria-controls="navWarehouse" aria-expanded="false">Warehouse</button>
+      <div class="nav-group" id="navWarehouse" hidden>
+        <a class="nav-item" href="/admin/inbound-scans">Inbound Scans</a>
+        <a class="nav-item" href="/admin/returns">Returns</a>
+        <a class="nav-item" href="/admin/returns?view=troubled">Troubled Stock</a>
+        <a class="nav-item" href="/admin/inventory">Inventory <small data-nav-count="warehouse/inventory_checks"></small></a>
+        <a class="nav-item" href="/admin/partner-stock">Partner Stock <small data-nav-count="warehouse/partner_stock"></small></a>
+        <a class="nav-item" href="/admin/consignment-stock">Consignment Stock</a>
+      </div>
+
+      <div class="sidebar-foot">
+        <span>Signed in as <strong id="userName">…</strong></span>
+        <button class="btn ghost theme-switch" id="themeSwitch" type="button" aria-pressed="false">Light mode</button>
+        <button class="btn ghost" id="logoutButton" type="button">Log out</button>
+      </div>
+    </nav>
+
+    <main class="content">
+      <div class="heading">
+        <span class="crumb">Finance</span>
+        <h1>Woovin Payouts</h1>
+      </div>
+
+      <p class="sub" style="margin:0;max-width:860px">
+        Drop a Woovin "Payout invoice" PDF here. Every row is checked against Airtable, the Woovin API and Rompslomp first; nothing
+        is booked until you press Book. Booking makes the sales invoices (with their Voorraadcorrectie), the credits, Woovin's fee
+        expense with the PDF attached, and one Kruisposten payment per document. Book the payouts oldest first.
+      </p>
+
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+        <strong>Drop the payout PDF here</strong>
+        <span class="sub">or click to pick it</span>
+      </label>
+
+      <div class="result" id="status" hidden></div>
+
+      <section id="plan" hidden>
+        <div class="heading">
+          <h2 style="margin:0;font-size:17px" id="planTitle"></h2>
+          <span class="pill" id="planState"></span>
+        </div>
+
+        <div class="totals" id="totals"></div>
+        <div class="messages" id="messages"></div>
+
+        <div class="actionbar">
+          <button class="btn primary" type="button" id="bookBtn" disabled>Book</button>
+          <span class="sub" id="bookHint"></span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Woovin</th>
+                <th>Product</th>
+                <th>What it is</th>
+                <th>What gets booked</th>
+                <th class="money">Price</th>
+                <th class="money">Fees + VAT</th>
+                <th class="money">Payout</th>
+                <th class="money">Kruisposten</th>
+                <th>Sold</th>
+                <th>Airtable</th>
+                <th>Woovin now</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden role="status"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const esc = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const monthFmt = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+    const money = (value) => Number(value || 0).toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
+    const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
+    const monthName = (month) => monthFmt.format(new Date(`${month}-01T00:00:00Z`));
+    const lastDay = (month) => {
+      const [y, m] = month.split("-").map(Number);
+      return dayFmt.format(new Date(Date.UTC(y, m, 0, 12)));
+    };
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, { credentials: "same-origin", ...options });
+      if (response.status === 401) {
+        location.href = "/admin";
+        throw new Error("Not signed in");
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `The server answered ${response.status}.`);
+      return data;
+    }
+
+    let toastTimer = null;
+
+    function toast(message) {
+      $("toast").textContent = message;
+      $("toast").hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4000);
+    }
+
+    /* ---------------- sidebar ---------------- */
+
+    const NAV_GROUPS = { store: "navStore", mwtb: "navMwtb", money: "navMoney", forwarding: "navForwarding", external: "navExternal", earnings: "navEarnings", marketplaces: "navMarketplaces", warehouse: "navWarehouse" };
+    const NAV_OPEN_KEY = "lojiq-admin-nav-open";
+    const openNavSections = new Set();
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || "null");
+      if (Array.isArray(saved)) saved.forEach((section) => openNavSections.add(section));
+    } catch {}
+
+    openNavSections.add("money");
+
+    function saveNavSections() {
+      try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...openNavSections])); } catch {}
+    }
+
+    saveNavSections();
+
+    function drawNavSections() {
+      for (const [section, groupId] of Object.entries(NAV_GROUPS)) {
+        const expanded = openNavSections.has(section);
+        const header = document.querySelector(`[data-nav-section="${section}"]`);
+        $(groupId).hidden = !expanded;
+        header.setAttribute("aria-expanded", String(expanded));
+        header.classList.toggle("current", section === "money");
+      }
+    }
+
+    let navCounts = {};
+    let navViews = [];
+
+    const navCount = (key) => {
+      const n = navCounts[key];
+      return `<small>${typeof n === "number" && n > 0 ? n : ""}</small>`;
+    };
+
+    function drawOtherSections(views) {
+      navViews = views || [];
+      const link = (view) => `<a class="nav-item" href="/admin#/${esc(view.section)}/${esc(view.key)}">${esc(view.label)} ${navCount(`${view.section}/${view.key}`)}</a>`;
+
+      $("navStore").innerHTML = navViews.filter((view) => view.section === "store").map(link).join("");
+      $("navMwtb").innerHTML = navViews.filter((view) => view.section === "mwtb").map(link).join("");
+      const finance = [{ key: "payments", section: "money", label: "Open Payments" }, { key: "payouts", section: "money", label: "Seller Payouts" }];
+      $("navMoney").innerHTML = finance.map(link).join("") +
+        `<a class="nav-item" href="/admin/forwarding?view=payments">Forwarding Payments ${navCount("money/forwarding_payments")}</a><a class="nav-item" href="/admin/forwarding?view=partner-payouts">Partner Payouts</a>` +
+        `<a class="nav-item" href="/admin/mollie-payouts">Mollie Payouts</a>` +
+        `<a class="nav-item" href="/admin/collective-invoices">Collective Invoices</a><a class="nav-item" href="/admin/self-billing">Self-billing</a><a class="nav-item active" href="/admin/woovin-payouts">Woovin Payouts</a>`;
+
+      document.querySelectorAll("[data-nav-count]").forEach((el) => {
+        const n = navCounts[el.dataset.navCount];
+        el.textContent = typeof n === "number" && n > 0 ? String(n) : "";
+      });
+    }
+
+    async function loadNavCounts() {
+      try {
+        const data = await api("/api/admin/counts");
+        navCounts = data.tabs || {};
+        drawOtherSections(navViews);
+      } catch {}
+    }
+
+    document.querySelector(".sidebar").addEventListener("click", (event) => {
+      const header = event.target.closest("[data-nav-section]");
+      if (!header) return;
+
+      const section = header.dataset.navSection;
+      if (openNavSections.has(section)) openNavSections.delete(section);
+      else openNavSections.add(section);
+      saveNavSections();
+      drawNavSections();
+    });
+
+    /* ---------------- the payout ---------------- */
+
+    const KIND = {
+      sale: ["Sale", "good"],
+      refunded: ["Refunded, not paid out", "wait"],
+      penalty: ["Penalty", "bad"],
+      correction: ["Correction", "bad"],
+      unknown: ["Not recognised", "bad"]
+    };
+
+    const state = { file: null, plan: null, busy: false };
+
+    const money2 = (value) => (value === null || value === undefined || value === "" ? "—" : money(value));
+
+    function showStatus(html, tone = "") {
+      $("status").hidden = !html;
+      $("status").className = `result ${tone}`;
+      $("status").innerHTML = html;
+    }
+
+    function drawPlan() {
+      const p = state.plan;
+      $("plan").hidden = !p;
+      if (!p) return;
+
+      $("planTitle").textContent = `Payout #${p.number} · ${p.date_text}`;
+      $("planState").className = `pill ${p.bookable ? "good" : "bad"}`;
+      $("planState").textContent = p.bookable ? "Adds up" : `${p.problems.length} problem${p.problems.length === 1 ? "" : "s"}`;
+
+      const t = p.totals;
+      const c = p.counts;
+      $("totals").innerHTML = `
+        <div class="total"><span>Bank line</span><strong>${esc(money(t.bank))}</strong></div>
+        <div class="total"><span>Sales (${c.sales})</span><strong>${esc(money(t.sales))}</strong></div>
+        <div class="total"><span>New invoices</span><strong>${c.new_invoices}</strong></div>
+        <div class="total"><span>Invoiced already</span><strong>${c.invoiced}</strong></div>
+        <div class="total"><span>Credits (${c.corrections})</span><strong>${esc(money(-t.credits))}</strong></div>
+        <div class="total"><span>Fees incl. VAT</span><strong>${esc(money(-t.fees))}</strong></div>
+        <div class="total"><span>Refunded / penalties</span><strong>${c.refunded} / ${c.penalties}</strong></div>
+        <div class="total"><span>Fee expense</span><strong>${p.expense ? esc(`there (${p.expense.number || p.expense.id})`) : "new"}</strong></div>`;
+
+      $("messages").innerHTML =
+        p.problems.map((m) => `<div class="msg bad">${esc(m)}</div>`).join("") +
+        p.warnings.map((m) => `<div class="msg wait">${esc(m)}</div>`).join("");
+
+      $("rows").innerHTML = p.rows.map((r) => {
+        const [label, tone] = KIND[r.kind] || KIND.unknown;
+        const fees = r.processing + r.fee + r.compensation + r.vat;
+        const notes = [...r.problems.map((n) => `<span class="bad-text">${esc(n)}</span>`), ...r.notes.map(esc)].join("<br>");
+        return `
+          <tr>
+            <td class="id">${r.order_id ? esc(r.order_id) : '<span class="dash">not in Airtable</span>'}</td>
+            <td>${esc(r.ref)}</td>
+            <td>${r.product ? `${esc(r.product)}<div class="sub">${esc(r.sku)} · ${esc(r.size)}</div>` : '<span class="dash">—</span>'}</td>
+            <td><span class="pill ${tone}">${esc(label)}</span></td>
+            <td>${esc(r.action)}</td>
+            <td class="money">${esc(money(r.price))}</td>
+            <td class="money">${esc(money(fees))}</td>
+            <td class="money">${esc(money(r.total))}</td>
+            <td class="money">${r.kruispost ? esc(money(r.kruispost)) : '<span class="dash">—</span>'}</td>
+            <td>${r.sale_date ? esc(day(r.sale_date)) : '<span class="dash">—</span>'}</td>
+            <td>${r.bookkeeping ? esc(r.bookkeeping) : '<span class="dash">—</span>'}${r.airtable ? `<div class="sub">→ ${esc(r.airtable["Bookkeeping Status"] || "")}</div>` : ""}</td>
+            <td>${r.api_status ? esc(r.api_status) : '<span class="dash">—</span>'}</td>
+            <td class="notes">${notes || '<span class="dash">—</span>'}</td>
+          </tr>`;
+      }).join("");
+
+      $("bookBtn").disabled = !p.bookable || state.busy;
+      $("bookBtn").textContent = `Book payout #${p.number}`;
+      $("bookHint").textContent = p.bookable
+        ? `${c.new_invoices} invoice${c.new_invoices === 1 ? "" : "s"}, ${c.corrections} credit${c.corrections === 1 ? "" : "s"}, ${p.expense ? "no new expense" : "the fee expense"} and ${p.settle.length} Kruisposten payments of together ${money(t.settled)}.`
+        : "Fix the problems above first; nothing is booked while the payout does not add up.";
+    }
+
+    async function preview(file) {
+      if (!file) return;
+      if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+        toast("That is not a PDF.");
+        return;
+      }
+      state.file = file;
+      state.plan = null;
+      drawPlan();
+      showStatus(`Reading ${esc(file.name)} and checking every row against Airtable, Woovin and Rompslomp… (about half a minute)`);
+
+      try {
+        state.plan = await api("/api/admin/woovin-payouts/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: await file.arrayBuffer()
+        });
+        showStatus("");
+        drawPlan();
+      } catch (err) {
+        showStatus(esc(err.message), "bad");
+      }
+    }
+
+    $("file").addEventListener("change", () => preview($("file").files[0]));
+    $("drop").addEventListener("dragover", (event) => { event.preventDefault(); $("drop").classList.add("over"); });
+    $("drop").addEventListener("dragleave", () => $("drop").classList.remove("over"));
+    $("drop").addEventListener("drop", (event) => {
+      event.preventDefault();
+      $("drop").classList.remove("over");
+      preview(event.dataTransfer.files[0]);
+    });
+    $("drop").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("file").click(); }
+    });
+
+    /* ---------------- book ---------------- */
+
+    function drawJob(job) {
+      const done = job.state === "done";
+      const failed = job.state === "failed";
+      showStatus(`
+        <strong>${done ? `Payout #${esc(job.number)} is booked` : failed ? `Booking stopped${job.number ? ` (payout #${esc(job.number)})` : ""}` : `Booking… ${esc(job.step || "")}`}</strong>
+        ${failed ? `<div class="off">${esc(job.error)}<br>Upload the same PDF again to finish it: what is booked already is found back, not made twice.</div>` : ""}
+        ${job.todos.length ? `<h3>Still for you in Rompslomp</h3><ul>${job.todos.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+        ${job.log.length ? `<details${done ? "" : " open"}><summary>What was done (${job.log.length})</summary><ul>${job.log.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>` : ""}`,
+      failed ? "bad" : "");
+    }
+
+    async function follow(id) {
+      for (;;) {
+        const job = await api(`/api/admin/woovin-payouts/status?job=${encodeURIComponent(id)}`);
+        drawJob(job);
+        if (job.state !== "running") return job;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    $("bookBtn").addEventListener("click", async () => {
+      const p = state.plan;
+      if (!p || !p.bookable || state.busy || !state.file) return;
+
+      const ok = confirm(
+        `Book Woovin payout #${p.number}?\n\n` +
+        `${p.counts.new_invoices} new sales invoice${p.counts.new_invoices === 1 ? "" : "s"} with Voorraadcorrectie, ` +
+        `${p.counts.corrections} credit${p.counts.corrections === 1 ? "" : "s"}, ${p.expense ? "no new fee expense" : `a fee expense of ${money(p.totals.fees)}`}, ` +
+        `and ${p.settle.length} Kruisposten payments adding up to the bank line of ${money(p.totals.bank)}.\n\n` +
+        "The invoices are final in Rompslomp once made."
+      );
+      if (!ok) return;
+
+      state.busy = true;
+      drawPlan();
+
+      try {
+        const job = await api("/api/admin/woovin-payouts/book", {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: await state.file.arrayBuffer()
+        });
+        drawJob(job);
+        const end = await follow(job.id);
+        if (end.state === "done") {
+          toast(`Payout #${end.number} booked.`);
+          state.plan = null;
+          drawPlan();
+        }
+      } catch (err) {
+        showStatus(esc(err.message), "bad");
+      } finally {
+        state.busy = false;
+        if (state.plan) drawPlan();
+      }
+    });
+
+    drawNavSections();
+    drawOtherSections([]);
+    loadNavCounts();
+
+    /* ---------------- who is signed in, theme, log out ---------------- */
+
+    function syncThemeSwitch() {
+      const light = document.documentElement.dataset.theme === "light";
+      $("themeSwitch").textContent = light ? "Dark mode" : "Light mode";
+      $("themeSwitch").setAttribute("aria-pressed", String(light));
+    }
+
+    $("themeSwitch").addEventListener("click", () => {
+      const light = document.documentElement.dataset.theme !== "light";
+
+      if (light) document.documentElement.dataset.theme = "light";
+      else delete document.documentElement.dataset.theme;
+
+      try { localStorage.setItem("lojiq-admin-theme", light ? "light" : "dark"); } catch { /* not remembered, still switched */ }
+      syncThemeSwitch();
+    });
+
+    syncThemeSwitch();
+
+    $("logoutButton").addEventListener("click", async () => {
+      await api("/api/admin/logout", { method: "POST", body: "{}" }).catch(() => {});
+      location.href = "/admin";
+    });
+
+    /*
+     * The sidebar gets its Store Orders and Member WTBs entries from here.
+     * Without it those two sections opened onto nothing, which reads as a
+     * dead button - they are the only groups the page does not know by
+     * heart.
+     */
+    api("/api/admin/me")
+      .then((me) => {
+        $("userName").textContent = me.user?.name || me.user?.email || "";
+        drawOtherSections(me.views);
+      })
+      .catch(() => { $("userName").textContent = ""; });
+  </script>
+</body>
+</html>

@@ -56,6 +56,7 @@ import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
 import { createCollectiveInvoicesStore, mountCollectiveInvoices } from "./adminCollectiveInvoices.js";
+import { createWoovinPayouts, mountWoovinPayouts } from "./woovinPayouts.js";
 import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.js";
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
@@ -589,6 +590,22 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     const field = (table?.fields || []).find((f) => f.name === "Location");
     return (field?.options?.choices || []).map((c) => text(c.name)).filter(Boolean);
   }
+
+  // Woovin payouts: the payout PDF in, every sale invoiced, credited or
+  // cancelled, the fees as an expense and all of it settled on Kruisposten
+  // (admin/woovinPayouts.js, private/admin-woovin-payouts.html).
+  mountWoovinPayouts(router, {
+    store: createWoovinPayouts({
+      airtable,
+      rompslomp: returnsRompslomp,
+      woovinToken: services.woovinToken,
+      returnsFlow: () => returns,
+      closedUntil: services.booksClosedUntil || undefined,
+      fetchImpl
+    }),
+    audit,
+    pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-woovin-payouts.html") : ""
+  });
 
   mountReturns(router, {
     returns,

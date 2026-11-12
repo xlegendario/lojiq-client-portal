@@ -234,7 +234,11 @@ const adminPortal = createAdminPortal({
     mollieWebhookUrl: MOLLIE_WEBHOOK_URL,
     // Where a buyer lands after paying an External Sale's link.
     externalPaymentRedirectUrl: process.env.EXTERNAL_PAYMENT_REDIRECT_URL || "https://kickzcaviar.com",
-    invoiceReplyTo: EXTERNAL_INVOICE_REPLY_TO
+    invoiceReplyTo: EXTERNAL_INVOICE_REPLY_TO,
+    // Woovin payouts check every row against Woovin itself (read-only).
+    woovinToken: process.env.WOOVIN_API_TOKEN || "",
+    // Last day of a filed VAT period; a later sale before it is invoiced today.
+    booksClosedUntil: process.env.BOOKS_CLOSED_UNTIL || ""
   },
   pageFile: adminPagePath(__dirname),
   supabaseUrl: SUPABASE_URL,
