@@ -20,8 +20,8 @@
 //                     todo ticked
 //   the fees          one expense from Woovin B.V. on Transacties at 21%,
 //                     one line per order so the VAT rounds as Woovin's does;
-//                     the PDF goes on it by hand, Rompslomp's API cannot put
-//                     a file on an expense (see purchaseExpense.js)
+//                     the PDF is kept here (Supabase, woovin-payouts), as
+//                     Rompslomp's API cannot put a file on an expense
 //   settlement        a Kruisposten payment per document: +price per
 //                     invoice, −price per credit, −fees for the expense.
 //                     They add up to the bank line, which goes to Kruisposten
@@ -44,6 +44,7 @@ import zlib from "zlib";
 
 import { creditInvoiceBody } from "./externalSalesInvoicing.js";
 import { invoicePlan } from "./adminCollectiveInvoices.js";
+import { createPrivateStorage } from "./selfBillingDocuments.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
@@ -719,8 +720,60 @@ const paymentText = (plan, s, document) =>
  *   woovinToken  WOOVIN_API_TOKEN; without it the API check is skipped and said so
  *   returnsFlow  () => createReturns(...), to tick a credit's marketplace_settle todo
  */
-export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, woovinToken = "", woovinBase = "https://woovin.com/api/v1", returnsFlow = () => null, closedUntil = BOOKS_CLOSED_UNTIL, now = () => new Date(), pause = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+/*
+ * The payout PDFs, kept in a private Supabase bucket as
+ * payout-invoice-<number>.pdf: the document behind Woovin's fee expense,
+ * here instead of on the expense (Rompslomp's API cannot attach a file to an
+ * expense). The bucket is made the first time it is missing.
+ */
+export const PDF_BUCKET = "woovin-payouts";
+export const pdfName = (number) => `payout-invoice-${String(number).replace(/\D/g, "")}.pdf`;
+
+export function createPayoutFiles({ supabaseUrl, serviceKey, fetchImpl = fetch }) {
+  const storage = createPrivateStorage({ supabaseUrl, serviceKey, bucket: PDF_BUCKET, fetchImpl });
+  const base = text(supabaseUrl).replace(/\/$/, "");
+  const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" };
+
+  async function makeBucket() {
+    const response = await fetchImpl(`${base}/storage/v1/bucket`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ id: PDF_BUCKET, name: PDF_BUCKET, public: false }),
+      signal: AbortSignal.timeout(30_000)
+    });
+    const body = await response.text().catch(() => "");
+    if (!response.ok && !/already exists|Duplicate/i.test(body)) throw new Error(`Storage answered ${response.status} making the bucket: ${body.slice(0, 200)}`);
+  }
+
+  async function save(number, buffer) {
+    try {
+      return await storage.upload(pdfName(number), buffer);
+    } catch (err) {
+      if (!/not.?found|404|400/i.test(err.message)) throw err;
+      await makeBucket();
+      return storage.upload(pdfName(number), buffer);
+    }
+  }
+
+  // The payout numbers that have their PDF here.
+  async function numbers() {
+    const response = await fetchImpl(`${base}/storage/v1/object/list/${PDF_BUCKET}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ prefix: "", limit: 1000, offset: 0 }),
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (!response.ok) return new Set();
+    const rows = await response.json().catch(() => []);
+    return new Set((Array.isArray(rows) ? rows : []).map((r) => text(r.name).match(/^payout-invoice-(\d+)\.pdf$/)?.[1]).filter(Boolean));
+  }
+
+  return { configured: storage.configured, save, numbers, download: (number) => storage.download(pdfName(number)) };
+}
+
+export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, woovinToken = "", woovinBase = "https://woovin.com/api/v1", returnsFlow = () => null, closedUntil = BOOKS_CLOSED_UNTIL, now = () => new Date(), pause = (ms) => new Promise((r) => setTimeout(r, ms)), files = null }) {
   const jobs = new Map();
+  const pdfsHere = new Set(); // payout numbers whose PDF is kept, as far as known
 
   function ready() {
     if (!rompslomp?.configured) throw new WoovinPayoutError("Booking needs ROMPSLOMP_API_TOKEN on this service.", 503);
@@ -818,13 +871,26 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
       }
       return api;
     };
-    const [invoices, api, expense, payments] = await Promise.all([
+    const keep = async () => {
+      if (!files?.configured) return "";
+      try {
+        await files.save(payout.number, buffer);
+        pdfsHere.add(String(payout.number));
+        if (overviewCache) overviewCache = { ...overviewCache, data: withBooked(overviewCache.data) };
+        return "";
+      } catch (err) {
+        return `The PDF could not be kept here (${err.message}); it is booked all the same.`;
+      }
+    };
+    const [invoices, api, expense, payments, notKept] = await Promise.all([
       rompslomp.invoicesOfContact(WOOVIN_CUSTOMER),
       woovinOrders(),
       feeExpenseOf(payout),
-      paymentsOf(`Woovin payout #${payout.number}`, payout.date)
+      paymentsOf(`Woovin payout #${payout.number}`, payout.date),
+      keep()
     ]);
     const plan = planPayout({ payout, orders, units, invoices, api, expense, payments, closedUntil, today: todayIn(now()) });
+    if (notKept) plan.warnings.push(notKept);
     if (!text(woovinToken)) plan.warnings.unshift("WOOVIN_API_TOKEN is not set on this service: the rows were not checked against the Woovin API.");
     return { payout, plan, invoices };
   }
@@ -879,7 +945,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
 
   function withBooked(data) {
     for (const [number, hit] of bookedHere) if (Date.now() - hit.at > 30 * 60_000) bookedHere.delete(number);
-    const payouts = data.payouts.map(asBooked);
+    const payouts = data.payouts.map(asBooked).map((row) => ({ ...row, pdf: Boolean(row.pdf) || pdfsHere.has(String(row.number)) }));
     return { ...data, payouts, next: payouts.find((r) => r.status === "to_upload")?.number || "" };
   }
 
@@ -905,7 +971,13 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
       return out;
     };
 
-    const [all, unbookedRows, invoiceRows] = await Promise.all([scan("all"), scan("unbooked"), rompslomp.invoicesOfContact(WOOVIN_CUSTOMER)]);
+    const [all, unbookedRows, invoiceRows, pdfNumbers] = await Promise.all([
+      scan("all"),
+      scan("unbooked"),
+      rompslomp.invoicesOfContact(WOOVIN_CUSTOMER),
+      files?.configured ? files.numbers().catch(() => new Set()) : new Set()
+    ]);
+    for (const number of pdfNumbers) pdfsHere.add(number);
     const unbooked = new Set(unbookedRows.map((p) => String(p.id)));
     const invoices = new Map(invoiceRows.map((i) => [text(i.invoice_number), i]));
     const payouts = new Map();
@@ -1060,7 +1132,6 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
       if (Math.abs(expense.total - plan.totals.fees) > 0.005) {
         todos.push(`The fee expense ${made.invoice_number || made.id} came out at ${euro(expense.total)}, Woovin's invoice is ${euro(plan.totals.fees)}: correct it in Rompslomp, or its Kruisposten payment will not match.`);
       }
-      todos.push(`Attach payout-invoice-${plan.number}.pdf to fee expense ${made.invoice_number || made.id} by hand; Rompslomp's API cannot add files to an expense.`);
     } else {
       log(`Fee expense ${expense.number || expense.id} was there already.`);
     }
@@ -1113,7 +1184,18 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     return { ...rest, totals: plan?.totals || null };
   }
 
-  return { preview, book, status, overview, warm, jobs };
+  async function pdf(number) {
+    if (!files?.configured) throw new WoovinPayoutError("The payout PDFs are not kept on this service (no Supabase).", 503);
+    const n = String(number).replace(/\D/g, "");
+    if (!n) throw new WoovinPayoutError("Which payout?", 400);
+    try {
+      return { filename: pdfName(n), pdf: await files.download(n) };
+    } catch {
+      throw new WoovinPayoutError(`The PDF of payout #${n} is not here: drop it on this page once and it is kept.`, 404);
+    }
+  }
+
+  return { preview, book, status, overview, warm, pdf, jobs };
 }
 
 /* ---------------- routes ---------------- */
@@ -1161,6 +1243,15 @@ export function mountWoovinPayouts(router, { store, audit, pageFile }) {
   router.get("/api/admin/woovin-payouts/overview", async (req, res) => {
     try {
       res.json(await store.overview({ fresh: req.query.fresh === "1" }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/woovin-payouts/pdf", async (req, res) => {
+    try {
+      const { filename, pdf } = await store.pdf(req.query.n);
+      res.type("application/pdf").set("Content-Disposition", `inline; filename="${filename}"`).send(pdf);
     } catch (err) {
       send(res, err);
     }

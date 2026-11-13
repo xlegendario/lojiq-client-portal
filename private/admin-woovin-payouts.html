@@ -311,7 +311,7 @@
       <p class="sub" style="margin:0;max-width:860px">
         Drop one or more Woovin "Payout invoice" PDFs here. Every row is checked against Airtable, the Woovin API and Rompslomp first; nothing
         is booked until you press Book. Booking makes the sales invoices (with their Voorraadcorrectie), the credits, Woovin's fee
-        expense (the PDF you attach by hand), and one Kruisposten payment per document. Several at once are put in order and booked one after the other, oldest first.
+        expense, and one Kruisposten payment per document; the PDF itself is kept here, with its payout. Several at once are put in order and booked one after the other, oldest first.
       </p>
 
       <label class="drop" id="drop" tabindex="0">
@@ -398,9 +398,10 @@
                 <th>Status</th>
                 <th class="money">On Kruisposten</th>
                 <th>Invoices still open</th>
+                <th>PDF</th>
               </tr>
             </thead>
-            <tbody id="overviewRows"><tr><td class="empty" colspan="6">Loading…</td></tr></tbody>
+            <tbody id="overviewRows"><tr><td class="empty" colspan="7">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -552,8 +553,9 @@
               <td><span class="pill ${tone}">${esc(label)}</span></td>
               <td class="money">${p.payments ? `${esc(money(p.settled))} <span class="sub">(${p.payments})</span>` : '<span class="dash">—</span>'}</td>
               <td>${p.payments ? (p.open_invoices ? `${p.open_invoices} of ${p.invoices}` : `none of ${p.invoices}`) : '<span class="dash">—</span>'}</td>
+              <td>${p.pdf ? `<a href="/api/admin/woovin-payouts/pdf?n=${encodeURIComponent(p.number)}" target="_blank" rel="noopener">open</a>` : '<span class="dash">—</span>'}</td>
             </tr>`;
-        }).join("") : '<tr><td class="empty" colspan="6">No Woovin payouts found on the bank since September.</td></tr>';
+        }).join("") : '<tr><td class="empty" colspan="7">No Woovin payouts found on the bank since September.</td></tr>';
       } catch (err) {
         $("overviewNote").textContent = err.message;
       }

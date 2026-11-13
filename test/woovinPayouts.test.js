@@ -398,3 +398,37 @@ test("only Kickz Caviar's company is booked into", () => {
   const store = createWoovinPayouts({ airtable: s.airtable, rompslomp: { ...s.rompslomp, companyId: "42" } });
   assert.throws(() => store.book(samplePdf()), /company 1296508534 only/);
 });
+
+test("the payout PDF is kept under its number, and the overview links it", async () => {
+  const s = services();
+  const kept = new Map([["7166", Buffer.from("old")]]);
+  const files = {
+    configured: true,
+    async save(number, buffer) { kept.set(String(number), buffer); return `woovin-payouts/payout-invoice-${number}.pdf`; },
+    async numbers() { return new Set(kept.keys()); },
+    async download(number) { if (!kept.has(String(number))) throw new Error("404"); return kept.get(String(number)); }
+  };
+  const store = createWoovinPayouts({ airtable: s.airtable, rompslomp: s.rompslomp, files, pause: async () => {} });
+
+  const plan = await store.preview(samplePdf());
+  assert.equal(plan.number, "7333");
+  assert.ok(kept.has("7333"));
+  assert.ok(!plan.warnings.some((w) => /could not be kept/.test(w)));
+
+  const { filename, pdf } = await store.pdf("7333");
+  assert.equal(filename, "payout-invoice-7333.pdf");
+  assert.deepEqual(pdf, samplePdf());
+  await assert.rejects(store.pdf("7400"), /not here/);
+
+  // Booking after the preview no longer asks for the PDF to be attached by hand.
+  const job = store.book(samplePdf());
+  await job.promise;
+  assert.equal(job.state, "done", job.error);
+  assert.ok(!job.todos.some((t) => /Attach/.test(t)));
+
+  // A PDF that cannot be kept does not stop the payout.
+  const broken = createWoovinPayouts({ airtable: s.airtable, rompslomp: s.rompslomp, files: { ...files, async save() { throw new Error("down"); } }, pause: async () => {} });
+  const plan2 = await broken.preview(samplePdf());
+  assert.ok(plan2.warnings.some((w) => /could not be kept here \(down\)/.test(w)));
+  assert.equal(plan2.bookable, true);
+});

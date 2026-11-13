@@ -56,7 +56,7 @@ import { createBolPagesStore, mountBolPages } from "./adminBolPages.js";
 import { createExternalSalesStore, mountExternalSales } from "./adminExternalSales.js";
 import { createMolliePayoutsStore, mountMolliePayouts } from "./adminMolliePayouts.js";
 import { createCollectiveInvoicesStore, mountCollectiveInvoices } from "./adminCollectiveInvoices.js";
-import { createWoovinPayouts, mountWoovinPayouts } from "./woovinPayouts.js";
+import { createPayoutFiles, createWoovinPayouts, mountWoovinPayouts } from "./woovinPayouts.js";
 import { createInboundScansStore, mountInboundScans } from "./adminInboundScans.js";
 import { createInventoryStore, mountInventory } from "./adminInventory.js";
 import { createPartnerStockStore, mountPartnerStock } from "./adminPartnerStock.js";
@@ -600,6 +600,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     woovinToken: services.woovinToken,
     returnsFlow: () => returns,
     closedUntil: services.booksClosedUntil || undefined,
+    files: createPayoutFiles({ supabaseUrl, serviceKey, fetchImpl }),
     fetchImpl
   });
   mountWoovinPayouts(router, {
