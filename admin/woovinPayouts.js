@@ -776,12 +776,20 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     return null;
   }
 
-  async function paymentsOf(tag, pages = 10) {
+  /*
+   * The Kruisposten payments made for this payout. Rompslomp lists payments
+   * newest paid_at first, and ours are dated on the payout, so this reads
+   * until it is past that date - a fixed number of pages missed #7138's
+   * (page 9 of them on 13-11-2026) as soon as enough newer ones came in, and
+   * would have made them twice.
+   */
+  async function paymentsOf(tag, date) {
+    const until = plusDays(date || todayIn(now()), -3);
     const out = [];
-    for (let page = 1; page <= pages; page++) {
+    for (let page = 1; page <= 200; page++) {
       const rows = (await rompslomp.read(`/payments?page=${page}&per_page=100`))?.payments || [];
       out.push(...rows.filter((p) => text(p.description).startsWith(`${tag}:`)));
-      if (rows.length < 100) break;
+      if (rows.length < 100 || text(rows.at(-1)?.paid_at).slice(0, 10) < until) break;
     }
     return out;
   }
@@ -803,7 +811,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     }
 
     const expense = await feeExpenseOf(payout);
-    const payments = await paymentsOf(`Woovin payout #${payout.number}`);
+    const payments = await paymentsOf(`Woovin payout #${payout.number}`, payout.date);
     const plan = planPayout({ payout, orders, units, invoices, api, expense, payments, closedUntil, today: todayIn(now()) });
     if (!text(woovinToken)) plan.warnings.unshift("WOOVIN_API_TOKEN is not set on this service: the rows were not checked against the Woovin API.");
     return { payout, plan, invoices };
@@ -915,7 +923,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
 
     // Kruisposten: one payment per document.
     job.step = "Kruisposten";
-    const done = new Set((await paymentsOf(plan.tag)).map((p) => text(p.description)));
+    const done = new Set((await paymentsOf(plan.tag, plan.date)).map((p) => text(p.description)));
     const paidAt = plan.date || todayIn(now());
     let made = 0;
     for (const s of plan.settle) {
