@@ -227,20 +227,24 @@ test("an invoice for a refunded order has to be credited first", () => {
   assert.match(plan.problems.join(" "), /never paid it out: credit it first/);
 });
 
-test("the fee expense: a line per order at 21%, the rounding apart, Woovin's total to the cent", () => {
+test("the fee expense: a line per fee per order at 21%, as Woovin rounds, its total to the cent", () => {
   const { payout, orders, units } = world();
   const plan = planPayout({ payout, orders, units });
   const body = feeExpenseBody({ plan }).expense;
 
   assert.equal(body.contact_id, WOOVIN_SUPPLIER);
   const vatLines = body.invoice_lines.filter((l) => l.vat_type_id === 701184043);
-  assert.equal(vatLines.length, 3);
+  assert.equal(vatLines.length, 5);
+  assert.deepEqual(vatLines.map((l) => l.description.split(" · ").pop()), ["transaction fee", "processing", "transaction fee", "processing", "compensation"]);
   assert.ok(vatLines.every((l) => l.description.startsWith("Woovin payout invoice #7333")));
   const excl = vatLines.reduce((s, l) => s + Number(l.price_per_unit), 0);
   const vat = vatLines.reduce((s, l) => s + Math.round(Number(l.price_per_unit) * 21) / 100, 0);
   const rounding = body.invoice_lines.filter((l) => l.vat_type_id !== 701184043).reduce((s, l) => s + Number(l.price_per_unit), 0);
   assert.equal(round(excl), 68.85);
   assert.equal(round(excl + vat + rounding), plan.totals.fees);
+  // Per fee, 21% rounded is Woovin's VAT exactly: no rounding line.
+  assert.equal(round(vat), 14.46);
+  assert.equal(rounding, 0);
 });
 
 test("the sales invoice looks like September's: to Woovin, order and reference, margin template", () => {

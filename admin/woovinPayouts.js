@@ -543,19 +543,19 @@ export function planPayout({ payout, orders = new Map(), units = new Map(), invo
   if (Math.abs(vatRows - footer.vat) > 0.005) problems.push(`The rows have ${euro(vatRows)} VAT on fees, the totals say ${euro(footer.vat)}.`);
   if (Math.abs(pdfDifference) > 0.025) problems.push(`Sales ${euro(sales)} − credits ${euro(credits)} − fees ${euro(fees)} is not the payout ${euro(bank)} (${euro(pdfDifference)} apart).`);
 
-  // The expense: one line per order with fees, so the VAT rounds per row as
-  // Woovin rounds it. Rompslomp rounds per line too.
-  const feeLines = rows.filter((r) => feeBase(r) !== 0).map((r) => ({
-    ref: r.ref, order_id: r.order_id, kind: r.kind, base: round2(signed(r, feeBase(r))),
-    processing: r.processing, fee: r.fee, compensation: r.compensation
-  }));
   /*
-   * Woovin's VAT per row is not always 21% of that row rounded (the two fees
-   * are taxed apart), so 21% per line can miss its total by a cent. The
-   * difference goes on a line of its own without VAT: the expense then is
-   * Woovin's invoice to the cent, which is what the payment has to match, and
-   * the VAT claimed is at most a cent under theirs.
+   * The expense: a line per fee per order (transaction fee, processing,
+   * compensation), because Woovin rounds the VAT per fee, not per order -
+   * 21% of each fee rounded matches their VAT to the cent on all thirteen
+   * payouts from #7138 to #7459, a line per order missed by up to 8 cents
+   * (#7440). Rompslomp rounds per line too. Should Woovin ever round
+   * otherwise, the difference goes on a line of its own without VAT, so the
+   * expense is still their invoice to the cent.
    */
+  const FEE_PARTS = [["fee", "transaction fee"], ["processing", "processing"], ["compensation", "compensation"]];
+  const feeLines = rows.filter((r) => feeBase(r) !== 0).flatMap((r) => FEE_PARTS
+    .filter(([key]) => round2(r[key]) !== 0)
+    .map(([key, part]) => ({ ref: r.ref, order_id: r.order_id, kind: r.kind, part, base: round2(signed(r, r[key])) })));
   const lineVat = round2(feeLines.reduce((s, l) => s + Math.round(l.base * VAT_HIGH.rate * 100) / 100, 0));
   const vatRounding = round2(footer.vat - lineVat);
   if (!expense && Math.abs(vatRounding) > 0.05) problems.push(`At 21% per line the VAT on fees comes to ${euro(lineVat)}, Woovin says ${euro(footer.vat)}: too far apart to be rounding.`);
@@ -682,19 +682,15 @@ export function feeExpenseBody({ plan }) {
       contact_id: WOOVIN_SUPPLIER,
       type_account_id: FEE_ACCOUNT.id,
       invoice_lines: plan.fee_lines.map((l) => ({
-        description: `${tag} · ${l.order_id || l.ref}`,
-        extended_description: [
-          l.kind === "penalty" ? `compensation ${nl(l.compensation)}` : `transaction fee ${nl(l.fee)} + processing ${nl(l.processing)}${l.compensation ? ` + compensation ${nl(l.compensation)}` : ""}`,
-          l.kind === "correction" ? "(correction)" : "",
-          `Woovin ${l.ref}`
-        ].filter(Boolean).join(" · "),
+        description: `${tag} · ${l.order_id || l.ref} · ${l.part}`,
+        extended_description: [l.kind === "correction" ? "(correction)" : "", `Woovin ${l.ref}`].filter(Boolean).join(" · "),
         price_per_unit: l.base.toFixed(2),
         quantity: "1.0",
         vat_rate: String(VAT_HIGH.rate),
         vat_type_id: VAT_HIGH.id
       })).concat(plan.vat_rounding ? [{
         description: `${tag} · afronding btw`,
-        extended_description: `Woovin rounds the VAT per fee: ${nl(plan.totals.fee_vat)} on their invoice, ${nl(plan.totals.fee_vat - plan.vat_rounding)} at 21% per line`,
+        extended_description: `Woovin's VAT ${nl(plan.totals.fee_vat)}, ${nl(plan.totals.fee_vat - plan.vat_rounding)} at 21% per line`,
         price_per_unit: plan.vat_rounding.toFixed(2),
         quantity: "1.0",
         vat_rate: "0",
