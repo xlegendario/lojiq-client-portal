@@ -84,6 +84,9 @@ const STOCK = { id: 1981496874, path: "activa.current_assets.voorraad_scout_cust
  */
 export const BOOKS_CLOSED_UNTIL = "2026-09-30";
 
+// Woovin's first payout to us came in September 2026; the overview starts there.
+export const OVERVIEW_FROM = "2026-09-01";
+
 const ORDER_FIELDS = [
   "Order ID", "Marketplace Sale ID", "Marketplace", "Order Source", "Fulfillment Status", "Bookkeeping Status",
   "Rompslomp Invoice ID", "Rompslomp Invoice Number", "Rompslomp Credit Invoice Number", "Rompslomp Journal Entry ID",
@@ -822,6 +825,78 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
   }
 
   /*
+   * Every Woovin payout since the start, from Rompslomp itself, and how far
+   * each one is: the bank lines Woovin paid ("Payout 7138" in their text),
+   * the Kruisposten payments booked here for it, whether the bank line is
+   * booked yet, and whether the invoices it pays are paid. Two scans of the
+   * payments, newest first down to the start, so it is cached for a while.
+   */
+  let overviewCache = null;
+
+  async function overview({ fresh = false } = {}) {
+    ready();
+    if (!fresh && overviewCache && Date.now() - overviewCache.at < 10 * 60_000) return overviewCache.data;
+
+    const scan = async (selection) => {
+      const out = [];
+      for (let page = 1; page <= 200; page++) {
+        const rows = (await rompslomp.read(`/payments?selection=${selection}&page=${page}&per_page=100`))?.payments || [];
+        out.push(...rows);
+        if (rows.length < 100 || text(rows.at(-1)?.paid_at).slice(0, 10) < OVERVIEW_FROM) break;
+      }
+      return out;
+    };
+
+    const all = await scan("all");
+    const unbooked = new Set((await scan("unbooked")).map((p) => String(p.id)));
+    const invoices = new Map((await rompslomp.invoicesOfContact(WOOVIN_CUSTOMER)).map((i) => [text(i.invoice_number), i]));
+    const payouts = new Map();
+    const of = (number) => {
+      if (!payouts.has(number)) payouts.set(number, { number, date: "", bank: null, bank_booked: false, payments: 0, settled: 0, open_invoices: 0, invoices: 0 });
+      return payouts.get(number);
+    };
+
+    for (const p of all) {
+      const description = text(p.description);
+      const ours = description.match(/^Woovin payout #(\d+):/);
+      if (ours) {
+        const row = of(ours[1]);
+        row.payments += 1;
+        row.settled = round2(row.settled + Number(p.amount));
+        const number = description.match(/\b(KC\d{6}-\d+)\b/)?.[1];
+        if (number && invoices.has(number)) {
+          row.invoices += 1;
+          if (Number(invoices.get(number).open_amount) > 0.005) row.open_invoices += 1;
+        }
+        if (!row.date) row.date = text(p.paid_at).slice(0, 10);
+        continue;
+      }
+      const bank = /WOOVIN B\.V\./i.test(description) && /bank/i.test(text(p.account_path)) && description.match(/Payout (\d+)/i);
+      if (bank) {
+        const row = of(bank[1]);
+        row.bank = round2(Number(p.amount));
+        row.date = text(p.paid_at).slice(0, 10);
+        row.bank_booked = !unbooked.has(String(p.id));
+      }
+    }
+
+    const list = [...payouts.values()].sort((a, b) => Number(a.number) - Number(b.number)).map((row) => ({
+      ...row,
+      status: !row.payments
+        ? "to_upload"
+        : !row.bank_booked
+          ? "bank_line"
+          : row.open_invoices
+            ? "link"
+            : "done"
+    }));
+    const next = list.find((r) => r.status === "to_upload")?.number || "";
+    const data = { since: OVERVIEW_FROM, next, payouts: list, at: now().toISOString() };
+    overviewCache = { at: Date.now(), data };
+    return data;
+  }
+
+  /*
    * Book it. Runs as a job (a payout is a hundred calls or more, and
    * Rompslomp makes us wait a minute when it has had enough); the page asks
    * how far it is.
@@ -956,7 +1031,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     for (const [key, old] of jobs) if (old.state !== "running" && Date.now() - Date.parse(old.started_at) > 6 * 3600_000) jobs.delete(key);
 
     job.promise = run(buffer, job)
-      .then((plan) => { job.state = "done"; job.plan = plan; })
+      .then((plan) => { job.state = "done"; job.plan = plan; overviewCache = null; })
       .catch((err) => { job.state = "failed"; job.error = err.message; console.error("[woovin payouts]", err.message); });
 
     return job;
@@ -969,7 +1044,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     return { ...rest, totals: plan?.totals || null };
   }
 
-  return { preview, book, status, jobs };
+  return { preview, book, status, overview, jobs };
 }
 
 /* ---------------- routes ---------------- */
@@ -1009,6 +1084,14 @@ export function mountWoovinPayouts(router, { store, audit, pageFile }) {
         details: { log: job.log, todos: job.todos, error: job.error }
       }).catch(() => {}));
       res.json(store.status(job.id));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  router.get("/api/admin/woovin-payouts/overview", async (req, res) => {
+    try {
+      res.json(await store.overview({ fresh: req.query.fresh === "1" }));
     } catch (err) {
       send(res, err);
     }

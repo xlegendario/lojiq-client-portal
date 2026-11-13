@@ -368,6 +368,32 @@ test("a payout with a problem is not booked at all", async () => {
   assert.equal(s.invoices.length + s.expenses.length + s.payments.length, 0);
 });
 
+test("the overview: every Woovin bank line, and how far each payout is", async () => {
+  const s = services();
+  const bank = (id, amount, date, n) => ({ id, amount: String(amount), paid_at: `${date}T00:00:00.000+02:00`, account_path: "activa.liquid_assets.bank_zakelijk_ing_custom", description: `Naam: WOOVIN B.V.Omschrijving: Payout ${n} - UNIONAmsterdam` });
+  const lines = [bank(3, 1038.49, "2026-10-01", "7166"), bank(2, 1404.46, "2026-09-28", "7138"), bank(1, 999, "2026-09-20", "7100")];
+  s.invoices.push({ id: 7, invoice_number: "KC202609-2432", price_with_vat: "82.0", open_amount: "0.0" });
+  s.invoices.push({ id: 8, invoice_number: "KC202609-2433", price_with_vat: "120.0", open_amount: "120.0" });
+  const ours = [
+    { id: 10, amount: "82.0", paid_at: "2026-09-28T00:00:00.000+02:00", description: "Woovin payout #7138: KC202609-2432 (ORD-023783)" },
+    { id: 11, amount: "120.0", paid_at: "2026-09-28T00:00:00.000+02:00", description: "Woovin payout #7138: KC202609-2433 (ORD-023805)" },
+    { id: 12, amount: "-1.0", paid_at: "2026-09-20T00:00:00.000+02:00", description: "Woovin payout #7100: kosten payout invoice #7100" }
+  ];
+  s.rompslomp.read = async (path) => {
+    if (/selection=unbooked/.test(path)) return { payments: path.includes("page=1&") ? [lines[0], lines[1]] : [] };
+    return { payments: path.includes("page=1&") ? [lines[0], ...ours.slice(0, 2), lines[1], lines[2], ours[2]] : [] };
+  };
+  const store = createWoovinPayouts({ airtable: s.airtable, rompslomp: s.rompslomp });
+
+  const o = await store.overview();
+  assert.deepEqual(o.payouts.map((p) => [p.number, p.status]), [["7100", "done"], ["7138", "bank_line"], ["7166", "to_upload"]]);
+  assert.equal(o.next, "7166");
+  const p7138 = o.payouts.find((p) => p.number === "7138");
+  assert.equal(p7138.bank, 1404.46);
+  assert.equal(p7138.settled, 202);
+  assert.equal(p7138.open_invoices, 1);
+});
+
 test("only Kickz Caviar's company is booked into", () => {
   const s = services();
   const store = createWoovinPayouts({ airtable: s.airtable, rompslomp: { ...s.rompslomp, companyId: "42" } });

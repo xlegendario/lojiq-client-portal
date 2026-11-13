@@ -312,6 +312,29 @@
         expense with the PDF attached, and one Kruisposten payment per document. Book the payouts oldest first.
       </p>
 
+      <section class="overview">
+        <div class="heading">
+          <h2 style="margin:0;font-size:15px">All Woovin payouts</h2>
+          <span class="sub" id="overviewNote">Loading from Rompslomp… (about 20 seconds)</span>
+          <button class="btn ghost" type="button" id="overviewRefresh" style="margin-left:auto">Refresh</button>
+        </div>
+        <div class="table-wrap" style="max-height:340px">
+          <table>
+            <thead>
+              <tr>
+                <th>Payout</th>
+                <th>Paid</th>
+                <th class="money">Bank line</th>
+                <th>Status</th>
+                <th class="money">On Kruisposten</th>
+                <th>Invoices still open</th>
+              </tr>
+            </thead>
+            <tbody id="overviewRows"><tr><td class="empty" colspan="6">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
       <label class="drop" id="drop" tabindex="0">
         <input type="file" id="file" accept="application/pdf,.pdf" hidden>
         <strong>Drop the payout PDF here</strong>
@@ -473,6 +496,43 @@
       drawNavSections();
     });
 
+    /* ---------------- every payout ---------------- */
+
+    const STATUS = {
+      to_upload: ["Upload the PDF", "wait"],
+      bank_line: ["Book the bank line on Kruisposten", "move"],
+      link: ["Link the Kruisposten payments", "move"],
+      done: ["Done", "good"]
+    };
+
+    async function loadOverview(fresh = false) {
+      $("overviewNote").textContent = "Loading from Rompslomp… (about 20 seconds)";
+      try {
+        const data = await api(`/api/admin/woovin-payouts/overview${fresh ? "?fresh=1" : ""}`);
+        const rows = data.payouts || [];
+        $("overviewNote").textContent = data.next
+          ? `Next to upload: #${data.next}. Book them in this order, oldest first.`
+          : "Every payout is booked here.";
+        $("overviewRows").innerHTML = rows.length ? rows.map((p) => {
+          const [label, tone] = STATUS[p.status] || ["?", ""];
+          const next = p.number === data.next;
+          return `
+            <tr class="${next ? "selected" : ""}">
+              <td class="id">#${esc(p.number)}${next ? ' <span class="pill wait">next</span>' : ""}</td>
+              <td>${p.date ? esc(day(p.date)) : '<span class="dash">—</span>'}</td>
+              <td class="money">${p.bank === null ? '<span class="dash">not on the bank yet</span>' : esc(money(p.bank))}</td>
+              <td><span class="pill ${tone}">${esc(label)}</span></td>
+              <td class="money">${p.payments ? `${esc(money(p.settled))} <span class="sub">(${p.payments})</span>` : '<span class="dash">—</span>'}</td>
+              <td>${p.payments ? (p.open_invoices ? `${p.open_invoices} of ${p.invoices}` : `none of ${p.invoices}`) : '<span class="dash">—</span>'}</td>
+            </tr>`;
+        }).join("") : '<tr><td class="empty" colspan="6">No Woovin payouts found on the bank since September.</td></tr>';
+      } catch (err) {
+        $("overviewNote").textContent = err.message;
+      }
+    }
+
+    $("overviewRefresh").addEventListener("click", () => loadOverview(true));
+
     /* ---------------- the payout ---------------- */
 
     const KIND = {
@@ -633,6 +693,7 @@
           toast(`Payout #${end.number} booked.`);
           state.plan = null;
           drawPlan();
+          loadOverview(true);
         }
       } catch (err) {
         showStatus(esc(err.message), "bad");
@@ -645,6 +706,7 @@
     drawNavSections();
     drawOtherSections([]);
     loadNavCounts();
+    loadOverview();
 
     /* ---------------- who is signed in, theme, log out ---------------- */
 
