@@ -309,17 +309,38 @@
       </div>
 
       <p class="sub" style="margin:0;max-width:860px">
-        Drop a Woovin "Payout invoice" PDF here. Every row is checked against Airtable, the Woovin API and Rompslomp first; nothing
+        Drop one or more Woovin "Payout invoice" PDFs here. Every row is checked against Airtable, the Woovin API and Rompslomp first; nothing
         is booked until you press Book. Booking makes the sales invoices (with their Voorraadcorrectie), the credits, Woovin's fee
-        expense (the PDF you attach by hand), and one Kruisposten payment per document. Book the payouts oldest first.
+        expense (the PDF you attach by hand), and one Kruisposten payment per document. Several at once are put in order and booked one after the other, oldest first.
       </p>
 
       <label class="drop" id="drop" tabindex="0">
-        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
-        <strong>Drop the payout PDF here</strong>
-        <span class="sub">or click to pick it</span>
+        <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
+        <strong>Drop the payout PDFs here</strong>
+        <span class="sub">one or several at once, or click to pick them</span>
         <span class="next-up" id="nextUp"></span>
       </label>
+
+      <section id="queue" hidden>
+        <div class="actionbar">
+          <button class="btn primary" type="button" id="bookAllBtn" disabled>Book all that add up</button>
+          <span class="sub" id="queueHint"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Payout</th>
+                <th>File</th>
+                <th class="money">Bank line</th>
+                <th>Check</th>
+                <th>What gets booked</th>
+              </tr>
+            </thead>
+            <tbody id="queueRows"></tbody>
+          </table>
+        </div>
+      </section>
 
       <div class="result" id="status" hidden></div>
 
@@ -540,7 +561,9 @@
 
     $("overviewRefresh").addEventListener("click", () => loadOverview(true));
 
-    /* ---------------- the payout ---------------- */
+    $("overviewRefresh").addEventListener("click", () => loadOverview(true));
+
+    /* ---------------- the payouts dropped ---------------- */
 
     const KIND = {
       sale: ["Sale", "good"],
@@ -550,9 +573,26 @@
       unknown: ["Not recognised", "bad"]
     };
 
-    const state = { file: null, plan: null, busy: false };
+    const CHECK = {
+      waiting: ["Waiting", ""],
+      checking: ["Checking…", "move"],
+      ready: ["Adds up", "good"],
+      problems: ["Problems", "bad"],
+      error: ["Could not read", "bad"],
+      already: ["Booked already", "good"],
+      booking: ["Booking…", "move"],
+      booked: ["Booked", "good"],
+      failed: ["Booking stopped", "bad"]
+    };
 
-    const money2 = (value) => (value === null || value === undefined || value === "" ? "—" : money(value));
+    // queue: one item per PDF, oldest payout first; selected is the one shown below.
+    const state = { queue: [], selected: null, busy: false };
+
+    const isPdf = (file) => /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+    const numberOfName = (name) => (String(name).match(/(\d{4,})/) || [])[1] || "";
+    const byNumber = (a, b) => Number(a.number || 0) - Number(b.number || 0);
+    const bookedAlready = (p) => p.counts.new_invoices === 0 && (p.payments_done || []).length >= p.settle.length;
+    const toBook = () => state.queue.filter((i) => i.state === "ready");
 
     function showStatus(html, tone = "") {
       $("status").hidden = !html;
@@ -560,8 +600,51 @@
       $("status").innerHTML = html;
     }
 
+    function drawQueue() {
+      const q = state.queue;
+      $("queue").hidden = q.length < 2;
+      $("queueRows").innerHTML = q.map((item, n) => {
+        const [label, tone] = CHECK[item.state] || ["?", ""];
+        const p = item.plan;
+        const what = item.error
+          ? `<span class="bad-text">${esc(item.error)}</span>`
+          : p
+            ? (p.bookable
+              ? esc(`${p.counts.new_invoices} invoice${p.counts.new_invoices === 1 ? "" : "s"}, ${p.counts.corrections} credit${p.counts.corrections === 1 ? "" : "s"}, ${p.expense ? "expense there" : "fee expense"}, ${p.settle.length} payments`)
+              : `<span class="bad-text">${esc(p.problems.join(" "))}</span>`)
+            : '<span class="dash">—</span>';
+        return `
+          <tr data-id="${n}" class="${item === state.selected ? "selected" : ""}">
+            <td class="id">#${esc(item.number || "?")}</td>
+            <td>${esc(item.file.name)}</td>
+            <td class="money">${p ? esc(money(p.totals.bank)) : '<span class="dash">—</span>'}</td>
+            <td><span class="pill ${tone}">${esc(label)}</span></td>
+            <td class="notes">${what}</td>
+          </tr>`;
+      }).join("");
+
+      const ready = toBook();
+      const checking = q.some((i) => i.state === "checking" || i.state === "waiting");
+      $("bookAllBtn").disabled = state.busy || checking || !ready.length;
+      $("bookAllBtn").textContent = ready.length ? `Book all ${ready.length} that add up` : "Book all that add up";
+      $("queueHint").textContent = checking
+        ? `Checking ${q.filter((i) => i.state !== "waiting" && i.state !== "checking").length + 1} of ${q.length}…`
+        : ready.length
+          ? `Booked one after the other, oldest first (${ready.map((i) => `#${i.number}`).join(", ")}). It stops at the first one that goes wrong.`
+          : q.some((i) => i.state === "problems" || i.state === "error") ? "Nothing to book: look at the ones with problems." : "";
+    }
+
+    $("queueRows").addEventListener("click", (event) => {
+      const tr = event.target.closest("tr[data-id]");
+      if (!tr) return;
+      state.selected = state.queue[Number(tr.dataset.id)] || null;
+      drawQueue();
+      drawPlan();
+    });
+
     function drawPlan() {
-      const p = state.plan;
+      const item = state.selected;
+      const p = item?.plan;
       $("plan").hidden = !p;
       if (!p) return;
 
@@ -607,44 +690,64 @@
           </tr>`;
       }).join("");
 
-      $("bookBtn").disabled = !p.bookable || state.busy;
-      $("bookBtn").textContent = `Book payout #${p.number}`;
-      $("bookHint").textContent = p.bookable
-        ? `${c.new_invoices} invoice${c.new_invoices === 1 ? "" : "s"}, ${c.corrections} credit${c.corrections === 1 ? "" : "s"}, ${p.expense ? "no new expense" : "the fee expense"} and ${p.settle.length} Kruisposten payments of together ${money(t.settled)}.`
-        : "Fix the problems above first; nothing is booked while the payout does not add up.";
+      const canBook = p.bookable && !state.busy && ["ready", "already", "failed"].includes(item.state);
+      $("bookBtn").disabled = !canBook;
+      $("bookBtn").textContent = item.state === "booked" ? `Payout #${p.number} is booked` : `Book payout #${p.number}`;
+      $("bookHint").textContent = item.state === "booked" || item.state === "booking"
+        ? ""
+        : item.state === "already"
+          ? "Everything of this payout is in Rompslomp already; booking it again only adds what is missing."
+          : p.bookable
+            ? `${c.new_invoices} invoice${c.new_invoices === 1 ? "" : "s"}, ${c.corrections} credit${c.corrections === 1 ? "" : "s"}, ${p.expense ? "no new expense" : "the fee expense"} and ${p.settle.length} Kruisposten payments of together ${money(t.settled)}.`
+            : "Fix the problems above first; nothing is booked while the payout does not add up.";
     }
 
-    async function preview(file) {
-      if (!file) return;
-      if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
-        toast("That is not a PDF.");
-        return;
-      }
-      state.file = file;
-      state.plan = null;
+    // Check the dropped PDFs one after the other (the Woovin API counts our calls).
+    async function addFiles(files) {
+      const pdfs = [...files].filter(isPdf);
+      if (!pdfs.length) { toast("That is not a PDF."); return; }
+      if (state.busy) { toast("Wait until the booking is done."); return; }
+
+      const queue = pdfs.map((file) => ({ file, number: numberOfName(file.name), state: "waiting", plan: null, error: "" })).sort(byNumber);
+      state.queue = queue;
+      state.selected = null;
+      showStatus(queue.length === 1 ? `Reading ${esc(pdfs[0].name)} and checking every row against Airtable, Woovin and Rompslomp…` : "");
+      drawQueue();
       drawPlan();
-      showStatus(`Reading ${esc(file.name)} and checking every row against Airtable, Woovin and Rompslomp… (about half a minute)`);
 
-      try {
-        state.plan = await api("/api/admin/woovin-payouts/preview", {
-          method: "POST",
-          headers: { "Content-Type": "application/pdf" },
-          body: await file.arrayBuffer()
-        });
-        showStatus("");
+      for (const item of queue) {
+        if (state.queue !== queue) return; // other files were dropped meanwhile
+        item.state = "checking";
+        drawQueue();
+        try {
+          item.plan = await api("/api/admin/woovin-payouts/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/pdf" },
+            body: await item.file.arrayBuffer()
+          });
+          item.number = String(item.plan.number);
+          item.state = !item.plan.bookable ? "problems" : bookedAlready(item.plan) ? "already" : "ready";
+        } catch (err) {
+          item.state = "error";
+          item.error = err.message;
+        }
+        if (state.queue !== queue) return;
+        if (!state.selected && item.plan) state.selected = item;
+        if (queue.length === 1) showStatus(item.error ? esc(item.error) : "", item.error ? "bad" : "");
+        drawQueue();
         drawPlan();
-      } catch (err) {
-        showStatus(esc(err.message), "bad");
       }
+      queue.sort(byNumber);
+      drawQueue();
     }
 
-    $("file").addEventListener("change", () => preview($("file").files[0]));
+    $("file").addEventListener("change", () => { addFiles($("file").files); $("file").value = ""; });
     $("drop").addEventListener("dragover", (event) => { event.preventDefault(); $("drop").classList.add("over"); });
     $("drop").addEventListener("dragleave", () => $("drop").classList.remove("over"));
     $("drop").addEventListener("drop", (event) => {
       event.preventDefault();
       $("drop").classList.remove("over");
-      preview(event.dataTransfer.files[0]);
+      addFiles(event.dataTransfer.files);
     });
     $("drop").addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("file").click(); }
@@ -652,30 +755,82 @@
 
     /* ---------------- book ---------------- */
 
-    function drawJob(job) {
+    function jobHtml(job) {
       const done = job.state === "done";
       const failed = job.state === "failed";
-      showStatus(`
-        <strong>${done ? `Payout #${esc(job.number)} is booked` : failed ? `Booking stopped${job.number ? ` (payout #${esc(job.number)})` : ""}` : `Booking… ${esc(job.step || "")}`}</strong>
-        ${failed ? `<div class="off">${esc(job.error)}<br>Upload the same PDF again to finish it: what is booked already is found back, not made twice.</div>` : ""}
-        ${job.todos.length ? `<h3>Still for you in Rompslomp</h3><ul>${job.todos.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
-        ${job.log.length ? `<details${done ? "" : " open"}><summary>What was done (${job.log.length})</summary><ul>${job.log.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>` : ""}`,
-      failed ? "bad" : "");
+      return `
+        <strong>${done ? `Payout #${esc(job.number)} is booked` : failed ? `Booking stopped${job.number ? ` (payout #${esc(job.number)})` : ""}` : `Booking${job.number ? ` #${esc(job.number)}` : ""}… ${esc(job.step || "")}`}</strong>
+        ${job.log.length ? `<details${done ? "" : " open"}><summary>What was done (${job.log.length})</summary><ul>${job.log.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>` : ""}`;
     }
 
-    async function follow(id) {
+    // The bank line and linking are left for the linking script; what stays
+    // by hand is the rest (the PDF on the expense, anything unusual).
+    const handWork = (todos) => todos.filter((t) => !/^In Rompslomp, book the ING line|^Then link the /.test(t));
+
+    async function bookOne(item, before) {
+      item.state = "booking";
+      item.error = "";
+      drawQueue();
+      drawPlan();
+      let job = await api("/api/admin/woovin-payouts/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/pdf" },
+        body: await item.file.arrayBuffer()
+      });
       for (;;) {
-        const job = await api(`/api/admin/woovin-payouts/status?job=${encodeURIComponent(id)}`);
-        drawJob(job);
-        if (job.state !== "running") return job;
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        showStatus(before + jobHtml(job));
+        if (job.state !== "running") break;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        job = await api(`/api/admin/woovin-payouts/status?job=${encodeURIComponent(job.id)}`);
+      }
+      item.job = job;
+      item.state = job.state === "done" ? "booked" : "failed";
+      if (job.state !== "done") item.error = job.error;
+      return job;
+    }
+
+    function drawBooked(items, stopped) {
+      const todos = items.flatMap((i) => handWork(i.job?.todos || []).map((t) => `#${i.number}: ${t}`));
+      showStatus(`
+        <strong>${items.length ? `Booked: ${items.map((i) => `#${esc(i.number)}`).join(", ")}` : "Nothing booked"}</strong>
+        ${stopped ? `<div class="off">#${esc(stopped.number)} stopped: ${esc(stopped.error)}<br>Drop it again to finish it: what is booked already is found back, not made twice.${items.length ? "" : ""}</div>` : ""}
+        <div class="sub" style="margin-top:6px">The bank lines and linking the Kruisposten payments are left for the linking script.</div>
+        ${todos.length ? `<h3>By hand in Rompslomp, whenever it suits</h3><ul>${todos.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+        ${items.length === 1 && items[0].job?.log.length ? `<details><summary>What was done (${items[0].job.log.length})</summary><ul>${items[0].job.log.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>` : ""}`,
+      stopped ? "bad" : "");
+    }
+
+    async function bookItems(items) {
+      state.busy = true;
+      const booked = [];
+      let stopped = null;
+      try {
+        for (const item of items) {
+          const before = booked.length ? `<div class="sub">Booked: ${booked.map((i) => `#${esc(i.number)}`).join(", ")}</div>` : "";
+          state.selected = item;
+          const job = await bookOne(item, before);
+          if (job.state !== "done") { stopped = item; break; }
+          booked.push(item);
+          loadOverview();
+        }
+      } catch (err) {
+        const item = items.find((i) => i.state === "booking");
+        if (item) { item.state = "failed"; item.error = err.message; }
+        stopped = item || { number: "?", error: err.message };
+      } finally {
+        state.busy = false;
+        drawBooked(booked, stopped);
+        drawQueue();
+        drawPlan();
+        loadOverview();
+        if (booked.length) toast(`Booked ${booked.map((i) => `#${i.number}`).join(", ")}.`);
       }
     }
 
-    $("bookBtn").addEventListener("click", async () => {
-      const p = state.plan;
-      if (!p || !p.bookable || state.busy || !state.file) return;
-
+    $("bookBtn").addEventListener("click", () => {
+      const item = state.selected;
+      const p = item?.plan;
+      if (!p || !p.bookable || state.busy) return;
       const ok = confirm(
         `Book Woovin payout #${p.number}?\n\n` +
         `${p.counts.new_invoices} new sales invoice${p.counts.new_invoices === 1 ? "" : "s"} with Voorraadcorrectie, ` +
@@ -683,31 +838,22 @@
         `and ${p.settle.length} Kruisposten payments adding up to the bank line of ${money(p.totals.bank)}.\n\n` +
         "The invoices are final in Rompslomp once made."
       );
-      if (!ok) return;
+      if (ok) bookItems([item]);
+    });
 
-      state.busy = true;
-      drawPlan();
-
-      try {
-        const job = await api("/api/admin/woovin-payouts/book", {
-          method: "POST",
-          headers: { "Content-Type": "application/pdf" },
-          body: await state.file.arrayBuffer()
-        });
-        drawJob(job);
-        const end = await follow(job.id);
-        if (end.state === "done") {
-          toast(`Payout #${end.number} booked.`);
-          state.plan = null;
-          drawPlan();
-          loadOverview(true);
-        }
-      } catch (err) {
-        showStatus(esc(err.message), "bad");
-      } finally {
-        state.busy = false;
-        if (state.plan) drawPlan();
-      }
+    $("bookAllBtn").addEventListener("click", () => {
+      const items = toBook();
+      if (!items.length || state.busy) return;
+      const invoices = items.reduce((n, i) => n + i.plan.counts.new_invoices, 0);
+      const credits = items.reduce((n, i) => n + i.plan.counts.corrections, 0);
+      const bank = items.reduce((n, i) => n + i.plan.totals.bank, 0);
+      const ok = confirm(
+        `Book ${items.length} Woovin payouts: ${items.map((i) => `#${i.number}`).join(", ")}?\n\n` +
+        `${invoices} new sales invoice${invoices === 1 ? "" : "s"}, ${credits} credit${credits === 1 ? "" : "s"}, the fee expenses and the Kruisposten payments, ` +
+        `together the bank lines of ${money(bank)}. Oldest first; it stops at the first one that goes wrong.\n\n` +
+        "The invoices are final in Rompslomp once made."
+      );
+      if (ok) bookItems(items);
     });
 
     drawNavSections();

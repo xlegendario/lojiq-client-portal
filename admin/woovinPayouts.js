@@ -38,6 +38,7 @@
 // Voorraadcorrectie and the Kruisposten payments by their description.
 
 import express from "express";
+import crypto from "crypto";
 import fs from "fs";
 import zlib from "zlib";
 
@@ -805,24 +806,50 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     const orders = await ordersByRef(refs);
     const unitIds = [...orders.values()].map((o) => first(o.fields?.["Linked Inventory Unit"])).filter(Boolean);
     const units = unitIds.length ? await airtable.byIds(UNITS, unitIds, UNIT_FIELDS) : new Map();
-    const invoices = await rompslomp.invoicesOfContact(WOOVIN_CUSTOMER);
-
-    const api = new Map();
-    for (const ref of refs) {
-      const data = await woovinOrder(ref);
-      if (data) api.set(ref, data);
-      if (text(woovinToken)) await pause(250);
-    }
-
-    const expense = await feeExpenseOf(payout);
-    const payments = await paymentsOf(`Woovin payout #${payout.number}`, payout.date);
+    // Four independent reads, side by side: one after the other they took
+    // about ten seconds a payout (measured 13-11-2026, mostly the scans of
+    // Rompslomp's payments and expenses).
+    const woovinOrders = async () => {
+      const api = new Map();
+      for (const ref of refs) {
+        const data = await woovinOrder(ref);
+        if (data) api.set(ref, data);
+        if (text(woovinToken)) await pause(250);
+      }
+      return api;
+    };
+    const [invoices, api, expense, payments] = await Promise.all([
+      rompslomp.invoicesOfContact(WOOVIN_CUSTOMER),
+      woovinOrders(),
+      feeExpenseOf(payout),
+      paymentsOf(`Woovin payout #${payout.number}`, payout.date)
+    ]);
     const plan = planPayout({ payout, orders, units, invoices, api, expense, payments, closedUntil, today: todayIn(now()) });
     if (!text(woovinToken)) plan.warnings.unshift("WOOVIN_API_TOKEN is not set on this service: the rows were not checked against the Woovin API.");
     return { payout, plan, invoices };
   }
 
+  /*
+   * What a preview read, kept for ten minutes so Book does not read it all
+   * again. It is used once: a booking that stops halfway reads afresh when
+   * the PDF comes back, so what it made is found.
+   */
+  const gathered = new Map();
+  const keyOf = (buffer) => crypto.createHash("sha1").update(buffer).digest("hex");
+
   async function preview(buffer) {
-    return (await gather(buffer)).plan;
+    const result = await gather(buffer);
+    for (const [key, hit] of gathered) if (Date.now() - hit.at > 10 * 60_000) gathered.delete(key);
+    gathered.set(keyOf(buffer), { at: Date.now(), result });
+    return result.plan;
+  }
+
+  async function gatherForBooking(buffer) {
+    const key = keyOf(buffer);
+    const hit = gathered.get(key);
+    gathered.delete(key);
+    if (hit && Date.now() - hit.at <= 10 * 60_000) return hit.result;
+    return gather(buffer);
   }
 
   /*
@@ -839,6 +866,27 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
    */
   let overviewCache = null;
   let overviewRun = null;
+  // Payouts booked here lately: the list shows them as booked at once, also
+  // when a read that began before the booking comes back without them.
+  const bookedHere = new Map();
+
+  function asBooked(row) {
+    const plan = bookedHere.get(String(row.number))?.plan;
+    if (!plan || row.payments) return row;
+    const documents = plan.settle.filter((s) => s.kind !== "fees").length;
+    return { ...row, payments: plan.settle.length, settled: plan.totals.settled, invoices: documents, open_invoices: documents, status: row.bank_booked ? "link" : "bank_line" };
+  }
+
+  function withBooked(data) {
+    for (const [number, hit] of bookedHere) if (Date.now() - hit.at > 30 * 60_000) bookedHere.delete(number);
+    const payouts = data.payouts.map(asBooked);
+    return { ...data, payouts, next: payouts.find((r) => r.status === "to_upload")?.number || "" };
+  }
+
+  function markBooked(plan) {
+    bookedHere.set(String(plan.number), { at: Date.now(), plan });
+    if (overviewCache) overviewCache = { ...overviewCache, data: withBooked(overviewCache.data) };
+  }
 
   async function readOverview() {
     const previous = overviewCache?.data?.payouts || [];
@@ -899,7 +947,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     const kept = previous.filter((r) => r.status === "done" && !payouts.has(r.number));
     const list = [...kept, ...fresh].sort((x, y) => Number(x.number) - Number(y.number));
     const next = list.find((r) => r.status === "to_upload")?.number || "";
-    const data = { since: OVERVIEW_FROM, next, payouts: list, at: now().toISOString() };
+    const data = withBooked({ since: OVERVIEW_FROM, next, payouts: list, at: now().toISOString() });
     overviewCache = { at: Date.now(), data };
     return data;
   }
@@ -928,7 +976,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
    * how far it is.
    */
   async function run(buffer, job) {
-    const { plan, invoices } = await gather(buffer);
+    const { plan, invoices } = await gatherForBooking(buffer);
     job.number = plan.number;
     const log = (line) => job.log.push(line);
     const todos = job.todos;
@@ -1052,7 +1100,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     for (const [key, old] of jobs) if (old.state !== "running" && Date.now() - Date.parse(old.started_at) > 6 * 3600_000) jobs.delete(key);
 
     job.promise = run(buffer, job)
-      .then((plan) => { job.state = "done"; job.plan = plan; refreshOverview().catch(() => {}); })
+      .then((plan) => { job.state = "done"; job.plan = plan; markBooked(plan); refreshOverview().catch(() => {}); })
       .catch((err) => { job.state = "failed"; job.error = err.message; console.error("[woovin payouts]", err.message); });
 
     return job;
