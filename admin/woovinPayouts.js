@@ -828,28 +828,37 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
    * Every Woovin payout since the start, from Rompslomp itself, and how far
    * each one is: the bank lines Woovin paid ("Payout 7138" in their text),
    * the Kruisposten payments booked here for it, whether the bank line is
-   * booked yet, and whether the invoices it pays are paid. Two scans of the
-   * payments, newest first down to the start, so it is cached for a while.
+   * booked yet, and whether the invoices it pays are paid.
+   *
+   * Reading that is two scans of Rompslomp's payments (about 20 seconds from
+   * September on), so the page never waits for it twice: it gets the last
+   * list at once and a new one is read in the background when that list is
+   * five minutes old. A payout that is done stays done, so a new read only
+   * goes back to the oldest payout that is not.
    */
   let overviewCache = null;
+  let overviewRun = null;
 
-  async function overview({ fresh = false } = {}) {
-    ready();
-    if (!fresh && overviewCache && Date.now() - overviewCache.at < 10 * 60_000) return overviewCache.data;
+  async function readOverview() {
+    const previous = overviewCache?.data?.payouts || [];
+    const dates = (rows) => rows.map((r) => r.date).filter(Boolean).sort();
+    const oldestOpen = dates(previous.filter((r) => r.status !== "done"))[0];
+    const from = previous.length ? plusDays(oldestOpen || dates(previous).at(-1) || OVERVIEW_FROM, -7) : OVERVIEW_FROM;
+    const since = from < OVERVIEW_FROM ? OVERVIEW_FROM : from;
 
     const scan = async (selection) => {
       const out = [];
       for (let page = 1; page <= 200; page++) {
         const rows = (await rompslomp.read(`/payments?selection=${selection}&page=${page}&per_page=100`))?.payments || [];
         out.push(...rows);
-        if (rows.length < 100 || text(rows.at(-1)?.paid_at).slice(0, 10) < OVERVIEW_FROM) break;
+        if (rows.length < 100 || text(rows.at(-1)?.paid_at).slice(0, 10) < since) break;
       }
       return out;
     };
 
-    const all = await scan("all");
-    const unbooked = new Set((await scan("unbooked")).map((p) => String(p.id)));
-    const invoices = new Map((await rompslomp.invoicesOfContact(WOOVIN_CUSTOMER)).map((i) => [text(i.invoice_number), i]));
+    const [all, unbookedRows, invoiceRows] = await Promise.all([scan("all"), scan("unbooked"), rompslomp.invoicesOfContact(WOOVIN_CUSTOMER)]);
+    const unbooked = new Set(unbookedRows.map((p) => String(p.id)));
+    const invoices = new Map(invoiceRows.map((i) => [text(i.invoice_number), i]));
     const payouts = new Map();
     const of = (number) => {
       if (!payouts.has(number)) payouts.set(number, { number, date: "", bank: null, bank_booked: false, payments: 0, settled: 0, open_invoices: 0, invoices: 0 });
@@ -857,6 +866,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     };
 
     for (const p of all) {
+      if (text(p.paid_at).slice(0, 10) < since) continue;
       const description = text(p.description);
       const ours = description.match(/^Woovin payout #(\d+):/);
       if (ours) {
@@ -880,20 +890,35 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
       }
     }
 
-    const list = [...payouts.values()].sort((a, b) => Number(a.number) - Number(b.number)).map((row) => ({
+    const fresh = [...payouts.values()].map((row) => ({
       ...row,
-      status: !row.payments
-        ? "to_upload"
-        : !row.bank_booked
-          ? "bank_line"
-          : row.open_invoices
-            ? "link"
-            : "done"
+      status: !row.payments ? "to_upload" : !row.bank_booked ? "bank_line" : row.open_invoices ? "link" : "done"
     }));
+    // A payout that was done before the window of this read stays as it was.
+    const kept = previous.filter((r) => r.status === "done" && !payouts.has(r.number));
+    const list = [...kept, ...fresh].sort((x, y) => Number(x.number) - Number(y.number));
     const next = list.find((r) => r.status === "to_upload")?.number || "";
     const data = { since: OVERVIEW_FROM, next, payouts: list, at: now().toISOString() };
     overviewCache = { at: Date.now(), data };
     return data;
+  }
+
+  function refreshOverview() {
+    if (!overviewRun) overviewRun = readOverview().finally(() => { overviewRun = null; });
+    return overviewRun;
+  }
+
+  async function overview({ fresh = false } = {}) {
+    ready();
+    if (fresh || !overviewCache) return refreshOverview();
+    if (Date.now() - overviewCache.at > 5 * 60_000) refreshOverview().catch((err) => console.error("[woovin payouts] overview:", err.message));
+    return { ...overviewCache.data, refreshing: Boolean(overviewRun) };
+  }
+
+  // Read the list once when the service starts, so the first visit is quick too.
+  function warm() {
+    if (!rompslomp?.configured || String(rompslomp.companyId) !== COMPANY_ID) return null;
+    return refreshOverview().catch((err) => console.error("[woovin payouts] overview:", err.message));
   }
 
   /*
@@ -1031,7 +1056,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     for (const [key, old] of jobs) if (old.state !== "running" && Date.now() - Date.parse(old.started_at) > 6 * 3600_000) jobs.delete(key);
 
     job.promise = run(buffer, job)
-      .then((plan) => { job.state = "done"; job.plan = plan; overviewCache = null; })
+      .then((plan) => { job.state = "done"; job.plan = plan; refreshOverview().catch(() => {}); })
       .catch((err) => { job.state = "failed"; job.error = err.message; console.error("[woovin payouts]", err.message); });
 
     return job;
@@ -1044,7 +1069,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
     return { ...rest, totals: plan?.totals || null };
   }
 
-  return { preview, book, status, overview, jobs };
+  return { preview, book, status, overview, warm, jobs };
 }
 
 /* ---------------- routes ---------------- */

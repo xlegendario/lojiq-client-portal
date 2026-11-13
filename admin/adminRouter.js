@@ -594,18 +594,21 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   // Woovin payouts: the payout PDF in, every sale invoiced, credited or
   // cancelled, the fees as an expense and all of it settled on Kruisposten
   // (admin/woovinPayouts.js, private/admin-woovin-payouts.html).
+  const woovinPayouts = createWoovinPayouts({
+    airtable,
+    rompslomp: returnsRompslomp,
+    woovinToken: services.woovinToken,
+    returnsFlow: () => returns,
+    closedUntil: services.booksClosedUntil || undefined,
+    fetchImpl
+  });
   mountWoovinPayouts(router, {
-    store: createWoovinPayouts({
-      airtable,
-      rompslomp: returnsRompslomp,
-      woovinToken: services.woovinToken,
-      returnsFlow: () => returns,
-      closedUntil: services.booksClosedUntil || undefined,
-      fetchImpl
-    }),
+    store: woovinPayouts,
     audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-woovin-payouts.html") : ""
   });
+  // The list of payouts read once after start, so the first visit is quick.
+  setTimeout(() => woovinPayouts.warm(), 30_000).unref();
 
   mountReturns(router, {
     returns,

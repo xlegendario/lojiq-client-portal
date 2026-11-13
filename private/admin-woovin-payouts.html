@@ -509,14 +509,17 @@
     };
 
     async function loadOverview(fresh = false) {
-      $("overviewNote").textContent = "Loading from Rompslomp… (about 20 seconds)";
+      $("overviewNote").textContent = fresh ? "Reading Rompslomp again…" : "Loading…";
       try {
         const data = await api(`/api/admin/woovin-payouts/overview${fresh ? "?fresh=1" : ""}`);
         const rows = data.payouts || [];
+        const at = data.at ? new Date(data.at).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" }) : "";
         $("nextUp").textContent = data.next ? `Next to upload: payout #${data.next}` : "";
-        $("overviewNote").textContent = data.next
+        $("overviewNote").textContent = (data.next
           ? `Next to upload: #${data.next}. Book them in this order, oldest first.`
-          : "Every payout is booked here.";
+          : "Every payout is booked here.") + (at ? ` · as of ${at}${data.refreshing ? ", updating…" : ""}` : "");
+        // An older list was shown while a new one is read: show that one when it is in.
+        if (data.refreshing) setTimeout(() => loadOverview(), 15000);
         $("overviewRows").innerHTML = rows.length ? rows.map((p) => {
           const [label, tone] = STATUS[p.status] || ["?", ""];
           const next = p.number === data.next;
