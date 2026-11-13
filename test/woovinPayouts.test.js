@@ -312,7 +312,6 @@ function services() {
       expenses.push(exp);
       return exp;
     },
-    async attachToExpense(id, file) { expenses.find((e) => e.id === id).attachment = file.filename; },
     async read(path) { return /^\/payments/.test(path) ? { payments } : null; },
     async createPayment(p) { payments.push({ ...p, amount: Number(p.amount).toFixed(2) }); }
   };
@@ -332,7 +331,7 @@ test("booking makes every document once, settles them on Kruisposten, and a seco
   assert.deepEqual(s.invoices.map((i) => i.api_reference).sort(), ["recAAAAAAAAAAAA0002", "recAAAAAAAAAAAA0003"]);
   assert.equal(s.journals.length, 2);
   assert.equal(s.expenses.length, 1);
-  assert.equal(s.expenses[0].attachment, "payout-invoice-7333.pdf");
+  assert.equal(s.expenses[0].attachment, undefined);
 
   const sum = round(s.payments.reduce((t, p) => t + Number(p.amount), 0));
   assert.equal(sum, 1323.69);

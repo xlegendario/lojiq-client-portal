@@ -19,8 +19,9 @@
 //                     did (same api_reference), and its marketplace_settle
 //                     todo ticked
 //   the fees          one expense from Woovin B.V. on Transacties at 21%,
-//                     one line per order so the VAT rounds as Woovin's does,
-//                     with the PDF attached
+//                     one line per order so the VAT rounds as Woovin's does;
+//                     the PDF goes on it by hand, Rompslomp's API cannot put
+//                     a file on an expense (see purchaseExpense.js)
 //   settlement        a Kruisposten payment per document: +price per
 //                     invoice, −price per credit, −fees for the expense.
 //                     They add up to the bank line, which goes to Kruisposten
@@ -1011,12 +1012,7 @@ export function createWoovinPayouts({ airtable, rompslomp, fetchImpl = fetch, wo
       if (Math.abs(expense.total - plan.totals.fees) > 0.005) {
         todos.push(`The fee expense ${made.invoice_number || made.id} came out at ${euro(expense.total)}, Woovin's invoice is ${euro(plan.totals.fees)}: correct it in Rompslomp, or its Kruisposten payment will not match.`);
       }
-      try {
-        await rompslomp.attachToExpense(made.id, { base64: buffer.toString("base64"), filename: `payout-invoice-${plan.number}.pdf` });
-        log("The payout PDF is attached to it.");
-      } catch (err) {
-        todos.push(`Attach payout-invoice-${plan.number}.pdf to the fee expense by hand (${err.message}).`);
-      }
+      todos.push(`Attach payout-invoice-${plan.number}.pdf to fee expense ${made.invoice_number || made.id} by hand; Rompslomp's API cannot add files to an expense.`);
     } else {
       log(`Fee expense ${expense.number || expense.id} was there already.`);
     }
