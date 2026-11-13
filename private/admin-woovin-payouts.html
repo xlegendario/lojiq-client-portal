@@ -219,6 +219,8 @@
     .msg.wait { background: var(--wait-bg); color: var(--wait-text); }
     td.notes { white-space: normal; min-width: 260px; max-width: 420px; color: var(--muted); font-size: 12px; }
     .bad-text { color: var(--bad-text); }
+    .next-up { margin-top: 8px; font-weight: 700; color: var(--wait-text); }
+    .next-up:empty { display: none; }
     .thumb, .no-img { width: 40px; height: 40px; object-fit: contain; background: #fff; border-radius: 6px; display: block; }
     .no-img { background: var(--panel-2); border: 1px dashed var(--border); }
     tbody tr[data-pair] { cursor: pointer; }
@@ -312,33 +314,11 @@
         expense with the PDF attached, and one Kruisposten payment per document. Book the payouts oldest first.
       </p>
 
-      <section class="overview">
-        <div class="heading">
-          <h2 style="margin:0;font-size:15px">All Woovin payouts</h2>
-          <span class="sub" id="overviewNote">Loading from Rompslomp… (about 20 seconds)</span>
-          <button class="btn ghost" type="button" id="overviewRefresh" style="margin-left:auto">Refresh</button>
-        </div>
-        <div class="table-wrap" style="max-height:340px">
-          <table>
-            <thead>
-              <tr>
-                <th>Payout</th>
-                <th>Paid</th>
-                <th class="money">Bank line</th>
-                <th>Status</th>
-                <th class="money">On Kruisposten</th>
-                <th>Invoices still open</th>
-              </tr>
-            </thead>
-            <tbody id="overviewRows"><tr><td class="empty" colspan="6">Loading…</td></tr></tbody>
-          </table>
-        </div>
-      </section>
-
       <label class="drop" id="drop" tabindex="0">
         <input type="file" id="file" accept="application/pdf,.pdf" hidden>
         <strong>Drop the payout PDF here</strong>
         <span class="sub">or click to pick it</span>
+        <span class="next-up" id="nextUp"></span>
       </label>
 
       <div class="result" id="status" hidden></div>
@@ -377,6 +357,29 @@
               </tr>
             </thead>
             <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="overview">
+        <div class="heading">
+          <h2 style="margin:0;font-size:15px">All Woovin payouts</h2>
+          <span class="sub" id="overviewNote">Loading from Rompslomp… (about 20 seconds)</span>
+          <button class="btn ghost" type="button" id="overviewRefresh" style="margin-left:auto">Refresh</button>
+        </div>
+        <div class="table-wrap" style="max-height:340px">
+          <table>
+            <thead>
+              <tr>
+                <th>Payout</th>
+                <th>Paid</th>
+                <th class="money">Bank line</th>
+                <th>Status</th>
+                <th class="money">On Kruisposten</th>
+                <th>Invoices still open</th>
+              </tr>
+            </thead>
+            <tbody id="overviewRows"><tr><td class="empty" colspan="6">Loading…</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -510,6 +513,7 @@
       try {
         const data = await api(`/api/admin/woovin-payouts/overview${fresh ? "?fresh=1" : ""}`);
         const rows = data.payouts || [];
+        $("nextUp").textContent = data.next ? `Next to upload: payout #${data.next}` : "";
         $("overviewNote").textContent = data.next
           ? `Next to upload: #${data.next}. Book them in this order, oldest first.`
           : "Every payout is booked here.";
