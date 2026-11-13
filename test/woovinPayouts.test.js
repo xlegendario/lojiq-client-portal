@@ -206,6 +206,19 @@ test("an invoice made by hand is paid, not made again - unless it is paid alread
   assert.equal(again.bookable, true, again.problems.join(" "));
 });
 
+test("a fee expense booked by hand a cent off (Woovin recalculated the PDF) is paid for its own amount", () => {
+  const { payout, orders, units } = world();
+  const plan = planPayout({ payout, orders, units, expense: { id: 5, invoice_number: "2026090413", total: 83.32 } });
+  assert.equal(plan.bookable, true, plan.problems.join(" "));
+  assert.equal(plan.settle.at(-1).amount, -83.32);
+  assert.equal(plan.totals.difference, -0.01);
+  assert.match(plan.warnings.join(" "), /recalculated/);
+  assert.match(plan.warnings.join(" "), /€ 0,01 left on Kruisposten/);
+
+  const far = planPayout({ payout, orders, units, expense: { id: 5, invoice_number: "2026090413", total: 90 } });
+  assert.equal(far.bookable, false);
+});
+
 test("an invoice for a refunded order has to be credited first", () => {
   const { payout, orders, units } = world();
   const invoices = [{ id: 9, invoice_number: "KC202610-0009", api_reference: "recAAAAAAAAAAAA0001", price_with_vat: "183.0", open_amount: "183.0" }];

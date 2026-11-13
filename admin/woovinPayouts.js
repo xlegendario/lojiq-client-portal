@@ -531,12 +531,11 @@ export function planPayout({ payout, orders = new Map(), units = new Map(), invo
   const sales = round2(rows.filter((r) => r.kind === "sale").reduce((s, r) => s + r.price, 0));
   const credits = round2(rows.filter((r) => r.kind === "correction").reduce((s, r) => s + Math.abs(r.price), 0));
   const bank = round2(payout.rows.reduce((s, r) => s + signed(r, r.total), 0));
-  const difference = round2(sales - credits - fees - bank);
+  const pdfDifference = round2(sales - credits - fees - bank);
 
   if (Math.abs(feeRows - footer.taxable) > 0.005) problems.push(`The rows have ${euro(feeRows)} in fees, the totals say ${euro(footer.taxable)} excl. VAT.`);
   if (Math.abs(vatRows - footer.vat) > 0.005) problems.push(`The rows have ${euro(vatRows)} VAT on fees, the totals say ${euro(footer.vat)}.`);
-  if (Math.abs(difference) > 0.025) problems.push(`Sales ${euro(sales)} − credits ${euro(credits)} − fees ${euro(fees)} is not the payout ${euro(bank)} (${euro(difference)} apart).`);
-  else if (difference) warnings.push(`Woovin rounds per row: sales − credits − fees comes to ${euro(sales - credits - fees)}, the payout is ${euro(bank)}. Book the ${euro(-difference)} on Kruisposten as afrondingsverschil by hand.`);
+  if (Math.abs(pdfDifference) > 0.025) problems.push(`Sales ${euro(sales)} − credits ${euro(credits)} − fees ${euro(fees)} is not the payout ${euro(bank)} (${euro(pdfDifference)} apart).`);
 
   // The expense: one line per order with fees, so the VAT rounds per row as
   // Woovin rounds it. Rompslomp rounds per line too.
@@ -554,8 +553,22 @@ export function planPayout({ payout, orders = new Map(), units = new Map(), invo
   const lineVat = round2(feeLines.reduce((s, l) => s + Math.round(l.base * VAT_HIGH.rate * 100) / 100, 0));
   const vatRounding = round2(footer.vat - lineVat);
   if (!expense && Math.abs(vatRounding) > 0.05) problems.push(`At 21% per line the VAT on fees comes to ${euro(lineVat)}, Woovin says ${euro(footer.vat)}: too far apart to be rounding.`);
-  if (expense && Math.abs(Number(expense.total) - fees) > 0.005) {
+  /*
+   * An expense booked by hand is paid for what it is, so its Kruisposten
+   * payment matches it 1:1. Woovin regenerates its PDFs: #7138 said 56,15
+   * VAT when Dario booked it and 56,14 a month later, so a cent or two
+   * apart is rounding, more is a different invoice.
+   */
+  const feesBooked = expense ? round2(expense.total) : fees;
+  if (expense && Math.abs(feesBooked - fees) > 0.025) {
     problems.push(`The fee expense for #${payout.number} is in Rompslomp already at ${euro(expense.total)}, the PDF says ${euro(fees)}.`);
+  } else if (expense && feesBooked !== fees) {
+    warnings.push(`The fee expense ${expense.invoice_number || expense.id} was booked at ${euro(feesBooked)}, this PDF says ${euro(fees)} (Woovin recalculated it). It is paid for its own ${euro(feesBooked)}.`);
+  }
+
+  const difference = round2(sales - credits - feesBooked - bank);
+  if (difference && Math.abs(difference) <= 0.025) {
+    warnings.push(`Sales − credits − fees comes to ${euro(sales - credits - feesBooked)}, the payout is ${euro(bank)}. Book the ${euro(-difference)} left on Kruisposten as afrondingsverschil by hand.`);
   }
 
   const expenseDate = payout.date && payout.date > closedUntil ? payout.date : today;
@@ -567,7 +580,7 @@ export function planPayout({ payout, orders = new Map(), units = new Map(), invo
   // The Kruisposten payments, in the order they are made.
   const settle = [
     ...rows.filter((r) => r.kind === "sale" || r.kind === "correction").map((r) => ({ ref: r.ref, kind: r.kind, amount: round2(r.kruispost), order_id: r.order_id })),
-    { ref: "", kind: "fees", amount: -fees, order_id: "" }
+    { ref: "", kind: "fees", amount: -feesBooked, order_id: "" }
   ];
   const settled = round2(settle.reduce((s, p) => s + p.amount, 0));
 
@@ -586,7 +599,7 @@ export function planPayout({ payout, orders = new Map(), units = new Map(), invo
       corrections: rows.filter((r) => r.kind === "correction").length,
       airtable: rows.filter((r) => r.airtable).length
     },
-    totals: { sales, credits, fee_taxable: footer.taxable, fee_vat: footer.vat, fees, bank, difference, settled },
+    totals: { sales, credits, fee_taxable: footer.taxable, fee_vat: footer.vat, fees, fees_booked: feesBooked, bank, difference, settled },
     fee_lines: feeLines,
     vat_rounding: vatRounding,
     expense: expense ? { id: expense.id, number: expense.invoice_number, total: Number(expense.total), date: expense.date } : null,
