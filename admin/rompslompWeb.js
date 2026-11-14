@@ -81,7 +81,10 @@ export function parsePickRows(html, kind) {
       contact: strip(cells[1]?.match(/<a [^>]*>([^<]*)<\/a>/)?.[1] || ""),
       label: strip(row.match(/<td class="truncate">\s*<a [^>]*>([\s\S]*?)<\/a>/)?.[1] || ""),
       status: strip(row.match(/_paid_label_holder">\s*<div class="label[^"]*">([\s\S]*?)<\/div>/)?.[1] || ""),
-      amount: webAmount(row.match(/<div class="with_vat">([^<]*)<\/div>/)?.[1] || "")
+      // Two amounts: one ex-VAT and the one marked "incl. btw"; the payment pays the latter.
+      amount: webAmount(row.match(/<div class="without_vat">([^<]*)<br>\s*incl\. btw/)?.[1]
+        || row.match(/<div class="[^"]*">([^<]*)<br>\s*incl\. btw/)?.[1]
+        || row.match(/<div class="with_vat">([^<]*)<\/div>/)?.[1] || "")
     };
   }).filter((r) => r.id);
 }
@@ -89,6 +92,7 @@ export function parsePickRows(html, kind) {
 // ------------------------------------------------------------------ session
 
 export class RompslompWebError extends Error {}
+class Mismatch extends RompslompWebError {}
 
 export function createRompslompWeb({ email, password, slug = COMPANY_SLUG, fetchImpl = fetch }) {
   const configured = Boolean(text(email) && text(password));
@@ -350,16 +354,16 @@ export async function runLinking({ deps, dry = true, verify = false, limit = Inf
       try {
         const found = (await web.payments(WEB_ACCOUNT[row.account], searchFor(row)))
           .filter((r) => r.date === row.paid_at && cents(r.amount) === cents(row.amount) && sameText(r.description, row.description));
-        if (found.length !== 1) throw new RompslompWebError(`${found.length} matching payments on the web`);
+        if (found.length !== 1) throw new Mismatch(`${found.length} matching payments on the web`);
         const payment = found[0];
-        if (payment.left == null || cents(payment.left) !== cents(row.amount)) throw new RompslompWebError(`the payment has € ${payment.left} left to book on the web`);
+        if (payment.left == null || cents(payment.left) !== cents(row.amount)) throw new Mismatch(`the payment has € ${payment.left} left to book on the web`);
 
         let result;
         if (verify) {
           if (row.target.kind !== "account") {
             const kind = row.target.kind === "invoice" ? "earning" : "expense";
             const choice = choosePick(await web.pick(kind, payment.id, row.target.number, "all"), row);
-            if (!choice.pick) throw new RompslompWebError(choice.error);
+            if (!choice.pick) throw new Mismatch(choice.error);
           }
           result = { ok: true };
         } else if (row.target.kind === "account") {
@@ -367,14 +371,17 @@ export async function runLinking({ deps, dry = true, verify = false, limit = Inf
         } else {
           const kind = row.target.kind === "invoice" ? "earning" : "expense";
           const choice = choosePick(await web.pick(kind, payment.id, row.target.number, "all"), row);
-          if (!choice.pick) throw new RompslompWebError(choice.error);
+          if (!choice.pick) throw new Mismatch(choice.error);
           result = await web.book(payment.id, kind === "expense" ? { expenseId: choice.pick.id } : { earningId: choice.pick.id });
         }
         if (!result.ok) throw new RompslompWebError(`Rompslomp did not confirm: ${strip(result.body).slice(0, 160)}`);
         linked.push({ ...row, web_payment_id: payment.id });
         streak = 0;
       } catch (err) {
-        streak += 1;
+        // A document that does not look as planned is that payment's own
+        // problem; anything else (login, errors, no confirmation) may be all
+        // of them, so five of those in a row stop the run.
+        if (!(err instanceof Mismatch)) streak += 1;
         failed.push({ ...row, reason: err.message });
       }
     }

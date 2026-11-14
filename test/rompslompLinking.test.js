@@ -174,3 +174,8 @@ test("a run books only what is planned, and only what the web confirms", async (
   assert.equal(real.linked.length, 1);
   assert.deepEqual(booked, [["999", { expenseId: "777" }]]);
 });
+
+test("a 21% document is matched on its amount incl. VAT", () => {
+  const row = `<tr id="earning_5934" class="odd"><td class="small"> 28/10/2026 <br> <a href="/x">KC202610-2708</a> </td> <td> <div class="small"> <a href="/x">Store</a> </div> </td> <td class="truncate"> <a href="/x">ORD-1</a> <br> <div class="label-holder" id="earning_5934_paid_label_holder"> <div class="label yellow"><a href="/x">Nog niet betaald</a></div> </div> </td> <td align="right" class="currency_amount"> <div class="with_vat">€ 95,87</div> <div class="without_vat"> € 116,00 <br> incl. btw </div> </td> <td><a class="btn btn-primary" data-pick-earning="28404232" href="#">Kiezen</a> </td> </tr></table>`;
+  assert.equal(parsePickRows(row, "earning")[0].amount, 116);
+});
