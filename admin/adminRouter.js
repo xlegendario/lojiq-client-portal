@@ -75,6 +75,8 @@ import { createRompslomp } from "./externalSalesInvoicing.js";
 import { createPurchaseExpense } from "./purchaseExpense.js";
 import { createReturns } from "./returns.js";
 import { mountReturns } from "./adminReturns.js";
+import { mountRompslompLinking } from "./adminRompslompLinking.js";
+import { createRompslompWeb } from "./rompslompWeb.js";
 import { NewOrderError, createNewOrder, listMerchants, lookupProduct } from "./adminNewOrder.js";
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
@@ -616,6 +618,22 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     audit,
     internalSecret: services.counterOffersSecret,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-returns.html") : ""
+  });
+
+  /*
+   * Rompslomp payments linked to their documents through the web app, as the
+   * bot user (admin/rompslompLinking.js, rompslompWeb.js). The API cannot
+   * link; only what is certain is linked, the rest is Dario's list.
+   */
+  mountRompslompLinking(router, {
+    deps: {
+      rompslomp: returnsRompslomp,
+      web: createRompslompWeb({ email: process.env.ROMPSLOMP_WEB_EMAIL || "", password: process.env.ROMPSLOMP_WEB_PASSWORD || "", fetchImpl }),
+      airtable
+    },
+    internalSecret: services.counterOffersSecret,
+    audit,
+    daily: false
   });
 
   // Partner Stock: what a partner keeps here that is not ours until it sells
