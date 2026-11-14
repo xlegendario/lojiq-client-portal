@@ -133,7 +133,9 @@ export function createRompslompWeb({ email, password, slug = COMPANY_SLUG, fetch
       method: "POST",
       form: { authenticity_token: token, "user[email]": email, "user[password]": password, "user[remember_me]": "0", commit: "Inloggen" }
     });
-    if (res.status !== 302 || /\/login\b/.test(res.location)) throw new RompslompWebError(`Rompslomp did not accept the bot login (${res.status}).`);
+    // Rails answers 302 or 303; sent back to /login means the password was not taken.
+    const where = res.location.replace(/^https?:\/\/[^/]+/, "");
+    if (![301, 302, 303].includes(res.status) || /\/login\b/.test(where)) throw new RompslompWebError(`Rompslomp did not accept the bot login (${res.status}${where ? ` to ${where}` : ""}).`);
     const home = await raw(`/ondernemingen/${slug}/betalingen`);
     if (home.status !== 200 || !csrf) throw new RompslompWebError(`The bot user cannot open ${slug} (${home.status}).`);
     loggedIn = true;
@@ -142,7 +144,7 @@ export function createRompslompWeb({ email, password, slug = COMPANY_SLUG, fetch
   async function page(path, options = {}) {
     if (!loggedIn) await login();
     let res = await raw(path, options);
-    if (res.status === 302 && /\/login\b/.test(res.location)) {
+    if ([301, 302, 303].includes(res.status) && /\/login\b/.test(res.location)) {
       await login();
       res = await raw(path, options);
     }
