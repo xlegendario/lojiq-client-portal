@@ -113,3 +113,22 @@ test("a pair put with an earlier batch counts in that batch", () => {
   assert.equal(map.get("a"), "2026-10-28");
   assert.equal(map.sizes.get("A05FW702|2026-10-28"), 2);
 });
+
+test("a sale a day off its row still takes a row of its size, not the oldest batch", () => {
+  const stock = [
+    { sku: "A05FW702", size: "42", status: "sold", received_at: "2026-09-17T10:00:00Z", sold_at: "2026-09-17T10:00:00Z" },
+    { sku: "A05FW702", size: "43", status: "in_stock", received_at: "2026-09-17T10:00:00Z", sold_at: null },
+    { sku: "A05FW702", size: "44", status: "sold", received_at: "2026-10-28T10:00:00Z", sold_at: "2026-11-07T10:00:00Z" },
+    { sku: "A05FW702", size: "44", status: "in_stock", received_at: "2026-10-28T10:00:00Z", sold_at: null }
+  ];
+  const units = [
+    unit("came-back", { Size: "42", "Sales Date": "2026-09-25", "Payment Status": "Paid" }),
+    unit("late", { Size: "44", "Sales Date": "2026-11-05", "Payment Status": "To Pay" }),
+    unit("void", { Size: "44", "Sales Date": "2026-11-07", "Availability Status": "Void" })
+  ];
+  const map = assignShipments(units, stock);
+  assert.equal(map.get("came-back"), "2026-09-17");
+  assert.equal(map.get("late"), "2026-10-28", "its size's row, though the day differs");
+  assert.equal(map.sizes.get("A05FW702|2026-09-17"), 2, "the first batch keeps its own size");
+  assert.equal(map.sizes.get("A05FW702|2026-10-28"), 2);
+});

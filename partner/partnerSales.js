@@ -122,11 +122,37 @@ export function assignShipments(units = [], stockRows = []) {
   }
   const ordered = [...units].sort((a, b) => saleDay(a).localeCompare(saleDay(b)));
   const rest = [];
+  const loose = [];
+  // Only real sales take a sold row: a cancelled one's row is back on his shelf.
   for (const unit of ordered) {
+    if (saleKind(unit.fields) !== "sale") { rest.push(unit); continue; }
     const sku = text(first(unit.fields?.SKU)).toUpperCase();
     const hit = pool.get(`${sku}|${text(unit.fields?.Size)}|${saleDay(unit)}`);
     if (hit?.length) result.set(unit.id, hit.shift());
-    else rest.push(unit);
+    else loose.push(unit);
+  }
+
+  // A day off (a pair that came back and sold again keeps its first sold_at):
+  // still the same model and size. Per model and size, the sales left and the
+  // sold rows left are paired in date order (Dario, 16-11-2026: Peterson
+  // sales landed in the 17 Sep batch, making it "46").
+  const rowsLeft = new Map();
+  for (const [key, list] of pool) {
+    const [sku, size, day] = key.split("|");
+    for (const came of list) {
+      const k = `${sku}|${size}`;
+      if (!rowsLeft.has(k)) rowsLeft.set(k, []);
+      rowsLeft.get(k).push({ day, came, key });
+    }
+  }
+  for (const list of rowsLeft.values()) list.sort((a, b) => a.day.localeCompare(b.day) || a.came.localeCompare(b.came));
+  for (const unit of loose) {
+    const k = `${text(first(unit.fields?.SKU)).toUpperCase()}|${text(unit.fields?.Size)}`;
+    const next = rowsLeft.get(k)?.shift();
+    if (!next) { rest.push(unit); continue; }
+    result.set(unit.id, next.came);
+    const left = pool.get(next.key);
+    left.splice(left.indexOf(next.came), 1);
   }
   for (const [key, list] of pool) for (const came of list) {
     const k = `${key.split("|")[0]}|${came}`;
