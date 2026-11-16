@@ -84,7 +84,11 @@ const saleDay = (unit) => text(first(unit.fields?.["Sales Date"])) || text(unit.
  *   2. otherwise (a returned pair sold again, a day off): of the shipments
  *      already in on the sales day, the oldest that still has sold rows
  *      nobody matched, else the oldest; sold before any intake: the first.
- * Returns unit id -> shipment day (yyyy-mm-dd), with .sizes: per model and
+ * 0. a sold row that names the unit (inventory_unit_id = its Item ID): that
+ *    row, always. Every partner sale writes it since 16-11-2026; the older
+ *    ones were written once from the steps below, so they never move again.
+ * Returns unit id -> shipment day (yyyy-mm-dd), with .rows (unit id -> the
+ * partner_stock row it took) and .sizes: per model and
  * shipment how many pairs came in, so he sees "the batch of 240", not a
  * date. Counted as the pairs we sold from it plus the ones still there or
  * sent by him: a pair sold before its row was booked (or whose row went
@@ -98,6 +102,9 @@ export function assignShipments(units = [], stockRows = []) {
   const shipments = new Map();
   const pool = new Map();
   const left = new Map();
+  // A sold row that names its unit (inventory_unit_id, the Item ID) is that
+  // sale's, whatever its day: no guessing (Dario, 16-11-2026).
+  const linked = new Map();
   for (const row of stockRows) {
     const sku = text(row.sku).toUpperCase();
     const came = text(row.batch_day) || amsDay(row.received_at);
@@ -105,12 +112,23 @@ export function assignShipments(units = [], stockRows = []) {
     if (!shipments.has(sku)) shipments.set(sku, new Set());
     shipments.get(sku).add(came);
     if (!soldRow(row)) continue;
+    const pair = { came, id: row.id ?? null };
     const key = `${sku}|${text(row.size)}|${amsDay(row.sold_at)}`;
+    const unitId = text(row.inventory_unit_id).toUpperCase();
+    if (unitId && !linked.has(unitId)) linked.set(unitId, { key, pair });
     if (!pool.has(key)) pool.set(key, []);
-    pool.get(key).push(came);
+    pool.get(key).push(pair);
   }
 
   const result = new Map();
+  result.rows = new Map();
+  const take = (unit, key, pair) => {
+    result.set(unit.id, pair.came);
+    if (pair.id !== null) result.rows.set(unit.id, pair.id);
+    const list = pool.get(key) || [];
+    if (list.includes(pair)) list.splice(list.indexOf(pair), 1);
+  };
+
   const rowsIn = new Map();
   const notSold = new Map();
   for (const row of stockRows) {
@@ -123,12 +141,23 @@ export function assignShipments(units = [], stockRows = []) {
   const ordered = [...units].sort((a, b) => saleDay(a).localeCompare(saleDay(b)));
   const rest = [];
   const loose = [];
+  const sales = [];
   // Only real sales take a sold row: a cancelled one's row is back on his shelf.
   for (const unit of ordered) {
     if (saleKind(unit.fields) !== "sale") { rest.push(unit); continue; }
+    const own = linked.get(text(unit.fields?.["Item ID"]).toUpperCase());
+    if (own) { take(unit, own.key, own.pair); continue; }
+    sales.push(unit);
+  }
+  // A row that names a unit belongs to that unit only, even when that unit
+  // is not in this list.
+  const named = new Set([...linked.values()].map((x) => x.pair));
+  for (const [key, list] of pool) pool.set(key, list.filter((pair) => !named.has(pair)));
+  for (const unit of sales) {
     const sku = text(first(unit.fields?.SKU)).toUpperCase();
-    const hit = pool.get(`${sku}|${text(unit.fields?.Size)}|${saleDay(unit)}`);
-    if (hit?.length) result.set(unit.id, hit.shift());
+    const key = `${sku}|${text(unit.fields?.Size)}|${saleDay(unit)}`;
+    const hit = pool.get(key)?.[0];
+    if (hit) take(unit, key, hit);
     else loose.push(unit);
   }
 
@@ -139,23 +168,21 @@ export function assignShipments(units = [], stockRows = []) {
   const rowsLeft = new Map();
   for (const [key, list] of pool) {
     const [sku, size, day] = key.split("|");
-    for (const came of list) {
+    for (const pair of list) {
       const k = `${sku}|${size}`;
       if (!rowsLeft.has(k)) rowsLeft.set(k, []);
-      rowsLeft.get(k).push({ day, came, key });
+      rowsLeft.get(k).push({ day, key, pair });
     }
   }
-  for (const list of rowsLeft.values()) list.sort((a, b) => a.day.localeCompare(b.day) || a.came.localeCompare(b.came));
+  for (const list of rowsLeft.values()) list.sort((a, b) => a.day.localeCompare(b.day) || a.pair.came.localeCompare(b.pair.came));
   for (const unit of loose) {
     const k = `${text(first(unit.fields?.SKU)).toUpperCase()}|${text(unit.fields?.Size)}`;
     const next = rowsLeft.get(k)?.shift();
     if (!next) { rest.push(unit); continue; }
-    result.set(unit.id, next.came);
-    const left = pool.get(next.key);
-    left.splice(left.indexOf(next.came), 1);
+    take(unit, next.key, next.pair);
   }
-  for (const [key, list] of pool) for (const came of list) {
-    const k = `${key.split("|")[0]}|${came}`;
+  for (const [key, list] of pool) for (const pair of list) {
+    const k = `${key.split("|")[0]}|${pair.came}`;
     left.set(k, (left.get(k) || 0) + 1);
   }
   for (const unit of rest) {
@@ -268,7 +295,7 @@ export function summarizeSales(units = [], images = new Map(), { since = PARTNER
   };
 }
 
-const UNIT_FIELDS = ["SKU", "Product Name", "Size", "Purchase Price", "Availability Status", "Payment Status", "Payment Note", "Sales Date", "Cancel Status"];
+const UNIT_FIELDS = ["Item ID", "SKU", "Product Name", "Size", "Purchase Price", "Availability Status", "Payment Status", "Payment Note", "Sales Date", "Cancel Status"];
 
 /*
  * deps: airtable (base, as services.airtable), db (for the pictures his
@@ -291,7 +318,7 @@ export function createPartnerSales({ airtable, db, table = "Inventory Units", ca
   async function shelf(sellerId) {
     const rows = [];
     for (let offset = 0; ; offset += 1000) {
-      const page = (await db.get(`partner_stock?select=sku,size,status,sold_at,received_at,batch_day&seller_id=eq.${encodeURIComponent(sellerId)}&order=id.asc&limit=1000&offset=${offset}`)) || [];
+      const page = (await db.get(`partner_stock?select=id,sku,size,status,sold_at,received_at,batch_day,inventory_unit_id&seller_id=eq.${encodeURIComponent(sellerId)}&order=id.asc&limit=1000&offset=${offset}`)) || [];
       rows.push(...page);
       if (page.length < 1000) return rows;
     }

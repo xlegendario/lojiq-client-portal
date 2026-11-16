@@ -1419,7 +1419,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
   async function shipmentsOf(sellerId, sku) {
     const rows = [];
     for (let offset = 0; ; offset += 1000) {
-      const page = await db.get(`partner_stock?select=id,sku,size,status,sold_at,received_at,batch_day&seller_id=eq.${enc(sellerId)}&sku=ilike.${enc(sku)}&order=id.asc&limit=1000&offset=${offset}`);
+      const page = await db.get(`partner_stock?select=id,sku,size,status,sold_at,received_at,batch_day,inventory_unit_id&seller_id=eq.${enc(sellerId)}&sku=ilike.${enc(sku)}&order=id.asc&limit=1000&offset=${offset}`);
       rows.push(...page);
       if (page.length < 1000) break;
     }
@@ -1428,7 +1428,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     do {
       const page = await airtable.select(UNITS, {
         formula: `AND(FIND('${quote(sellerId)}', ARRAYJOIN({Seller ID (Lookup)})), FIND('${quote(sku)}', UPPER({SKU} & '')))`,
-        fields: ["SKU", "Size", "Sales Date", "Availability Status", "Payment Status", "Cancel Status"],
+        fields: ["Item ID", "SKU", "Size", "Sales Date", "Availability Status", "Payment Status", "Cancel Status"],
         pageSize: 100,
         offset
       });

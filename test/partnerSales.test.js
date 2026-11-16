@@ -132,3 +132,19 @@ test("a sale a day off its row still takes a row of its size, not the oldest bat
   assert.equal(map.sizes.get("A05FW702|2026-09-17"), 2, "the first batch keeps its own size");
   assert.equal(map.sizes.get("A05FW702|2026-10-28"), 2);
 });
+
+test("a sold row that names its unit is that sale's, whatever the day", () => {
+  const stock = [
+    { id: 1, sku: "A05FW702", size: "42", status: "sold", received_at: "2026-09-17T10:00:00Z", sold_at: "2026-11-02T10:00:00Z" },
+    { id: 2, sku: "A05FW702", size: "42", status: "sold", received_at: "2026-10-28T10:00:00Z", sold_at: "2026-11-03T10:00:00Z", inventory_unit_id: "PCS-000002" }
+  ];
+  const units = [
+    unit("a", { "Item ID": "PCS-000001", Size: "42", "Sales Date": "2026-11-03", "Payment Status": "To Pay" }),
+    unit("b", { "Item ID": "PCS-000002", Size: "42", "Sales Date": "2026-11-09", "Payment Status": "To Pay" })
+  ];
+  const map = assignShipments(units, stock);
+  assert.equal(map.get("b"), "2026-10-28", "its own row, though another sale has that row's day");
+  assert.equal(map.rows.get("b"), 2);
+  assert.equal(map.get("a"), "2026-09-17", "the row left, not the named one");
+  assert.equal(map.rows.get("a"), 1);
+});
