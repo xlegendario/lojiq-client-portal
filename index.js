@@ -259,6 +259,40 @@ function escapeFormulaValue(value) {
   return asText(value).replace(/'/g, "\\'");
 }
 
+// NEW - the search box has to search in Airtable, not in the page that
+// came back from it. Filtering afterwards only ever looked at the 20
+// newest rows, so ALC Select Store searching 11221 - an Allocated order
+// from a week earlier - got an empty table while the order was there.
+// Backslashes go: escapeFormulaValue only handles quotes.
+function airtableSearchFormula(search, fieldNames) {
+  const term = asText(search).trim().toLowerCase().replace(/\\/g, "");
+
+  if (!term) return "";
+
+  const safeTerm = escapeFormulaValue(term);
+
+  return `OR(${fieldNames
+    .map((name) => `FIND('${safeTerm}', LOWER({${name}} & ''))`)
+    .join(",")})`;
+}
+
+const STORE_ORDER_SEARCH_FIELDS = [
+  "Shopify Order Number",
+  "Shopify Product Name",
+  "SKU",
+  "Size",
+  "Brand",
+  "Tracking Number"
+];
+
+const MEMBER_WTB_SEARCH_FIELDS = [
+  "Member WTB ID",
+  "Product Name",
+  "SKU",
+  "Size",
+  "Brand"
+];
+
 function getFirstAttachmentUrl(value) {
   if (!Array.isArray(value) || !value[0]?.url) return "";
   return value[0].url;
@@ -1524,7 +1558,7 @@ async function fetchMemberWtbCouriers(records, view) {
   return byWtb;
 }
 
-async function fetchMemberWtbOrders({ merchant, view, pageSize, offset }) {
+async function fetchMemberWtbOrders({ merchant, view, pageSize, offset, search = "" }) {
   const buyerFormula = memberWtbBuyerFormula(merchant);
 
   // No linked seller record means no way to tell which WTBs are theirs.
@@ -1540,6 +1574,9 @@ async function fetchMemberWtbOrders({ merchant, view, pageSize, offset }) {
 
   const cutoffFormula = fulfilledCutoffFormula(view, merchant, "Date");
   if (cutoffFormula) parts.push(cutoffFormula);
+
+  const searchFormula = airtableSearchFormula(search, MEMBER_WTB_SEARCH_FIELDS);
+  if (searchFormula) parts.push(searchFormula);
 
   const url = new URL(
     `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_MEMBER_WTBS_TABLE)}`
@@ -2338,21 +2375,18 @@ app.get("/api/orders", async (req, res) => {
         merchant,
         view,
         pageSize,
-        offset
+        offset,
+        search
       });
 
       const offerDates = await fetchMemberWtbOfferDates(records);
       const couriers = await fetchMemberWtbCouriers(records, view);
 
-      let orders = records.map((record) =>
+      // CHANGED - the search is in the Airtable formula now, so every page
+      // that comes back already matches. No second filter here.
+      const orders = records.map((record) =>
         mapMemberWtbRecord(record, view, offerDates, couriers)
       );
-
-      if (search) {
-        orders = orders.filter((order) =>
-          Object.values(order).join(" ").toLowerCase().includes(search)
-        );
-      }
 
       const responseData = {
         merchant: {
@@ -2397,6 +2431,9 @@ app.get("/api/orders", async (req, res) => {
 
     const cutoffFormula = fulfilledCutoffFormula(view, merchant, "Order Date");
     if (cutoffFormula) formulaParts.push(cutoffFormula);
+
+    const searchFormula = airtableSearchFormula(search, STORE_ORDER_SEARCH_FIELDS);
+    if (searchFormula) formulaParts.push(searchFormula);
 
     const airtableUrl = new URL(
       `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_UNFULFILLED_ORDERS_LOG_TABLE)}`
@@ -2533,7 +2570,8 @@ app.get("/api/orders", async (req, res) => {
         merchant,
         view,
         pageSize: 100,
-        offset: ""
+        offset: "",
+        search
       });
 
       const manualOfferDates = await fetchMemberWtbOfferDates(manualRecords);
@@ -2547,11 +2585,8 @@ app.get("/api/orders", async (req, res) => {
       ];
     }
 
-    if (search) {
-      orders = orders.filter((order) =>
-        Object.values(order).join(" ").toLowerCase().includes(search)
-      );
-    }
+    // CHANGED - no filter on the page here any more: both fetches above put
+    // the search in their Airtable formula.
 
     const responseData = {
       merchant: {
