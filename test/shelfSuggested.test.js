@@ -38,3 +38,12 @@ test("'Not for us' keeps a style off the list; the dismissed view shows only tho
   const set = suggestedItems(withDismissed, [], "", { dismissed: true });
   assert.deepEqual(set.map((i) => [i.sku, i.dismissed_reason]), [["IM6687-262", "longlist-2026-11-14"]]);
 });
+
+test("a style back in trend carries its old score; a set-aside one its score at the time", () => {
+  const items = suggestedItems([
+    { sku: "DD1391-104", name: "Nike Dunk Low Court Purple", score: 90, units: 70, returned_from_score: "30" },
+    { sku: "IM6687-262", name: "Nike Dunk Low Khaki", score: 46, units: 40, dismissed_at: "2026-11-18T12:00:00Z", dismissed_score: "46" }
+  ], []);
+  assert.deepEqual(items.map((i) => [i.sku, i.returned_from_score]), [["DD1391-104", 30]]);
+  assert.equal(suggestedItems([{ sku: "IM6687-262", score: 46, dismissed_at: "x", dismissed_score: "46" }], [], "", { dismissed: true })[0].dismissed_score, 46);
+});

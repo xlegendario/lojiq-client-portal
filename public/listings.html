@@ -203,6 +203,7 @@
       <p class="note" style="margin: 0 0 12px">
         Shoes and clothing that sell across the Lojiq network and are not on your shelf yet, best first.
         Score: sales per shop or marketplace (at most 15 each) + 3 per shop + 2 per WTB, over the last 180 days.
+        "Not for us" comes back by itself, marked "back in trend", once its score is 10 or more above the score it was set aside at.
       </p>
       <div class="tools">
         <input class="input search" id="search-suggested" type="search" placeholder="Product, brand, model or style code" autocomplete="off">
@@ -578,7 +579,14 @@
             '<span class="sub">' + esc(item.sku) + (item.brand ? " · " + esc(item.brand) : "") + (item.model ? " · " + esc(item.model) : "") +
               " · score " + item.score + " · " + item.units + " sold" + (item.wtb ? " · " + item.wtb + " WTB" : "") + "</span>" +
             '<span class="sub">' + esc(item.channels) + "</span>" +
-            '<span class="pills">' + stock + price + (queued ? '<span class="pill choice">Queued to add</span>' : "") + "</span>" +
+            '<span class="pills">' +
+              (item.returned_from_score !== null
+                ? '<span class="pill new" title="Set aside as not for us at this score; it has risen since">Back in trend: ' + item.returned_from_score + " → " + item.score + "</span>"
+                : "") +
+              (item.dismissed_at && item.dismissed_score !== null
+                ? '<span class="pill">Set aside at score ' + item.dismissed_score + "</span>"
+                : "") +
+              stock + price + (queued ? '<span class="pill choice">Queued to add</span>' : "") + "</span>" +
           "</span>" +
           '<span class="side">' +
             (item.dismissed_at
@@ -610,7 +618,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sku, undo })
       });
-      say(undo ? "Back on the list." : "Off the list. It will not be suggested or auto-added again.");
+      say(undo ? "Back on the list." : "Off the list. It comes back if its score rises 10 or more.");
       await loadSuggested();
     } catch (err) {
       say(err.message === "LOGIN" ? "Please log in again first." : err.message);

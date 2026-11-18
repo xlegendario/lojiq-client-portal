@@ -2257,14 +2257,21 @@ app.post("/api/catalogue/suggested/dismiss", express.json({ limit: "10kb" }), as
 
     if (!sku) return res.status(400).json({ error: "Which style?" });
 
-    const changed = await supabaseCall(
-      `store_trend_suggestions?merchant_record_id=eq.${encodeURIComponent(merchantId)}&sku=eq.${encodeURIComponent(sku)}`,
-      {
-        method: "PATCH",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify(undo ? { dismissed_at: null, dismissed_reason: null } : { dismissed_at: new Date().toISOString(), dismissed_reason: "store" })
-      }
-    );
+    const where = `store_trend_suggestions?merchant_record_id=eq.${encodeURIComponent(merchantId)}&sku=eq.${encodeURIComponent(sku)}`;
+
+    /*
+      The score of this moment goes with it: the weekly job lists the style
+      again once its score is 10 or more above this one.
+    */
+    const [row] = undo ? [] : (await supabaseCall(`${where}&select=score`)) || [];
+
+    const changed = await supabaseCall(where, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(undo
+        ? { dismissed_at: null, dismissed_reason: null, dismissed_score: null }
+        : { dismissed_at: new Date().toISOString(), dismissed_reason: "store", dismissed_score: row?.score ?? null, returned_from_score: null })
+    });
 
     if (!changed?.length) return res.status(404).json({ error: "That is not on your suggestions." });
 
