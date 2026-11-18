@@ -178,6 +178,17 @@
     .group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
     .group-head strong { color: var(--strong); font-variant-numeric: tabular-nums; }
     .group-head .old { color: var(--warning); font-weight: 700; }
+    tr.sku-row td { background: var(--strip); padding: 9px 12px; cursor: pointer; }
+    tbody tr.sku-row:hover td { background: var(--row-hover); }
+    .sku-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+    .sku-head .chev { display: inline-block; width: 14px; color: var(--muted); transition: transform .15s; }
+    .sku-row[aria-expanded="true"] .chev { transform: rotate(90deg); }
+    .sku-head strong { color: var(--strong); }
+    .sku-head .sub { color: var(--muted); }
+    .sku-head .sizes { color: var(--muted); font-variant-numeric: tabular-nums; }
+    tr.in-sku[hidden] { display: none; }
+    tr.in-sku td:first-child { padding-left: 28px; }
+    .group-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
     .actionbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .actionbar[hidden] { display: none !important; }
 
@@ -431,6 +442,8 @@
       <!-- Buttons and filters come here; for now it carries the count alone. -->
       <div class="filters" id="filters">
         <span class="count" id="count"></span>
+        <label class="group-toggle"><input type="checkbox" id="groupBySku"> Group by SKU</label>
+        <button class="act" type="button" id="expandAll" hidden>Expand all</button>
       </div>
 
       <div class="table-wrap">
@@ -490,6 +503,8 @@
       groups: [],
       totals: { units: 0, shown: 0, cost: 0 },
       sale: null,
+      bySku: (() => { try { return localStorage.getItem("inv.bySku") !== "0"; } catch { return true; } })(),
+      open: new Set(),
       ...fromAddress(),
       q: ""
     };
@@ -800,6 +815,33 @@
       }
     });
 
+    // A style code's line opens and closes its pairs.
+    $("rows").addEventListener("click", (event) => {
+      const head = event.target.closest("tr.sku-row");
+      if (!head) return;
+      const key = head.dataset.sku;
+      const open = head.getAttribute("aria-expanded") !== "true";
+      head.setAttribute("aria-expanded", String(open));
+      if (open) state.open.add(key); else state.open.delete(key);
+      for (const tr of $("rows").querySelectorAll("tr.in-sku")) {
+        if (tr.dataset.in === key) tr.hidden = !open;
+      }
+    });
+
+    $("groupBySku").checked = state.bySku;
+    $("groupBySku").addEventListener("change", () => {
+      state.bySku = $("groupBySku").checked;
+      try { localStorage.setItem("inv.bySku", state.bySku ? "1" : "0"); } catch {}
+      drawList();
+    });
+
+    $("expandAll").addEventListener("click", () => {
+      const anyClosed = [...$("rows").querySelectorAll("tr.sku-row")].some((tr) => tr.getAttribute("aria-expanded") !== "true");
+      state.open = anyClosed ? new Set([...$("rows").querySelectorAll("tr.sku-row")].map((tr) => tr.dataset.sku)) : new Set();
+      $("expandAll").textContent = anyClosed ? "Collapse all" : "Expand all";
+      drawList();
+    });
+
     // Enter in the price saves straight away rather than waiting for the blur.
     $("rows").addEventListener("keydown", (event) => {
       if (event.key === "Enter" && event.target.matches("input[data-field='price']")) event.target.blur();
@@ -831,8 +873,57 @@
         return;
       }
 
-      $("rows").innerHTML = units.map((u) => `
-        <tr data-unit="${esc(u.id)}">
+      $("expandAll").hidden = !state.bySku;
+
+      if (!state.bySku) {
+        $("rows").innerHTML = units.map((u) => unitRow(u)).join("");
+        return;
+      }
+
+      /*
+       * One line per style code, the pairs under it. Several sizes of one
+       * shoe are one decision more often than not (put them all on sale,
+       * look at what is left), and a flat list of two hundred rows hides
+       * that. Sorted on SKU, sizes in order inside; a search opens every
+       * group it finds, because then you were looking for the pairs.
+       */
+      const bySku = new Map();
+      for (const u of units) {
+        const key = (u.sku || "no SKU").toUpperCase();
+        if (!bySku.has(key)) bySku.set(key, []);
+        bySku.get(key).push(u);
+      }
+
+      const sizeOrder = (a, b) => (parseFloat(a.size) || 0) - (parseFloat(b.size) || 0) || String(a.size).localeCompare(String(b.size));
+      const keys = [...bySku.keys()].sort((a, b) => a.localeCompare(b));
+
+      $("rows").innerHTML = keys.map((key) => {
+        const group = bySku.get(key).sort(sizeOrder);
+        const open = Boolean(state.q) || state.open.has(key);
+        const first = group[0];
+        const onSale = group.filter((u) => u.sale && u.sale.on).length;
+        const cost = group.reduce((sum, u) => sum + (Number(u.cost) || 0), 0);
+
+        return `
+        <tr class="sku-row" data-sku="${esc(key)}" aria-expanded="${open}">
+          <td colspan="14">
+            <div class="sku-head">
+              <span class="chev">▸</span>
+              <strong>${esc(first.product_name || key)}</strong>
+              <span class="sub">${esc(key)}${first.brand ? ` · ${esc(first.brand)}` : ""}</span>
+              <span>${group.length} pair${group.length === 1 ? "" : "s"}</span>
+              <span class="sizes">${group.map((u) => esc(u.size || "?")).join(" · ")}</span>
+              <span>${esc(money(cost))} at cost</span>
+              ${onSale ? `<span class="pill good">${onSale} on sale</span>` : ""}
+            </div>
+          </td>
+        </tr>` + group.map((u) => unitRow(u, key, open)).join("");
+      }).join("");
+    }
+
+    function unitRow(u, sku = null, open = true) {
+      return `
+        <tr data-unit="${esc(u.id)}"${sku ? ` class="in-sku" data-in="${esc(sku)}"${open ? "" : " hidden"}` : ""}>
           <td class="id">${u.airtable
             ? `<a href="${esc(u.airtable)}" target="_blank" rel="noreferrer noopener">${esc(u.item_id || "—")}</a>`
             : esc(u.item_id || "—")}</td>
@@ -857,7 +948,7 @@
           ${saleCells(u)}
           <td class="date">${esc(day(u.purchase_date))}</td>
           <td class="col-why">${disagrees(u)}</td>
-        </tr>`).join("");
+        </tr>`;
     }
 
     /* ---------------- loading ---------------- */
