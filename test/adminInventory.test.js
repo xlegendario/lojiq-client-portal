@@ -8,6 +8,8 @@ import {
   checksFor,
   createInventoryStore,
   locationOf,
+  readSaleChange,
+  saleOf,
   unitRow
 } from "../admin/adminInventory.js";
 
@@ -478,4 +480,100 @@ test("the sidebar count is the number of units whose fields disagree", async () 
   const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
 
   assert.deepEqual(await store.count(), { checks: 1, in_stock: 1 });
+});
+
+/* ---------------- on sale ---------------- */
+
+test("a pair is listed when ticked, Available, not Forwarding and not past its end date", () => {
+  const on = { "Dump Listing?": true };
+
+  assert.equal(saleOf(sound(on), TODAY).listed, true);
+  assert.equal(saleOf(sound(), TODAY).listed, false, "not ticked");
+  assert.equal(saleOf(sound({ ...on, "Availability Status": "Reserved" }), TODAY).listed, false);
+  assert.equal(saleOf(sound({ ...on, Type: "Forwarding" }), TODAY).listed, false);
+  assert.equal(saleOf(sound({ ...on, "Dump Until": "2026-09-30" }), TODAY).listed, true, "the last day still counts");
+  assert.equal(saleOf(sound({ ...on, "Dump Until": "2026-09-29" }), TODAY).listed, false);
+  assert.equal(saleOf(sound({ ...on, "Dump Until": "2026-09-29" }), TODAY).ended, true);
+});
+
+test("the ask is the sale price, or the ideal price when there is none", () => {
+  assert.equal(saleOf(sound({ "Custom Selling Price": 210 }), TODAY).ask, 210);
+  assert.equal(saleOf(sound(), TODAY).ask, 235);
+  assert.equal(saleOf(sound({ "Custom Selling Price": 0 }), TODAY).ask, 235);
+});
+
+test("a sale price under what the pair cost is flagged, not refused", () => {
+  assert.equal(saleOf(sound({ "Custom Selling Price": 180 }), TODAY).below_cost, true);
+  assert.equal(saleOf(sound({ "Custom Selling Price": 200 }), TODAY).below_cost, false);
+  assert.equal(saleOf(sound(), TODAY).below_cost, false);
+  assert.deepEqual(readSaleChange({ price: 180 }), { "Custom Selling Price": 180 });
+});
+
+test("the change is read strictly: positive price or empty, a real date or empty", () => {
+  assert.deepEqual(readSaleChange({ on: true }), { "Dump Listing?": true });
+  assert.deepEqual(readSaleChange({ price: "199,5" }), { "Custom Selling Price": 199.5 });
+  assert.deepEqual(readSaleChange({ price: "" }), { "Custom Selling Price": null });
+  assert.deepEqual(readSaleChange({ until: "2026-11-30" }), { "Dump Until": "2026-11-30" });
+  assert.deepEqual(readSaleChange({ until: null }), { "Dump Until": null });
+
+  for (const bad of [{ price: 0 }, { price: -5 }, { price: "abc" }, { until: "30-11-2026" }, { until: "2026-02-30" }, { on: "yes" }, {}]) {
+    assert.throws(() => readSaleChange(bad), undefined, JSON.stringify(bad));
+  }
+});
+
+function saleAirtable(records) {
+  const updates = [];
+
+  return {
+    updates,
+    airtable: {
+      async select(table, options) {
+        const id = /RECORD_ID\(\) = '(rec\w+)'/.exec(options.formula)?.[1];
+        if (id) return { records: records.filter((record) => record.id === id), offset: "" };
+        return { records: records.filter((record) => text(record.fields["Availability Status"]) !== "Sold"), offset: "" };
+      },
+      async update(table, id, fields) {
+        updates.push({ table, id, fields });
+        return { id, fields };
+      }
+    }
+  };
+}
+
+test("putting a pair on sale writes the three fields and moves the counter", async () => {
+  const base = saleAirtable([
+    { id: "rec00000000000001", fields: sound() },
+    { id: "rec00000000000002", fields: sound({ "Item ID": "KC-2", "Dump Listing?": true, "Custom Selling Price": 300 }) }
+  ]);
+  const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
+
+  const before = await store.list({ view: "on_sale" });
+  assert.deepEqual(before.sale, { units: 1, value: 300 });
+  assert.deepEqual(before.units.map((u) => u.item_id), ["KC-2"]);
+
+  const out = await store.setSale("rec00000000000001", { on: true, price: "250", until: "" });
+
+  assert.deepEqual(base.updates, [{
+    table: "Inventory Units",
+    id: "rec00000000000001",
+    fields: { "Dump Listing?": true, "Custom Selling Price": 250, "Dump Until": null }
+  }]);
+  assert.equal(out.unit.sale.listed, true);
+  assert.deepEqual(out.sale, { units: 2, value: 550 });
+
+  const after = await store.list({ view: "on_sale" });
+  assert.equal(after.counts.on_sale, 2);
+});
+
+test("only an Available pair of ours can go on sale", async () => {
+  const base = saleAirtable([
+    { id: "rec00000000000001", fields: sound({ "Availability Status": "Reserved" }) },
+    { id: "rec00000000000002", fields: sound({ Type: "Forwarding" }) }
+  ]);
+  const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
+
+  await assert.rejects(store.setSale("rec00000000000001", { on: true }), /Only an Available unit/);
+  await assert.rejects(store.setSale("rec00000000000002", { on: true }), /Forwarding/);
+  await assert.rejects(store.setSale("not-a-record", { on: true }), /Unknown unit/);
+  assert.equal(base.updates.length, 0);
 });

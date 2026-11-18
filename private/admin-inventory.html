@@ -317,6 +317,23 @@
     .group[aria-pressed="true"] b { color: var(--primary-soft); }
     .group-todo { margin: 0; font-size: 12px; color: var(--muted); }
     .group-todo strong { color: var(--strong); }
+
+    /*
+     * On sale: three controls per Available pair, saved the moment one
+     * changes. The counter above the tabs is what is listed right now.
+     */
+    .sale-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    .sale-hint { margin: 0; font-size: 12px; color: var(--muted); }
+    .sale-on { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .sale-on input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; margin: 0; }
+    .sale-cell { display: flex; flex-direction: column; gap: 3px; }
+    .sale-cell .input { height: 30px; padding: 0 8px; }
+    .sale-price { width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sale-until { width: 140px; }
+    .sale-warn { font-size: 11px; color: var(--warning); white-space: normal; max-width: 160px; }
+    .sale-state { font-size: 11px; color: var(--muted); min-height: 14px; }
+    .sale-state.bad { color: var(--bad-text); }
+    .sale-state.good { color: var(--good-text); }
   </style>
 </head>
 <body>
@@ -384,12 +401,21 @@
         <h1>Inventory</h1>
       </div>
 
+      <div class="sale-summary">
+        <div class="totals">
+          <div class="total"><span>Pairs on sale</span><strong id="saleUnits">—</strong></div>
+          <div class="total"><span>Total sale value</span><strong id="saleValue">—</strong></div>
+        </div>
+        <p class="sale-hint">Listed on UNION, SneakerAsk, Woovin, bol and the other channels within about 10 minutes.</p>
+      </div>
+
       <div class="searchbar">
         <input class="input" id="search" type="search" placeholder="SKU, item number, product or size…" autocomplete="off" aria-label="Search the inventory">
       </div>
 
       <div class="tabs" id="tabs" role="tablist">
         <button class="tab" type="button" role="tab" data-view="in_stock" aria-selected="false">In stock <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="on_sale" aria-selected="false">On sale <small></small></button>
         <button class="tab" type="button" role="tab" data-view="reserved" aria-selected="false">Reserved <small></small></button>
         <button class="tab" type="button" role="tab" data-view="elsewhere" aria-selected="false">At a store <small></small></button>
         <button class="tab" type="button" role="tab" data-view="no_status" aria-selected="false">No status <small></small></button>
@@ -419,12 +445,16 @@
               <th class="money">Purchase price</th>
               <th>VAT type</th>
               <th class="money" title="The least we will sell it for: what it cost plus the margin set on the unit. A marketplace listing may come down to this price, never below it.">Floor</th>
+              <th class="money" title="Ideal Selling Price: what the pair asks on the channels when no sale price is set.">Ideal</th>
+              <th title="Dump Listing?: lists this pair on every channel while it is Available.">On sale</th>
+              <th class="money" title="Custom Selling Price: the ask on the channels. Empty means the Ideal price.">Sale price</th>
+              <th title="Dump Until: the last day it is listed. Empty means no end.">Until</th>
               <th class="date">Date</th>
               <th class="col-why">What disagrees</th>
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td class="empty" colspan="10">Loading…</td></tr>
+            <tr><td class="empty" colspan="14">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -446,7 +476,7 @@
     const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
-    const VIEWS = ["in_stock", "reserved", "elsewhere", "no_status", "inactive", "sold", "all", "checks"];
+    const VIEWS = ["in_stock", "on_sale", "reserved", "elsewhere", "no_status", "inactive", "sold", "all", "checks"];
 
     function fromAddress() {
       const asked = new URLSearchParams(location.search);
@@ -459,6 +489,7 @@
       counts: {},
       groups: [],
       totals: { units: 0, shown: 0, cost: 0 },
+      sale: null,
       ...fromAddress(),
       q: ""
     };
@@ -618,6 +649,162 @@
         .join("")}</div>`;
     }
 
+    /* ---------------- on sale ---------------- */
+
+    // The counter at the top: what is listed on the channels right now.
+    function drawSale() {
+      const sale = state.sale;
+      $("saleUnits").textContent = sale ? String(sale.units) : "—";
+      $("saleValue").textContent = sale ? money(sale.value) : "—";
+    }
+
+    // Only a sale price under what the pair cost is worth a word; it never blocks.
+    function belowCost(unit, raw) {
+      const price = Number(String(raw ?? "").trim().replace(",", "."));
+      return raw !== "" && raw !== null && raw !== undefined && price > 0 && unit.cost > 0 && price < unit.cost;
+    }
+
+    const warnText = (unit) => `Below the purchase price of ${money(unit.cost)}`;
+
+    function saleBadge(sale) {
+      if (sale.listed) return `<span class="pill good">Listed</span>`;
+      if (sale.on && sale.ended) return `<span class="pill wait">Ended</span>`;
+      return "";
+    }
+
+    /*
+     * Three cells per row. Only an Available pair can be put on sale - the
+     * server refuses anything else - so every other row just shows a dash.
+     */
+    function saleCells(u) {
+      const sale = u.sale || {};
+
+      if (u.availability !== "Available") {
+        return `<td>${sale.on ? `<span class="sub">on, not listed</span>` : `<span class="dash">—</span>`}</td><td class="money"><span class="dash">—</span></td><td><span class="dash">—</span></td>`;
+      }
+
+      const price = sale.price ?? "";
+      const warn = belowCost(u, price);
+
+      return `
+          <td>
+            <div class="sale-cell">
+              <label class="sale-on"><input type="checkbox" data-field="on" ${sale.on ? "checked" : ""} aria-label="On sale"> <span data-badge>${saleBadge(sale)}</span></label>
+              <span class="sale-state" data-state></span>
+            </div>
+          </td>
+          <td class="money">
+            <div class="sale-cell">
+              <input class="input sale-price" type="number" min="0.01" step="0.01" inputmode="decimal" data-field="price"
+                value="${esc(price)}" placeholder="${u.ideal > 0 ? esc(u.ideal) : ""}" aria-label="Sale price">
+              <span class="sale-warn" data-warn ${warn ? "" : "hidden"}>${warn ? esc(warnText(u)) : ""}</span>
+            </div>
+          </td>
+          <td>
+            <input class="input sale-until" type="date" data-field="until" value="${esc(sale.until || "")}" aria-label="Until">
+          </td>`;
+    }
+
+    function unitOf(tr) {
+      return state.units.find((unit) => unit.id === tr?.dataset.unit);
+    }
+
+    function showWarn(tr, unit, raw) {
+      const warn = tr.querySelector("[data-warn]");
+      if (!warn) return;
+      const on = belowCost(unit, raw);
+      warn.hidden = !on;
+      warn.textContent = on ? warnText(unit) : "";
+    }
+
+    function showState(tr, message, kind = "") {
+      const el = tr.querySelector("[data-state]");
+      if (!el) return;
+      el.textContent = message;
+      el.className = `sale-state${kind ? ` ${kind}` : ""}`;
+    }
+
+    // One save at a time per row, in the order they were made.
+    const saving = new Map();
+
+    function saveSale(tr, change) {
+      const id = tr.dataset.unit;
+      const run = (saving.get(id) || Promise.resolve()).then(async () => {
+        showState(tr, "Saving…");
+
+        try {
+          const out = await api(`/api/admin/inventory/${encodeURIComponent(id)}/sale`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(change)
+          });
+
+          const at = state.units.findIndex((unit) => unit.id === id);
+          if (at >= 0) state.units[at] = out.unit;
+
+          if (out.sale) {
+            state.sale = out.sale;
+            state.counts.on_sale = out.sale.units;
+            drawSale();
+            drawTabs();
+          }
+
+          // Updated in place, not redrawn, so the cursor stays where it is.
+          const badge = tr.querySelector("[data-badge]");
+          if (badge) badge.innerHTML = saleBadge(out.unit.sale);
+          showWarn(tr, out.unit, out.unit.sale.price ?? "");
+          showState(tr, out.unit.sale.listed ? "Saved · listed soon" : "Saved", "good");
+        } catch (err) {
+          showState(tr, err.message, "bad");
+          toast(err.message);
+        }
+      });
+
+      saving.set(id, run.catch(() => {}));
+      return run;
+    }
+
+    $("rows").addEventListener("input", (event) => {
+      const input = event.target.closest("input[data-field='price']");
+      if (!input) return;
+      const tr = input.closest("tr[data-unit]");
+      const unit = unitOf(tr);
+      if (unit) showWarn(tr, unit, input.value);
+    });
+
+    $("rows").addEventListener("change", (event) => {
+      const input = event.target.closest("input[data-field]");
+      if (!input) return;
+
+      const tr = input.closest("tr[data-unit]");
+      if (!tr) return;
+
+      const field = input.dataset.field;
+
+      if (field === "on") return saveSale(tr, { on: input.checked });
+
+      if (field === "price") {
+        if (input.validity.badInput || (input.value !== "" && !(Number(input.value) > 0))) {
+          showState(tr, "Not a positive number", "bad");
+          return;
+        }
+        return saveSale(tr, { price: input.value });
+      }
+
+      if (field === "until") {
+        if (input.validity.badInput) {
+          showState(tr, "Not a date", "bad");
+          return;
+        }
+        return saveSale(tr, { until: input.value });
+      }
+    });
+
+    // Enter in the price saves straight away rather than waiting for the blur.
+    $("rows").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && event.target.matches("input[data-field='price']")) event.target.blur();
+    });
+
     function drawList() {
       const units = state.units;
 
@@ -637,13 +824,15 @@
           ? "Nothing here under that."
           : state.view === "checks"
             ? "Nothing disagrees — every own unit checks out."
-            : "Nothing here.";
-        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${nothing}</td></tr>`;
+            : state.view === "on_sale"
+              ? "Nothing on sale. Tick On sale on a pair under In stock."
+              : "Nothing here.";
+        $("rows").innerHTML = `<tr><td class="empty" colspan="14">${nothing}</td></tr>`;
         return;
       }
 
       $("rows").innerHTML = units.map((u) => `
-        <tr>
+        <tr data-unit="${esc(u.id)}">
           <td class="id">${u.airtable
             ? `<a href="${esc(u.airtable)}" target="_blank" rel="noreferrer noopener">${esc(u.item_id || "—")}</a>`
             : esc(u.item_id || "—")}</td>
@@ -664,6 +853,8 @@
           <td class="money">${u.cost > 0 ? esc(money(u.cost)) : "—"}</td>
           <td>${esc(u.vat_type || "—")}</td>
           <td class="money">${u.floor > 0 ? esc(money(u.floor)) : "—"}</td>
+          <td class="money">${u.ideal > 0 ? esc(money(u.ideal)) : "—"}</td>
+          ${saleCells(u)}
           <td class="date">${esc(day(u.purchase_date))}</td>
           <td class="col-why">${disagrees(u)}</td>
         </tr>`).join("");
@@ -701,16 +892,18 @@
         state.counts = data.counts || state.counts;
         state.groups = data.groups || [];
         state.totals = data.totals || state.totals;
+        state.sale = data.sale || state.sale;
         tools.update(data.facets);
+        drawSale();
         drawTabs();
         drawGroups();
         drawList();
       } catch (err) {
-        $("rows").innerHTML = `<tr><td class="empty" colspan="10">${esc(err.message)}</td></tr>`;
+        $("rows").innerHTML = `<tr><td class="empty" colspan="14">${esc(err.message)}</td></tr>`;
       }
     }
 
-    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="10">Looking…</td></tr>`; };
+    const looking = () => { $("rows").innerHTML = `<tr><td class="empty" colspan="14">Looking…</td></tr>`; };
 
     $("tabs").addEventListener("click", (event) => {
       const tab = event.target.closest(".tab");

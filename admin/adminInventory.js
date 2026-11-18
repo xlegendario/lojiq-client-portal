@@ -24,6 +24,10 @@
 // Read-only on purpose. Correcting 700 units means a bulk write on a field
 // several automations hang off, and that is its own job with its own
 // homework.
+//
+// One exception (18-11-2026): putting a pair on sale. Per unit, three fields
+// nothing else writes - Dump Listing?, Custom Selling Price and Dump Until -
+// and the kc-own-stock job lists what they say on every channel.
 
 import express from "express";
 import fs from "fs";
@@ -157,8 +161,100 @@ export const INVENTORY_FIELDS = [
   "Selling Price", "Selling Method", "Item Condition", "Issue Status",
   "Fulfillment Status (UOL)", "Shopify Order Number",
   "Fulfillment Status (MWTB)", "Member WTB ID",
-  "Date Sold (External)", "External Order Number"
+  "Date Sold (External)", "External Order Number",
+  "Dump Listing?", "Custom Selling Price", "Dump Until"
 ];
+
+/*
+ * On sale: our own pair listed on every channel through consignment_inventory
+ * (the kc-own-stock job in sneakerask-consignment keeps those rows).
+ *
+ * Listed = Dump Listing? on, Available, not Forwarding, and Dump Until empty
+ * or not passed yet. The ask is Custom Selling Price when it is above zero,
+ * otherwise the Ideal Selling Price - in the unit's own VAT Type scale.
+ */
+export const SALE_FIELDS = { on: "Dump Listing?", price: "Custom Selling Price", until: "Dump Until" };
+
+// Today as a date in Amsterdam, which is the day Dump Until is counted in.
+export function localDay(date = new Date()) {
+  return date.toLocaleDateString("en-CA", { timeZone: "Europe/Amsterdam" });
+}
+
+export function saleOf(fields = {}, today = new Date()) {
+  const on = fields[SALE_FIELDS.on] === true;
+  const custom = Number(fields[SALE_FIELDS.price]);
+  const price = Number.isFinite(custom) && custom > 0 ? round2(custom) : null;
+  const until = text(fields[SALE_FIELDS.until]).slice(0, 10) || null;
+  const ideal = round2(fields["Ideal Selling Price"]);
+  const cost = round2(fields["Final Purchase Price"]);
+  const ended = Boolean(until && until < localDay(today));
+
+  const listed = on &&
+    text(fields["Availability Status"]) === "Available" &&
+    !EXCLUDED_TYPES.includes(text(fields.Type)) &&
+    !ended;
+
+  return {
+    on,
+    price,
+    until,
+    ended,
+    listed,
+    ask: price ?? ideal,
+    below_cost: price !== null && cost > 0 && price < cost
+  };
+}
+
+/*
+ * What the browser asked to change, as Airtable fields. A key that is left
+ * out is left alone; price and until take "" or null to clear. Anything that
+ * is not a clean value is refused rather than guessed at.
+ */
+export function readSaleChange(change = {}) {
+  const fields = {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(change, key);
+
+  if (has("on")) {
+    if (typeof change.on !== "boolean") throw new InventoryError("On sale is either on or off.");
+    fields[SALE_FIELDS.on] = change.on;
+  }
+
+  if (has("price")) {
+    const raw = change.price === null || change.price === undefined ? "" : String(change.price).trim().replace(",", ".");
+
+    if (!raw) {
+      fields[SALE_FIELDS.price] = null;
+    } else {
+      const price = Number(raw);
+
+      if (!/^\d+(\.\d+)?$/.test(raw) || !Number.isFinite(price) || price <= 0) {
+        throw new InventoryError("The sale price has to be a positive number, or empty.");
+      }
+
+      fields[SALE_FIELDS.price] = round2(price);
+    }
+  }
+
+  if (has("until")) {
+    const raw = change.until === null || change.until === undefined ? "" : String(change.until).trim();
+
+    if (!raw) {
+      fields[SALE_FIELDS.until] = null;
+    } else {
+      const parsed = new Date(`${raw}T00:00:00Z`);
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== raw) {
+        throw new InventoryError("Until has to be a date (YYYY-MM-DD), or empty.");
+      }
+
+      fields[SALE_FIELDS.until] = raw;
+    }
+  }
+
+  if (!Object.keys(fields).length) throw new InventoryError("Nothing to change.");
+
+  return fields;
+}
 
 function daysSince(value, today) {
   const when = Date.parse(text(value));
@@ -325,6 +421,7 @@ export function unitRow(record, today = new Date(), baseId = "") {
     floor: round2(fields["Minimum Selling Price"]),
     ideal: round2(fields["Ideal Selling Price"]),
     margin: text(fields["Margin %"]),
+    sale: saleOf(fields, today),
     purchase_date: first(fields["Purchase Date"]) || null,
     days: daysSince(fields["Purchase Date"], today),
     checks,
@@ -352,6 +449,8 @@ export const VIEWS = {
    * same as having no list.
    */
   checks: (row) => row.checks.some((check) => check.blocking),
+  // Listed on the channels right now, by the same rule the kc-own-stock job uses.
+  on_sale: (row) => row.sale.listed,
   all: () => true
 };
 
@@ -437,6 +536,12 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
    */
   const longestFirst = (a, b) => (b.days ?? 0) - (a.days ?? 0);
 
+  // What is on sale right now: pairs, and what they ask together.
+  const saleTotals = (rows) => {
+    const listed = rows.filter(VIEWS.on_sale);
+    return { units: listed.length, value: round2(listed.reduce((sum, row) => sum + row.sale.ask, 0)) };
+  };
+
   function summarise(rows) {
     const counts = { all: rows.length };
     for (const [name, pick] of Object.entries(VIEWS)) counts[name] = rows.filter(pick).length;
@@ -456,7 +561,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
       });
     }
 
-    return { counts, groups };
+    return { counts, groups, sale: saleTotals(rows) };
   }
 
   /*
@@ -471,7 +576,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     if (text(view) === "sold") return sold({ q: needle, limit: wanted, refine });
 
     const rows = await working();
-    const { counts, groups } = summarise(rows);
+    const { counts, groups, sale } = summarise(rows);
 
     /*
      * A chosen group stands on its own, over everything we hold. Filtering
@@ -497,6 +602,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
       units: shown,
       counts,
       groups,
+      sale,
       facets,
       totals: {
         units: chosen.length,
@@ -532,12 +638,13 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     sortRows(refined, "inventory", refine);
 
     const rows = refined.slice(0, limit);
-    const { counts, groups } = summarise(await working());
+    const { counts, groups, sale } = summarise(await working());
 
     return {
       units: rows,
       counts,
       groups,
+      sale,
       facets,
       totals: {
         units: rows.length,
@@ -558,10 +665,74 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     };
   }
 
-  return { list, sold, count, working };
+  /*
+   * Put one pair on sale, change its price or end date, or take it off.
+   *
+   * The unit is read fresh first: the working set can be minutes old, and a
+   * pair that sold in the meantime must not go back on the channels.
+   */
+  async function setSale(id, change = {}) {
+    const recordId = text(id);
+    if (!/^rec[A-Za-z0-9]{14}$/.test(recordId)) throw new InventoryError("Unknown unit.");
+
+    const fields = readSaleChange(change);
+
+    const { records } = await airtable.select("Inventory Units", {
+      fields: INVENTORY_FIELDS,
+      formula: `RECORD_ID() = '${recordId}'`,
+      pageSize: 1
+    });
+
+    const record = records[0];
+    if (!record) throw new InventoryError("That unit is not in Inventory Units.", 404);
+
+    const current = record.fields || {};
+
+    if (EXCLUDED_TYPES.includes(text(current.Type))) {
+      throw new InventoryError("A Forwarding unit is not ours to sell.", 409);
+    }
+
+    if (text(current["Availability Status"]) !== "Available") {
+      throw new InventoryError(`Only an Available unit can go on sale; this one is ${text(current["Availability Status"]) || "without a status"}.`, 409);
+    }
+
+    const today = now();
+    const before = saleOf(current, today);
+
+    await airtable.update("Inventory Units", recordId, fields);
+
+    // Airtable leaves an emptied field out of a record, so the row does too.
+    const merged = { ...current, ...fields };
+    for (const [name, value] of Object.entries(fields)) if (value === null) delete merged[name];
+
+    const row = unitRow({ id: recordId, fields: merged }, today, baseId);
+
+    /*
+     * Into the working set as well, rather than reading it all again: eleven
+     * calls for one checkbox would eat into the rate limit everything else
+     * shares.
+     */
+    let sale = null;
+
+    if (cache.promise) {
+      try {
+        const rows = await cache.promise;
+        const at = rows.findIndex((one) => one.id === recordId);
+        if (at >= 0) rows[at] = row;
+        else rows.push(row);
+        sale = saleTotals(rows);
+      } catch {
+        // The next read rebuilds it.
+      }
+    }
+
+    return { unit: row, before, sale, written: fields };
+  }
+
+  return { list, sold, count, working, setSale };
 }
 
-export function mountInventory(router, { store, pageFile }) {
+export function mountInventory(router, { store, audit = null, pageFile }) {
   const page = pageFile && fs.existsSync(pageFile) ? fs.readFileSync(pageFile, "utf8") : "";
 
   const send = (res, err) => {
@@ -585,6 +756,36 @@ export function mountInventory(router, { store, pageFile }) {
         limit: req.query.limit,
         refine: readRefine(req.query, "inventory")
       }));
+    } catch (err) {
+      send(res, err);
+    }
+  });
+
+  // On sale, one pair at a time: Dump Listing?, Custom Selling Price, Dump Until.
+  router.post("/api/admin/inventory/:id/sale", express.json({ limit: "10kb" }), async (req, res) => {
+    try {
+      const body = req.body || {};
+      const change = {};
+
+      for (const key of ["on", "price", "until"]) {
+        if (Object.prototype.hasOwnProperty.call(body, key)) change[key] = body[key];
+      }
+
+      const out = await store.setSale(req.params.id, change);
+
+      audit?.record({
+        actor: req.admin,
+        action: "Inventory on sale",
+        source: "inventory",
+        recordId: out.unit.id,
+        label: [out.unit.item_id, out.unit.sku, out.unit.size].filter(Boolean).join(" "),
+        details: {
+          changed: out.written,
+          before: { on: out.before.on, price: out.before.price, until: out.before.until }
+        }
+      })?.catch?.(() => {});
+
+      res.json({ unit: out.unit, sale: out.sale });
     } catch (err) {
       send(res, err);
     }

@@ -551,6 +551,7 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
 
   mountInventory(router, {
     store: inventory,
+    audit,
     pageFile: pageFile ? path.join(path.dirname(pageFile), "admin-inventory.html") : ""
   });
 
