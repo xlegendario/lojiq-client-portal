@@ -425,6 +425,8 @@
 
       <div class="sale-summary">
         <div class="totals">
+          <div class="total"><span>Pairs in stock</span><strong id="stockUnits">—</strong></div>
+          <div class="total"><span>Stock at cost</span><strong id="stockCost">—</strong></div>
           <div class="total"><span>Pairs on sale</span><strong id="saleUnits">—</strong></div>
           <div class="total"><span>Total sale value</span><strong id="saleValue">—</strong></div>
         </div>
@@ -682,6 +684,8 @@
       const sale = state.sale;
       $("saleUnits").textContent = sale ? String(sale.units) : "—";
       $("saleValue").textContent = sale ? money(sale.value) : "—";
+      $("stockUnits").textContent = sale && typeof sale.stock_units === "number" ? String(sale.stock_units) : "—";
+      $("stockCost").textContent = sale && typeof sale.stock_cost === "number" ? money(sale.stock_cost) : "—";
     }
 
     // Only a sale price under what the pair cost is worth a word; it never blocks.

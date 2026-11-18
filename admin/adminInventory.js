@@ -546,7 +546,14 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
   // What is on sale right now: pairs, and what they ask together.
   const saleTotals = (rows) => {
     const listed = rows.filter(VIEWS.on_sale);
-    return { units: listed.length, value: round2(listed.reduce((sum, row) => sum + row.sale.ask, 0)) };
+    // And the whole shelf beside it, so the sale reads as a part of something.
+    const stock = rows.filter(VIEWS.in_stock);
+    return {
+      units: listed.length,
+      value: round2(listed.reduce((sum, row) => sum + row.sale.ask, 0)),
+      stock_units: stock.length,
+      stock_cost: round2(stock.reduce((sum, row) => sum + (row.cost || 0), 0))
+    };
   };
 
   function summarise(rows) {

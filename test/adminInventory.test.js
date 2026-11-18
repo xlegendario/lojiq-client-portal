@@ -548,7 +548,7 @@ test("putting a pair on sale writes the three fields and moves the counter", asy
   const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
 
   const before = await store.list({ view: "on_sale" });
-  assert.deepEqual(before.sale, { units: 1, value: 300 });
+  assert.deepEqual({ units: before.sale.units, value: before.sale.value }, { units: 1, value: 300 });
   assert.deepEqual(before.units.map((u) => u.item_id), ["KC-2"]);
 
   const out = await store.setSale("rec00000000000001", { on: true, price: "250", until: "" });
@@ -559,7 +559,7 @@ test("putting a pair on sale writes the three fields and moves the counter", asy
     fields: { "Dump Listing?": true, "Custom Selling Price": 250, "Dump Until": null }
   }]);
   assert.equal(out.unit.sale.listed, true);
-  assert.deepEqual(out.sale, { units: 2, value: 550 });
+  assert.deepEqual({ units: out.sale.units, value: out.sale.value }, { units: 2, value: 550 });
 
   const after = await store.list({ view: "on_sale" });
   assert.equal(after.counts.on_sale, 2);
