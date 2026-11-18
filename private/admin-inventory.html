@@ -341,13 +341,16 @@
     .group-todo strong { color: var(--strong); }
 
     /*
-     * On sale: three controls per Available pair, saved the moment one
-     * changes. The counter above the tabs is what is listed right now.
+     * Listed: every own pair in Huizen goes out by default. Per Available
+     * pair a Hold back tick, a sale price and an end date, saved the moment
+     * one changes. The counter above the tabs is the shelf and what is out.
      */
     .sale-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
-    .sale-hint { margin: 0; font-size: 12px; color: var(--muted); }
-    .sale-on { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-    .sale-on input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; margin: 0; }
+    .sale-hint { margin: 0; font-size: 12px; color: var(--muted); max-width: 640px; }
+    .total small { display: block; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .sale-hold { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 11px; color: var(--muted); }
+    .sale-hold input { accent-color: var(--primary); width: 13px; height: 13px; cursor: pointer; margin: 0; }
+    .pill.why-not { white-space: normal; height: auto; min-height: 22px; padding: 3px 8px; max-width: 220px; }
     .sale-cell { display: flex; flex-direction: column; gap: 3px; }
     .sale-cell .input { height: 30px; padding: 0 8px; }
     .sale-price { width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -427,10 +430,10 @@
         <div class="totals">
           <div class="total"><span>Pairs in stock</span><strong id="stockUnits">—</strong></div>
           <div class="total"><span>Stock at cost</span><strong id="stockCost">—</strong></div>
-          <div class="total"><span>Pairs on sale</span><strong id="saleUnits">—</strong></div>
-          <div class="total"><span>Total sale value</span><strong id="saleValue">—</strong></div>
+          <div class="total"><span>Listed</span><strong id="saleUnits">—</strong><small id="saleValue"></small></div>
+          <div class="total"><span>Deals</span><strong id="dealUnits">—</strong><small>below Ideal</small></div>
         </div>
-        <p class="sale-hint">Listed on UNION, SneakerAsk, Woovin, bol and the other channels within about 10 minutes.</p>
+        <p class="sale-hint">Every own pair in Huizen is listed on UNION, SneakerAsk, Woovin, bol and the other channels at its Ideal price, or at the sale price when you set one. Tick Hold back to keep a pair off.</p>
       </div>
 
       <div class="searchbar">
@@ -439,7 +442,9 @@
 
       <div class="tabs" id="tabs" role="tablist">
         <button class="tab" type="button" role="tab" data-view="in_stock" aria-selected="false">In stock <small></small></button>
-        <button class="tab" type="button" role="tab" data-view="on_sale" aria-selected="false">On sale <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="listed" aria-selected="false">Listed <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="deals" aria-selected="false">Deals <small></small></button>
+        <button class="tab" type="button" role="tab" data-view="not_listed" aria-selected="false">Not listed <small></small></button>
         <button class="tab" type="button" role="tab" data-view="reserved" aria-selected="false">Reserved <small></small></button>
         <button class="tab" type="button" role="tab" data-view="elsewhere" aria-selected="false">At a store <small></small></button>
         <button class="tab" type="button" role="tab" data-view="no_status" aria-selected="false">No status <small></small></button>
@@ -472,7 +477,7 @@
               <th>VAT type</th>
               <th class="money" title="The least we will sell it for: what it cost plus the margin set on the unit. A marketplace listing may come down to this price, never below it.">Floor</th>
               <th class="money" title="Ideal Selling Price: what the pair asks on the channels when no sale price is set.">Ideal</th>
-              <th title="Dump Listing?: lists this pair on every channel while it is Available.">On sale</th>
+              <th title="Every own pair in Huizen is listed on every channel unless Hold Back? is ticked or something keeps it off.">Listed</th>
               <th class="money" title="Custom Selling Price: the ask on the channels. Empty means the Ideal price.">Sale price</th>
               <th title="Dump Until: the last day it is listed. Empty means no end.">Until</th>
               <th class="date">Date</th>
@@ -502,7 +507,7 @@
     const dayFmt = new Intl.DateTimeFormat("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
     const day = (value) => (value ? dayFmt.format(new Date(value)) : "—");
 
-    const VIEWS = ["in_stock", "on_sale", "reserved", "elsewhere", "no_status", "inactive", "sold", "all", "checks"];
+    const VIEWS = ["in_stock", "listed", "deals", "not_listed", "reserved", "elsewhere", "no_status", "inactive", "sold", "all", "checks"];
 
     function fromAddress() {
       const asked = new URLSearchParams(location.search);
@@ -677,13 +682,14 @@
         .join("")}</div>`;
     }
 
-    /* ---------------- on sale ---------------- */
+    /* ---------------- listed ---------------- */
 
-    // The counter at the top: what is listed on the channels right now.
+    // The counter at the top: the shelf, what of it is out there, the deals.
     function drawSale() {
       const sale = state.sale;
-      $("saleUnits").textContent = sale ? String(sale.units) : "—";
-      $("saleValue").textContent = sale ? money(sale.value) : "—";
+      $("saleUnits").textContent = sale ? `${sale.units} pair${sale.units === 1 ? "" : "s"}` : "—";
+      $("saleValue").textContent = sale ? `${money(sale.value)} at ask` : "";
+      $("dealUnits").textContent = sale && typeof sale.deals === "number" ? String(sale.deals) : "—";
       $("stockUnits").textContent = sale && typeof sale.stock_units === "number" ? String(sale.stock_units) : "—";
       $("stockCost").textContent = sale && typeof sale.stock_cost === "number" ? money(sale.stock_cost) : "—";
     }
@@ -696,21 +702,38 @@
 
     const warnText = (unit) => `Below the purchase price of ${money(unit.cost)}`;
 
+    // The server's reason codes (admin/adminInventory.js NOT_LISTED), said plainly.
+    const NOT_LISTED = {
+      not_available: "not Available",
+      forwarding: "Forwarding",
+      elsewhere: "not in Huizen",
+      past_dump_until: "past its Until date",
+      already_shipped: "already shipped",
+      verification: "verification cancelled, rejected or lost",
+      written_off: "written off or lost",
+      no_sku_or_size: "no SKU or size",
+      no_vat_type: "no VAT type",
+      no_price: "no Ideal or sale price"
+    };
+
     function saleBadge(sale) {
       if (sale.listed) return `<span class="pill good">Listed</span>`;
-      if (sale.on && sale.ended) return `<span class="pill wait">Ended</span>`;
-      return "";
+      if (sale.reason === "held_back") return `<span class="pill">Held back</span>`;
+      return `<span class="pill wait why-not">Not listed: ${esc(NOT_LISTED[sale.reason] || sale.reason || "unknown")}</span>`;
     }
 
+    // Has its own price, under the Ideal: shown green on the size chips.
+    const belowIdeal = (u) => u.sale && u.sale.price !== null && u.sale.price !== undefined && u.ideal > 0 && u.sale.price < u.ideal;
+
     /*
-     * Three cells per row. Only an Available pair can be put on sale - the
+     * Three cells per row. Only an Available pair has sale settings - the
      * server refuses anything else - so every other row just shows a dash.
      */
     function saleCells(u) {
       const sale = u.sale || {};
 
       if (u.availability !== "Available") {
-        return `<td>${sale.on ? `<span class="sub">on, not listed</span>` : `<span class="dash">—</span>`}</td><td class="money"><span class="dash">—</span></td><td><span class="dash">—</span></td>`;
+        return `<td><span class="dash">—</span></td><td class="money"><span class="dash">—</span></td><td><span class="dash">—</span></td>`;
       }
 
       const price = sale.price ?? "";
@@ -719,7 +742,8 @@
       return `
           <td>
             <div class="sale-cell">
-              <label class="sale-on"><input type="checkbox" data-field="on" ${sale.on ? "checked" : ""} aria-label="On sale"> <span data-badge>${saleBadge(sale)}</span></label>
+              <span data-badge>${saleBadge(sale)}</span>
+              <label class="sale-hold"><input type="checkbox" data-field="hold" ${sale.held_back ? "checked" : ""}> Hold back</label>
               <span class="sale-state" data-state></span>
             </div>
           </td>
@@ -774,7 +798,10 @@
 
           if (out.sale) {
             state.sale = out.sale;
-            state.counts.on_sale = out.sale.units;
+            state.counts.listed = out.sale.units;
+            state.counts.deals = out.sale.deals;
+            // Not listed is Available minus listed: listed is always Available.
+            state.counts.not_listed = out.sale.stock_units - out.sale.units;
             drawSale();
             drawTabs();
           }
@@ -783,7 +810,7 @@
           const badge = tr.querySelector("[data-badge]");
           if (badge) badge.innerHTML = saleBadge(out.unit.sale);
           showWarn(tr, out.unit, out.unit.sale.price ?? "");
-          showState(tr, out.unit.sale.listed ? "Saved · listed soon" : "Saved", "good");
+          showState(tr, out.unit.sale.listed ? "Saved · on the channels within ~10 min" : "Saved", "good");
         } catch (err) {
           showState(tr, err.message, "bad");
           toast(err.message);
@@ -811,7 +838,7 @@
 
       const field = input.dataset.field;
 
-      if (field === "on") return saveSale(tr, { on: input.checked });
+      if (field === "hold") return saveSale(tr, { hold: input.checked });
 
       if (field === "price") {
         if (input.validity.badInput || (input.value !== "" && !(Number(input.value) > 0))) {
@@ -881,9 +908,13 @@
           ? "Nothing here under that."
           : state.view === "checks"
             ? "Nothing disagrees — every own unit checks out."
-            : state.view === "on_sale"
-              ? "Nothing on sale. Tick On sale on a pair under In stock."
-              : "Nothing here.";
+            : state.view === "listed"
+              ? "Nothing listed right now."
+              : state.view === "deals"
+                ? "No deals. Set a sale price under the Ideal on a pair to make one."
+                : state.view === "not_listed"
+                  ? "Every Available pair is listed."
+                  : "Nothing here.";
         $("rows").innerHTML = `<tr><td class="empty" colspan="14">${nothing}</td></tr>`;
         return;
       }
@@ -916,7 +947,7 @@
         const group = bySku.get(key).sort(sizeOrder);
         const open = Boolean(state.q) || state.open.has(key);
         const first = group[0];
-        const onSale = group.filter((u) => u.sale && u.sale.on).length;
+        const onSale = group.filter(belowIdeal).length;
         const cost = group.reduce((sum, u) => sum + (Number(u.cost) || 0), 0);
 
         const shot = group.find((u) => u.picture)?.picture || "";
@@ -930,10 +961,10 @@
               <div class="name">
                 <strong>${esc(first.product_name || key)}</strong>
                 <span class="sub">${esc(key)}${first.brand ? ` · ${esc(first.brand)}` : ""}</span>
-                <div class="sizes">${group.map((u) => `<span class="${u.sale && u.sale.on ? "on" : ""}">${esc(u.size || "?")}</span>`).join("")}</div>
+                <div class="sizes">${group.map((u) => `<span class="${belowIdeal(u) ? "on" : ""}">${esc(u.size || "?")}</span>`).join("")}</div>
               </div>
               <div class="facts">
-                ${onSale ? `<span class="pill good">${onSale} on sale</span>` : ""}
+                ${onSale ? `<span class="pill good">${onSale} below Ideal</span>` : ""}
                 <div class="fact"><b>${group.length}</b><small>pair${group.length === 1 ? "" : "s"}</small></div>
                 <div class="fact"><b>${esc(money(cost))}</b><small>at cost</small></div>
               </div>

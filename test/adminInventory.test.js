@@ -482,41 +482,70 @@ test("the sidebar count is the number of units whose fields disagree", async () 
   assert.deepEqual(await store.count(), { checks: 1, in_stock: 1 });
 });
 
-/* ---------------- on sale ---------------- */
+/* ---------------- listed ---------------- */
 
-test("a pair is listed when ticked, Available, not Forwarding and not past its end date", () => {
-  const on = { "Dump Listing?": true };
+/*
+ * Own stock is listed by default since 18-11-2026. The rule is the
+ * contract's (kc-dump-contract.md, "CHANGED 18-11"), and so are the reason
+ * codes: the kc-own-stock job and this screen must agree on every pair.
+ */
+const reasonOf = (extra) => saleOf(sound(extra), TODAY).reason;
 
-  assert.equal(saleOf(sound(on), TODAY).listed, true);
-  assert.equal(saleOf(sound(), TODAY).listed, false, "not ticked");
-  assert.equal(saleOf(sound({ ...on, "Availability Status": "Reserved" }), TODAY).listed, false);
-  assert.equal(saleOf(sound({ ...on, Type: "Forwarding" }), TODAY).listed, false);
-  assert.equal(saleOf(sound({ ...on, "Dump Until": "2026-09-30" }), TODAY).listed, true, "the last day still counts");
-  assert.equal(saleOf(sound({ ...on, "Dump Until": "2026-09-29" }), TODAY).listed, false);
-  assert.equal(saleOf(sound({ ...on, "Dump Until": "2026-09-29" }), TODAY).ended, true);
+test("a sound pair in Huizen is listed without anyone ticking anything", () => {
+  const sale = saleOf(sound(), TODAY);
+
+  assert.equal(sale.listed, true);
+  assert.equal(sale.reason, null);
+  assert.equal(sale.held_back, false);
+  assert.equal(sale.ask, 235, "no sale price: the Ideal");
+  assert.equal(sale.deal, false);
 });
 
-test("the ask is the sale price, or the ideal price when there is none", () => {
+test("each thing that keeps a pair off has its own reason, in the contract's order", () => {
+  assert.equal(reasonOf({ "Hold Back?": true }), "held_back");
+  assert.equal(reasonOf({ "Hold Back?": true, "Availability Status": "Reserved" }), "held_back", "held back is said first");
+  assert.equal(reasonOf({ "Availability Status": "Reserved" }), "not_available");
+  assert.equal(reasonOf({ Type: "Forwarding" }), "forwarding");
+  assert.equal(reasonOf({ Location: "APLUG.PL" }), "elsewhere");
+  assert.equal(reasonOf({ "Dump Until": "2026-09-29" }), "past_dump_until");
+  assert.equal(reasonOf({ "Dump Until": "2026-09-30" }), null, "the last day still counts");
+  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Fulfilled"] }), "already_shipped");
+  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Store Fulfilled"] }), "already_shipped");
+  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Fulfilled", "Returned"] }), null, "came back, so it is here");
+  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Processing"] }), null);
+  assert.equal(reasonOf({ "Verification Status": "Lost" }), "verification");
+  assert.equal(reasonOf({ "Verification Status": "Rejected" }), "verification");
+  assert.equal(reasonOf({ "Cancel Status": "Written Off" }), "written_off");
+  assert.equal(reasonOf({ "Cancel Status": "Return" }), null);
+  assert.equal(reasonOf({ SKU: "" }), "no_sku_or_size");
+  assert.equal(reasonOf({ Size: "" }), "no_sku_or_size");
+  assert.equal(reasonOf({ "VAT Type": "" }), "no_vat_type");
+  assert.equal(reasonOf({ "Ideal Selling Price": 0 }), "no_price");
+  assert.equal(reasonOf({ "Ideal Selling Price": 0, "Custom Selling Price": 199 }), null, "a sale price is a price");
+});
+
+test("Dump Listing? is no longer read", () => {
+  assert.equal(saleOf(sound({ "Dump Listing?": false }), TODAY).listed, true);
+  assert.equal(saleOf(sound({ "Dump Listing?": true, "Hold Back?": true }), TODAY).listed, false);
+});
+
+test("the ask is the sale price, or the Ideal when there is none; under the Ideal it is a deal", () => {
   assert.equal(saleOf(sound({ "Custom Selling Price": 210 }), TODAY).ask, 210);
-  assert.equal(saleOf(sound(), TODAY).ask, 235);
   assert.equal(saleOf(sound({ "Custom Selling Price": 0 }), TODAY).ask, 235);
+  assert.equal(saleOf(sound({ "Custom Selling Price": 210 }), TODAY).deal, true);
+  assert.equal(saleOf(sound({ "Custom Selling Price": 250 }), TODAY).deal, false, "above the Ideal is no deal");
+  assert.equal(saleOf(sound({ "Custom Selling Price": 210, "Hold Back?": true }), TODAY).deal, false, "only a listed pair is a deal");
 });
 
-test("a sale price under what the pair cost is flagged, not refused", () => {
-  assert.equal(saleOf(sound({ "Custom Selling Price": 180 }), TODAY).below_cost, true);
-  assert.equal(saleOf(sound({ "Custom Selling Price": 200 }), TODAY).below_cost, false);
-  assert.equal(saleOf(sound(), TODAY).below_cost, false);
-  assert.deepEqual(readSaleChange({ price: 180 }), { "Custom Selling Price": 180 });
-});
-
-test("the change is read strictly: positive price or empty, a real date or empty", () => {
-  assert.deepEqual(readSaleChange({ on: true }), { "Dump Listing?": true });
+test("the change is read strictly: hold on or off, positive price or empty, a real date or empty", () => {
+  assert.deepEqual(readSaleChange({ hold: true }), { "Hold Back?": true });
   assert.deepEqual(readSaleChange({ price: "199,5" }), { "Custom Selling Price": 199.5 });
+  assert.deepEqual(readSaleChange({ price: 180 }), { "Custom Selling Price": 180 }, "under cost is warned about, not refused");
   assert.deepEqual(readSaleChange({ price: "" }), { "Custom Selling Price": null });
   assert.deepEqual(readSaleChange({ until: "2026-11-30" }), { "Dump Until": "2026-11-30" });
   assert.deepEqual(readSaleChange({ until: null }), { "Dump Until": null });
 
-  for (const bad of [{ price: 0 }, { price: -5 }, { price: "abc" }, { until: "30-11-2026" }, { until: "2026-02-30" }, { on: "yes" }, {}]) {
+  for (const bad of [{ price: 0 }, { price: -5 }, { price: "abc" }, { until: "30-11-2026" }, { until: "2026-02-30" }, { hold: "yes" }, { on: true }, {}]) {
     assert.throws(() => readSaleChange(bad), undefined, JSON.stringify(bad));
   }
 });
@@ -540,40 +569,63 @@ function saleAirtable(records) {
   };
 }
 
-test("putting a pair on sale writes the three fields and moves the counter", async () => {
+test("the views and the counter: listed, deals, not listed, and the shelf beside them", async () => {
   const base = saleAirtable([
     { id: "rec00000000000001", fields: sound() },
-    { id: "rec00000000000002", fields: sound({ "Item ID": "KC-2", "Dump Listing?": true, "Custom Selling Price": 300 }) }
+    { id: "rec00000000000002", fields: sound({ "Item ID": "KC-2", "Custom Selling Price": 200 }) },
+    { id: "rec00000000000003", fields: sound({ "Item ID": "KC-3", "Hold Back?": true }) },
+    { id: "rec00000000000004", fields: sound({ "Item ID": "KC-4", "Availability Status": "Reserved" }) }
   ]);
   const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
 
-  const before = await store.list({ view: "on_sale" });
-  assert.deepEqual({ units: before.sale.units, value: before.sale.value }, { units: 1, value: 300 });
-  assert.deepEqual(before.units.map((u) => u.item_id), ["KC-2"]);
+  const listed = await store.list({ view: "listed" });
+  assert.deepEqual(listed.units.map((u) => u.item_id).sort(), ["KC-000039", "KC-2"]);
+  assert.deepEqual(listed.sale, { units: 2, value: 435, deals: 1, stock_units: 3, stock_cost: 600 });
+  assert.equal(listed.counts.listed, 2);
+  assert.equal(listed.counts.deals, 1);
+  assert.equal(listed.counts.not_listed, 1);
 
-  const out = await store.setSale("rec00000000000001", { on: true, price: "250", until: "" });
+  assert.deepEqual((await store.list({ view: "deals" })).units.map((u) => u.item_id), ["KC-2"]);
+
+  const off = await store.list({ view: "not_listed" });
+  assert.deepEqual(off.units.map((u) => [u.item_id, u.sale.reason]), [["KC-3", "held_back"]], "Reserved is not Available, so not here");
+});
+
+test("holding a pair back writes Hold Back? and moves the counter", async () => {
+  const base = saleAirtable([
+    { id: "rec00000000000001", fields: sound() },
+    { id: "rec00000000000002", fields: sound({ "Item ID": "KC-2", "Custom Selling Price": 300 }) }
+  ]);
+  const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
+
+  assert.equal((await store.list({ view: "listed" })).sale.units, 2);
+
+  const out = await store.setSale("rec00000000000001", { hold: true, price: "250", until: "" });
 
   assert.deepEqual(base.updates, [{
     table: "Inventory Units",
     id: "rec00000000000001",
-    fields: { "Dump Listing?": true, "Custom Selling Price": 250, "Dump Until": null }
+    fields: { "Hold Back?": true, "Custom Selling Price": 250, "Dump Until": null }
   }]);
-  assert.equal(out.unit.sale.listed, true);
-  assert.deepEqual({ units: out.sale.units, value: out.sale.value }, { units: 2, value: 550 });
+  assert.equal(out.unit.sale.listed, false);
+  assert.equal(out.unit.sale.reason, "held_back");
+  assert.equal(out.before.listed, true);
+  assert.deepEqual({ units: out.sale.units, value: out.sale.value }, { units: 1, value: 300 });
 
-  const after = await store.list({ view: "on_sale" });
-  assert.equal(after.counts.on_sale, 2);
+  const after = await store.list({ view: "not_listed" });
+  assert.equal(after.counts.listed, 1);
+  assert.deepEqual(after.units.map((u) => u.item_id), ["KC-000039"]);
 });
 
-test("only an Available pair of ours can go on sale", async () => {
+test("only an Available pair of ours has sale settings", async () => {
   const base = saleAirtable([
     { id: "rec00000000000001", fields: sound({ "Availability Status": "Reserved" }) },
     { id: "rec00000000000002", fields: sound({ Type: "Forwarding" }) }
   ]);
   const store = createInventoryStore({ airtable: base.airtable, now: () => TODAY });
 
-  await assert.rejects(store.setSale("rec00000000000001", { on: true }), /Only an Available unit/);
-  await assert.rejects(store.setSale("rec00000000000002", { on: true }), /Forwarding/);
-  await assert.rejects(store.setSale("not-a-record", { on: true }), /Unknown unit/);
+  await assert.rejects(store.setSale("rec00000000000001", { hold: true }), /Only an Available unit/);
+  await assert.rejects(store.setSale("rec00000000000002", { hold: true }), /Forwarding/);
+  await assert.rejects(store.setSale("not-a-record", { hold: true }), /Unknown unit/);
   assert.equal(base.updates.length, 0);
 });

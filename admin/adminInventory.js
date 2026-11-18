@@ -25,9 +25,10 @@
 // several automations hang off, and that is its own job with its own
 // homework.
 //
-// One exception (18-11-2026): putting a pair on sale. Per unit, three fields
-// nothing else writes - Dump Listing?, Custom Selling Price and Dump Until -
-// and the kc-own-stock job lists what they say on every channel.
+// One exception (18-11-2026): the sale settings per pair. Own stock in Huizen
+// is listed on every channel by default (the kc-own-stock job); three fields
+// nothing else writes - Hold Back?, Custom Selling Price and Dump Until - keep
+// a pair off, set its price, or end its listing.
 
 import express from "express";
 import fs from "fs";
@@ -162,46 +163,83 @@ export const INVENTORY_FIELDS = [
   "Fulfillment Status (UOL)", "Shopify Order Number",
   "Fulfillment Status (MWTB)", "Member WTB ID",
   "Date Sold (External)", "External Order Number",
-  "Dump Listing?", "Custom Selling Price", "Dump Until", "Picture"
+  "Hold Back?", "Custom Selling Price", "Dump Until", "Cancel Status", "Picture"
 ];
 
 /*
- * On sale: our own pair listed on every channel through consignment_inventory
- * (the kc-own-stock job in sneakerask-consignment keeps those rows).
+ * Listed: our own pair on every channel through consignment_inventory (the
+ * kc-own-stock job in sneakerask-consignment keeps those rows). Since
+ * 18-11-2026 that is the default for every pair in Huizen; Hold Back? keeps
+ * one off. The rule below is the contract's, word for word - the job and
+ * this screen must never disagree about whether a pair is out there.
  *
- * Listed = Dump Listing? on, Available, not Forwarding, and Dump Until empty
- * or not passed yet. The ask is Custom Selling Price when it is above zero,
- * otherwise the Ideal Selling Price - in the unit's own VAT Type scale.
+ * The ask is Custom Selling Price when it is above zero, otherwise the Ideal
+ * Selling Price - in the unit's own VAT Type scale. A listed pair whose
+ * Custom is under its Ideal is a deal: UNION shows it as a discount.
  */
-export const SALE_FIELDS = { on: "Dump Listing?", price: "Custom Selling Price", until: "Dump Until" };
+export const SALE_FIELDS = { hold: "Hold Back?", price: "Custom Selling Price", until: "Dump Until" };
+
+// Why a pair is not listed, in the order they are checked.
+export const NOT_LISTED = {
+  held_back: "held back",
+  not_available: "not Available",
+  forwarding: "Forwarding",
+  elsewhere: "not in Huizen",
+  past_dump_until: "past its Until date",
+  already_shipped: "already shipped",
+  verification: "verification cancelled, rejected or lost",
+  written_off: "written off or lost",
+  no_sku_or_size: "no SKU or size",
+  no_vat_type: "no VAT type",
+  no_price: "no price"
+};
+
+const SHIPPED_UOL = new Set(["Fulfilled", "Store Fulfilled"]);
+const VERIFICATION_OFF = new Set(["Cancelled", "Rejected", "Lost"]);
+const CANCEL_OFF = new Set(["Written Off", "Lost"]);
 
 // Today as a date in Amsterdam, which is the day Dump Until is counted in.
 export function localDay(date = new Date()) {
   return date.toLocaleDateString("en-CA", { timeZone: "Europe/Amsterdam" });
 }
 
+// A lookup arrives as a list, now and then as one joined string.
+const values = (value) => many(value).flatMap((one) => text(one).split(",")).map((one) => one.trim()).filter(Boolean);
+
+function notListedBecause(fields, { until, ask }, today) {
+  const uol = values(fields["Fulfillment Status (UOL)"]);
+
+  if (fields[SALE_FIELDS.hold] === true) return "held_back";
+  if (text(fields["Availability Status"]) !== "Available") return "not_available";
+  if (EXCLUDED_TYPES.includes(text(fields.Type))) return "forwarding";
+  if (text(fields.Location)) return "elsewhere";
+  if (until && until < localDay(today)) return "past_dump_until";
+  if (uol.some((status) => SHIPPED_UOL.has(status)) && !uol.includes("Returned")) return "already_shipped";
+  if (VERIFICATION_OFF.has(text(fields["Verification Status"]))) return "verification";
+  if (CANCEL_OFF.has(first(fields["Cancel Status"]))) return "written_off";
+  if (!text(fields.SKU) || !text(fields.Size)) return "no_sku_or_size";
+  if (!first(fields["VAT Type"])) return "no_vat_type";
+  if (!(ask > 0)) return "no_price";
+  return "";
+}
+
 export function saleOf(fields = {}, today = new Date()) {
-  const on = fields[SALE_FIELDS.on] === true;
   const custom = Number(fields[SALE_FIELDS.price]);
   const price = Number.isFinite(custom) && custom > 0 ? round2(custom) : null;
   const until = text(fields[SALE_FIELDS.until]).slice(0, 10) || null;
   const ideal = round2(fields["Ideal Selling Price"]);
-  const cost = round2(fields["Final Purchase Price"]);
-  const ended = Boolean(until && until < localDay(today));
-
-  const listed = on &&
-    text(fields["Availability Status"]) === "Available" &&
-    !EXCLUDED_TYPES.includes(text(fields.Type)) &&
-    !ended;
+  const ask = price ?? ideal;
+  const reason = notListedBecause(fields, { until, ask }, today);
+  const listed = !reason;
 
   return {
-    on,
+    listed,
+    reason: reason || null,
+    held_back: fields[SALE_FIELDS.hold] === true,
     price,
     until,
-    ended,
-    listed,
-    ask: price ?? ideal,
-    below_cost: price !== null && cost > 0 && price < cost
+    ask,
+    deal: listed && price !== null && price < ideal
   };
 }
 
@@ -214,9 +252,9 @@ export function readSaleChange(change = {}) {
   const fields = {};
   const has = (key) => Object.prototype.hasOwnProperty.call(change, key);
 
-  if (has("on")) {
-    if (typeof change.on !== "boolean") throw new InventoryError("On sale is either on or off.");
-    fields[SALE_FIELDS.on] = change.on;
+  if (has("hold")) {
+    if (typeof change.hold !== "boolean") throw new InventoryError("Hold back is either on or off.");
+    fields[SALE_FIELDS.hold] = change.hold;
   }
 
   if (has("price")) {
@@ -456,8 +494,12 @@ export const VIEWS = {
    * same as having no list.
    */
   checks: (row) => row.checks.some((check) => check.blocking),
-  // Listed on the channels right now, by the same rule the kc-own-stock job uses.
-  on_sale: (row) => row.sale.listed,
+  // On the channels right now, by the same rule the kc-own-stock job uses.
+  listed: (row) => row.sale.listed,
+  // Listed below its Ideal price: what UNION shows as a discount.
+  deals: (row) => row.sale.deal,
+  // Here and Available, yet not out there - each with the reason why.
+  not_listed: (row) => row.availability === "Available" && !row.sale.listed,
   all: () => true
 };
 
@@ -543,14 +585,17 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
    */
   const longestFirst = (a, b) => (b.days ?? 0) - (a.days ?? 0);
 
-  // What is on sale right now: pairs, and what they ask together.
+  /*
+   * The counter: the shelf (in stock, at cost), what of it is listed and
+   * what that asks together, and how many of those are deals.
+   */
   const saleTotals = (rows) => {
-    const listed = rows.filter(VIEWS.on_sale);
-    // And the whole shelf beside it, so the sale reads as a part of something.
+    const listed = rows.filter(VIEWS.listed);
     const stock = rows.filter(VIEWS.in_stock);
     return {
       units: listed.length,
       value: round2(listed.reduce((sum, row) => sum + row.sale.ask, 0)),
+      deals: listed.filter(VIEWS.deals).length,
       stock_units: stock.length,
       stock_cost: round2(stock.reduce((sum, row) => sum + (row.cost || 0), 0))
     };
@@ -680,7 +725,8 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
   }
 
   /*
-   * Put one pair on sale, change its price or end date, or take it off.
+   * Hold one pair back or let it go out again, or set its sale price or end
+   * date.
    *
    * The unit is read fresh first: the working set can be minutes old, and a
    * pair that sold in the meantime must not go back on the channels.
@@ -707,7 +753,7 @@ export function createInventoryStore({ airtable, baseId = "", now = () => new Da
     }
 
     if (text(current["Availability Status"]) !== "Available") {
-      throw new InventoryError(`Only an Available unit can go on sale; this one is ${text(current["Availability Status"]) || "without a status"}.`, 409);
+      throw new InventoryError(`Only an Available unit has sale settings; this one is ${text(current["Availability Status"]) || "without a status"}.`, 409);
     }
 
     const today = now();
@@ -775,13 +821,13 @@ export function mountInventory(router, { store, audit = null, pageFile }) {
     }
   });
 
-  // On sale, one pair at a time: Dump Listing?, Custom Selling Price, Dump Until.
+  // Sale settings, one pair at a time: Hold Back?, Custom Selling Price, Dump Until.
   router.post("/api/admin/inventory/:id/sale", express.json({ limit: "10kb" }), async (req, res) => {
     try {
       const body = req.body || {};
       const change = {};
 
-      for (const key of ["on", "price", "until"]) {
+      for (const key of ["hold", "price", "until"]) {
         if (Object.prototype.hasOwnProperty.call(body, key)) change[key] = body[key];
       }
 
@@ -789,13 +835,13 @@ export function mountInventory(router, { store, audit = null, pageFile }) {
 
       audit?.record({
         actor: req.admin,
-        action: "Inventory on sale",
+        action: "Inventory sale settings",
         source: "inventory",
         recordId: out.unit.id,
         label: [out.unit.item_id, out.unit.sku, out.unit.size].filter(Boolean).join(" "),
         details: {
           changed: out.written,
-          before: { on: out.before.on, price: out.before.price, until: out.before.until }
+          before: { hold: out.before.held_back, price: out.before.price, until: out.before.until }
         }
       })?.catch?.(() => {});
 
