@@ -168,6 +168,7 @@
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="mine" aria-selected="true">My catalogue <span class="n" id="n-mine"></span></button>
       <button class="tab" role="tab" data-tab="add" aria-selected="false">Add from Lojiq <span class="n" id="n-add"></span></button>
+      <button class="tab" role="tab" data-tab="suggested" aria-selected="false" id="tab-btn-suggested" hidden>Suggested <span class="n" id="n-suggested"></span></button>
     </div>
 
     <section id="tab-mine">
@@ -197,6 +198,19 @@
       </div>
       <div class="rows" id="rows-add"><p class="loading">Loading&hellip;</p></div>
     </section>
+
+    <section id="tab-suggested" hidden>
+      <p class="note" style="margin: 0 0 12px">
+        Shoes and clothing that sell across the Lojiq network and are not on your shelf yet, best first.
+        Score: sales per shop or marketplace (at most 15 each) + 3 per shop + 2 per WTB, over the last 180 days.
+      </p>
+      <div class="tools">
+        <input class="input search" id="search-suggested" type="search" placeholder="Product, brand, model or style code" autocomplete="off">
+        <label class="check"><input type="checkbox" id="show-dismissed"> Show "not for us"</label>
+        <span class="count" id="count-suggested"></span>
+      </div>
+      <div class="rows" id="rows-suggested"><p class="loading">Loading&hellip;</p></div>
+    </section>
   </div>
 
 <script>
@@ -210,6 +224,7 @@
     tab: "mine",
     mine: { items: [], total: 0, offset: 0 },
     add: { items: [], total: 0, offset: 0 },
+    suggested: { items: [], total: 0, offset: 0 },
     priceSync: false,
     open: new Set(),
     sizes: new Map(),
@@ -540,6 +555,104 @@
     }
   }
 
+  /* -------------------------------------------------------- suggested */
+
+  function suggestedCard(item) {
+    const choosing = state.adding === "s:" + item.sku;
+    const queued = item.choice === "add";
+    const stock = item.fast_sizes
+      ? '<span class="pill ours" title="Sizes we hold that ship within 48 hours">48h: ' + esc(item.fast_sizes) + "</span>"
+      : '<span class="pill">No 48h stock</span>';
+    const price = item.lojiq_price !== null
+      ? '<span class="pill">Lojiq from ' + euro(item.lojiq_price) + "</span>"
+      : item.market_price !== null
+        ? '<span class="pill">Market from ' + euro(item.market_price) + "</span>"
+        : '<span class="pill">No price known</span>';
+
+    return (
+      '<div class="card" data-sku="' + esc(item.sku) + '">' +
+        '<div class="head">' +
+          (item.picture ? '<img src="' + esc(item.picture) + '" alt="" loading="lazy">' : '<span class="blank"></span>') +
+          '<span class="what">' +
+            "<strong>" + esc(item.name) + "</strong>" +
+            '<span class="sub">' + esc(item.sku) + (item.brand ? " · " + esc(item.brand) : "") + (item.model ? " · " + esc(item.model) : "") +
+              " · score " + item.score + " · " + item.units + " sold" + (item.wtb ? " · " + item.wtb + " WTB" : "") + "</span>" +
+            '<span class="sub">' + esc(item.channels) + "</span>" +
+            '<span class="pills">' + stock + price + (queued ? '<span class="pill choice">Queued to add</span>' : "") + "</span>" +
+          "</span>" +
+          '<span class="side">' +
+            (item.dismissed_at
+              ? '<button class="btn" type="button" data-restore>Put back</button>'
+              : queued
+                ? '<button class="btn" type="button" data-cancel>Cancel</button>'
+                : '<button class="btn primary" type="button" data-add' + (choosing ? " disabled" : "") + ">Add product</button>" +
+                  '<button class="btn" type="button" data-dismiss>Not for us</button>') +
+          "</span>" +
+        "</div>" +
+        (choosing
+          ? '<div class="addbox">' +
+              '<span class="hint">Which photos should the product get?</span>' +
+              '<button class="btn primary" type="button" data-photos="lojiq">Lojiq photos — live right away</button>' +
+              '<button class="btn" type="button" data-photos="own">My own photos — created as draft</button>' +
+              '<button class="btn" type="button" data-photos="">Never mind</button>' +
+            "</div>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  async function dismissSuggestion(sku, undo, button) {
+    if (button) button.disabled = true;
+
+    try {
+      await api("/api/catalogue/suggested/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku, undo })
+      });
+      say(undo ? "Back on the list." : "Off the list. It will not be suggested or auto-added again.");
+      await loadSuggested();
+    } catch (err) {
+      say(err.message === "LOGIN" ? "Please log in again first." : err.message);
+      if (button) button.disabled = false;
+    }
+  }
+
+  function drawSuggested() {
+    const { items, total } = state.suggested;
+
+    $("count-suggested").textContent = total ? total + (total === 1 ? " style" : " styles") : "";
+
+    $("rows-suggested").innerHTML = items.length
+      ? items.map(suggestedCard).join("") +
+        (total > items.length
+          ? '<div class="more"><button class="btn" type="button" data-more="suggested">Show more (' + (total - items.length) + " to go)</button></div>"
+          : "")
+      : '<p class="empty">' + ($("search-suggested").value.trim()
+          ? "Nothing matches that."
+          : $("show-dismissed").checked ? "Nothing set aside." : "Nothing new this week.") + "</p>";
+  }
+
+  async function loadSuggested(more = false) {
+    const query = new URLSearchParams({ limit: PAGE, offset: more ? state.suggested.items.length : 0 });
+    const search = $("search-suggested").value.trim();
+
+    if (search) query.set("search", search);
+    if ($("show-dismissed").checked) query.set("dismissed", "1");
+
+    try {
+      const answer = await api("/api/catalogue/suggested?" + query);
+
+      state.suggested.total = Number(answer.total) || 0;
+      state.suggested.items = more ? state.suggested.items.concat(answer.items || []) : (answer.items || []);
+      if (!$("show-dismissed").checked) $("n-suggested").textContent = state.suggested.total || "";
+
+      drawSuggested();
+    } catch (err) {
+      $("rows-suggested").innerHTML = problemHtml(err);
+    }
+  }
+
   /* ---------------------------------------------------------- choices */
 
   async function choose(sku, choice, photos, button) {
@@ -584,8 +697,10 @@
 
     $("tab-mine").hidden = state.tab !== "mine";
     $("tab-add").hidden = state.tab !== "add";
+    $("tab-suggested").hidden = state.tab !== "suggested";
 
     if (state.tab === "add" && !state.add.loaded) { state.add.loaded = true; loadAdd(); }
+    if (state.tab === "suggested" && !state.suggested.loaded) { state.suggested.loaded = true; loadSuggested(); }
   });
 
   $("rows-mine").addEventListener("click", async (event) => {
@@ -704,7 +819,47 @@
     if (cancel && await choose(sku, "none", null, cancel)) await loadAdd();
   });
 
-  for (const [input, load] of [["search-mine", () => loadMine()], ["search-add", () => loadAdd()]]) {
+  $("rows-suggested").addEventListener("click", async (event) => {
+    if (event.target.closest('[data-more="suggested"]')) return loadSuggested(true);
+
+    const card = event.target.closest(".card");
+    if (!card) return;
+
+    const sku = card.dataset.sku;
+
+    if (event.target.closest("[data-add]")) {
+      state.adding = "s:" + sku;
+      drawSuggested();
+      return;
+    }
+
+    const photos = event.target.closest("[data-photos]");
+
+    if (photos) {
+      state.adding = null;
+
+      if (!photos.dataset.photos) { drawSuggested(); return; }
+
+      if (await choose(sku, "add", photos.dataset.photos, photos)) await loadSuggested();
+      else drawSuggested();
+
+      return;
+    }
+
+    const cancel = event.target.closest("[data-cancel]");
+
+    if (cancel && await choose(sku, "none", null, cancel)) await loadSuggested();
+
+    const dismiss = event.target.closest("[data-dismiss]");
+    if (dismiss) return dismissSuggestion(sku, false, dismiss);
+
+    const restore = event.target.closest("[data-restore]");
+    if (restore) return dismissSuggestion(sku, true, restore);
+  });
+
+  $("show-dismissed").addEventListener("change", () => loadSuggested());
+
+  for (const [input, load] of [["search-mine", () => loadMine()], ["search-add", () => loadAdd()], ["search-suggested", () => loadSuggested()]]) {
     $(input).addEventListener("input", () => {
       clearTimeout(timer);
       timer = setTimeout(load, 250);
@@ -719,6 +874,13 @@
 
   // The count on the second tab, without drawing it yet.
   api("/api/catalogue/add?limit=1").then((answer) => { $("n-add").textContent = answer.total || ""; }).catch(() => {});
+
+  // The Suggested tab only for a store that gets a weekly trend list.
+  api("/api/catalogue/suggested?limit=1").then((answer) => {
+    if (!answer.total && !answer.suggested_at) return;
+    $("tab-btn-suggested").hidden = false;
+    $("n-suggested").textContent = answer.total || "";
+  }).catch(() => {});
 </script>
 </body>
 </html>

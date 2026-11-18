@@ -12,6 +12,7 @@ import { adminPagePath, createAdminPortal } from "./admin/adminRouter.js";
 import { createPartnerPortal, partnerPagePath } from "./partner/partnerPortal.js";
 import { createAuditLog } from "./admin/adminAudit.js";
 import { createSavedFilters } from "./admin/adminFilters.js";
+import { suggestedItems } from "./shelfSuggested.js";
 
 dotenv.config();
 
@@ -2198,6 +2199,79 @@ app.get("/api/catalogue/add", async (req, res) => {
   } catch (err) {
     console.error("Failed to read what can be added:", err);
     res.status(500).json({ error: "Could not read our stock", details: err.message });
+  }
+});
+
+/*
+ * Trending styles that are not on the store's shelf yet (shelfSuggested.js),
+ * rebuilt every Monday by the trends job in shopify-active-product-sync.
+ */
+app.get("/api/catalogue/suggested", async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const readAll = async (path) => {
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const page = await supabaseCall(path, { headers: { Range: `${from}-${from + 999}` } });
+        rows.push(...(page || []));
+        if (!page || page.length < 1000) return rows;
+      }
+    };
+
+    const id = encodeURIComponent(merchantId);
+    const [suggestions, choices] = await Promise.all([
+      readAll(`store_trend_suggestions?select=*&merchant_record_id=eq.${id}&order=score.desc,sku.asc`),
+      readAll(`store_catalogue_choices?select=sku,choice,status&merchant_record_id=eq.${id}&order=sku.asc`)
+    ]);
+
+    const all = suggestedItems(suggestions, choices, asText(req.query.search).trim(), { dismissed: asText(req.query.dismissed) === "1" });
+    const { p_limit: limit, p_offset: offset } = pageArgs(req);
+
+    res.json({
+      ok: true,
+      total: all.length,
+      suggested_at: suggestions.find((s) => !s.dismissed_at)?.suggested_at || suggestions[0]?.suggested_at || null,
+      items: all.slice(offset, offset + limit)
+    });
+  } catch (err) {
+    console.error("Failed to read the suggestions:", err);
+    res.status(500).json({ error: "Could not read the suggestions", details: err.message });
+  }
+});
+
+/*
+ * "Not for us": the weekly list leaves this style out from now on, and Trend
+ * Auto Add? never adds it. undo puts it back on the list.
+ */
+app.post("/api/catalogue/suggested/dismiss", express.json({ limit: "10kb" }), async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const sku = catalogueSku(req.body?.sku);
+    const undo = req.body?.undo === true;
+
+    if (!sku) return res.status(400).json({ error: "Which style?" });
+
+    const changed = await supabaseCall(
+      `store_trend_suggestions?merchant_record_id=eq.${encodeURIComponent(merchantId)}&sku=eq.${encodeURIComponent(sku)}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(undo ? { dismissed_at: null, dismissed_reason: null } : { dismissed_at: new Date().toISOString(), dismissed_reason: "store" })
+      }
+    );
+
+    if (!changed?.length) return res.status(404).json({ error: "That is not on your suggestions." });
+
+    res.json({ ok: true, sku, dismissed: !undo });
+  } catch (err) {
+    console.error("Failed to dismiss a suggestion:", err);
+    res.status(500).json({ error: "Could not save that", details: err.message });
   }
 });
 
