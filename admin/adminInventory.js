@@ -162,7 +162,7 @@ export const INVENTORY_FIELDS = [
   "Fulfillment Status (UOL)", "Shopify Order Number",
   "Fulfillment Status (MWTB)", "Member WTB ID",
   "Date Sold (External)", "External Order Number",
-  "Dump Listing?", "Custom Selling Price", "Dump Until"
+  "Dump Listing?", "Custom Selling Price", "Dump Until", "Picture"
 ];
 
 /*
@@ -397,6 +397,12 @@ export function kindOf(fields = {}) {
   return type || "no type";
 }
 
+// The SKU Master photo, small: the Picture lookup is a list of attachments.
+function pictureOf(value) {
+  const shot = (Array.isArray(value) ? value : []).find((item) => item && typeof item === "object" && item.url);
+  return shot ? text(shot.thumbnails?.large?.url || shot.thumbnails?.small?.url || shot.url) : "";
+}
+
 export function unitRow(record, today = new Date(), baseId = "") {
   const fields = record.fields || {};
   const checks = checksFor(fields, today);
@@ -405,6 +411,7 @@ export function unitRow(record, today = new Date(), baseId = "") {
     id: record.id,
     item_id: text(fields["Item ID"]),
     product_name: text(fields["Product Name"]),
+    picture: pictureOf(fields.Picture),
     sku: text(fields.SKU),
     size: text(fields.Size),
     brand: text(fields.Brand),
