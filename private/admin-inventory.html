@@ -478,7 +478,7 @@
               <th class="money" title="The least we will sell it for: what it cost plus the margin set on the unit. A marketplace listing may come down to this price, never below it.">Floor</th>
               <th class="money" title="Ideal Selling Price: what the pair asks on the channels when no sale price is set.">Ideal</th>
               <th title="Every own pair in stock is listed on every channel unless Hold Back? is ticked or something keeps it off.">Listed</th>
-              <th class="money" title="Custom Selling Price: the ask on the channels. Empty means the Ideal price.">Sale price</th>
+              <th class="money" title="Custom Selling Price: the ask on the channels, on the same scale as Ideal (ex VAT on a VAT21 pair; the 21% is added for the channels). Empty means the Ideal price.">Sale price</th>
               <th title="Dump Until: the last day it is listed. Empty means no end.">Until</th>
               <th class="date">Date</th>
               <th class="col-why">What disagrees</th>
@@ -695,12 +695,16 @@
     }
 
     // Only a sale price under what the pair cost is worth a word; it never blocks.
+    // Ideal and the sale price are ex VAT on a VAT21 unit, its purchase price is
+    // not; compare like with like.
+    const netCost = (unit) => String(unit.vat_type || "").toUpperCase().replace(/\s/g, "") === "VAT21" ? unit.cost / 1.21 : unit.cost;
+
     function belowCost(unit, raw) {
       const price = Number(String(raw ?? "").trim().replace(",", "."));
-      return raw !== "" && raw !== null && raw !== undefined && price > 0 && unit.cost > 0 && price < unit.cost;
+      return raw !== "" && raw !== null && raw !== undefined && price > 0 && unit.cost > 0 && price < netCost(unit);
     }
 
-    const warnText = (unit) => `Below the purchase price of ${money(unit.cost)}`;
+    const warnText = (unit) => `Below the purchase price of ${money(netCost(unit))}${netCost(unit) !== unit.cost ? " ex VAT" : ""}`;
 
     // The server's reason codes (admin/adminInventory.js NOT_LISTED), said plainly.
     const NOT_LISTED = {
