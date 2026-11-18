@@ -194,9 +194,6 @@ export const NOT_LISTED = {
   no_price: "no price"
 };
 
-const SHIPPED_UOL = new Set(["Fulfilled", "Store Fulfilled"]);
-const VERIFICATION_OFF = new Set(["Cancelled", "Rejected", "Lost"]);
-const CANCEL_OFF = new Set(["Written Off", "Lost"]);
 
 // Today as a date in Amsterdam, which is the day Dump Until is counted in.
 export function localDay(date = new Date()) {
@@ -214,9 +211,8 @@ function notListedBecause(fields, { until, ask }, today) {
   if (EXCLUDED_TYPES.includes(text(fields.Type))) return "forwarding";
   // A pair at another location (APLUG, a store) is for sale all the same.
   if (until && until < localDay(today)) return "past_dump_until";
-  if (uol.some((status) => SHIPPED_UOL.has(status)) && !uol.includes("Returned")) return "already_shipped";
-  if (VERIFICATION_OFF.has(text(fields["Verification Status"]))) return "verification";
-  if (CANCEL_OFF.has(first(fields["Cancel Status"]))) return "written_off";
+  // Available is Available (Dario, 18-11-2026): a linked order, verification
+  // or cancel status does not keep a pair off; the Checks tab still names them.
   if (!text(fields.SKU) || !text(fields.Size)) return "no_sku_or_size";
   if (!first(fields["VAT Type"])) return "no_vat_type";
   if (!(ask > 0)) return "no_price";

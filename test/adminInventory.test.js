@@ -509,14 +509,10 @@ test("each thing that keeps a pair off has its own reason, in the contract's ord
   assert.equal(reasonOf({ Location: "APLUG.PL" }), null, "another location is still for sale");
   assert.equal(reasonOf({ "Dump Until": "2026-09-29" }), "past_dump_until");
   assert.equal(reasonOf({ "Dump Until": "2026-09-30" }), null, "the last day still counts");
-  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Fulfilled"] }), "already_shipped");
-  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Store Fulfilled"] }), "already_shipped");
-  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Fulfilled", "Returned"] }), null, "came back, so it is here");
-  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Processing"] }), null);
-  assert.equal(reasonOf({ "Verification Status": "Lost" }), "verification");
-  assert.equal(reasonOf({ "Verification Status": "Rejected" }), "verification");
-  assert.equal(reasonOf({ "Cancel Status": "Written Off" }), "written_off");
-  assert.equal(reasonOf({ "Cancel Status": "Return" }), null);
+  // Available is Available (Dario, 18-11-2026): these no longer keep a pair off.
+  assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Fulfilled"] }), null);
+  assert.equal(reasonOf({ "Verification Status": "Lost" }), null);
+  assert.equal(reasonOf({ "Cancel Status": "Written Off" }), null);
   assert.equal(reasonOf({ SKU: "" }), "no_sku_or_size");
   assert.equal(reasonOf({ Size: "" }), "no_sku_or_size");
   assert.equal(reasonOf({ "VAT Type": "" }), "no_vat_type");
