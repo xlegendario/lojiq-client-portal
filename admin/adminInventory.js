@@ -212,7 +212,7 @@ function notListedBecause(fields, { until, ask }, today) {
   if (fields[SALE_FIELDS.hold] === true) return "held_back";
   if (text(fields["Availability Status"]) !== "Available") return "not_available";
   if (EXCLUDED_TYPES.includes(text(fields.Type))) return "forwarding";
-  if (text(fields.Location)) return "elsewhere";
+  // A pair at another location (APLUG, a store) is for sale all the same.
   if (until && until < localDay(today)) return "past_dump_until";
   if (uol.some((status) => SHIPPED_UOL.has(status)) && !uol.includes("Returned")) return "already_shipped";
   if (VERIFICATION_OFF.has(text(fields["Verification Status"]))) return "verification";

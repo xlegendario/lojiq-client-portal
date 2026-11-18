@@ -506,7 +506,7 @@ test("each thing that keeps a pair off has its own reason, in the contract's ord
   assert.equal(reasonOf({ "Hold Back?": true, "Availability Status": "Reserved" }), "held_back", "held back is said first");
   assert.equal(reasonOf({ "Availability Status": "Reserved" }), "not_available");
   assert.equal(reasonOf({ Type: "Forwarding" }), "forwarding");
-  assert.equal(reasonOf({ Location: "APLUG.PL" }), "elsewhere");
+  assert.equal(reasonOf({ Location: "APLUG.PL" }), null, "another location is still for sale");
   assert.equal(reasonOf({ "Dump Until": "2026-09-29" }), "past_dump_until");
   assert.equal(reasonOf({ "Dump Until": "2026-09-30" }), null, "the last day still counts");
   assert.equal(reasonOf({ "Fulfillment Status (UOL)": ["Fulfilled"] }), "already_shipped");
