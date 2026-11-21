@@ -1644,9 +1644,11 @@ function buildOrderViewFormula(view, merchant = {}) {
   // the Allocated tab, so the name is not new to the interface - it now
   // has a tab of its own instead of hiding inside another one.
   if (view === "processing") {
+    // Dewu Processing: the Asia partner has the order and may still say no.
     const statuses = [
       "Confirmed",
-      "Claim Processing"
+      "Claim Processing",
+      "Dewu Processing"
     ];
 
     // Same condition these carried in Allocated: a store with its own
@@ -1668,7 +1670,8 @@ function buildOrderViewFormula(view, merchant = {}) {
     return `AND(
       OR(
         {Fulfillment Status} = 'Pending',
-        {Fulfillment Status} = 'Outsource'
+        {Fulfillment Status} = 'Outsource',
+        AND({Fulfillment Status} = 'Dewu Processing', {Custom Offer} != BLANK())
       ),
       {Offer To Store} != BLANK(),
       OR(
@@ -3065,7 +3068,8 @@ app.post("/api/orders/:recordId/cancel", async (req, res) => {
       "Fulfilled",
       "GOAT Processing",
       "StockX Processing",
-      "Claim Processing"
+      "Claim Processing",
+      "Dewu Processing"
     ]);
 
     if (lockedStatuses.has(currentStatus)) {

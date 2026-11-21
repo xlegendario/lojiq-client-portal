@@ -73,6 +73,7 @@ import { BUCKET as AGREEMENT_BUCKET, createSellerAgreements, mountSellerAgreemen
 import { createSupabaseRest } from "./externalSalesSync.js";
 import { createRompslomp } from "./externalSalesInvoicing.js";
 import { createPurchaseExpense } from "./purchaseExpense.js";
+import { mountAsiaDeal } from "./asiaDeal.js";
 import { createReturns } from "./returns.js";
 import { mountReturns } from "./adminReturns.js";
 import { mountRompslompLinking } from "./adminRompslompLinking.js";
@@ -1382,6 +1383,10 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
   }
 
   // What the dialog should say for this record right now.
+  // The Asia partner's deal, asked for by the Kickz Caviar portal once the
+  // partner and the store agreed (admin/asiaDeal.js).
+  mountAsiaDeal(router, { deps, internalSecret: services.counterOffersSecret });
+
   router.get("/api/admin/action", async (req, res) => {
     const key = text(req.query.action);
     const source = text(req.query.source);

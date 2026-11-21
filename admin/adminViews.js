@@ -133,7 +133,7 @@ const MWTB = {
 /* ---------------- statuses ---------------- */
 
 const OPEN = ["Pending", "Outsource"];
-export const PROCESSING = ["Confirmed", "Claim Processing", "Need Confirmation", "StockX Processing", "GOAT Processing", "SneakerAsk Processing", "Woovin Processing", "bol Processing"];
+export const PROCESSING = ["Confirmed", "Claim Processing", "Need Confirmation", "StockX Processing", "GOAT Processing", "Dewu Processing", "SneakerAsk Processing", "Woovin Processing", "bol Processing"];
 
 // "Fulfilled" to Dario and his partner means: we have a unit for it. From
 // Allocated on, whatever happens after.
