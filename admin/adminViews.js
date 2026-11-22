@@ -168,10 +168,17 @@ export const PROCESSING = [
  * The same thing as a formula: the two by name, anything else by its ending.
  * RIGHT(...) beats listing them, because a status added in Airtable tomorrow
  * needs no release here.
+ *
+ * Ten, the length of the word. It was eleven once, to take the space before
+ * it as well, and then the comparison ran against "Processing" without one -
+ * so it matched nothing at all and the tab stood empty while its counter,
+ * cached from the release before, still said one.
  */
+const PROCESSING_SUFFIX = "Processing";
+
 export const PROCESSING_FORMULA = `OR(${PROCESSING_NAMED.map(
   (value) => `{Fulfillment Status} = ${formulaString(value)}`
-).join(",")}, RIGHT(TRIM({Fulfillment Status} & ''), 11) = 'Processing')`;
+).join(",")}, RIGHT(TRIM({Fulfillment Status} & ''), ${PROCESSING_SUFFIX.length}) = ${formulaString(PROCESSING_SUFFIX)})`;
 
 // "Fulfilled" to Dario and his partner means: we have a unit for it. From
 // Allocated on, whatever happens after.
