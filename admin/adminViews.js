@@ -327,7 +327,10 @@ const PICTURE = col("picture", "Picture", "Picture", "image");
 const TAB_ACTIONS = {
   "store/general": ["cancel_order"],
   "store/open": ["send_offer", "edit_offer", "custom_price", "above_max", "manual_deal"],
-  "store/processing": ["custom_price", "discord"],
+  // Manual Deal belongs here too: a marketplace sale sits on this tab for
+  // its first day, and a pair we dropship has no consignor to wait for, so
+  // the deal is made right here. adminActions refuses it once a unit exists.
+  "store/processing": ["custom_price", "manual_deal", "discord"],
   "mwtb/processing": ["custom_price", "discord"],
   "store/offers": ["accept", "counter"],
   "store/fulfilled": ["track", "discord", "cancel_order"],
