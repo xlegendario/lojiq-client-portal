@@ -397,7 +397,38 @@ test("Manual Deal makes the deal right away: form, unit, booking, label request"
 
   assert.match(result.message, /Deal made for ORD-1: Dominicks \(SE-00035\), € 150.5 VAT0\. Inventory Unit made\. Booked in Rompslomp \(IN-9\)\. Deal confirmation mailed to dom@example\.com\. Label request posted\./);
 
-  await assert.rejects(runAction({ key: "manual_deal", source: "store", record: record({ "Fulfillment Status": "Allocated" }), input: { seller: "SE-00035", payout: "1", vat: "Margin" }, deps }), /open order/);
+  await assert.rejects(runAction({ key: "manual_deal", source: "store", record: record({ "Fulfillment Status": "Allocated" }), input: { seller: "SE-00035", payout: "1", vat: "Margin" }, deps }), /still open or being sourced/);
+});
+
+test("Manual Deal is allowed while a marketplace is still sourcing, and refused once a unit exists", async () => {
+  const { ACTIONS } = await import("../admin/adminActions.js");
+  const why = (fields) => ACTIONS.manual_deal.why("store", fields);
+
+  // Every marketplace parks a fresh sale on its own Processing status.
+  for (const status of [
+    "Woovin Processing", "bol Processing", "SneakerAsk Processing",
+    "Hypeneedz Processing", "Nordic Sneakers Processing",
+    "Shade Studios Processing", "OBLIO Processing", "Claim Processing",
+    "StockX Processing", "GOAT Processing"
+  ]) {
+    assert.equal(why({ "Fulfillment Status": status }), "", `${status} should allow a manual deal`);
+  }
+
+  assert.equal(why({ "Fulfillment Status": "Pending" }), "");
+  assert.equal(why({ "Fulfillment Status": "Outsource" }), "");
+
+  // Not while it is finished, and never on an order that already has a unit:
+  // completeManualDeal would make a second one and book it twice.
+  assert.match(why({ "Fulfillment Status": "Allocated" }), /still open or being sourced/);
+  assert.match(why({ "Fulfillment Status": "Fulfilled" }), /still open or being sourced/);
+  assert.match(
+    why({ "Fulfillment Status": "Woovin Processing", "Linked Inventory Unit": ["recUNIT"] }),
+    /already has an Inventory Unit/
+  );
+  assert.match(
+    why({ "Fulfillment Status": "Outsource", "Linked Inventory Unit": ["recUNIT"] }),
+    /already has an Inventory Unit/
+  );
 });
 
 test("Manual Deal: a seller without Discord is mailed too; a marketplace seller gets no label request", async () => {

@@ -38,11 +38,26 @@ import { completeManualDeal, resendDealConfirmation, SELLER_FIELDS } from "./man
 
 const text = (value) => (value === null || value === undefined ? "" : String(value).trim());
 const first = (value) => (Array.isArray(value) ? value[0] : value);
+const hasLinked = (value) => (Array.isArray(value) ? value.length > 0 : !!value);
 
 // Kickz Caviar Discord server: claim, consignment and WTB channels live there.
 const KC_DISCORD_SERVER = "922818998163361792";
 
 const OPEN = ["Pending", "Outsource"];
+
+/*
+ * An order that is still being sourced, whoever is sourcing it.
+ *
+ * Every marketplace parks a fresh sale on its own "<name> Processing" while
+ * the consignors are asked, and a claim sits on "Claim Processing". There
+ * are ten of those statuses today and a new one appears with every
+ * marketplace we add - Nordic Sneakers, Shade Studios and OBLIO were all
+ * missing from the list in adminViews, which is why this reads the shape of
+ * the name instead of naming them.
+ *
+ * It says nothing about whether a deal exists yet; that is the unit's job.
+ */
+const beingSourced = (f) => /\sProcessing$/.test(status(f));
 const CLAIMED = { store: PROCESSING, mwtb: MWTB_PROCESSING };
 const SHIPPABLE = ["Ready to Ship", "Fulfilled"];
 
@@ -604,14 +619,32 @@ export const ACTIONS = {
   manual_deal: {
     label: "Manual Deal",
     sources: ["store"],
-    needs: { store: ["Fulfillment Status", "Order ID", "Custom Offer", "Offer Accepted?"] },
+    needs: { store: ["Fulfillment Status", "Order ID", "Custom Offer", "Offer Accepted?", "Linked Inventory Unit"] },
     inputs: [
       { name: "seller", label: "Seller ID (e.g. SE-00035)", type: "text", required: true, max: 20 },
       { name: "payout", label: "Payout (€)", type: "money", required: true },
       { name: "vat", label: "VAT Type", type: "select", required: true, options: ["Margin", "VAT0", "VAT21"] }
     ],
     note: "Makes the deal right away: the approved Order Processing Form, the Inventory Unit, the purchase in Rompslomp, the label request, and the Deal Confirmation mail to the seller.",
-    why: (source, f) => (OPEN.includes(status(f)) ? "" : "A manual deal is made on an open order (Pending or Outsource)."),
+    /*
+     * A marketplace sale spends its first day on "<marketplace> Processing"
+     * while the consignors are asked, and a pair we dropship has no
+     * consignor to wait for - so that is exactly when this button is wanted.
+     * It used to be refused there, and the order had to be pushed to
+     * Outsource by hand first.
+     *
+     * The unit is what this really turns on. completeManualDeal creates one
+     * unconditionally, so on an order that already has one it would make a
+     * second unit and book the purchase in Rompslomp twice. That could not
+     * happen while only Pending and Outsource were allowed; it can on a
+     * claimed deal, so it is refused outright.
+     */
+    why: (source, f) =>
+      hasLinked(f["Linked Inventory Unit"])
+        ? "This order already has an Inventory Unit, so the deal is made."
+        : OPEN.includes(status(f)) || beingSourced(f)
+          ? ""
+          : "A manual deal is made on an order that is still open or being sourced.",
     async run({ record, input, deps }) {
       const sellerCode = text(input.seller).toUpperCase().replace(/\s+/g, "");
       if (!/^SE-\d{3,6}$/.test(sellerCode)) throw new ActionError("Enter the Seller ID as SE- followed by its number, e.g. SE-00035.", 400);
