@@ -76,6 +76,14 @@ const STORE = {
   purchase: col("purchase", "Purchase Price", "Purchase Price (Lookup)", "money"),
   vat: col("vat", "VAT Type", "VAT Type"),
   seller: col("seller", "Seller", "Seller ID (Lookup)", "seller"),
+  /*
+    Whose price a marketplace sale was made on, written when the order comes
+    in: the cheapest consignor with his ask ("SE-00826 (asks EUR 130.00)"),
+    or for a pair nobody of ours held the source and its cost ("Dewu: partner
+    EUR 142.00 ..."). Who to chase while it waits - the Seller column only
+    fills once a unit exists (22-11-2026).
+  */
+  soldFrom: col("sold_from", "Sold From", "Sold From"),
   // The carrier the store is asked to buy the label from, as the label
   // request embed shows it: the seller's country in Label Request Routing.
   courier: col("courier", "Preferred Courier", "Seller ID (Lookup)", "courier"),
@@ -197,7 +205,7 @@ const TABS = [
     // Processing tab, plus the marketplace and confirmation statuses of the
     // same stage so nothing drops out of sight until it is Allocated.
     formula: anyOf("Fulfillment Status", PROCESSING),
-    columns: [...storeBase, STORE.fulfillment, STORE.offer, STORE.offerVat, STORE.seller]
+    columns: [...storeBase, STORE.fulfillment, STORE.soldFrom, STORE.offer, STORE.offerVat, STORE.seller]
   },
   {
     key: "fulfilled", section: "store", source: "store", label: "Fulfilled",
@@ -438,7 +446,7 @@ export const PANELS = {
     { title: "Order", fields: [
       f("Order ID", "Order ID", "id"), f("Store Name", "Store Name"), f("Shopify", "Shopify Order Number"),
       f("Order Source", "Order Source"), f("Marketplace", "Marketplace"), f("Date", "Order Date", "date"),
-      f("Fulfillment Status", "Fulfillment Status", "status")
+      f("Fulfillment Status", "Fulfillment Status", "status"), f("Sold From", "Sold From")
     ] },
     { title: "Product", fields: [
       f("Product", "Shopify Product Name"), f("SKU", "SKU", "mono"), f("Size", "Size"),
