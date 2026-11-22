@@ -141,7 +141,37 @@ const MWTB = {
 /* ---------------- statuses ---------------- */
 
 const OPEN = ["Pending", "Outsource"];
-export const PROCESSING = ["Confirmed", "Claim Processing", "Need Confirmation", "StockX Processing", "GOAT Processing", "Dewu Processing", "SneakerAsk Processing", "Woovin Processing", "bol Processing"];
+/*
+ * A deal somebody has taken on but not yet delivered.
+ *
+ * Two of these are named: a claim is "Confirmed" or "Need Confirmation".
+ * Every other one is a source parking its own sale on "<name> Processing",
+ * and that list grows with each marketplace - Hypeneedz, Nordic Sneakers,
+ * Shade Studios and OBLIO were all added after this array was written and
+ * none of them ever appeared on the tab. ORD-034184 was the one that showed
+ * it: a Nordic Sneakers sale nobody could find.
+ *
+ * So the names stay for the two that are named, and the rest is recognised
+ * by its shape. The next marketplace is on the tab the day it is added.
+ */
+export const PROCESSING_NAMED = ["Confirmed", "Need Confirmation"];
+
+export const PROCESSING = [
+  ...PROCESSING_NAMED,
+  "Claim Processing", "StockX Processing", "GOAT Processing", "Dewu Processing",
+  "SneakerAsk Processing", "Woovin Processing", "bol Processing",
+  "Hypeneedz Processing", "Nordic Sneakers Processing", "Shade Studios Processing",
+  "OBLIO Processing"
+];
+
+/*
+ * The same thing as a formula: the two by name, anything else by its ending.
+ * RIGHT(...) beats listing them, because a status added in Airtable tomorrow
+ * needs no release here.
+ */
+export const PROCESSING_FORMULA = `OR(${PROCESSING_NAMED.map(
+  (value) => `{Fulfillment Status} = ${formulaString(value)}`
+).join(",")}, RIGHT(TRIM({Fulfillment Status} & ''), 11) = 'Processing')`;
 
 // "Fulfilled" to Dario and his partner means: we have a unit for it. From
 // Allocated on, whatever happens after.
@@ -204,7 +234,7 @@ const TABS = [
     // Between "the deal is agreed" and "a unit is ours": the client portal's
     // Processing tab, plus the marketplace and confirmation statuses of the
     // same stage so nothing drops out of sight until it is Allocated.
-    formula: anyOf("Fulfillment Status", PROCESSING),
+    formula: PROCESSING_FORMULA,
     columns: [...storeBase, STORE.fulfillment, STORE.soldFrom, STORE.offer, STORE.offerVat, STORE.seller]
   },
   {
