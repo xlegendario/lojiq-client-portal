@@ -418,6 +418,9 @@ test("a flaw at the scan, our own pair: Troubled Stock", async () => {
   assert.equal((await w.returns.troubled()).length, 1);
   await w.returns.resolveTroubled(UNIT, { action: "on_sale" });
   assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Available");
+  // Back on the channels as ours, the same as onSale: whatever its Type, the
+  // pair is here and its seller is not asked for it again.
+  assert.equal(w.tables["Inventory Units"][UNIT]["Own Stock?"], true);
 });
 
 test("OK at the scan, a partner pair already paid: another To Pay pair is settled with it", async () => {
@@ -904,4 +907,19 @@ test("a swap whose purchase is for another price is not booked: a to-do instead 
   assert.match(out.errors[0].error, /€ 110\.00.*€ 100\.00/);
   assert.equal(w.purchases.calls.credit.length, 0);
   assert.equal(w.purchases.calls.kruispost.length, 0);
+});
+
+test("a seller's Troubled pair put back on sale is ours too, whatever its prefix", async () => {
+  for (const unit of [
+    { Type: "Custom", "Item ID": "OUT-1", "Seller ID (Lookup)": ["SE-00035"], "Payment Status": "Paid" },
+    { Type: "Direct", "Item ID": "KC-1", "Seller ID (Lookup)": ["SE-00035"], "Payment Status": "Paid" }
+  ]) {
+    const w = world({ unit });
+    const row = await expected(w);
+    await w.returns.receive(row.id, { verdict: "flaw", then: "troubled", note: "Scuff, we sell it" });
+    assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Troubled");
+    await w.returns.resolveTroubled(UNIT, { action: "on_sale" });
+    assert.equal(w.tables["Inventory Units"][UNIT]["Availability Status"], "Available");
+    assert.equal(w.tables["Inventory Units"][UNIT]["Own Stock?"], true);
+  }
 });

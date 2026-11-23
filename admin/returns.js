@@ -2040,7 +2040,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
 
     const stamp = `${TROUBLE_ACTIONS[action]}${text(note) ? `: ${text(note)}` : ""} (${ddmmyyyy()}${by ? `, ${by}` : ""})`;
     const fields = action === "on_sale"
-      ? { "Availability Status": "Available", "Selling Price": null, "Item Condition": conditionWith(stamp, text(f["Item Condition"])) }
+      ? { "Availability Status": "Available", "Selling Price": null, "Own Stock?": true, "Item Condition": conditionWith(stamp, text(f["Item Condition"])) }
       : { "Availability Status": "Void", "Item Condition": conditionWith(stamp, text(f["Item Condition"])) };
     await airtable.update(UNITS, unitId, fields);
     return { item_id: text(f["Item ID"]), action: TROUBLE_ACTIONS[action] };
