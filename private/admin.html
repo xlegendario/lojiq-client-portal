@@ -511,6 +511,15 @@
     .action-inputs { display: flex; flex-direction: column; gap: 14px; }
     .return-badge { display: inline-flex; align-items: center; height: 20px; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 700; background: rgba(245, 158, 11, 0.16); color: var(--warning); text-decoration: none; }
     .action-note { white-space: pre-line; }
+    /* A warning that does not block (Manual Deal before Offer Accepted?): the
+       first press turns the button into the question, the second one runs it. */
+    .action-warn { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--wait-bg); color: var(--wait-text); border: 1px solid transparent; line-height: 1.45; font-size: 13px; }
+    .action-warn[hidden] { display: none; }
+    .action-warn .warn-icon { font-size: 16px; line-height: 1.2; }
+    .action-warn .warn-ask { display: none; font-weight: 700; margin-top: 4px; }
+    .action-warn.asking { border-color: var(--wait-text); }
+    .action-warn.asking .warn-ask { display: block; }
+    .btn.warn-go { background: var(--warning); border-color: var(--warning); color: #111; box-shadow: none; }
     .action-inputs:empty { display: none; }
     .choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     .choices legend { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -815,6 +824,7 @@
       <form class="action-form" id="actionForm" method="dialog" novalidate>
         <h2 id="actionTitle"></h2>
         <p id="actionText"></p>
+        <div class="action-warn" id="actionWarn" role="alert" hidden><span class="warn-icon" aria-hidden="true">⚠</span><div><div id="actionWarnText"></div><div class="warn-ask">Press the button again to go ahead.</div></div></div>
         <div id="actionInputs" class="action-inputs"></div>
         <div class="error" id="actionError" role="alert"></div>
         <div class="dialog-foot">
@@ -2262,6 +2272,9 @@
     $("actionError").textContent = "";
     $("actionConfirm").disabled = true;
     $("actionConfirm").textContent = def.label;
+    $("actionConfirm").classList.remove("warn-go");
+    $("actionWarn").hidden = true;
+    $("actionWarn").classList.remove("asking");
     $("actionDialog").showModal();
 
     try {
@@ -2276,9 +2289,12 @@
         return;
       }
 
-      $("actionText").textContent = [info.confirm || def.note || "", info.warn ? `⚠ ${info.warn}` : ""].filter(Boolean).join(" ");
+      $("actionText").textContent = info.confirm || def.note || "";
       $("actionText").classList.add("action-note");
       pending.warn = info.warn || "";
+      pending.warnAsked = false;
+      $("actionWarnText").textContent = pending.warn;
+      $("actionWarn").hidden = !pending.warn;
       $("actionInputs").innerHTML = def.inputs.filter((spec) => !spec.sources || spec.sources.includes(source)).map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [], info.selects || {})).join("");
       applyShowIf();
       $("actionConfirm").disabled = false;
@@ -2428,9 +2444,17 @@
       }
     }
 
-    // Asked once more, right before it runs.
+    // Asked once more, right before it runs: the first press only turns the
+    // button into the question.
     if (pending.warn) {
-      if (!confirm(pending.warn)) return;
+      if (!pending.warnAsked) {
+        pending.warnAsked = true;
+        $("actionWarn").classList.add("asking");
+        $("actionConfirm").textContent = "Yes, go ahead anyway";
+        $("actionConfirm").classList.add("warn-go");
+        $("actionConfirm").focus();
+        return;
+      }
       input.confirmed_warning = true;
     }
 
