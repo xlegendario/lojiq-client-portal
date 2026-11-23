@@ -332,6 +332,28 @@ test("Custom Price with Offer Accepted?: price, accepted, not sent again, old of
   assert.deepEqual(plain.calls[0].fields, { "Custom Offer": 250, offer_request_webhook_key: "" });
 });
 
+test("Manual Deal asks first when Offer Accepted? is not ticked", async () => {
+  const deps = fakeDeps();
+  const open = record({ "Fulfillment Status": "Outsource", "Order ID": "ORD-1" });
+
+  const described = await describeAction("manual_deal", "store", open, deps);
+  assert.match(described.warn, /Offer Accepted\? is not ticked/);
+  assert.equal((await describeAction("manual_deal", "store", record({ ...open.fields, "Offer Accepted?": true }), deps)).warn, "");
+
+  // Without the answer from the page nothing runs, not even the seller lookup.
+  await assert.rejects(
+    runAction({ key: "manual_deal", source: "store", record: open, input: { seller: "SE-00035", payout: "150", vat: "Margin" }, deps }),
+    /Make the deal anyway/
+  );
+  assert.deepEqual(deps.calls, []);
+
+  // With it, it goes on to the normal checks.
+  await assert.rejects(
+    runAction({ key: "manual_deal", source: "store", record: open, input: { seller: "35", payout: "150", vat: "Margin", confirmed_warning: true }, deps }),
+    /SE- followed/
+  );
+});
+
 test("Manual Deal makes the deal right away: form, unit, booking, label request", async () => {
   const deps = fakeDeps();
   const seller = {
@@ -356,7 +378,7 @@ test("Manual Deal makes the deal right away: form, unit, booking, label request"
   deps.postJson = async (url, body) => deps.calls.push({ kind: "post", url, body });
   deps.discordUpdatesUrl = "https://updates.test/";
 
-  const order = record({ "Fulfillment Status": "Outsource", "Order ID": "ORD-1" });
+  const order = record({ "Fulfillment Status": "Outsource", "Order ID": "ORD-1", "Offer Accepted?": true });
 
   await assert.rejects(runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "35", payout: "150", vat: "Margin" }, deps }), /SE- followed/);
   await assert.rejects(runAction({ key: "manual_deal", source: "store", record: order, input: { seller: "SE-00001", payout: "150", vat: "Margin" }, deps }), /No seller found/);

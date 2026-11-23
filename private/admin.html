@@ -2276,8 +2276,9 @@
         return;
       }
 
-      $("actionText").textContent = info.confirm || def.note || "";
+      $("actionText").textContent = [info.confirm || def.note || "", info.warn ? `⚠ ${info.warn}` : ""].filter(Boolean).join(" ");
       $("actionText").classList.add("action-note");
+      pending.warn = info.warn || "";
       $("actionInputs").innerHTML = def.inputs.filter((spec) => !spec.sources || spec.sources.includes(source)).map((spec) => inputHtml(spec, info.prefill?.[spec.name], info.options || [], info.selects || {})).join("");
       applyShowIf();
       $("actionConfirm").disabled = false;
@@ -2425,6 +2426,12 @@
         $("actionError").textContent = `Fill in: ${spec.label}.`;
         return;
       }
+    }
+
+    // Asked once more, right before it runs.
+    if (pending.warn) {
+      if (!confirm(pending.warn)) return;
+      input.confirmed_warning = true;
     }
 
     $("actionConfirm").disabled = true;

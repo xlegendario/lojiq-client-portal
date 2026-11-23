@@ -626,6 +626,12 @@ export const ACTIONS = {
       { name: "vat", label: "VAT Type", type: "select", required: true, options: ["Margin", "VAT0", "VAT21"] }
     ],
     note: "Makes the deal right away: the approved Order Processing Form, the Inventory Unit, the purchase in Rompslomp, the label request, and the Deal Confirmation mail to the seller.",
+    // Not a block: sometimes the deal is made before the store has said yes.
+    // The page asks "are you sure" first, and the server wants that answer.
+    warn: (source, f) =>
+      f["Offer Accepted?"]
+        ? ""
+        : "Offer Accepted? is not ticked on this order: the store has not accepted a price yet. Make the deal anyway?",
     /*
      * A marketplace sale spends its first day on "<marketplace> Processing"
      * while the consignors are asked, and a pair we dropship has no
@@ -1021,6 +1027,7 @@ export async function describeAction(key, source, record, deps) {
     confirm: action.confirm ? action.confirm(source, f) : "",
     prefill: Object.fromEntries((action.inputs || []).filter((i) => i.prefill).map((i) => [i.name, f[i.prefill] ?? ""])),
     blocked: action.why(source, f),
+    warn: action.warn ? action.warn(source, f) : "",
     options: [],
     selects: {}
   };
@@ -1052,6 +1059,10 @@ export async function runAction({ key, source, record, input = {}, file = null, 
 
   const blocked = action.why(source, record.fields);
   if (blocked) throw new ActionError(blocked);
+
+  // A warning the page asked about: without the answer, nothing happens.
+  const warning = action.warn ? action.warn(source, record.fields) : "";
+  if (warning && input.confirmed_warning !== true) throw new ActionError(warning);
 
   for (const spec of action.inputs || []) {
     // A file is checked by the action itself, a choice against the live offers.
