@@ -81,7 +81,7 @@ export const WTB_FIELDS = [
 export const UNIT_FIELDS = [
   "Item ID", "Type", "Source", "Availability Status", "Payment Status", "Payment Note", "Purchase Price",
   "Final Purchase Price", "Final Purchase Price (ex. VAT)", "Seller ID", "Seller ID (Lookup)", "Seller Name",
-  "Item Condition", "Cancel Status", "Location", "SKU", "Size", "Product Name", "Brand", "Product GTIN", "VAT Type",
+  "Item Condition", "Cancel Status", "Location", "Own Stock?", "SKU", "Size", "Product Name", "Brand", "Product GTIN", "VAT Type",
   "Picture", "Purchase Date"
 ];
 
@@ -747,9 +747,28 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     }
   }
 
+  /*
+   * Back on sale, and ours.
+   *
+   * Every caller of this means the same thing: the pair stays with us and
+   * goes back on the channels. "Own Stock?" writes that down on the unit,
+   * because Availability Status alone could not say it. A consignor's pair
+   * that comes back from a buyer kept his Seller ID - rightly, that is where
+   * we bought it - and the rest of the system read that field as "who ships
+   * this": the WMS posted the next shipping label into his labels channel
+   * and autoAllocateBestUnit stamped a second payable on the unit. Five
+   * pairs went out that way in November 2026, two of them posted a second
+   * time by KicksbyMattie (ORD-033734, ORD-033784).
+   *
+   * It does not change who is OWED anything. The payout for the sale that
+   * came back stands, so Payment Status and Payment Note are untouched and
+   * ownerOf() still answers "seller" - that function is about the money,
+   * this field is about the pair.
+   */
   const onSale = (unit, note) => ({
     "Availability Status": "Available",
     "Selling Price": null,
+    "Own Stock?": true,
     "Item Condition": conditionWith(note, text(unit.fields["Item Condition"]))
   });
 

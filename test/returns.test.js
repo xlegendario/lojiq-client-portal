@@ -308,6 +308,20 @@ test("OK at the scan, a seller's pair: back on sale, the seller is still owed", 
   const unit = w.tables["Inventory Units"][UNIT];
   assert.equal(unit["Availability Status"], "Available");
   assert.equal(unit["Payment Status"], "To Pay");
+
+  /*
+   * And the pair is ours from here on, which the unit now says itself.
+   *
+   * Availability Status was taken for that answer and could not give it: the
+   * unit keeps his Seller ID, because that is where we bought the pair, and
+   * the WMS reads that field as "who ships this". Five own-stock sales in
+   * November 2026 sent their shipping label to a consignor that way, and
+   * KicksbyMattie posted two pairs he had already handed over once. His
+   * payout for this sale is untouched - ownerOf() is about the money, this
+   * field is about the pair.
+   */
+  assert.equal(unit["Own Stock?"], true);
+  assert.equal(ownerOf(unit), "seller");
 });
 
 test("a flaw at the scan, a seller's pair we did not pay: back to him, not owed", async () => {
