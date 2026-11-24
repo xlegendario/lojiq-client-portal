@@ -121,10 +121,15 @@ test("Custom Price on a claimed deal: only the price, no new offer", async () =>
 
   await assert.rejects(runAction({ key: "custom_price", source: "store", record: claimed, input: { price: "" }, deps }), /enter a price/);
 
-  // Offer Accepted? is not touched, and the key matches what the engine would build, so no embed.
-  const result = await runAction({ key: "custom_price", source: "store", record: claimed, input: { price: "212,5", accepted: true }, deps });
+  // Unticked: Offer Accepted? is not touched, and the key matches what the engine would build, so no embed.
+  const result = await runAction({ key: "custom_price", source: "store", record: claimed, input: { price: "212,5" }, deps });
   assert.deepEqual(deps.calls, [{ kind: "airtable", table: "Unfulfilled Orders Log", id: "recAAAAAAAAAAAAAA", fields: { "Custom Offer": 212.5, offer_request_webhook_key: "Margin|212.5|2-4 days" } }]);
   assert.match(result.message, /No new offer/);
+
+  // Ticked on a marketplace sale (ORD-034587 on Woovin Processing): Offer Accepted? goes on as well.
+  const ticked = await runAction({ key: "custom_price", source: "store", record: record({ "Fulfillment Status": "Woovin Processing", "Custom Offer": 283 }), input: { price: "283", accepted: true }, deps });
+  assert.deepEqual(deps.calls.at(-1).fields, { "Custom Offer": 283, "Offer Accepted?": true });
+  assert.match(ticked.message, /Offer Accepted\? ticked/);
 
   // Never sent: nothing for the engine to post, so no key.
   await runAction({ key: "custom_price", source: "store", record: record({ "Fulfillment Status": "Confirmed" }), input: { price: "150" }, deps });

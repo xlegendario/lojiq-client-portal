@@ -176,7 +176,7 @@ export const ACTIONS = {
         : "Only open orders (Pending or Outsource) and claimed deals (Processing) can get a custom price.",
     describe: async ({ source, record }) =>
       CLAIMED[source].includes(status(record.fields))
-        ? { note: `This deal is already claimed: only the price changes, the ${source === "store" ? "store" : "buyer"} gets no new offer. Offer Accepted? is left as it is.` }
+        ? { note: `This deal is already claimed: only the price changes, the ${source === "store" ? "store" : "buyer"} gets no new offer.${source === "store" ? " Offer Accepted? is only ticked when you tick it here." : ""}` }
         : {},
     async run({ source, record, input, deps }) {
       const raw = text(input.price).replace(",", ".");
@@ -196,6 +196,12 @@ export const ACTIONS = {
 
         const fields = { "Custom Offer": price };
 
+        // A marketplace sale parked on "<name> Processing" where we agreed the
+        // price ourselves: Manual Deal wants Offer Accepted? on, so the box is
+        // honoured here too. Unticked, Offer Accepted? is left as it is.
+        const accept = source === "store" && input.accepted === true;
+        if (accept) fields["Offer Accepted?"] = true;
+
         // The engine posts a fresh offer embed whenever Offer To Store changes
         // while Offer Sent? is on (sendOfferRequestWebhook), whatever the
         // status. Offer To Store is Custom Offer as it is, so writing the key it
@@ -207,8 +213,8 @@ export const ACTIONS = {
         await deps.airtable.update(source === "store" ? TABLES.store : TABLES.mwtb, record.id, fields);
 
         return {
-          message: `Custom price set to € ${price} on the claimed deal. No new offer was sent.`,
-          changed: { "Custom Offer": { from: before, to: price } }
+          message: `Custom price set to € ${price} on the claimed deal${accept ? " and Offer Accepted? ticked" : ""}. No new offer was sent.`,
+          changed: { "Custom Offer": { from: before, to: price }, ...(accept ? { "Offer Accepted?": { from: Boolean(record.fields["Offer Accepted?"]), to: true } } : {}) }
         };
       }
 
