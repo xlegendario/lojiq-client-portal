@@ -1778,7 +1778,7 @@
 
     $("tableHead").innerHTML = isPayouts
       ? `<tr><th class="check"></th><th class="image">Picture</th><th class="id">Item ID</th><th>Type</th><th>Product</th><th>Size</th>
-         <th>Order / WTB ID</th><th>Shopify</th><th class="money">Payout</th><th class="money">Shipping Deduction</th><th class="status">Verification Status</th>
+         <th>Ticket</th><th>Shopify</th><th class="money">Payout</th><th class="money">Shipping Deduction</th><th class="status">Verification Status</th>
          <th class="status">Shipping Status</th><th>Track</th><th class="date">Purchase Date</th></tr>`
       : `<tr><th class="check"></th><th class="image">Picture</th><th class="id">ID</th><th>Type</th><th>Shopify</th><th>Rompslomp Invoice</th>
          <th>Product</th><th>Size</th><th class="money">Amount</th><th class="status">Status</th><th class="status">Fulfillment Status</th><th class="status">Shipping Status</th><th>Track</th>
@@ -1874,8 +1874,8 @@
             <td>${render("text", { value: row.type })}</td>
             <td>${render("text", { value: row.product })}</td>
             <td>${render("text", { value: row.size })}</td>
-            <td><span class="copy-cell">${render("id", { value: row.reference_id })}${copyButton(row.reference_id, row.reference_id.startsWith("MWTB") ? "Member WTB ID" : "Order ID")}</span></td>
-            <td>${render("text", { value: row.shopify })}</td>
+            <td><span class="copy-cell">${render("id", { value: row.reference_id })}${copyButton(row.reference_id, "Ticket Number")}</span></td>
+            <td>${render("text", { value: row.shopify })}${row.now_on ? `<br><span class="dash" title="This pair has since been linked to a newer order">now on ${esc(row.now_on)}</span>` : ""}</td>
             <td class="money"><span class="copy-cell">${render("money", { value: row.amount })}${copyButton(row.amount ? bankAmount(row.amount) : "", "Payout")}</span></td>
             <td class="money">${row.deduction ? render("money", { value: row.deduction }) : '<span class="dash">—</span>'}</td>
             <td class="status">${render("status", { value: row.verification })}</td>

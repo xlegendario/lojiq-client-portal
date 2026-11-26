@@ -25,8 +25,10 @@ export const PAYOUT_FIELDS = [
   "Seller ID", "Seller Name", "Seller Company Name", "Seller ID (Lookup)",
   "Unfulfilled Orders Log", "Shopify Order Number", "Store Name", "Shipping Status", "Tracking URL (from Unfulfilled Orders Log)",
   "Member WTBs", "Member WTB ID", "Shipping Status (MWTB)", "Tracking URL (MWTB)",
-  "External Deal ID"
+  "External Deal ID", "Ticket Number"
 ];
+
+const TICKET_ORDER_FIELDS = ["Order ID", "Store Name", "Shopify Order Number", "Shipping Status", "Tracking URL"];
 
 export const SELLER_FIELDS = ["Seller ID", "Full Name", "Company Name", "Discord", "Payout Info"];
 
@@ -62,7 +64,15 @@ async function selectAll(airtable, table, options) {
   return records;
 }
 
-function unitRow(record, sellers, orderIds = new Map()) {
+/*
+ * Ticket Number is the purchase the seller is owed for (26-11-2026). The order
+ * link moves on when the pair is sold again: a pair that came back on a return
+ * and stays ours gets linked to its next sale, so ORD-030157's pair showed up
+ * as ORD-034826 with no shipping status and could not be found on the old
+ * number. When the ticket is an order other than the linked one, that ticket
+ * order supplies the store and shipping, and the new order is shown beside it.
+ */
+function unitRow(record, sellers, orderIds = new Map(), ticketOrders = new Map()) {
   const f = record.fields || {};
   const sellerId = first(f["Seller ID"]);
   const seller = sellers.get(sellerId) || {};
@@ -79,6 +89,15 @@ function unitRow(record, sellers, orderIds = new Map()) {
   if (onOrder) reference = [orderId, text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ");
   else if (onWtb) reference = text(first(f["Member WTB ID"]));
   else if (deal) reference = deal;
+
+  const ticket = text(f["Ticket Number"]);
+  const nowOn = ticket && orderId && ticket !== orderId ? orderId : "";
+  const original = nowOn && /^ORD-\d+$/.test(ticket) ? ticketOrders.get(ticket) || null : null;
+  const linkedId = onOrder ? orderId : onWtb ? text(first(f["Member WTB ID"])) : deal;
+  const shopify = original
+    ? [text(first(original["Store Name"])), text(first(original["Shopify Order Number"]))].filter(Boolean).join(" · ")
+    : onOrder ? [text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ") : "";
+  if (ticket) reference = [ticket, shopify, nowOn && `now on ${nowOn}`].filter(Boolean).join(" · ");
 
   return {
     id: record.id,
@@ -97,10 +116,11 @@ function unitRow(record, sellers, orderIds = new Map()) {
     availability: text(f["Availability Status"]),
     reference,
     // Just the ID, for pasting into the bank transfer's description.
-    reference_id: onOrder ? orderId : onWtb ? text(first(f["Member WTB ID"])) : deal,
-    shopify: onOrder ? [text(first(f["Store Name"])), text(first(f["Shopify Order Number"]))].filter(Boolean).join(" · ") : "",
-    shipping: onOrder ? text(first(f["Shipping Status"])) : onWtb ? text(first(f["Shipping Status (MWTB)"])) : "",
-    track: onOrder ? webUrl(f["Tracking URL (from Unfulfilled Orders Log)"]) : onWtb ? webUrl(f["Tracking URL (MWTB)"]) : "",
+    reference_id: ticket || linkedId,
+    now_on: nowOn,
+    shopify,
+    shipping: original ? text(first(original["Shipping Status"])) : onOrder ? text(first(f["Shipping Status"])) : onWtb ? text(first(f["Shipping Status (MWTB)"])) : "",
+    track: original ? webUrl(original["Tracking URL"]) : onOrder ? webUrl(f["Tracking URL (from Unfulfilled Orders Log)"]) : onWtb ? webUrl(f["Tracking URL (MWTB)"]) : "",
     date: text(f["Purchase Date"]),
     seller: {
       id: text(seller["Seller ID"]) || text(first(f["Seller ID (Lookup)"])),
@@ -148,6 +168,20 @@ async function loadOrderIds(airtable, ids) {
   return out;
 }
 
+// The orders named in Ticket Number, by Order ID, for units linked elsewhere since.
+async function loadTicketOrders(airtable, orderIds) {
+  const out = new Map();
+  const unique = [...new Set(orderIds.filter((id) => /^ORD-\d+$/.test(id)))];
+
+  for (let i = 0; i < unique.length; i += 30) {
+    const formula = `OR(${unique.slice(i, i + 30).map((id) => `{Order ID} = '${id}'`).join(", ")})`;
+    const records = await selectAll(airtable, "Unfulfilled Orders Log", { formula, fields: TICKET_ORDER_FIELDS });
+    for (const record of records) out.set(text(record.fields?.["Order ID"]), record.fields || {});
+  }
+
+  return out;
+}
+
 /*
  * Every unit on To Pay, grouped per seller: the seller owed the most on top.
  *
@@ -171,7 +205,12 @@ export async function loadPayouts(airtable, { shipping = "all", type = "", searc
 
   const needle = text(search).toLowerCase();
   const orderIds = await loadOrderIds(airtable, records.map((record) => first(record.fields?.["Unfulfilled Orders Log"])));
-  const allRows = records.map((record) => unitRow(record, sellers, orderIds));
+  const movedTickets = records
+    .map((record) => [text(record.fields?.["Ticket Number"]), text(orderIds.get(first(record.fields?.["Unfulfilled Orders Log"])))])
+    .filter(([ticket, orderId]) => ticket && orderId && ticket !== orderId)
+    .map(([ticket]) => ticket);
+  const ticketOrders = await loadTicketOrders(airtable, movedTickets).catch(() => new Map());
+  const allRows = records.map((record) => unitRow(record, sellers, orderIds, ticketOrders));
 
   if (openReturns) {
     const running = await openReturns(allRows.map((row) => row.id)).catch(() => new Map());

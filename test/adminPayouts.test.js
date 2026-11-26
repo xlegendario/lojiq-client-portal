@@ -84,3 +84,33 @@ test("mark paid: only To Pay units of one seller, and only Payment Status is wri
   assert.equal(result.total, 177.5);
   assert.deepEqual(base.writes.map((w) => w.fields), [{ "Payment Status": "Paid" }, { "Payment Status": "Paid" }]);
 });
+
+test("payouts: Ticket Number is the reference, and a pair relinked to a newer order keeps its original order's shipping", async () => {
+  const { airtable } = fakeBase({
+    "Sellers Database": sellers,
+    "Unfulfilled Orders Log": [
+      { id: "recORDERNEW000001", fields: { "Order ID": "ORD-034826" } },
+      { id: "recORDEROLD000001", fields: { "Order ID": "ORD-030157", "Store Name": ["Woovin"], "Shopify Order Number": "71107926", "Shipping Status": "Shipped", "Tracking URL": "https://dpd.example/1" } }
+    ],
+    "Inventory Units": [
+      unit("recUNIT0000000001", { "Ticket Number": "ORD-030157", "Unfulfilled Orders Log": ["recORDERNEW000001"], "Store Name": ["Mentastore"], "Shopify Order Number": ["17374"] }),
+      unit("recUNIT0000000002", { "Ticket Number": "IST-000110", "Unfulfilled Orders Log": ["recORDERNEW000001"], "Shipping Status": ["Delivered"], "Store Name": ["Genky"], "Shopify Order Number": ["7001"] })
+    ]
+  });
+
+  const all = await loadPayouts(airtable, {});
+  const [moved, intake] = all.groups[0].rows;
+  assert.equal(moved.reference_id, "ORD-030157");
+  assert.equal(moved.now_on, "ORD-034826");
+  assert.equal(moved.shopify, "Woovin · 71107926");
+  assert.equal(moved.shipping, "Shipped");
+  assert.equal(moved.track, "https://dpd.example/1");
+  // Not an order ticket: the linked order still supplies store and shipping.
+  assert.equal(intake.reference_id, "IST-000110");
+  assert.equal(intake.shopify, "Genky · 7001");
+  assert.equal(intake.shipping, "Delivered");
+
+  assert.equal((await loadPayouts(airtable, { search: "ORD-030157" })).count, 1);
+  assert.equal((await loadPayouts(airtable, { search: "ORD-034826" })).count, 2);
+  assert.equal((await loadPayouts(airtable, { shipping: "shipped_or_delivered" })).count, 2);
+});
