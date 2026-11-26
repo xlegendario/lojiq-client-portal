@@ -410,6 +410,21 @@ test("keep the order: credited, back to Outsource without its pair, and the new 
   assert.match(w.db.data.returns[0].result, /Order kept/);
 });
 
+test("the marketplace cancelled our purchase: void, purchase credited, nobody told, order back to Outsource", async () => {
+  const calls = [];
+  const w = world({ orderNotice: async (body) => { calls.push(body); return { told: false, skipped: "no consignor", sendcloud: [] }; } });
+  const out = await w.returns.cancelOrder({ table: "store", recordId: ORDER, input: { order_action: "keep", shipped: "not_shipped", held: "marketplace_cancelled" }, by: "After Order Service" });
+  const unit = w.tables["Inventory Units"][UNIT];
+  assert.equal(unit["Availability Status"], "Void");
+  assert.equal(unit["Verification Status"], "Cancelled");
+  assert.match(unit["Item Condition"], /marketplace cancelled the purchase/);
+  assert.equal(w.purchases.calls.credit.length, 1, "the purchase is credited");
+  assert.equal(w.rompslomp.made.invoices.length, 1, "the store invoice is credited");
+  assert.equal(calls[0].decision, "void", "a marketplace is not a consignor: nobody is told");
+  assert.equal(w.tables["Unfulfilled Orders Log"][ORDER]["Fulfillment Status"], "Outsource");
+  assert.match(out.message, /back in Outsource/);
+});
+
 test("a flaw at the scan, our own pair: Troubled Stock", async () => {
   const w = world({ unit: { Type: "Custom", "Item ID": "KC-1", "Seller ID (Lookup)": [], "Payment Status": "Paid" } });
   const row = await expected(w);

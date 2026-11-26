@@ -582,6 +582,44 @@ export function createAdminPortal({ usersJson, sessionSecret, airtableToken, air
     }
   });
 
+  /*
+   * The after-order service (stockx-autobid-system backend): StockX or GOAT
+   * cancelled the pair we bought for a store order. Same as the Cancel button
+   * with "Keep the order" and "Marketplace cancelled our purchase": the store
+   * invoice is credited, the unit voided, the purchase credited in Rompslomp
+   * and the order goes back to Outsource for a new pair.
+   */
+  const MARKETPLACE_CANCELLABLE = ["StockX Processing", "GOAT Processing", "Allocated", "Found", "Found & Tracked"];
+  router.post("/api/internal/marketplace-cancel", express.json({ limit: "10kb" }), async (req, res) => {
+    if (!text(services.counterOffersSecret) || text(req.headers["x-kc-secret"]) !== text(services.counterOffersSecret)) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const recordId = text(req.body?.record_id);
+    if (!/^rec\w{14}$/.test(recordId)) return res.status(400).json({ error: "record_id is missing" });
+
+    try {
+      const found = await airtable.byIds(TABLES.store, [recordId], ["Order ID", "Fulfillment Status"]);
+      const fields = found.get(recordId);
+      if (!fields) return res.status(404).json({ error: "That order no longer exists." });
+      const status = text(fields["Fulfillment Status"]);
+      if (!MARKETPLACE_CANCELLABLE.includes(status)) {
+        return res.status(409).json({ error: `${text(fields["Order ID"])} is ${status || "without a status"}; only an order waiting for its marketplace pair is cancelled this way.` });
+      }
+
+      const out = await returns.cancelOrder({
+        table: "store",
+        recordId,
+        input: { order_action: "keep", shipped: "not_shipped", held: "marketplace_cancelled", reason: text(req.body?.reason).slice(0, 300) },
+        by: "After Order Service"
+      });
+      res.json({ ok: true, return_number: out.return_number ? `RET-${out.return_number}` : "", message: out.message, log: out.log, todos: out.todos.map((t) => t.text) });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      if (status >= 500) console.error("[marketplace-cancel]", recordId, err.message);
+      res.status(status).json({ error: err.message });
+    }
+  });
+
   // The Location choices, from the schema; empty when the token may not read it.
   async function locationOptions() {
     const response = await fetchImpl(`https://api.airtable.com/v0/meta/bases/${airtableBaseId}/tables`, {

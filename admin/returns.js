@@ -15,6 +15,8 @@
 //   Was the pair shipped?  No, not shipped yet -> what happens to this pair?
 //     consignor_has   back in his consignment stock   Void, Cancelled, not owed
 //     consignor_gone  the seller does not have it     Void, Cancelled, not owed
+//     marketplace_cancelled  StockX/GOAT cancelled our  Void, Cancelled, not owed;
+//                     purchase (after-order service)  nobody is told
 //     flawed          the seller's pair is flawed     Void, Rejected, not owed
 //     warehouse       in our warehouse, and then:
 //        keep         back on sale                    the seller is paid
@@ -101,6 +103,7 @@ export const HELD = {
   consignor_has: "Consignor has the pair, add back to consignment",
   take_in: "Consignor has the pair, we take it in - he ships it to us",
   consignor_gone: "Seller doesn't have it, void pair",
+  marketplace_cancelled: "Marketplace cancelled our purchase, void pair",
   flawed: "Pair is flawed, void pair",
   warehouse: "In our warehouse",
   partner: "Partner pair, here - back on the partner's shelf",
@@ -786,7 +789,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const open = unit ? await openReturnFor(unit.id, order.id) : null;
 
     // The likeliest first: a partner's pair is on our shelf, a seller's with him.
-    const held = [...(owner === "partner" ? ["partner", "warehouse"] : owner === "seller" ? ["consignor_has", "consignor_gone", "flawed", "warehouse"] : ["warehouse"]), "lost"];
+    const held = [...(owner === "partner" ? ["partner", "warehouse"] : owner === "seller" ? ["consignor_has", "consignor_gone", "flawed", "marketplace_cancelled", "warehouse"] : ["warehouse"]), "lost"];
     const inWarehouse = owner === "own" ? ["keep", "troubled"] : ["keep", "send_back", "troubled"];
 
     const locs = await locationChoices().catch(() => []);
@@ -889,6 +892,9 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
     const owner = unit ? ownerOf(unit.fields) : "own";
     if (!shipped && held === "partner" && owner !== "partner") throw new ReturnsError("This is not a partner pair.", 400);
     if (!shipped && ["consignor_has", "consignor_gone", "flawed"].includes(held) && owner === "own") throw new ReturnsError("This pair has no seller to give it back to.", 400);
+    // Without a unit (still StockX/GOAT Processing) there is no pair to void,
+    // only the books and the order.
+    if (!shipped && held === "marketplace_cancelled" && unit && owner === "own") throw new ReturnsError("This is our own pair, not a marketplace purchase.", 400);
     if (then === "send_back" && owner === "own") throw new ReturnsError("This is our own pair: there is no seller to send it back to.", 400);
     if (!shipped && held === "lost" && !reason) throw new ReturnsError("Say what happened to the pair: it goes on the unit.", 400);
     if (!shipped && held === "take_in" && (owner !== "seller" || table !== "store")) throw new ReturnsError("Only a seller's pair on a store or marketplace order can be taken in from him.", 400);
@@ -949,7 +955,7 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
         sellerReturn = await sendBack(unit, { owner, note, label: orderId, log });
         await undoPurchase(order, unit, { reason: "sent back to the seller", log, todos });
       } else {
-        const why = held === "partner" ? "back on the partner's shelf" : held === "consignor_has" ? "the seller keeps it" : held === "flawed" ? "the pair is flawed, the seller keeps it" : "the seller no longer has it";
+        const why = held === "partner" ? "back on the partner's shelf" : held === "consignor_has" ? "the seller keeps it" : held === "flawed" ? "the pair is flawed, the seller keeps it" : held === "marketplace_cancelled" ? "the marketplace cancelled the purchase" : "the seller no longer has it";
         await airtable.update(UNITS, unit.id, {
           "Availability Status": "Void",
           "Cancel Status": "Return",
