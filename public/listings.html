@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Your catalogue</title>
+<title>Product Catalog</title>
 <style>
   /* The portal's palette, so this page belongs to the same product. */
   :root {
@@ -144,6 +144,26 @@
     max-width: calc(100% - 32px);
   }
 
+
+  /* Autopricing */
+  .ap-intro { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 80ch; }
+  .ap-status { border: 1px solid var(--border); background: var(--panel); border-radius: 11px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+  .ap-status.test { border-color: rgba(245, 165, 36, 0.45); }
+  .ap-status.live { border-color: rgba(34, 197, 94, 0.45); }
+  .ap-margins { border: 1px solid var(--border); background: var(--panel); border-radius: 11px; padding: 10px 12px; margin-bottom: 14px; }
+  .ap-margins summary { cursor: pointer; font-weight: 600; }
+  .ap-margins table { max-width: 420px; margin: 8px 0; }
+  .ap-margins .amount { width: 110px; }
+  .bulkbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .bulkbar .hint { color: var(--muted); font-size: 12.5px; }
+  .head.ap { cursor: default; }
+  .head.ap input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; }
+  .head.ap .toggle { background: none; border: 0; color: inherit; font: inherit; padding: 0; text-align: left; cursor: pointer; display: flex; gap: 12px; align-items: center; flex: 1 1 auto; min-width: 0; }
+  .pill.live { color: var(--green); border-color: rgba(34, 197, 94, 0.45); }
+  .pill.test { color: var(--amber); border-color: rgba(245, 165, 36, 0.45); }
+  .down { color: var(--green); }
+  .up { color: var(--amber); }
+
   @media (max-width: 680px) {
     .head { flex-wrap: wrap; }
     .side { width: 100%; align-items: flex-start; text-align: left; }
@@ -155,7 +175,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>Your catalogue</h1>
+      <h1>Product Catalog</h1>
       <a class="back" href="/portal">&larr; Back to the portal</a>
     </header>
 
@@ -169,6 +189,7 @@
       <button class="tab" role="tab" data-tab="mine" aria-selected="true">My catalogue <span class="n" id="n-mine"></span></button>
       <button class="tab" role="tab" data-tab="add" aria-selected="false">Add from Lojiq <span class="n" id="n-add"></span></button>
       <button class="tab" role="tab" data-tab="suggested" aria-selected="false" id="tab-btn-suggested" hidden>Suggested <span class="n" id="n-suggested"></span></button>
+      <button class="tab" role="tab" data-tab="autopricing" aria-selected="false" id="tab-btn-autopricing" hidden>Autopricing <span class="n" id="n-autopricing"></span></button>
     </div>
 
     <section id="tab-mine">
@@ -201,7 +222,7 @@
 
     <section id="tab-suggested" hidden>
       <p class="note" style="margin: 0 0 12px">
-        Shoes and clothing that sell across the Lojiq network and are not on your shelf yet, best first.
+        Shoes and clothing that sell across the Lojiq network and are not in your catalogue yet, best first.
         Score: sales per shop or marketplace (at most 15 each) + 3 per shop + 2 per WTB, over the last 180 days.
         "Not for us" comes back by itself, marked "back in trend", once its score is 10 or more above the score it was set aside at.
       </p>
@@ -211,6 +232,50 @@
         <span class="count" id="count-suggested"></span>
       </div>
       <div class="rows" id="rows-suggested"><p class="loading">Loading&hellip;</p></div>
+    </section>
+
+    <section id="tab-autopricing" hidden>
+      <p class="ap-intro">
+        Autopricing prices every size of your active products from what a pair really costs:
+        the StockX price with VAT, or the GOAT price with shipping, whichever gives the lower price,
+        plus your own margin below. Sizes with a Custom Price keep it. Sizes without a recent market
+        price are left as they are.
+      </p>
+      <div class="ap-status" id="ap-status"></div>
+
+      <details class="ap-margins" id="ap-margins">
+        <summary>Your margins</summary>
+        <p class="note" style="margin: 8px 0 0">
+          Per cost band: a pair that costs us at least "Cost from" gets this margin on top. Only for autopricing;
+          it does not change your agreement with Lojiq. Save, and the prices below follow at once.
+        </p>
+        <table>
+          <thead><tr><th>Cost from</th><th>Margin</th><th></th></tr></thead>
+          <tbody id="ap-bands"></tbody>
+        </table>
+        <div class="bulkbar">
+          <button class="btn" type="button" id="ap-add-band">Add band</button>
+          <button class="btn primary" type="button" id="ap-save">Save margins</button>
+        </div>
+      </details>
+
+      <div class="tools">
+        <input class="input search" id="search-ap" type="search" placeholder="Product or style code" autocomplete="off">
+        <select class="select" id="ap-live">
+          <option value="">Live and test mode</option>
+          <option value="yes">Live</option>
+          <option value="no">Test mode</option>
+        </select>
+        <span class="count" id="count-ap"></span>
+      </div>
+
+      <div class="bulkbar">
+        <button class="btn primary" type="button" id="ap-go-live" disabled>Go live</button>
+        <button class="btn" type="button" id="ap-to-test" disabled>Back to test mode</button>
+        <span class="hint" id="ap-selected">Tick products to put them live, or back in test mode.</span>
+      </div>
+
+      <div class="rows" id="rows-ap"><p class="loading">Loading&hellip;</p></div>
     </section>
   </div>
 
@@ -706,9 +771,11 @@
     $("tab-mine").hidden = state.tab !== "mine";
     $("tab-add").hidden = state.tab !== "add";
     $("tab-suggested").hidden = state.tab !== "suggested";
+    $("tab-autopricing").hidden = state.tab !== "autopricing";
 
     if (state.tab === "add" && !state.add.loaded) { state.add.loaded = true; loadAdd(); }
     if (state.tab === "suggested" && !state.suggested.loaded) { state.suggested.loaded = true; loadSuggested(); }
+    if (state.tab === "autopricing" && !ap.loaded) { ap.loaded = true; loadAp(); }
   });
 
   $("rows-mine").addEventListener("click", async (event) => {
@@ -888,6 +955,232 @@
     if (!answer.total && !answer.suggested_at) return;
     $("tab-btn-suggested").hidden = false;
     $("n-suggested").textContent = answer.total || "";
+  }).catch(() => {});
+  /* ------------------------------------------------------------ autopricing */
+
+  const ap = { items: [], total: 0, live: 0, bands: [], selected: new Set(), open: new Set(), loaded: false };
+
+  function apDiff(now, next) {
+    if (!(now > 0) || !(next > 0)) return "—";
+
+    const d = Math.round((next - now) * 100) / 100;
+
+    if (Math.abs(d) < 0.005) return '<span class="no">same</span>';
+
+    return '<span class="' + (d < 0 ? "down" : "up") + '">' + (d > 0 ? "+" : "−") + euro(Math.abs(d)) + "</span>";
+  }
+
+  function apNote(s) {
+    if (s.state === "custom") return "Custom Price, left alone";
+    if (s.state === "no_price") return "No recent market price, left as it is";
+    if (s.state === "not_read_yet") return "Not priced yet";
+    return s.source && s.source.startsWith("stockx") ? "StockX" : s.source === "goat" ? "GOAT" : esc(s.source || "");
+  }
+
+  function apSummary(item) {
+    const priced = item.sizes.filter((s) => s.will_be > 0);
+    const diffs = priced.filter((s) => s.shop_price > 0).map((s) => s.will_be - s.shop_price).sort((a, b) => a - b);
+    const median = diffs.length ? diffs[Math.floor(diffs.length / 2)] : null;
+
+    return item.sizes.length + (item.sizes.length === 1 ? " size" : " sizes") + " · " + priced.length + " priced" +
+      (median === null ? "" : " · typical change " + (median > 0 ? "+" : median < 0 ? "−" : "") + euro(Math.abs(median)));
+  }
+
+  function apCard(item) {
+    const isOpen = ap.open.has(item.sku);
+    const sizes = [...item.sizes].sort(bySize);
+
+    return (
+      '<div class="card' + (isOpen ? " open" : "") + '" data-ap="' + esc(item.sku) + '">' +
+        '<div class="head ap">' +
+          '<input type="checkbox" data-pick aria-label="Select ' + esc(item.name || item.sku) + '"' + (ap.selected.has(item.sku) ? " checked" : "") + ">" +
+          '<button class="toggle" type="button" data-toggle aria-expanded="' + isOpen + '">' +
+            (item.picture_url ? '<img src="' + esc(item.picture_url) + '" alt="" loading="lazy">' : '<span class="blank"></span>') +
+            '<span class="what">' +
+              "<strong>" + esc(item.name || item.sku) + "</strong>" +
+              '<span class="sub">' + esc(item.sku) + " · " + esc(apSummary(item)) + "</span>" +
+              '<span class="pills">' + (item.live ? '<span class="pill live">Live</span>' : '<span class="pill test">Test mode</span>') + "</span>" +
+            "</span>" +
+            '<span class="chev">&#9654;</span>' +
+          "</button>" +
+        "</div>" +
+        (isOpen
+          ? '<div class="body"><table><thead><tr><th>Size</th><th class="num">Now in shop</th><th class="num">Autopricing</th><th class="num">Change</th><th class="fill hide">Note</th></tr></thead><tbody>' +
+            sizes.map((s) =>
+              "<tr>" +
+                '<td class="sizecell">' + esc(s.size) + "</td>" +
+                '<td class="num">' + euro(s.shop_price) + "</td>" +
+                '<td class="num">' + (s.will_be > 0 ? euro(s.will_be) : "—") + "</td>" +
+                '<td class="num">' + apDiff(s.shop_price, s.will_be) + "</td>" +
+                '<td class="note-cell fill hide">' + apNote(s) + "</td>" +
+              "</tr>"
+            ).join("") +
+            "</tbody></table></div>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  function apStatus() {
+    const box = $("ap-status");
+
+    box.className = "ap-status " + (ap.live ? "live" : "test");
+    box.textContent = ap.live
+      ? ap.live + (ap.live === 1 ? " product is" : " products are") + " live: their prices are kept up to date in your shop several times a week. Everything else is in test mode and is not touched."
+      : "Test mode: nothing changes in your shop. Look through the prices, tick the products you want and press Go live.";
+  }
+
+  function apPicked() {
+    const n = ap.selected.size;
+
+    $("ap-go-live").disabled = !n;
+    $("ap-to-test").disabled = !n;
+    $("ap-selected").textContent = n ? n + (n === 1 ? " product" : " products") + " selected" : "Tick products to put them live, or back in test mode.";
+  }
+
+  function drawAp() {
+    $("count-ap").textContent = ap.total ? ap.total + (ap.total === 1 ? " product" : " products") : "";
+    $("n-autopricing").textContent = ap.live ? ap.live + " live" : "";
+
+    $("rows-ap").innerHTML = ap.items.length
+      ? ap.items.map(apCard).join("") +
+        (ap.total > ap.items.length
+          ? '<div class="more"><button class="btn" type="button" data-more="ap">Show more (' + (ap.total - ap.items.length) + " to go)</button></div>"
+          : "")
+      : '<p class="empty">' + ($("search-ap").value.trim() || $("ap-live").value ? "Nothing matches that." : "Your prices appear here after the first autopricing run.") + "</p>";
+
+    apStatus();
+    apPicked();
+  }
+
+  async function loadAp(more = false) {
+    const query = new URLSearchParams({ limit: 40, offset: more ? ap.items.length : 0 });
+    const search = $("search-ap").value.trim();
+
+    if (search) query.set("search", search);
+    if ($("ap-live").value) query.set("live", $("ap-live").value);
+
+    try {
+      const answer = await api("/api/autopricing/preview?" + query);
+
+      ap.total = Number(answer.total) || 0;
+      ap.live = Number(answer.live) || 0;
+      ap.items = more ? ap.items.concat(answer.items || []) : (answer.items || []);
+
+      drawAp();
+    } catch (err) {
+      $("rows-ap").innerHTML = problemHtml(err);
+    }
+  }
+
+  function drawBands() {
+    $("ap-bands").innerHTML = ap.bands.map((b, i) =>
+      "<tr>" +
+        '<td><input class="input amount" type="number" min="0" step="1" data-band="' + i + '" data-field="from" value="' + esc(b.from) + '"' + (i === 0 ? " readonly" : "") + "></td>" +
+        '<td><input class="input amount" type="number" min="0" step="0.5" data-band="' + i + '" data-field="margin" value="' + esc(b.margin) + '"></td>' +
+        "<td>" + (i === 0 ? "" : '<button class="btn danger" type="button" data-remove="' + i + '">Remove</button>') + "</td>" +
+      "</tr>"
+    ).join("");
+  }
+
+  $("ap-bands").addEventListener("input", (event) => {
+    const input = event.target.closest("[data-band]");
+    if (input) ap.bands[Number(input.dataset.band)][input.dataset.field] = input.value;
+  });
+
+  $("ap-bands").addEventListener("click", (event) => {
+    const remove = event.target.closest("[data-remove]");
+    if (!remove) return;
+    ap.bands.splice(Number(remove.dataset.remove), 1);
+    drawBands();
+  });
+
+  $("ap-add-band").addEventListener("click", () => {
+    const last = ap.bands[ap.bands.length - 1];
+    ap.bands.push({ from: last ? Number(last.from) + 100 : 0, margin: last ? Number(last.margin) : 50 });
+    drawBands();
+  });
+
+  $("ap-save").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+
+    try {
+      const answer = await api("/api/autopricing/margins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bands: ap.bands.map((b) => ({ from: Number(b.from), margin: Number(b.margin) })) })
+      });
+
+      ap.bands = answer.bands;
+      drawBands();
+      say("Margins saved. The prices below follow your new margins.");
+      await loadAp();
+    } catch (err) {
+      say(err.message === "LOGIN" ? "Please log in again." : err.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  async function apSetLive(live, button) {
+    const skus = [...ap.selected];
+    if (!skus.length) return;
+
+    if (live && !confirm("Put " + skus.length + (skus.length === 1 ? " product" : " products") + " live? From the next autopricing run their prices in your shop are set by autopricing.")) return;
+
+    button.disabled = true;
+
+    try {
+      await api("/api/autopricing/live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skus, live })
+      });
+
+      ap.selected.clear();
+      say(live ? "Live. Prices reach your shop on the next autopricing run, within a few hours." : "Back in test mode. Their prices in your shop stay as they are now.");
+      await loadAp();
+    } catch (err) {
+      say(err.message === "LOGIN" ? "Please log in again." : err.message);
+      button.disabled = false;
+    }
+  }
+
+  $("ap-go-live").addEventListener("click", (event) => apSetLive(true, event.currentTarget));
+  $("ap-to-test").addEventListener("click", (event) => apSetLive(false, event.currentTarget));
+
+  $("rows-ap").addEventListener("click", (event) => {
+    if (event.target.closest('[data-more="ap"]')) return loadAp(true);
+
+    const card = event.target.closest("[data-ap]");
+    if (!card) return;
+
+    const sku = card.dataset.ap;
+
+    if (event.target.closest("[data-pick]")) {
+      if (event.target.checked) ap.selected.add(sku); else ap.selected.delete(sku);
+      return apPicked();
+    }
+
+    if (event.target.closest("[data-toggle]")) {
+      if (ap.open.has(sku)) ap.open.delete(sku); else ap.open.add(sku);
+      drawAp();
+    }
+  });
+
+  $("search-ap").addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => loadAp(), 250);
+  });
+  $("ap-live").addEventListener("change", () => loadAp());
+
+  // The Autopricing tab only for a store that takes autopricing.
+  api("/api/autopricing").then((answer) => {
+    if (!answer.enabled) return;
+    ap.bands = answer.bands || [];
+    drawBands();
+    $("tab-btn-autopricing").hidden = false;
   }).catch(() => {});
 </script>
 </body>

@@ -2401,6 +2401,222 @@ app.post("/api/catalogue/choose", express.json({ limit: "10kb" }), async (req, r
   }
 });
 
+/* ------------------------------------------------------------------ *
+ * Autopricing (Product Catalog > Autopricing)
+ *
+ * For a store that takes autopricing: a row in autoprice_settings, which we
+ * make - a store cannot switch it on itself. The store sets its own margins
+ * per cost band (separate from the Firm Range in Merchants, which stays the
+ * order limit), looks at what its prices would become, and puts products
+ * live one by one. Only live products get their prices written to Shopify,
+ * by the autopricing run in shopify-active-product-sync.
+ * ------------------------------------------------------------------ */
+
+async function autopricingSettings(merchantId) {
+  const rows = await supabaseCall(
+    `autoprice_settings?select=margin_bands,updated_at&merchant_record_id=eq.${encodeURIComponent(merchantId)}`
+  ).catch(() => null);
+
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
+
+function cleanBands(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((b) => ({ from: Math.round(Number(b?.from) * 100) / 100, margin: Math.round(Number(b?.margin) * 100) / 100 }))
+    .filter((b) => Number.isFinite(b.from) && b.from >= 0 && Number.isFinite(b.margin) && b.margin >= 0)
+    .sort((a, b) => a.from - b.from);
+}
+
+/*
+ * The store's price ending from Merchants ("Price Ending"): 0.5 gives
+ * 109,50, 0.95 gives 109,95, a digit 1-9 the last digit of a whole price.
+ *
+ * KEEP IN STEP with priceEnding/upToEnding in shopify-active-product-sync
+ * storePricing.js and ownBandPrice in autoprice.js: this is the same rule,
+ * used here only to show a margin change before the next run.
+ */
+function priceEndingOf(fields) {
+  const ending = Math.round(Number(fields?.["Price Ending"] || 0) * 100) / 100;
+
+  if (ending > 0 && ending < 1) return ending;
+  if (Number.isInteger(ending) && ending >= 1 && ending <= 9) return ending;
+
+  return 0;
+}
+
+function upToEnding(value, ending) {
+  const cents = (v) => Math.round(v * 100) / 100;
+
+  if (!ending) return Math.ceil(value);
+  if (ending >= 1) return Math.ceil((value - ending - 1e-9) / 10) * 10 + ending;
+
+  const below = Math.floor(value) - 1 + ending;
+
+  return cents(below >= value - 1e-9 ? below : below + 1 >= value - 1e-9 ? below + 1 : below + 2);
+}
+
+function bandPrice(basis, bands, ending) {
+  if (!(basis > 0) || !bands.length) return null;
+
+  const band = [...bands].reverse().find((b) => basis >= b.from) || bands[0];
+
+  return upToEnding(basis + band.margin, ending);
+}
+
+app.get("/api/autopricing", async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const settings = await autopricingSettings(merchantId);
+
+    if (!settings) return res.json({ ok: true, enabled: false });
+
+    const record = await airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId).catch(() => null);
+
+    res.json({
+      ok: true,
+      enabled: true,
+      bands: cleanBands(settings.margin_bands),
+      price_ending: priceEndingOf(record?.fields),
+      updated_at: settings.updated_at
+    });
+  } catch (err) {
+    console.error("Failed to read autopricing:", err);
+    res.status(500).json({ error: "Could not read autopricing", details: err.message });
+  }
+});
+
+app.get("/api/autopricing/preview", async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    const settings = await autopricingSettings(merchantId);
+
+    if (!settings) return res.status(403).json({ error: "Autopricing is not switched on for your store." });
+
+    const [answer, record] = await Promise.all([
+      supabaseRpc("autoprice_preview", {
+        p_merchant: merchantId,
+        p_search: asText(req.query.search).trim() || null,
+        p_live: ["yes", "no"].includes(asText(req.query.live)) ? asText(req.query.live) : null,
+        p_limit: Math.min(Math.max(Number(req.query.limit) || 40, 1), 100),
+        p_offset: Math.max(Number(req.query.offset) || 0, 0)
+      }),
+      airtable(AIRTABLE_MERCHANTS_TABLE).find(merchantId).catch(() => null)
+    ]);
+
+    const bands = cleanBands(settings.margin_bands);
+    const ending = priceEndingOf(record?.fields);
+    const items = (answer?.items || []).map((item) => ({
+      ...item,
+      sizes: (item.sizes || []).map((s) => {
+        const basis = Number(s.basis);
+        const open = s.status === "open" && basis > 0;
+
+        return {
+          size: s.size,
+          shop_price: s.shop_price === null ? null : Number(s.shop_price),
+          custom_price: s.custom_price === null ? null : Number(s.custom_price),
+          source: open ? s.source : null,
+          // Custom Price: the store's own, autopricing leaves it alone.
+          will_be: Number(s.custom_price) > 0 ? null : open ? bandPrice(basis, bands, ending) : null,
+          state: Number(s.custom_price) > 0 ? "custom" : open ? "priced" : s.status ? "no_price" : "not_read_yet"
+        };
+      })
+    }));
+
+    res.json({ ok: true, total: answer?.total || 0, live: answer?.live || 0, items });
+  } catch (err) {
+    console.error("Failed to read the autopricing preview:", err);
+    res.status(500).json({ error: "Could not read the preview", details: err.message });
+  }
+});
+
+app.post("/api/autopricing/margins", express.json({ limit: "10kb" }), async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    if (!(await autopricingSettings(merchantId))) {
+      return res.status(403).json({ error: "Autopricing is not switched on for your store." });
+    }
+
+    const bands = cleanBands(req.body?.bands);
+
+    if (!bands.length || bands.length > 40) return res.status(400).json({ error: "Give between 1 and 40 margin bands." });
+    if (bands[0].from !== 0) return res.status(400).json({ error: "The first band has to start at €0." });
+    if (new Set(bands.map((b) => b.from)).size !== bands.length) return res.status(400).json({ error: "Two bands start at the same amount." });
+    if (bands.some((b) => b.margin > 1000)) return res.status(400).json({ error: "A margin above €1.000 is not accepted." });
+
+    await supabaseCall(`autoprice_settings?merchant_record_id=eq.${encodeURIComponent(merchantId)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ margin_bands: bands, updated_at: new Date().toISOString() })
+    });
+
+    res.json({ ok: true, bands });
+  } catch (err) {
+    console.error("Failed to save autopricing margins:", err);
+    res.status(500).json({ error: "Could not save your margins", details: err.message });
+  }
+});
+
+app.post("/api/autopricing/live", express.json({ limit: "50kb" }), async (req, res) => {
+  try {
+    const merchantId = await shelfMerchantId(req, res);
+
+    if (!merchantId) return;
+
+    if (!(await autopricingSettings(merchantId))) {
+      return res.status(403).json({ error: "Autopricing is not switched on for your store." });
+    }
+
+    const skus = [...new Set((Array.isArray(req.body?.skus) ? req.body.skus : []).map((s) => asText(s).trim().toUpperCase()).filter(Boolean))];
+    const live = req.body?.live === true;
+
+    if (!skus.length || skus.length > 500) return res.status(400).json({ error: "Choose between 1 and 500 products." });
+
+    const forStore = `merchant_record_id=eq.${encodeURIComponent(merchantId)}`;
+
+    if (live) {
+      // Only products from this store's own catalogue (its own spelling, a few lower case).
+      const list = [...new Set(skus.flatMap((s) => [s, s.toLowerCase()]))].map((s) => `"${s.replace(/"/g, "")}"`).join(",");
+      const known = await supabaseCall(
+        `store_catalogue_products?select=sku&${forStore}&sku=in.(${encodeURIComponent(list)})`
+      ).catch(() => []);
+      const mine = [...new Set((known || []).map((r) => asText(r.sku).toUpperCase()))].filter((s) => skus.includes(s));
+
+      if (!mine.length) return res.status(404).json({ error: "Those products are not in your catalogue." });
+
+      await supabaseCall("autoprice_live?on_conflict=merchant_record_id,sku", {
+        method: "POST",
+        headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+        body: JSON.stringify(mine.map((sku) => ({ merchant_record_id: merchantId, sku })))
+      });
+
+      return res.json({ ok: true, live: true, changed: mine.length });
+    }
+
+    const list = skus.map((s) => `"${s.replace(/"/g, "")}"`).join(",");
+
+    await supabaseCall(`autoprice_live?${forStore}&sku=in.(${encodeURIComponent(list)})`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" }
+    });
+
+    res.json({ ok: true, live: false, changed: skus.length });
+  } catch (err) {
+    console.error("Failed to change live products:", err);
+    res.status(500).json({ error: "Could not change your live products", details: err.message });
+  }
+});
+
+
 app.get("/api/orders", async (req, res) => {
   try {
     const merchantId = asText(req.query.merchant_id);
