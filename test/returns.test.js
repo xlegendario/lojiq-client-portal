@@ -405,6 +405,7 @@ test("keep the order: credited, back to Outsource without its pair, and the new 
   assert.equal(order["Rompslomp Credit Invoice Number"], "");
   assert.equal(order["Invoice Sent At"], null);
   assert.equal(order["Retry Invoice"], true);
+  assert.equal(order.linked_unit_price_calculated_at, null, "the next pair gets priced, so the order can reach Allocated");
   assert.equal(w.rompslomp.made.invoices.length, 1, "the old invoice is credited");
   assert.match(out.message, /back in Outsource/);
   assert.match(w.db.data.returns[0].result, /Order kept/);

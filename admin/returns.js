@@ -1060,7 +1060,11 @@ export function createReturns({ db, airtable, rompslomp = null, purchases = null
       "Invoice Error": "",
       "Invoice Status": null,
       "Bookkeeping Status": null,
-      "Retry Invoice": true
+      "Retry Invoice": true,
+      // The engine prices a linked pair only while this is empty. Left set,
+      // the next pair was never priced and its order stayed on
+      // "StockX Processing" instead of Allocated (ORD-030283, 27-11-2026).
+      linked_unit_price_calculated_at: null
     }, { typecast: true });
     log.push(`${orderId}: back to Outsource without its pair; the next pair gets a new invoice.`);
   }
