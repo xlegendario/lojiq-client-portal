@@ -948,7 +948,7 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
   // Only before anything was asked of a consignor. Once a round is out it
   // is dropped, not deleted - somebody is holding a pair on our word.
   async function removeLine(lineId) {
-    const { line, row } = await loadLine(lineId);
+    const { line, offer, row } = await loadLine(lineId);
 
     // A pair of ours was never asked of anybody: it just goes back on the
     // shelf and off the deal.
@@ -959,7 +959,18 @@ export function createBrokerDealsStore({ db, airtable, tellKickz = null, signupU
       return { ok: true };
     }
 
-    if (row.status !== "draft") {
+    /*
+     * A line still saying "offered" over a round that is already over.
+     *
+     * Nobody holds a pair on our word there - he refused, or the round was
+     * closed - and the row offers no Drop because there is nothing left to
+     * drop. Refusing Remove as well left a pair on the deal that could not
+     * be taken off at all (EXTD-000189, 28-11-2026: Pearl refused before
+     * the line was linked to the round).
+     */
+    const roundOver = ["denied", "closed", "expired", "withdrawn"].includes(text(offer?.status));
+
+    if (row.status !== "draft" && !(text(line.status) === "offered" && roundOver)) {
       throw new BrokerDealsError(`That pair is already out with ${row.party || "a consignor"}. Drop it instead.`, 409);
     }
 

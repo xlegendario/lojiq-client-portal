@@ -425,6 +425,17 @@ test("a pair that is already out with a consignor is dropped, not deleted", asyn
   await assert.rejects(store.removeLine(line().id), /Drop it instead/);
 });
 
+test("a line left on a round that is already over can still be removed", async () => {
+  const { store, tables } = shop({
+    lines: [line({ status: "offered", offer_id: offer().id })],
+    offers: [offer({ status: "denied" })]
+  });
+
+  await store.removeLine(line().id);
+
+  assert.equal(tables.deal_lines.length, 0);
+});
+
 /* ---------------- the round ---------------- */
 
 test("submitting offers every draft line and reports per pair", async () => {
